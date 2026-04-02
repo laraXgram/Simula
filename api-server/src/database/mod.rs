@@ -1,0 +1,172 @@
+use chrono::Utc;
+use rusqlite::{params, Connection, OptionalExtension};
+use std::sync::{Mutex, MutexGuard};
+
+use crate::types::ApiError;
+use crate::websocket::WebSocketHub;
+
+pub struct AppState {
+    pub db: Mutex<Connection>,
+    pub ws_hub: WebSocketHub,
+}
+
+#[derive(Debug, Clone)]
+pub struct BotInfoRecord {
+    pub id: i64,
+    pub first_name: String,
+    pub username: String,
+}
+
+pub fn lock_db(state: &actix_web::web::Data<AppState>) -> Result<MutexGuard<'_, Connection>, ApiError> {
+    state
+        .db
+        .lock()
+        .map_err(|_| ApiError::internal("database lock poisoned"))
+}
+
+pub fn ensure_bot(conn: &mut Connection, token: &str) -> Result<BotInfoRecord, ApiError> {
+    let existing: Option<BotInfoRecord> = conn
+        .query_row(
+            "SELECT id, username, first_name FROM bots WHERE token = ?1",
+            params![token],
+            |row| {
+                Ok(BotInfoRecord {
+                    id: row.get(0)?,
+                    username: row.get(1)?,
+                    first_name: row.get(2)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    if let Some(bot) = existing {
+        return Ok(bot);
+    }
+
+    let generated_username = format!("laragram_bot_{}", short_token_suffix(token));
+    let first_name = "LaraGram Bot".to_string();
+    let now = Utc::now().timestamp();
+
+    conn.execute(
+        "INSERT INTO bots (token, username, first_name, created_at) VALUES (?1, ?2, ?3, ?4)",
+        params![token, generated_username, first_name, now],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(BotInfoRecord {
+        id: conn.last_insert_rowid(),
+        first_name,
+        username: generated_username,
+    })
+}
+
+pub fn ensure_chat(conn: &mut Connection, chat_key: &str) -> Result<(), ApiError> {
+    conn.execute(
+        "INSERT INTO chats (chat_key, chat_type, title)
+         VALUES (?1, 'private', NULL)
+         ON CONFLICT(chat_key) DO NOTHING",
+        params![chat_key],
+    )
+    .map_err(ApiError::internal)?;
+    Ok(())
+}
+
+pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
+    conn.execute_batch(
+        r#"
+        PRAGMA foreign_keys = ON;
+
+        CREATE TABLE IF NOT EXISTS bots (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            token       TEXT NOT NULL UNIQUE,
+            username    TEXT NOT NULL,
+            first_name  TEXT NOT NULL,
+            created_at  INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS users (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            username    TEXT,
+            first_name  TEXT NOT NULL,
+            created_at  INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS chats (
+            chat_key    TEXT PRIMARY KEY,
+            chat_type   TEXT NOT NULL,
+            title       TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS messages (
+            message_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+            bot_id        INTEGER NOT NULL,
+            chat_key      TEXT NOT NULL,
+            from_user_id  INTEGER,
+            text          TEXT NOT NULL,
+            date          INTEGER NOT NULL,
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS updates (
+            update_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+            bot_id       INTEGER NOT NULL,
+            update_json  TEXT NOT NULL,
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS webhooks (
+            bot_id           INTEGER PRIMARY KEY,
+            url              TEXT NOT NULL,
+            secret_token     TEXT DEFAULT '',
+            max_connections  INTEGER DEFAULT 40,
+            ip_address       TEXT DEFAULT '',
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS files (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            bot_id        INTEGER NOT NULL,
+            file_id       TEXT NOT NULL,
+            file_unique_id TEXT NOT NULL,
+            file_path     TEXT NOT NULL,
+            local_path    TEXT,
+            mime_type     TEXT,
+            file_size     INTEGER,
+            source        TEXT,
+            created_at    INTEGER NOT NULL,
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            UNIQUE(bot_id, file_id),
+            UNIQUE(bot_id, file_path)
+        );
+
+        CREATE TABLE IF NOT EXISTS message_reactions (
+            bot_id         INTEGER NOT NULL,
+            chat_key       TEXT NOT NULL,
+            message_id     INTEGER NOT NULL,
+            actor_user_id  INTEGER NOT NULL,
+            actor_is_bot   INTEGER NOT NULL DEFAULT 0,
+            reactions_json TEXT NOT NULL,
+            updated_at     INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, chat_key, message_id, actor_user_id, actor_is_bot),
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
+        "#,
+    )?;
+
+    Ok(())
+}
+
+fn short_token_suffix(token: &str) -> String {
+    let cleaned = token.replace(':', "").replace('-', "");
+    cleaned
+        .chars()
+        .rev()
+        .take(8)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect()
+}
