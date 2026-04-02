@@ -1,0 +1,67 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+target/
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Rust
+Cargo.lock
+
+# Python
+venv/
+.venv/
+*.egg
+.eggs/
+
+# Cache
+.cache/
+.parcel-cache/
+
+# Test
+coverage/
+.coverage
+htmlcov/
+
+# Temp
+tmp/
+temp/
+*.tmp
+
+# Upload
+/files
+/api-server/files
+
+# Generated
+/scraper/output
+/api-server/src/generated/methods.rs
+/api-server/src/generated/types.rs
+/client/src/types/generated

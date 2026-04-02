@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  # Python Scraper (run manually when needed)
+  scraper:
+    build:
+      context: ./scraper
+      dockerfile: Dockerfile
+    volumes:
+      - ./scraper/output:/app/output
+    profiles:
+      - scraper
+
+  # Rust API Server
+  api-server:
+    build:
+      context: ./api-server
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - RUST_LOG=info
+      - DATABASE_URL=/data/laragram.db
+    volumes:
+      - api-data:/data
+      - api-files:/files
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # React Client
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8080
+      - VITE_WS_URL=ws://localhost:8080/ws
+    depends_on:
+      - api-server
+
+volumes:
+  api-data:
+  api-files:
+
+networks:
+  default:
+    name: laragram-network
