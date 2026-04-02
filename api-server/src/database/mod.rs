@@ -192,6 +192,76 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
             FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
         );
 
+        CREATE TABLE IF NOT EXISTS shipping_queries (
+            id            TEXT PRIMARY KEY,
+            bot_id        INTEGER NOT NULL,
+            chat_key      TEXT NOT NULL,
+            from_user_id  INTEGER NOT NULL,
+            payload       TEXT NOT NULL,
+            created_at    INTEGER NOT NULL,
+            answered_at   INTEGER,
+            answer_json   TEXT,
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS pre_checkout_queries (
+            id            TEXT PRIMARY KEY,
+            bot_id        INTEGER NOT NULL,
+            chat_key      TEXT NOT NULL,
+            from_user_id  INTEGER NOT NULL,
+            payload       TEXT NOT NULL,
+            currency      TEXT NOT NULL,
+            total_amount  INTEGER NOT NULL,
+            created_at    INTEGER NOT NULL,
+            answered_at   INTEGER,
+            answer_json   TEXT,
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS invoices (
+            bot_id                 INTEGER NOT NULL,
+            chat_key               TEXT NOT NULL,
+            message_id             INTEGER NOT NULL,
+            title                  TEXT NOT NULL,
+            description            TEXT NOT NULL,
+            payload                TEXT NOT NULL,
+            currency               TEXT NOT NULL,
+            total_amount           INTEGER NOT NULL,
+            need_shipping_address  INTEGER NOT NULL DEFAULT 0,
+            is_flexible            INTEGER NOT NULL DEFAULT 0,
+            created_at             INTEGER NOT NULL,
+            paid_at                INTEGER,
+            PRIMARY KEY (bot_id, chat_key, message_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS star_transactions_ledger (
+            id                         TEXT PRIMARY KEY,
+            bot_id                     INTEGER NOT NULL,
+            user_id                    INTEGER NOT NULL,
+            telegram_payment_charge_id TEXT NOT NULL,
+            amount                     INTEGER NOT NULL,
+            date                       INTEGER NOT NULL,
+            kind                       TEXT NOT NULL,
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_star_ledger_bot_charge_kind
+            ON star_transactions_ledger (bot_id, telegram_payment_charge_id, kind);
+
+        CREATE TABLE IF NOT EXISTS star_subscriptions (
+            bot_id                     INTEGER NOT NULL,
+            user_id                    INTEGER NOT NULL,
+            telegram_payment_charge_id TEXT NOT NULL,
+            is_canceled                INTEGER NOT NULL,
+            updated_at                 INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, user_id, telegram_payment_charge_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );
+
         CREATE TABLE IF NOT EXISTS inline_messages (
             inline_message_id TEXT PRIMARY KEY,
             bot_id            INTEGER NOT NULL,
@@ -241,6 +311,42 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
         "#,
     )?;
 
+    ensure_column_exists(conn, "invoices", "max_tip_amount", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column_exists(conn, "invoices", "suggested_tip_amounts_json", "TEXT")?;
+    ensure_column_exists(conn, "invoices", "start_parameter", "TEXT")?;
+    ensure_column_exists(conn, "invoices", "provider_data", "TEXT")?;
+    ensure_column_exists(conn, "invoices", "photo_url", "TEXT")?;
+    ensure_column_exists(conn, "invoices", "photo_size", "INTEGER")?;
+    ensure_column_exists(conn, "invoices", "photo_width", "INTEGER")?;
+    ensure_column_exists(conn, "invoices", "photo_height", "INTEGER")?;
+    ensure_column_exists(conn, "invoices", "need_name", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column_exists(conn, "invoices", "need_phone_number", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column_exists(conn, "invoices", "need_email", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column_exists(conn, "invoices", "send_phone_number_to_provider", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column_exists(conn, "invoices", "send_email_to_provider", "INTEGER NOT NULL DEFAULT 0")?;
+
+    Ok(())
+}
+
+fn ensure_column_exists(
+    conn: &mut Connection,
+    table_name: &str,
+    column_name: &str,
+    column_sql: &str,
+) -> Result<(), rusqlite::Error> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", table_name))?;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let existing_name: String = row.get(1)?;
+        if existing_name == column_name {
+            return Ok(());
+        }
+    }
+
+    conn.execute(
+        &format!("ALTER TABLE {} ADD COLUMN {} {}", table_name, column_name, column_sql),
+        [],
+    )?;
     Ok(())
 }
 

@@ -50,6 +50,13 @@ export interface PollVotersResult {
   voters: PollVoterInfo[];
 }
 
+export interface SimPayInvoiceResult {
+  status: 'success' | 'failed';
+  pre_checkout_query_id: string;
+  message_id?: number;
+  payment_method: string;
+}
+
 export async function callBotMethod<T>(
   token: string,
   method: string,
@@ -142,6 +149,32 @@ export async function votePoll(token: string, payload: {
   }
 
   return Boolean(data.result);
+}
+
+export async function payInvoice(token: string, payload: {
+  chat_id: number;
+  message_id: number;
+  user_id: number;
+  first_name: string;
+  username?: string;
+  payment_method: 'wallet' | 'card' | 'stars';
+  outcome: 'success' | 'failed';
+  tip_amount?: number;
+}): Promise<SimPayInvoiceResult> {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/payInvoice`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to pay invoice');
+  }
+
+  return data.result as SimPayInvoiceResult;
 }
 
 export async function getPollVoters(

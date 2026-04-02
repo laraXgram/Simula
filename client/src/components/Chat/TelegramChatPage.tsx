@@ -12,8 +12,10 @@ import {
   Search,
   SendHorizonal,
   ShieldCheck,
+  Star,
   Trash2,
   UserPlus,
+  Wallet,
   X,
 } from 'lucide-react';
 import {
@@ -30,6 +32,7 @@ import {
   stopPoll,
   votePoll,
   getPollVoters,
+  payInvoice,
   PollVoterInfo,
   getCallbackQueryAnswer,
   getBotFile,
@@ -74,6 +77,7 @@ type ChatScopeTab = 'private' | 'group' | 'channel';
 type BotModalMode = 'create' | 'edit';
 type UserModalMode = 'create' | 'edit';
 type ComposerParseMode = 'none' | 'MarkdownV2' | 'Markdown' | 'HTML';
+type PaymentMethod = 'wallet' | 'card' | 'stars';
 
 const TELEGRAM_REACTION_EMOJIS = [
   '👍', '👎', '❤', '🔥', '🎉', '😁', '🤔', '😢', '😱', '👏', '🤩', '🙏', '👌', '🤣', '💯', '⚡',
@@ -202,6 +206,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const [expandedPollVoters, setExpandedPollVoters] = useState<Record<string, boolean>>({});
   const [pollVotersLoading, setPollVotersLoading] = useState<Record<string, boolean>>({});
   const [showPollBuilder, setShowPollBuilder] = useState(false);
+  const [showInvoiceBuilder, setShowInvoiceBuilder] = useState(false);
+  const [showPaymentLab, setShowPaymentLab] = useState(false);
   const [pollBuilder, setPollBuilder] = useState({
     type: 'regular' as 'regular' | 'quiz',
     question: '',
@@ -216,6 +222,29 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     openPeriod: '',
     closeDate: '',
     isClosed: false,
+  });
+  const [invoiceBuilder, setInvoiceBuilder] = useState({
+    title: '',
+    description: '',
+    amount: '100',
+    currency: 'USD',
+    payload: '',
+    maxTipAmount: '',
+    suggestedTips: '',
+    photoUrl: '',
+    needShippingAddress: false,
+    isFlexible: false,
+    needName: false,
+    needPhoneNumber: false,
+    needEmail: false,
+    sendPhoneNumberToProvider: false,
+    sendEmailToProvider: false,
+  });
+  const [paymentMethodByInvoice, setPaymentMethodByInvoice] = useState<Record<number, PaymentMethod>>({});
+  const [paymentTipByInvoice, setPaymentTipByInvoice] = useState<Record<number, string>>({});
+  const [walletState, setWalletState] = useState({
+    fiat: 50000,
+    stars: 2500,
   });
   const [startedChats, setStartedChats] = useState<Record<string, boolean>>(() => {
     try {
@@ -521,6 +550,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         viaBotUsername: payload.via_bot?.username,
         poll: payload.poll,
         invoice: payload.invoice,
+        successfulPayment: payload.successful_payment,
         media,
         mediaGroupId: payload.media_group_id,
         replyTo: payload.reply_to_message ? {
@@ -704,29 +734,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       };
     })();
 
-    const invoiceTrigger = (() => {
-      if (!text.toLowerCase().startsWith('/invoice ')) {
-        return null;
-      }
-
-      const payload = text.slice(9).trim();
-      const parts = payload.split('|').map((item) => item.trim()).filter(Boolean);
-      if (parts.length < 3) {
-        return null;
-      }
-
-      const amount = Number(parts[2]);
-      if (!Number.isFinite(amount) || amount <= 0) {
-        return null;
-      }
-
-      return {
-        title: parts[0],
-        description: parts[1],
-        amount: Math.floor(amount),
-        currency: parts[3] || 'USD',
-      };
-    })();
+    const invoiceTrigger = text.toLowerCase().startsWith('/invoice');
 
     if (pollTrigger && !composerEditTarget && selectedUploads.length === 0) {
       try {
@@ -747,26 +755,21 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
 
     if (invoiceTrigger && !composerEditTarget && selectedUploads.length === 0) {
-      try {
-        await sendInvoice(selectedBotToken, {
-          chat_id: selectedChatId,
-          title: invoiceTrigger.title,
-          description: invoiceTrigger.description,
-          payload: `invoice_${Date.now()}`,
-          currency: invoiceTrigger.currency,
-          prices: [
-            {
-              label: invoiceTrigger.title,
-              amount: invoiceTrigger.amount,
-            },
-          ],
-          need_shipping_address: false,
-          is_flexible: false,
-        });
-        setComposerText('');
-      } catch (error) {
-        setErrorText(error instanceof Error ? error.message : 'Invoice send failed');
-      }
+      const payload = text.slice('/invoice'.length).trim();
+      const parts = payload.split('|').map((item) => item.trim()).filter(Boolean);
+
+      setInvoiceBuilder((prev) => ({
+        ...prev,
+        title: parts[0] || prev.title || `${selectedUser.first_name} invoice`,
+        description: parts[1] || prev.description || 'Simulated payment request',
+        amount: parts[2] || prev.amount || '100',
+        currency: parts[3] || prev.currency || 'USD',
+        payload: parts[4] || prev.payload,
+      }));
+      setShowInvoiceBuilder(true);
+      setShowPaymentLab(true);
+      setShowFormattingTools(true);
+      setComposerText('');
       return;
     }
 
@@ -966,6 +969,205 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       setErrorText('');
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'Poll send failed');
+    }
+  };
+
+  const submitInvoiceBuilder = async () => {
+    const title = invoiceBuilder.title.trim();
+    const description = invoiceBuilder.description.trim();
+    const amount = Number(invoiceBuilder.amount);
+    const currency = invoiceBuilder.currency.trim().toUpperCase();
+    const payload = invoiceBuilder.payload.trim() || `invoice_${Date.now()}`;
+    const maxTipAmount = invoiceBuilder.maxTipAmount.trim() ? Number(invoiceBuilder.maxTipAmount) : 0;
+    const suggestedTipAmounts = invoiceBuilder.suggestedTips
+      .split(',')
+      .map((item) => Number(item.trim()))
+      .filter((item) => Number.isFinite(item) && item > 0)
+      .map((item) => Math.floor(item));
+    const photoUrl = invoiceBuilder.photoUrl.trim();
+
+    if (!title) {
+      setErrorText('Invoice title is required.');
+      return;
+    }
+    if (!description) {
+      setErrorText('Invoice description is required.');
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setErrorText('Invoice amount must be greater than 0.');
+      return;
+    }
+    if (!currency) {
+      setErrorText('Invoice currency is required.');
+      return;
+    }
+    if (!Number.isFinite(maxTipAmount) || maxTipAmount < 0) {
+      setErrorText('Max tip amount must be a non-negative number.');
+      return;
+    }
+    if (suggestedTipAmounts.length > 4) {
+      setErrorText('Suggested tips can contain at most 4 values.');
+      return;
+    }
+
+    const isStarsCurrency = currency === 'XTR';
+    if (
+      isStarsCurrency
+      && (
+        invoiceBuilder.needShippingAddress
+        || invoiceBuilder.isFlexible
+        || invoiceBuilder.needName
+        || invoiceBuilder.needPhoneNumber
+        || invoiceBuilder.needEmail
+        || invoiceBuilder.sendPhoneNumberToProvider
+        || invoiceBuilder.sendEmailToProvider
+        || maxTipAmount > 0
+        || suggestedTipAmounts.length > 0
+      )
+    ) {
+      setErrorText('Shipping, contact collection, and tips are not supported for Telegram Stars invoices.');
+      return;
+    }
+
+    if (invoiceBuilder.isFlexible && !invoiceBuilder.needShippingAddress) {
+      setErrorText('Flexible shipping requires Need shipping.');
+      return;
+    }
+
+    try {
+      await sendInvoice(selectedBotToken, {
+        chat_id: selectedChatId,
+        title,
+        description,
+        payload,
+        provider_token: isStarsCurrency ? '' : 'sim_provider_token',
+        currency,
+        prices: [
+          {
+            label: title,
+            amount: Math.floor(amount),
+          },
+        ],
+        max_tip_amount: isStarsCurrency ? undefined : (maxTipAmount > 0 ? Math.floor(maxTipAmount) : undefined),
+        suggested_tip_amounts: isStarsCurrency ? undefined : (suggestedTipAmounts.length > 0 ? suggestedTipAmounts : undefined),
+        photo_url: photoUrl || undefined,
+        need_name: isStarsCurrency ? false : invoiceBuilder.needName,
+        need_phone_number: isStarsCurrency ? false : invoiceBuilder.needPhoneNumber,
+        need_email: isStarsCurrency ? false : invoiceBuilder.needEmail,
+        need_shipping_address: isStarsCurrency ? false : invoiceBuilder.needShippingAddress,
+        send_phone_number_to_provider: isStarsCurrency ? false : invoiceBuilder.sendPhoneNumberToProvider,
+        send_email_to_provider: isStarsCurrency ? false : invoiceBuilder.sendEmailToProvider,
+        is_flexible: isStarsCurrency ? false : invoiceBuilder.isFlexible,
+      });
+
+      setShowInvoiceBuilder(false);
+      setErrorText('');
+      setInvoiceBuilder((prev) => ({
+        ...prev,
+        payload: '',
+      }));
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Invoice send failed');
+    }
+  };
+
+  const resolveInvoiceForPayButton = (message: ChatMessage): ChatMessage | null => {
+    if (message.invoice) {
+      return message;
+    }
+
+    if (message.replyTo?.messageId) {
+      const repliedInvoice = messages.find((item) => (
+        item.botToken === message.botToken
+        && item.chatId === message.chatId
+        && item.id === message.replyTo!.messageId
+        && Boolean(item.invoice)
+      ));
+      if (repliedInvoice?.invoice) {
+        return repliedInvoice;
+      }
+    }
+
+    return [...messages]
+      .reverse()
+      .find((item) => (
+        item.botToken === message.botToken
+        && item.chatId === message.chatId
+        && Boolean(item.invoice)
+      )) || null;
+  };
+
+  const onPayInvoice = async (
+    message: ChatMessage,
+    outcome: 'success' | 'failed' = 'success',
+    methodOverride?: PaymentMethod,
+  ) => {
+    if (!message.invoice) {
+      return;
+    }
+
+    const amount = message.invoice.total_amount;
+    const isStarsCurrency = message.invoice.currency.toUpperCase() === 'XTR';
+    const selectedMethod = methodOverride || paymentMethodByInvoice[message.id] || (isStarsCurrency ? 'stars' : 'wallet');
+    const tipAmount = isStarsCurrency
+      ? 0
+      : Math.max(Math.floor(Number(paymentTipByInvoice[message.id] || '0') || 0), 0);
+    const totalDebit = amount + tipAmount;
+
+    if (isStarsCurrency && selectedMethod !== 'stars') {
+      setErrorText('XTR invoice can only be paid with Telegram Stars.');
+      return;
+    }
+
+    if (!isStarsCurrency && selectedMethod === 'stars') {
+      setErrorText('Telegram Stars payment is only available for XTR invoices.');
+      return;
+    }
+
+    if (selectedMethod === 'wallet' && walletState.fiat < totalDebit) {
+        setErrorText('Not enough wallet balance.');
+        return;
+    }
+
+    if (selectedMethod === 'stars' && walletState.stars < amount) {
+      setErrorText('Not enough stars for this payment.');
+      return;
+    }
+
+    try {
+      const result = await payInvoice(selectedBotToken, {
+        chat_id: message.chatId,
+        message_id: message.id,
+        user_id: selectedUser.id,
+        first_name: selectedUser.first_name,
+        username: selectedUser.username,
+        payment_method: selectedMethod,
+        outcome,
+        tip_amount: tipAmount > 0 ? tipAmount : undefined,
+      });
+
+      if (result.status === 'success') {
+        if (selectedMethod === 'wallet') {
+          setWalletState((prev) => ({
+            ...prev,
+            fiat: Math.max(prev.fiat - totalDebit, 0),
+          }));
+        }
+
+        if (selectedMethod === 'stars') {
+          setWalletState((prev) => ({
+            ...prev,
+            stars: Math.max(prev.stars - amount, 0),
+          }));
+        }
+      }
+
+      setErrorText(result.status === 'success'
+        ? `Payment succeeded via ${result.payment_method}`
+        : `Payment failed via ${result.payment_method}`);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Invoice payment failed');
     }
   };
 
@@ -1278,6 +1480,21 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   };
 
   const onInlineButtonClick = async (message: ChatMessage, button: InlineKeyboardButton) => {
+    if (button.pay) {
+      const targetInvoiceMessage = resolveInvoiceForPayButton(message);
+
+      if (!targetInvoiceMessage?.invoice) {
+        setErrorText('No invoice context found for this Pay button.');
+        return;
+      }
+
+      const forcedMethod: PaymentMethod = targetInvoiceMessage.invoice.currency.toUpperCase() === 'XTR'
+        ? 'stars'
+        : 'wallet';
+      await onPayInvoice(targetInvoiceMessage, 'success', forcedMethod);
+      return;
+    }
+
     const url = typeof button.url === 'string' ? button.url : undefined;
     if (url) {
       window.open(url, '_blank', 'noopener,noreferrer');
@@ -2258,12 +2475,107 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       return null;
     }
 
+    const isStars = message.invoice.currency.toUpperCase() === 'XTR';
+    const selectedMethod = paymentMethodByInvoice[message.id] || (isStars ? 'stars' : 'wallet');
+    const tipValue = paymentTipByInvoice[message.id] || '';
+
     return (
       <div className="mb-2 rounded-xl border border-[#2f4e66]/55 bg-[#102638]/80 p-3">
         <div className="text-sm font-semibold text-white">{message.invoice.title}</div>
         <div className="mt-1 text-xs text-[#d1e7f7]">{message.invoice.description}</div>
         <div className="mt-2 text-xs text-[#9fc6df]">
           {message.invoice.total_amount} {message.invoice.currency}
+        </div>
+        {message.isOutgoing ? (
+          <div className="mt-2 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] text-[#8fb8d4]">
+                {isStars ? 'Stars invoice' : 'Fiat invoice'}
+              </span>
+              {isStars ? (
+                <span className="inline-flex items-center gap-1 rounded border border-[#7ec8fb]/45 bg-[#1d3f56]/75 px-2 py-0.5 text-[10px] text-[#d6eeff]">
+                  <Star className="h-3 w-3" />
+                  Only Stars
+                </span>
+              ) : null}
+            </div>
+
+            <div className="grid grid-cols-3 gap-1.5">
+              <button
+                type="button"
+                onClick={() => setPaymentMethodByInvoice((prev) => ({ ...prev, [message.id]: 'wallet' }))}
+                disabled={isStars}
+                className={`rounded-md border px-2 py-1 text-[11px] transition ${selectedMethod === 'wallet' ? 'border-[#7ec8fb]/60 bg-[#2b5278] text-white' : 'border-white/20 bg-white/10 text-[#d7ecfb]'} disabled:cursor-not-allowed disabled:opacity-40`}
+              >
+                Wallet
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaymentMethodByInvoice((prev) => ({ ...prev, [message.id]: 'card' }))}
+                disabled={isStars}
+                className={`rounded-md border px-2 py-1 text-[11px] transition ${selectedMethod === 'card' ? 'border-[#7ec8fb]/60 bg-[#2b5278] text-white' : 'border-white/20 bg-white/10 text-[#d7ecfb]'} disabled:cursor-not-allowed disabled:opacity-40`}
+              >
+                Card
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaymentMethodByInvoice((prev) => ({ ...prev, [message.id]: 'stars' }))}
+                disabled={!isStars}
+                className={`rounded-md border px-2 py-1 text-[11px] transition ${selectedMethod === 'stars' ? 'border-[#7ec8fb]/60 bg-[#2b5278] text-white' : 'border-white/20 bg-white/10 text-[#d7ecfb]'} disabled:cursor-not-allowed disabled:opacity-40`}
+              >
+                Stars
+              </button>
+            </div>
+
+            {!isStars ? (
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-[#8fb8d4]">Tip</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={tipValue}
+                  onChange={(event) => setPaymentTipByInvoice((prev) => ({ ...prev, [message.id]: event.target.value }))}
+                  placeholder="0"
+                  className="w-28 rounded border border-white/20 bg-white/10 px-2 py-1 text-[11px] text-white outline-none"
+                />
+              </div>
+            ) : null}
+
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                type="button"
+                onClick={() => void onPayInvoice(message, 'success')}
+                className="rounded-md border border-emerald-300/50 bg-emerald-700/35 px-2 py-1 text-[11px] text-emerald-100 transition hover:bg-emerald-700/45"
+              >
+                Successful Payment
+              </button>
+              <button
+                type="button"
+                onClick={() => void onPayInvoice(message, 'failed')}
+                className="rounded-md border border-red-300/40 bg-red-700/30 px-2 py-1 text-[11px] text-red-100 transition hover:bg-red-700/40"
+              >
+                Failed Payment
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderSuccessfulPaymentCard = (message: ChatMessage) => {
+    if (!message.successfulPayment) {
+      return null;
+    }
+
+    return (
+      <div className="mb-2 rounded-xl border border-emerald-400/40 bg-emerald-900/25 p-3">
+        <div className="text-sm font-semibold text-emerald-100">Payment successful</div>
+        <div className="mt-1 text-xs text-emerald-200/90">
+          {message.successfulPayment.total_amount} {message.successfulPayment.currency}
+        </div>
+        <div className="mt-1 text-[11px] text-emerald-300/85">
+          charge: {message.successfulPayment.telegram_payment_charge_id}
         </div>
       </div>
     );
@@ -2391,16 +2703,25 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       return { icon: '•', hint: 'Inline button' };
     };
 
+    const keyboardRows = message.replyMarkup.inline_keyboard.filter((row) => row.length > 0);
+
+    if (keyboardRows.length === 0) {
+      return null;
+    }
+
     return (
       <div className="mt-2 space-y-1.5">
-        {message.replyMarkup.inline_keyboard.map((row, rowIndex) => (
+        {keyboardRows.map((row, rowIndex) => (
           <div
             key={`ik-row-${message.id}-${rowIndex}`}
             className="grid gap-1.5"
             style={{ gridTemplateColumns: `repeat(${Math.max(row.length, 1)}, minmax(0, 1fr))` }}
           >
             {row.map((button, buttonIndex) => {
-              const label = typeof button.text === 'string' ? button.text : 'Button';
+              const payInvoiceContext = button.pay ? resolveInvoiceForPayButton(message) : null;
+              const label = button.pay && payInvoiceContext?.invoice
+                ? `${button.text || 'Pay'} ${payInvoiceContext.invoice.total_amount} ${payInvoiceContext.invoice.currency}`
+                : (typeof button.text === 'string' ? button.text : 'Button');
               const indicator = buttonIndicator(button);
               return (
                 <button
@@ -2859,6 +3180,17 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   Exit Select ({selectedMessageIds.length})
                 </button>
               ) : null}
+              <button
+                type="button"
+                onClick={() => setShowPaymentLab((prev) => !prev)}
+                className={`rounded-full border px-3 py-1.5 text-xs text-white transition ${showPaymentLab ? 'border-[#7ec8fb]/60 bg-[#2b5278]' : 'border-white/15 bg-black/20 hover:bg-white/10'}`}
+                title="Toggle Payment Lab"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <Wallet className="h-3.5 w-3.5" />
+                  {showPaymentLab ? 'Hide Lab' : 'Payment Lab'}
+                </span>
+              </button>
               <div className="relative">
               <button
                 type="button"
@@ -2896,6 +3228,28 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               </div>
             </div>
           </header>
+
+          {showPaymentLab ? (
+            <div className="border-b border-white/10 bg-[#122536]/95 px-5 py-3">
+              <div className="rounded-xl border border-[#355a76]/60 bg-black/20 px-3 py-2 text-xs text-[#d7ecfb]">
+                <div className="mb-2 inline-flex items-center gap-1 text-[11px] text-[#9fc6df]"><Wallet className="h-3.5 w-3.5" /> Wallet</div>
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="w-20 text-[11px] text-[#9fc6df]">Fiat</span>
+                    <span className="rounded border border-white/20 bg-white/5 px-2 py-1">{walletState.fiat}</span>
+                    <button type="button" onClick={() => setWalletState((prev) => ({ ...prev, fiat: Math.max(prev.fiat - 1000, 0) }))} className="w-[72px] rounded border border-white/20 bg-white/10 px-2 py-1 text-center text-[11px]">-1000</button>
+                    <button type="button" onClick={() => setWalletState((prev) => ({ ...prev, fiat: prev.fiat + 1000 }))} className="w-[72px] rounded border border-white/20 bg-white/10 px-2 py-1 text-center text-[11px]">+1000</button>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="w-20 text-[11px] text-[#9fc6df]">Stars</span>
+                    <span className="rounded border border-white/20 bg-white/5 px-2 py-1">{walletState.stars}</span>
+                    <button type="button" onClick={() => setWalletState((prev) => ({ ...prev, stars: Math.max(prev.stars - 200, 0) }))} className="w-[72px] rounded border border-white/20 bg-white/10 px-2 py-1 text-center text-[11px]">-200⭐</button>
+                    <button type="button" onClick={() => setWalletState((prev) => ({ ...prev, stars: prev.stars + 200 }))} className="w-[72px] rounded border border-white/20 bg-white/10 px-2 py-1 text-center text-[11px]">+200⭐</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           <main
             ref={messagesContainerRef}
@@ -2957,6 +3311,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                           <div className="mb-2 text-[11px] text-[#9dd4ff]">via @{message.viaBotUsername}</div>
                         ) : null}
                         {message.media ? <div className="mb-2">{renderMediaContent(message)}</div> : null}
+                        {renderInvoiceCard(message)}
+                        {renderSuccessfulPaymentCard(message)}
                         {renderPollCard(message)}
                         {message.text ? (
                           <div className="text-sm leading-6 break-words whitespace-pre-wrap">{renderEntityText(message.text, message.entities || message.captionEntities)}</div>
@@ -3016,6 +3372,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       {lead.text ? (
                         <div className="text-sm leading-6 break-words whitespace-pre-wrap">{renderEntityText(lead.text, lead.captionEntities)}</div>
                       ) : null}
+                      {renderInvoiceCard(lead)}
+                      {renderSuccessfulPaymentCard(lead)}
                       {renderPollCard(lead)}
                       {renderInlineKeyboard(lead)}
                       {renderReactionChips(lead)}
@@ -3115,6 +3473,13 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   >
                     {showPollBuilder ? 'Hide Poll Builder' : 'Open Poll Builder'}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowInvoiceBuilder((prev) => !prev)}
+                    className="rounded-md border border-[#2f4e66]/60 bg-[#163041]/70 px-3 py-1 text-[11px] text-[#cfe7f8] hover:bg-[#1f3f56]"
+                  >
+                    {showInvoiceBuilder ? 'Hide Invoice Builder' : 'Open Invoice Builder'}
+                  </button>
                 </div>
                 {showFormattingTools ? (
                   <div className="space-y-2 rounded-xl border border-[#2f4e66]/55 bg-[#102638]/80 px-3 py-2">
@@ -3183,42 +3548,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     ) : (
                       <p className="text-[11px] text-telegram-textSecondary">Bot should answer via answerInlineQuery to show selectable results.</p>
                     )}
-                  </div>
-                ) : null}
-                {activeReplyKeyboard && activeReplyKeyboard.markup.kind === 'reply' ? (
-                  <div className={`rounded-2xl border border-white/15 bg-black/20 p-2 ${activeReplyKeyboard.markup.resize_keyboard ? '' : 'pb-3'}`}>
-                    <div className="space-y-1.5">
-                      {activeReplyKeyboard.markup.keyboard.map((row, rowIndex) => (
-                        <div
-                          key={`rk-row-${activeReplyKeyboard.sourceMessageId}-${rowIndex}`}
-                          className="grid gap-1.5"
-                          style={{ gridTemplateColumns: `repeat(${Math.max(row.length, 1)}, minmax(0, 1fr))` }}
-                        >
-                          {row.map((button, buttonIndex) => (
-                            <button
-                              key={`rk-btn-${activeReplyKeyboard.sourceMessageId}-${rowIndex}-${buttonIndex}`}
-                              type="button"
-                              onClick={() => void onReplyKeyboardButtonPress(button)}
-                              className={`rounded-xl border px-3 py-2 text-sm transition ${keyboardButtonClass(button.style, false)}`}
-                              title={button.text}
-                            >
-                              <span className="inline-flex items-center gap-1.5">
-                                {button.icon_custom_emoji_id ? (
-                                  <span className="tg-premium-emoji text-[14px] leading-none" title="Premium custom emoji icon">
-                                    {premiumEmojiGlyph(button.icon_custom_emoji_id)}
-                                  </span>
-                                ) : null}
-                                <span className="line-clamp-1">{button.text}</span>
-                                {button.request_contact ? <span className="text-[11px] opacity-80">📱</span> : null}
-                                {button.request_location ? <span className="text-[11px] opacity-80">📍</span> : null}
-                                {button.request_poll ? <span className="text-[11px] opacity-80">📊</span> : null}
-                                {button.web_app ? <span className="text-[11px] opacity-80">🗔</span> : null}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      ))}
-                    </div>
                   </div>
                 ) : null}
                 {showPollBuilder ? (
@@ -3390,6 +3719,152 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       </div>
                   </div>
                 ) : null}
+                {showInvoiceBuilder ? (
+                  <div className="space-y-2 rounded-xl border border-[#2f4e66]/55 bg-[#102638]/80 px-3 py-2">
+                    <input
+                      value={invoiceBuilder.title}
+                      onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, title: event.target.value }))}
+                      placeholder="Invoice title"
+                      className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                    />
+                    <textarea
+                      value={invoiceBuilder.description}
+                      onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, description: event.target.value }))}
+                      placeholder="Invoice description"
+                      rows={2}
+                      className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                    />
+                    <div className="grid grid-cols-3 gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        value={invoiceBuilder.amount}
+                        onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, amount: event.target.value }))}
+                        placeholder="Amount"
+                        className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                      />
+                      <input
+                        value={invoiceBuilder.currency}
+                        onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, currency: event.target.value.toUpperCase() }))}
+                        placeholder="Currency"
+                        className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                      />
+                      <input
+                        value={invoiceBuilder.payload}
+                        onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, payload: event.target.value }))}
+                        placeholder="Payload (optional)"
+                        className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      <input
+                        type="number"
+                        min={0}
+                        value={invoiceBuilder.maxTipAmount}
+                        onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, maxTipAmount: event.target.value }))}
+                        placeholder="Max tip amount"
+                        className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                      />
+                      <input
+                        value={invoiceBuilder.suggestedTips}
+                        onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, suggestedTips: event.target.value }))}
+                        placeholder="Suggested tips (e.g. 50,100)"
+                        className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none sm:col-span-2"
+                      />
+                    </div>
+                    <input
+                      value={invoiceBuilder.photoUrl}
+                      onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, photoUrl: event.target.value }))}
+                      placeholder="Photo URL (optional)"
+                      className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                    />
+                    <div className="flex flex-wrap items-center gap-3 text-[11px] text-white">
+                      {invoiceBuilder.currency.trim().toUpperCase() === 'XTR' ? (
+                        <span className="rounded border border-[#7ec8fb]/40 bg-[#1f3f56]/70 px-2 py-1 text-[10px] text-[#cbe9ff]">
+                          XTR invoice: shipping fields are disabled
+                        </span>
+                      ) : null}
+                      <label className="inline-flex items-center gap-1">
+                        <input
+                          type="checkbox"
+                          checked={invoiceBuilder.needShippingAddress}
+                          onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, needShippingAddress: event.target.checked }))}
+                          disabled={invoiceBuilder.currency.trim().toUpperCase() === 'XTR'}
+                        />
+                        Need shipping
+                      </label>
+                      <label className="inline-flex items-center gap-1">
+                        <input
+                          type="checkbox"
+                          checked={invoiceBuilder.isFlexible}
+                          onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, isFlexible: event.target.checked }))}
+                          disabled={invoiceBuilder.currency.trim().toUpperCase() === 'XTR'}
+                        />
+                        Flexible shipping
+                      </label>
+                      <label className="inline-flex items-center gap-1">
+                        <input
+                          type="checkbox"
+                          checked={invoiceBuilder.needName}
+                          onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, needName: event.target.checked }))}
+                          disabled={invoiceBuilder.currency.trim().toUpperCase() === 'XTR'}
+                        />
+                        Need name
+                      </label>
+                      <label className="inline-flex items-center gap-1">
+                        <input
+                          type="checkbox"
+                          checked={invoiceBuilder.needPhoneNumber}
+                          onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, needPhoneNumber: event.target.checked }))}
+                          disabled={invoiceBuilder.currency.trim().toUpperCase() === 'XTR'}
+                        />
+                        Need phone
+                      </label>
+                      <label className="inline-flex items-center gap-1">
+                        <input
+                          type="checkbox"
+                          checked={invoiceBuilder.needEmail}
+                          onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, needEmail: event.target.checked }))}
+                          disabled={invoiceBuilder.currency.trim().toUpperCase() === 'XTR'}
+                        />
+                        Need email
+                      </label>
+                      <label className="inline-flex items-center gap-1">
+                        <input
+                          type="checkbox"
+                          checked={invoiceBuilder.sendPhoneNumberToProvider}
+                          onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, sendPhoneNumberToProvider: event.target.checked }))}
+                          disabled={invoiceBuilder.currency.trim().toUpperCase() === 'XTR'}
+                        />
+                        Send phone to provider
+                      </label>
+                      <label className="inline-flex items-center gap-1">
+                        <input
+                          type="checkbox"
+                          checked={invoiceBuilder.sendEmailToProvider}
+                          onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, sendEmailToProvider: event.target.checked }))}
+                          disabled={invoiceBuilder.currency.trim().toUpperCase() === 'XTR'}
+                        />
+                        Send email to provider
+                      </label>
+                      {invoiceBuilder.currency.trim().toUpperCase() !== 'XTR' ? (
+                        <span className="rounded border border-white/20 bg-white/5 px-2 py-1 text-[10px] text-[#cbe9ff]">
+                          Need shipping: sends ShippingQuery. Flexible shipping: requires shipping options before checkout.
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center justify-end">
+                      <button
+                        type="button"
+                        onClick={() => void submitInvoiceBuilder()}
+                        disabled={!hasStarted || isSending}
+                        className="rounded-md border border-[#2f7fb4]/60 bg-[#22567c] px-3 py-1.5 text-xs text-white hover:bg-[#2f6f9f] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Send Invoice
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 <form onSubmit={onSubmitComposer} className="flex items-center gap-3">
                   <input
                     ref={fileInputRef}
@@ -3441,6 +3916,42 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     <SendHorizonal className="h-5 w-5" />
                   </button>
                 </form>
+                {activeReplyKeyboard && activeReplyKeyboard.markup.kind === 'reply' ? (
+                  <div className={`rounded-2xl border border-white/15 bg-black/20 p-2 ${activeReplyKeyboard.markup.resize_keyboard ? '' : 'pb-3'}`}>
+                    <div className="space-y-1.5">
+                      {activeReplyKeyboard.markup.keyboard.map((row, rowIndex) => (
+                        <div
+                          key={`rk-row-${activeReplyKeyboard.sourceMessageId}-${rowIndex}`}
+                          className="grid gap-1.5"
+                          style={{ gridTemplateColumns: `repeat(${Math.max(row.length, 1)}, minmax(0, 1fr))` }}
+                        >
+                          {row.map((button, buttonIndex) => (
+                            <button
+                              key={`rk-btn-${activeReplyKeyboard.sourceMessageId}-${rowIndex}-${buttonIndex}`}
+                              type="button"
+                              onClick={() => void onReplyKeyboardButtonPress(button)}
+                              className={`rounded-xl border px-3 py-2 text-sm transition ${keyboardButtonClass(button.style, false)}`}
+                              title={button.text}
+                            >
+                              <span className="inline-flex items-center gap-1.5">
+                                {button.icon_custom_emoji_id ? (
+                                  <span className="tg-premium-emoji text-[14px] leading-none" title="Premium custom emoji icon">
+                                    {premiumEmojiGlyph(button.icon_custom_emoji_id)}
+                                  </span>
+                                ) : null}
+                                <span className="line-clamp-1">{button.text}</span>
+                                {button.request_contact ? <span className="text-[11px] opacity-80">📱</span> : null}
+                                {button.request_location ? <span className="text-[11px] opacity-80">📍</span> : null}
+                                {button.request_poll ? <span className="text-[11px] opacity-80">📊</span> : null}
+                                {button.web_app ? <span className="text-[11px] opacity-80">🗔</span> : null}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             )}
 

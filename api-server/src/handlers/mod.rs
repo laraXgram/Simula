@@ -11,12 +11,12 @@ use std::time::Duration;
 
 use crate::database::{ensure_bot, ensure_chat, lock_db, AppState};
 use crate::generated::methods::{
-    AnswerCallbackQueryRequest, AnswerInlineQueryRequest, DeleteMessageRequest, DeleteMessagesRequest, DeleteWebhookRequest, EditMessageCaptionRequest,
-    EditMessageMediaRequest, EditMessageReplyMarkupRequest, EditMessageTextRequest, GetFileRequest, GetMeRequest,
+    AnswerCallbackQueryRequest, AnswerInlineQueryRequest, AnswerPreCheckoutQueryRequest, AnswerShippingQueryRequest, DeleteMessageRequest, DeleteMessagesRequest, DeleteWebhookRequest, EditMessageCaptionRequest,
+    CreateInvoiceLinkRequest, EditMessageMediaRequest, EditMessageReplyMarkupRequest, EditMessageTextRequest, EditUserStarSubscriptionRequest, GetFileRequest, GetMeRequest, GetMyStarBalanceRequest, GetStarTransactionsRequest,
     GetUpdatesRequest, SendAudioRequest, SendDocumentRequest, SendMediaGroupRequest,
-    SendMessageRequest, SendPhotoRequest, SendPollRequest, SendVideoRequest, SendVoiceRequest, SetMessageReactionRequest, SetWebhookRequest, StopPollRequest,
+    RefundStarPaymentRequest, SendInvoiceRequest, SendMessageRequest, SendPhotoRequest, SendPollRequest, SendVideoRequest, SendVoiceRequest, SetMessageReactionRequest, SetWebhookRequest, StopPollRequest,
 };
-use crate::generated::types::{CallbackQuery, Chat, ChosenInlineResult, InlineKeyboardMarkup, InlineQuery, MaybeInaccessibleMessage, Message, MessageReactionCountUpdated, MessageReactionUpdated, Poll, PollAnswer, PollOption, ReactionCount, ReactionType, ReplyKeyboardMarkup, ReplyKeyboardRemove, Update, User};
+use crate::generated::types::{CallbackQuery, Chat, ChosenInlineResult, InlineKeyboardMarkup, InlineQuery, Invoice, MaybeInaccessibleMessage, Message, MessageReactionCountUpdated, MessageReactionUpdated, OrderInfo, Poll, PollAnswer, PollOption, PreCheckoutQuery, ReactionCount, ReactionType, ReplyKeyboardMarkup, ReplyKeyboardRemove, ShippingAddress, ShippingQuery, SuccessfulPayment, Update, User};
 use crate::types::{strip_nulls, ApiError, ApiResult};
 
 #[derive(Deserialize)]
@@ -123,6 +123,18 @@ pub struct SimVotePollRequest {
     pub option_ids: Vec<i64>,
 }
 
+#[derive(Deserialize)]
+pub struct SimPayInvoiceRequest {
+    pub chat_id: i64,
+    pub message_id: i64,
+    pub user_id: Option<i64>,
+    pub first_name: Option<String>,
+    pub username: Option<String>,
+    pub payment_method: Option<String>,
+    pub outcome: Option<String>,
+    pub tip_amount: Option<i64>,
+}
+
 pub fn handle_sim_get_poll_voters(
     state: &Data<AppState>,
     token: &str,
@@ -210,6 +222,7 @@ pub fn dispatch_method(
         "sendvideo" => handle_send_video(state, token, &params),
         "sendvoice" => handle_send_voice(state, token, &params),
         "sendpoll" => handle_send_poll(state, token, &params),
+        "sendinvoice" => handle_send_invoice(state, token, &params),
         "sendmediagroup" => handle_send_media_group(state, token, &params),
         "editmessagetext" => handle_edit_message_text(state, token, &params),
         "editmessagecaption" => handle_edit_message_caption(state, token, &params),
@@ -225,8 +238,284 @@ pub fn dispatch_method(
         "stoppoll" => handle_stop_poll(state, token, &params),
         "answercallbackquery" => handle_answer_callback_query(state, token, &params),
         "answerinlinequery" => handle_answer_inline_query(state, token, &params),
+        "answershippingquery" => handle_answer_shipping_query(state, token, &params),
+        "answerprecheckoutquery" => handle_answer_pre_checkout_query(state, token, &params),
+        "createinvoicelink" => handle_create_invoice_link(state, token, &params),
+        "getmystarbalance" => handle_get_my_star_balance(state, token, &params),
+        "getstartransactions" => handle_get_star_transactions(state, token, &params),
+        "refundstarpayment" => handle_refund_star_payment(state, token, &params),
+        "edituserstarsubscription" => handle_edit_user_star_subscription(state, token, &params),
         _ => Err(ApiError::not_found(format!("method {} not found", method))),
     }
+}
+
+fn handle_create_invoice_link(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: CreateInvoiceLinkRequest = parse_request(params)?;
+    let max_tip_amount = request.max_tip_amount.unwrap_or(0);
+    let suggested_tip_amounts = request.suggested_tip_amounts.clone().unwrap_or_default();
+
+    let normalized_currency = request.currency.trim().to_ascii_uppercase();
+    if request.title.trim().is_empty() {
+        return Err(ApiError::bad_request("title is empty"));
+    }
+    if request.description.trim().is_empty() {
+        return Err(ApiError::bad_request("description is empty"));
+    }
+    if request.payload.trim().is_empty() {
+        return Err(ApiError::bad_request("payload is empty"));
+    }
+    if normalized_currency.is_empty() {
+        return Err(ApiError::bad_request("currency is empty"));
+    }
+    if request.prices.is_empty() {
+        return Err(ApiError::bad_request("prices must include at least one item"));
+    }
+    if max_tip_amount < 0 {
+        return Err(ApiError::bad_request("max_tip_amount must be non-negative"));
+    }
+    if let Some(photo_size) = request.photo_size {
+        if photo_size <= 0 {
+            return Err(ApiError::bad_request("photo_size must be greater than zero"));
+        }
+    }
+    if let Some(photo_width) = request.photo_width {
+        if photo_width <= 0 {
+            return Err(ApiError::bad_request("photo_width must be greater than zero"));
+        }
+    }
+    if let Some(photo_height) = request.photo_height {
+        if photo_height <= 0 {
+            return Err(ApiError::bad_request("photo_height must be greater than zero"));
+        }
+    }
+
+    if request.is_flexible.unwrap_or(false) && !request.need_shipping_address.unwrap_or(false) {
+        return Err(ApiError::bad_request("is_flexible requires need_shipping_address=true"));
+    }
+
+    if !suggested_tip_amounts.is_empty() {
+        if suggested_tip_amounts.len() > 4 {
+            return Err(ApiError::bad_request("suggested_tip_amounts can have at most 4 values"));
+        }
+        if max_tip_amount <= 0 {
+            return Err(ApiError::bad_request("max_tip_amount must be positive when suggested_tip_amounts is set"));
+        }
+
+        let mut previous = 0;
+        for tip in &suggested_tip_amounts {
+            if *tip <= 0 {
+                return Err(ApiError::bad_request("suggested_tip_amounts values must be greater than zero"));
+            }
+            if *tip > max_tip_amount {
+                return Err(ApiError::bad_request("suggested_tip_amounts values must be <= max_tip_amount"));
+            }
+            if *tip <= previous {
+                return Err(ApiError::bad_request("suggested_tip_amounts must be strictly increasing"));
+            }
+            previous = *tip;
+        }
+    }
+
+    let is_stars_invoice = normalized_currency == "XTR";
+    let provider_token = request
+        .provider_token
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("");
+
+    if is_stars_invoice {
+        if !provider_token.is_empty() {
+            return Err(ApiError::bad_request("provider_token must be empty for Telegram Stars invoices"));
+        }
+        if request.prices.len() != 1 {
+            return Err(ApiError::bad_request("prices must contain exactly one item for Telegram Stars invoices"));
+        }
+        if max_tip_amount > 0 || !suggested_tip_amounts.is_empty() {
+            return Err(ApiError::bad_request("tip fields are not supported for Telegram Stars invoices"));
+        }
+        if request.need_name.unwrap_or(false)
+            || request.need_phone_number.unwrap_or(false)
+            || request.need_email.unwrap_or(false)
+            || request.need_shipping_address.unwrap_or(false)
+            || request.send_phone_number_to_provider.unwrap_or(false)
+            || request.send_email_to_provider.unwrap_or(false)
+            || request.is_flexible.unwrap_or(false)
+        {
+            return Err(ApiError::bad_request("shipping/contact collection fields are not supported for Telegram Stars invoices"));
+        }
+    } else if provider_token.is_empty() {
+        return Err(ApiError::bad_request("provider_token is required for non-Stars invoices"));
+    }
+
+    for price in &request.prices {
+        if price.label.trim().is_empty() {
+            return Err(ApiError::bad_request("price label is empty"));
+        }
+        if price.amount <= 0 {
+            return Err(ApiError::bad_request("price amount must be greater than zero"));
+        }
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let slug = request
+        .payload
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+        .collect::<String>();
+    Ok(json!(format!("https://laragram.local/invoice/{}/{}", bot.id, slug)))
+}
+
+fn handle_get_my_star_balance(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let _request: GetMyStarBalanceRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let balance: i64 = conn
+        .query_row(
+            "SELECT COALESCE(SUM(amount), 0) FROM star_transactions_ledger WHERE bot_id = ?1",
+            params![bot.id],
+            |r| r.get(0),
+        )
+        .map_err(ApiError::internal)?;
+
+    Ok(json!({
+        "amount": balance,
+    }))
+}
+
+fn handle_get_star_transactions(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: GetStarTransactionsRequest = parse_request(params)?;
+    let offset = request.offset.unwrap_or(0).max(0);
+    let limit = request.limit.unwrap_or(20).clamp(1, 100);
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, amount, date
+             FROM star_transactions_ledger
+             WHERE bot_id = ?1
+             ORDER BY date DESC
+             LIMIT ?2 OFFSET ?3",
+        )
+        .map_err(ApiError::internal)?;
+
+    let rows = stmt
+        .query_map(params![bot.id, limit, offset], |r| {
+            Ok(json!({
+                "id": r.get::<_, String>(0)?,
+                "amount": r.get::<_, i64>(1)?,
+                "date": r.get::<_, i64>(2)?,
+            }))
+        })
+        .map_err(ApiError::internal)?;
+
+    let mut transactions = Vec::new();
+    for row in rows {
+        transactions.push(row.map_err(ApiError::internal)?);
+    }
+
+    Ok(json!({ "transactions": transactions }))
+}
+
+fn handle_refund_star_payment(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: RefundStarPaymentRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let original_amount: Option<i64> = conn
+        .query_row(
+            "SELECT amount FROM star_transactions_ledger
+             WHERE bot_id = ?1 AND user_id = ?2 AND telegram_payment_charge_id = ?3 AND kind = 'payment'",
+            params![bot.id, request.user_id, request.telegram_payment_charge_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    let Some(amount) = original_amount else {
+        return Err(ApiError::bad_request("star payment not found for refund"));
+    };
+
+    let already_refunded: Option<String> = conn
+        .query_row(
+            "SELECT id FROM star_transactions_ledger
+             WHERE bot_id = ?1 AND user_id = ?2 AND telegram_payment_charge_id = ?3 AND kind = 'refund'",
+            params![bot.id, request.user_id, request.telegram_payment_charge_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    if already_refunded.is_some() {
+        return Err(ApiError::bad_request("star payment already refunded"));
+    }
+
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO star_transactions_ledger
+         (id, bot_id, user_id, telegram_payment_charge_id, amount, date, kind)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'refund')",
+        params![
+            format!("refund_{}", generate_telegram_numeric_id()),
+            bot.id,
+            request.user_id,
+            request.telegram_payment_charge_id,
+            -amount,
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_edit_user_star_subscription(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: EditUserStarSubscriptionRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let now = Utc::now().timestamp();
+
+    conn.execute(
+        "INSERT INTO star_subscriptions
+         (bot_id, user_id, telegram_payment_charge_id, is_canceled, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(bot_id, user_id, telegram_payment_charge_id)
+         DO UPDATE SET is_canceled = excluded.is_canceled, updated_at = excluded.updated_at",
+        params![
+            bot.id,
+            request.user_id,
+            request.telegram_payment_charge_id,
+            if request.is_canceled { 1 } else { 0 },
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
 }
 
 fn handle_answer_callback_query(
@@ -300,6 +589,98 @@ fn handle_answer_inline_query(
     conn.execute(
         "UPDATE inline_queries SET answered_at = ?1, answer_json = ?2 WHERE id = ?3 AND bot_id = ?4",
         params![now, answer_payload.to_string(), request.inline_query_id, bot.id],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_answer_shipping_query(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: AnswerShippingQueryRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let query_row: Option<String> = conn
+        .query_row(
+            "SELECT id FROM shipping_queries WHERE id = ?1 AND bot_id = ?2",
+            params![request.shipping_query_id, bot.id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    if query_row.is_none() {
+        return Err(ApiError::not_found("shipping query not found"));
+    }
+
+    if !request.ok {
+        let has_error_message = request
+            .error_message
+            .as_ref()
+            .map(|text| !text.trim().is_empty())
+            .unwrap_or(false);
+        if !has_error_message {
+            return Err(ApiError::bad_request("error_message is required when ok is false"));
+        }
+    }
+
+    let now = Utc::now().timestamp();
+    let answer_payload = serde_json::to_value(&request).map_err(ApiError::internal)?;
+
+    conn.execute(
+        "UPDATE shipping_queries SET answered_at = ?1, answer_json = ?2 WHERE id = ?3 AND bot_id = ?4",
+        params![now, answer_payload.to_string(), request.shipping_query_id, bot.id],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_answer_pre_checkout_query(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: AnswerPreCheckoutQueryRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let query_row: Option<String> = conn
+        .query_row(
+            "SELECT id FROM pre_checkout_queries WHERE id = ?1 AND bot_id = ?2",
+            params![request.pre_checkout_query_id, bot.id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    if query_row.is_none() {
+        return Err(ApiError::not_found("pre checkout query not found"));
+    }
+
+    if !request.ok {
+        let has_error_message = request
+            .error_message
+            .as_ref()
+            .map(|text| !text.trim().is_empty())
+            .unwrap_or(false);
+        if !has_error_message {
+            return Err(ApiError::bad_request("error_message is required when ok is false"));
+        }
+    }
+
+    let now = Utc::now().timestamp();
+    let answer_payload = serde_json::to_value(&request).map_err(ApiError::internal)?;
+
+    conn.execute(
+        "UPDATE pre_checkout_queries SET answered_at = ?1, answer_json = ?2 WHERE id = ?3 AND bot_id = ?4",
+        params![now, answer_payload.to_string(), request.pre_checkout_query_id, bot.id],
     )
     .map_err(ApiError::internal)?;
 
@@ -637,6 +1018,272 @@ fn handle_send_voice(state: &Data<AppState>, token: &str, params: &HashMap<Strin
         "voice",
         voice,
     )
+}
+
+fn handle_send_invoice(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: SendInvoiceRequest = parse_request(params)?;
+    let normalized_currency = request.currency.trim().to_ascii_uppercase();
+    let max_tip_amount = request.max_tip_amount.unwrap_or(0);
+    let suggested_tip_amounts = request.suggested_tip_amounts.clone().unwrap_or_default();
+
+    if request.title.trim().is_empty() {
+        return Err(ApiError::bad_request("title is empty"));
+    }
+    if request.description.trim().is_empty() {
+        return Err(ApiError::bad_request("description is empty"));
+    }
+    if request.payload.trim().is_empty() {
+        return Err(ApiError::bad_request("payload is empty"));
+    }
+    if normalized_currency.is_empty() {
+        return Err(ApiError::bad_request("currency is empty"));
+    }
+    if request.prices.is_empty() {
+        return Err(ApiError::bad_request("prices must include at least one item"));
+    }
+    if max_tip_amount < 0 {
+        return Err(ApiError::bad_request("max_tip_amount must be non-negative"));
+    }
+
+    if let Some(photo_size) = request.photo_size {
+        if photo_size <= 0 {
+            return Err(ApiError::bad_request("photo_size must be greater than zero"));
+        }
+    }
+    if let Some(photo_width) = request.photo_width {
+        if photo_width <= 0 {
+            return Err(ApiError::bad_request("photo_width must be greater than zero"));
+        }
+    }
+    if let Some(photo_height) = request.photo_height {
+        if photo_height <= 0 {
+            return Err(ApiError::bad_request("photo_height must be greater than zero"));
+        }
+    }
+
+    if request.is_flexible.unwrap_or(false) && !request.need_shipping_address.unwrap_or(false) {
+        return Err(ApiError::bad_request("is_flexible requires need_shipping_address=true"));
+    }
+
+    if !suggested_tip_amounts.is_empty() {
+        if suggested_tip_amounts.len() > 4 {
+            return Err(ApiError::bad_request("suggested_tip_amounts can have at most 4 values"));
+        }
+        if max_tip_amount <= 0 {
+            return Err(ApiError::bad_request("max_tip_amount must be positive when suggested_tip_amounts is set"));
+        }
+
+        let mut previous = 0;
+        for tip in &suggested_tip_amounts {
+            if *tip <= 0 {
+                return Err(ApiError::bad_request("suggested_tip_amounts values must be greater than zero"));
+            }
+            if *tip > max_tip_amount {
+                return Err(ApiError::bad_request("suggested_tip_amounts values must be <= max_tip_amount"));
+            }
+            if *tip <= previous {
+                return Err(ApiError::bad_request("suggested_tip_amounts must be strictly increasing"));
+            }
+            previous = *tip;
+        }
+    }
+
+    let is_stars_invoice = normalized_currency == "XTR";
+    let provider_token = request
+        .provider_token
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("");
+
+    if is_stars_invoice {
+        if !provider_token.is_empty() {
+            return Err(ApiError::bad_request("provider_token must be empty for Telegram Stars invoices"));
+        }
+        if request.prices.len() != 1 {
+            return Err(ApiError::bad_request("prices must contain exactly one item for Telegram Stars invoices"));
+        }
+        if max_tip_amount > 0 || !suggested_tip_amounts.is_empty() {
+            return Err(ApiError::bad_request("tip fields are not supported for Telegram Stars invoices"));
+        }
+        if request.need_name.unwrap_or(false)
+            || request.need_phone_number.unwrap_or(false)
+            || request.need_email.unwrap_or(false)
+            || request.need_shipping_address.unwrap_or(false)
+            || request.send_phone_number_to_provider.unwrap_or(false)
+            || request.send_email_to_provider.unwrap_or(false)
+            || request.is_flexible.unwrap_or(false)
+        {
+            return Err(ApiError::bad_request("shipping/contact collection fields are not supported for Telegram Stars invoices"));
+        }
+    } else if provider_token.is_empty() {
+        return Err(ApiError::bad_request("provider_token is required for non-Stars invoices"));
+    }
+
+    let mut total_amount: i64 = 0;
+    for price in &request.prices {
+        if price.label.trim().is_empty() {
+            return Err(ApiError::bad_request("price label is empty"));
+        }
+        if price.amount <= 0 {
+            return Err(ApiError::bad_request("price amount must be greater than zero"));
+        }
+
+        total_amount = total_amount
+            .checked_add(price.amount)
+            .ok_or_else(|| ApiError::bad_request("total amount overflow"))?;
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let chat_key = value_to_chat_key(&request.chat_id)?;
+    ensure_chat(&mut conn, &chat_key)?;
+
+    let reply_markup_value = request
+        .reply_markup
+        .as_ref()
+        .and_then(|markup| serde_json::to_value(markup).ok());
+
+    let reply_markup = handle_reply_markup_state(
+        &mut conn,
+        bot.id,
+        &chat_key,
+        reply_markup_value.as_ref(),
+    )?;
+
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO messages (bot_id, chat_key, from_user_id, text, date) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![bot.id, chat_key, bot.id, request.description, now],
+    )
+    .map_err(ApiError::internal)?;
+
+    let message_id = conn.last_insert_rowid();
+    let mut message_value = load_message_value(&mut conn, &bot, message_id)?;
+    message_value.as_object_mut().map(|obj| obj.remove("text"));
+
+    let invoice_title = request.title.clone();
+    let invoice_description = request.description.clone();
+    let invoice_payload = request.payload.clone();
+    let invoice_currency = normalized_currency;
+
+    let start_parameter = request.start_parameter.clone().unwrap_or_default();
+
+    let invoice = Invoice {
+        title: invoice_title.clone(),
+        description: invoice_description.clone(),
+        start_parameter,
+        currency: invoice_currency.clone(),
+        total_amount,
+    };
+
+    message_value["invoice"] = serde_json::to_value(invoice).map_err(ApiError::internal)?;
+
+    conn.execute(
+        "INSERT OR REPLACE INTO invoices
+         (bot_id, chat_key, message_id, title, description, payload, currency, total_amount,
+          max_tip_amount, suggested_tip_amounts_json, start_parameter, provider_data,
+          photo_url, photo_size, photo_width, photo_height,
+          need_name, need_phone_number, need_email, need_shipping_address,
+          send_phone_number_to_provider, send_email_to_provider,
+          is_flexible, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
+                 ?9, ?10, ?11, ?12,
+                 ?13, ?14, ?15, ?16,
+                 ?17, ?18, ?19, ?20,
+                 ?21, ?22,
+                 ?23, ?24)",
+        params![
+            bot.id,
+            chat_key,
+            message_id,
+            invoice_title,
+            invoice_description,
+            invoice_payload,
+            invoice_currency,
+            total_amount,
+            max_tip_amount,
+            if suggested_tip_amounts.is_empty() {
+                None::<String>
+            } else {
+                Some(serde_json::to_string(&suggested_tip_amounts).map_err(ApiError::internal)?)
+            },
+            request.start_parameter,
+            request.provider_data,
+            request.photo_url,
+            request.photo_size,
+            request.photo_width,
+            request.photo_height,
+            if request.need_name.unwrap_or(false) { 1 } else { 0 },
+            if request.need_phone_number.unwrap_or(false) { 1 } else { 0 },
+            if request.need_email.unwrap_or(false) { 1 } else { 0 },
+            if request.need_shipping_address.unwrap_or(false) { 1 } else { 0 },
+            if request.send_phone_number_to_provider.unwrap_or(false) { 1 } else { 0 },
+            if request.send_email_to_provider.unwrap_or(false) { 1 } else { 0 },
+            if request.is_flexible.unwrap_or(false) { 1 } else { 0 },
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    if let Some(markup) = reply_markup {
+        message_value["reply_markup"] = markup;
+    }
+
+    if let Some(reply_parameters) = request.reply_parameters {
+        let reply_chat_key = match reply_parameters.chat_id {
+            Some(ref value) => value_to_chat_key(value).unwrap_or_else(|_| chat_key.clone()),
+            None => chat_key.clone(),
+        };
+
+        if let Ok(reply_value) = load_message_value(&mut conn, &bot, reply_parameters.message_id) {
+            let belongs_to_chat = reply_value
+                .get("chat")
+                .and_then(|v| v.get("id"))
+                .and_then(Value::as_i64)
+                .map(|chat_id| chat_id.to_string() == reply_chat_key)
+                .unwrap_or(false);
+
+            if belongs_to_chat {
+                message_value["reply_to_message"] = reply_value;
+            } else if !reply_parameters.allow_sending_without_reply.unwrap_or(false) {
+                return Err(ApiError::bad_request("replied message not found"));
+            }
+        } else if !reply_parameters.allow_sending_without_reply.unwrap_or(false) {
+            return Err(ApiError::bad_request("replied message not found"));
+        }
+    }
+
+    let update_value = serde_json::to_value(Update {
+        update_id: 0,
+        message: Some(serde_json::from_value(message_value.clone()).map_err(ApiError::internal)?),
+        edited_message: None,
+        channel_post: None,
+        edited_channel_post: None,
+        business_connection: None,
+        business_message: None,
+        edited_business_message: None,
+        deleted_business_messages: None,
+        message_reaction: None,
+        message_reaction_count: None,
+        inline_query: None,
+        chosen_inline_result: None,
+        callback_query: None,
+        shipping_query: None,
+        pre_checkout_query: None,
+        purchased_paid_media: None,
+        poll: None,
+        poll_answer: None,
+        my_chat_member: None,
+        chat_member: None,
+        chat_join_request: None,
+        chat_boost: None,
+        removed_chat_boost: None,
+    })
+    .map_err(ApiError::internal)?;
+
+    persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
+    Ok(message_value)
 }
 
 fn handle_send_poll(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
@@ -1538,6 +2185,375 @@ pub fn handle_sim_vote_poll(
     persist_and_dispatch_update(state, &mut conn, token, bot.id, poll_answer_update)?;
 
     Ok(serde_json::to_value(true).map_err(ApiError::internal)?)
+}
+
+pub fn handle_sim_pay_invoice(
+    state: &Data<AppState>,
+    token: &str,
+    body: SimPayInvoiceRequest,
+) -> ApiResult {
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let user = ensure_user(&mut conn, body.user_id, body.first_name, body.username)?;
+    let chat_key = body.chat_id.to_string();
+
+    let invoice_row: Option<(String, String, String, i64, i64, i64, i64, i64, i64, i64)> = conn
+        .query_row(
+            "SELECT title, payload, currency, total_amount, need_shipping_address, is_flexible, max_tip_amount,
+                    need_name, need_phone_number, need_email
+             FROM invoices
+             WHERE bot_id = ?1 AND chat_key = ?2 AND message_id = ?3",
+            params![bot.id, chat_key, body.message_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?)),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    let Some((invoice_title, invoice_payload, currency_raw, invoice_total_amount, need_shipping_address, is_flexible, max_tip_amount, need_name, need_phone_number, need_email)) = invoice_row else {
+        return Err(ApiError::not_found("invoice not found"));
+    };
+    let currency = currency_raw.trim().to_ascii_uppercase();
+    let is_stars_invoice = currency == "XTR";
+
+    let payment_method = body
+        .payment_method
+        .unwrap_or_else(|| "wallet".to_string())
+        .trim()
+        .to_ascii_lowercase();
+    let outcome = body
+        .outcome
+        .unwrap_or_else(|| "success".to_string())
+        .trim()
+        .to_ascii_lowercase();
+
+    if outcome != "success" && outcome != "failed" {
+        return Err(ApiError::bad_request("outcome must be success or failed"));
+    }
+
+    if payment_method != "wallet" && payment_method != "card" && payment_method != "stars" {
+        return Err(ApiError::bad_request("payment_method must be wallet, card, or stars"));
+    }
+
+    if is_stars_invoice && payment_method != "stars" {
+        return Err(ApiError::bad_request("Telegram Stars invoice must be paid using payment_method=stars"));
+    }
+
+    if !is_stars_invoice && payment_method == "stars" {
+        return Err(ApiError::bad_request("Non-Stars invoice cannot be paid using payment_method=stars"));
+    }
+
+    let tip_amount = body.tip_amount.unwrap_or(0);
+    if tip_amount < 0 {
+        return Err(ApiError::bad_request("tip_amount must be non-negative"));
+    }
+    if is_stars_invoice && tip_amount > 0 {
+        return Err(ApiError::bad_request("tip_amount is not supported for Telegram Stars invoices"));
+    }
+    if tip_amount > max_tip_amount {
+        return Err(ApiError::bad_request("tip_amount exceeds invoice max_tip_amount"));
+    }
+    let total_amount = invoice_total_amount
+        .checked_add(tip_amount)
+        .ok_or_else(|| ApiError::bad_request("total amount overflow"))?;
+
+    let from_user = User {
+        id: user.id,
+        is_bot: false,
+        first_name: user.first_name.clone(),
+        last_name: None,
+        username: user.username.clone(),
+        language_code: None,
+        is_premium: None,
+        added_to_attachment_menu: None,
+        can_join_groups: None,
+        can_read_all_group_messages: None,
+        supports_inline_queries: None,
+        can_connect_to_business: None,
+        has_main_web_app: None,
+        has_topics_enabled: None,
+        allows_users_to_create_topics: None,
+    };
+
+    let now = Utc::now().timestamp();
+    let mut selected_shipping_option_id: Option<String> = None;
+
+    if need_shipping_address == 1 {
+        let shipping_query_id = generate_telegram_numeric_id();
+        let shipping_address = ShippingAddress {
+            country_code: "US".to_string(),
+            state: "CA".to_string(),
+            city: "San Francisco".to_string(),
+            street_line1: "Market Street".to_string(),
+            street_line2: "Suite 100".to_string(),
+            post_code: "94103".to_string(),
+        };
+
+        conn.execute(
+            "INSERT INTO shipping_queries
+             (id, bot_id, chat_key, from_user_id, payload, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                shipping_query_id,
+                bot.id,
+                chat_key,
+                user.id,
+                invoice_payload,
+                now,
+            ],
+        )
+        .map_err(ApiError::internal)?;
+
+        let shipping_update = serde_json::to_value(Update {
+            update_id: 0,
+            message: None,
+            edited_message: None,
+            channel_post: None,
+            edited_channel_post: None,
+            business_connection: None,
+            business_message: None,
+            edited_business_message: None,
+            deleted_business_messages: None,
+            message_reaction: None,
+            message_reaction_count: None,
+            inline_query: None,
+            chosen_inline_result: None,
+            callback_query: None,
+            shipping_query: Some(ShippingQuery {
+                id: shipping_query_id.clone(),
+                from: from_user.clone(),
+                invoice_payload: invoice_payload.clone(),
+                shipping_address,
+            }),
+            pre_checkout_query: None,
+            purchased_paid_media: None,
+            poll: None,
+            poll_answer: None,
+            my_chat_member: None,
+            chat_member: None,
+            chat_join_request: None,
+            chat_boost: None,
+            removed_chat_boost: None,
+        })
+        .map_err(ApiError::internal)?;
+        persist_and_dispatch_update(state, &mut conn, token, bot.id, shipping_update)?;
+
+        let mut answer_json: Option<String> = None;
+        for _ in 0..15 {
+            answer_json = conn
+                .query_row(
+                    "SELECT COALESCE(answer_json, '') FROM shipping_queries WHERE id = ?1 AND bot_id = ?2",
+                    params![shipping_query_id, bot.id],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(ApiError::internal)?;
+
+            if answer_json.as_ref().map(|value| !value.trim().is_empty()).unwrap_or(false) {
+                break;
+            }
+
+            std::thread::sleep(Duration::from_millis(120));
+        }
+
+        let Some(answer_raw) = answer_json.filter(|value| !value.trim().is_empty()) else {
+            return Err(ApiError::bad_request("shipping_query pending; call answerShippingQuery, then retry payment"));
+        };
+
+        let shipping_answer: AnswerShippingQueryRequest = serde_json::from_str(&answer_raw)
+            .map_err(|_| ApiError::bad_request("invalid answerShippingQuery payload"))?;
+
+        if !shipping_answer.ok {
+            return Err(ApiError::bad_request(
+                shipping_answer
+                    .error_message
+                    .unwrap_or_else(|| "shipping query was rejected".to_string()),
+            ));
+        }
+
+        selected_shipping_option_id = shipping_answer
+            .shipping_options
+            .as_ref()
+            .and_then(|options| options.first())
+            .map(|option| option.id.clone());
+
+        if is_flexible == 1 && selected_shipping_option_id.is_none() {
+            return Err(ApiError::bad_request("flexible shipping requires at least one shipping option in answerShippingQuery"));
+        }
+    }
+
+    let pre_checkout_query_id = generate_telegram_numeric_id();
+
+    let order_info = if need_name == 1 || need_phone_number == 1 || need_email == 1 || need_shipping_address == 1 {
+        Some(OrderInfo {
+            name: if need_name == 1 { Some(user.first_name.clone()) } else { None },
+            phone_number: if need_phone_number == 1 { Some("+10000000000".to_string()) } else { None },
+            email: if need_email == 1 {
+                Some(format!("{}@laragram.local", user.username.clone().unwrap_or_else(|| format!("user{}", user.id))))
+            } else {
+                None
+            },
+            shipping_address: if need_shipping_address == 1 {
+                Some(ShippingAddress {
+                    country_code: "US".to_string(),
+                    state: "CA".to_string(),
+                    city: "San Francisco".to_string(),
+                    street_line1: "Market Street".to_string(),
+                    street_line2: "Suite 100".to_string(),
+                    post_code: "94103".to_string(),
+                })
+            } else {
+                None
+            },
+        })
+    } else {
+        None
+    };
+
+    conn.execute(
+        "INSERT INTO pre_checkout_queries
+         (id, bot_id, chat_key, from_user_id, payload, currency, total_amount, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            pre_checkout_query_id,
+            bot.id,
+            chat_key,
+            user.id,
+            invoice_payload,
+            currency,
+            total_amount,
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    let pre_checkout_update = serde_json::to_value(Update {
+        update_id: 0,
+        message: None,
+        edited_message: None,
+        channel_post: None,
+        edited_channel_post: None,
+        business_connection: None,
+        business_message: None,
+        edited_business_message: None,
+        deleted_business_messages: None,
+        message_reaction: None,
+        message_reaction_count: None,
+        inline_query: None,
+        chosen_inline_result: None,
+        callback_query: None,
+        shipping_query: None,
+        pre_checkout_query: Some(PreCheckoutQuery {
+            id: pre_checkout_query_id.clone(),
+            from: from_user.clone(),
+            currency: currency.clone(),
+            total_amount,
+            invoice_payload: invoice_payload.clone(),
+            shipping_option_id: selected_shipping_option_id.clone(),
+            order_info: order_info.clone(),
+        }),
+        purchased_paid_media: None,
+        poll: None,
+        poll_answer: None,
+        my_chat_member: None,
+        chat_member: None,
+        chat_join_request: None,
+        chat_boost: None,
+        removed_chat_boost: None,
+    })
+    .map_err(ApiError::internal)?;
+    persist_and_dispatch_update(state, &mut conn, token, bot.id, pre_checkout_update)?;
+
+    if outcome == "failed" {
+        return Ok(json!({
+            "status": "failed",
+            "pre_checkout_query_id": pre_checkout_query_id,
+            "payment_method": payment_method,
+        }));
+    }
+
+    conn.execute(
+        "INSERT INTO messages (bot_id, chat_key, from_user_id, text, date) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![bot.id, body.chat_id.to_string(), user.id, format!("Paid: {}", invoice_title), now],
+    )
+    .map_err(ApiError::internal)?;
+
+    let paid_message_id = conn.last_insert_rowid();
+    let mut paid_message = load_message_value(&mut conn, &bot, paid_message_id)?;
+    paid_message.as_object_mut().map(|obj| obj.remove("text"));
+
+    let successful_payment = SuccessfulPayment {
+        currency,
+        total_amount,
+        invoice_payload,
+        subscription_expiration_date: None,
+        is_recurring: None,
+        is_first_recurring: None,
+        shipping_option_id: selected_shipping_option_id,
+        order_info,
+        telegram_payment_charge_id: format!("tg_{}_{}", payment_method, generate_telegram_numeric_id()),
+        provider_payment_charge_id: format!("provider_{}_{}", payment_method, generate_telegram_numeric_id()),
+    };
+
+    if payment_method == "stars" {
+        conn.execute(
+            "INSERT INTO star_transactions_ledger
+             (id, bot_id, user_id, telegram_payment_charge_id, amount, date, kind)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'payment')",
+            params![
+                format!("pay_{}", generate_telegram_numeric_id()),
+                bot.id,
+                user.id,
+                successful_payment.telegram_payment_charge_id.clone(),
+                total_amount,
+                now,
+            ],
+        )
+        .map_err(ApiError::internal)?;
+    }
+
+    paid_message["successful_payment"] = serde_json::to_value(successful_payment).map_err(ApiError::internal)?;
+
+    let paid_update = serde_json::to_value(Update {
+        update_id: 0,
+        message: Some(serde_json::from_value(paid_message.clone()).map_err(ApiError::internal)?),
+        edited_message: None,
+        channel_post: None,
+        edited_channel_post: None,
+        business_connection: None,
+        business_message: None,
+        edited_business_message: None,
+        deleted_business_messages: None,
+        message_reaction: None,
+        message_reaction_count: None,
+        inline_query: None,
+        chosen_inline_result: None,
+        callback_query: None,
+        shipping_query: None,
+        pre_checkout_query: None,
+        purchased_paid_media: None,
+        poll: None,
+        poll_answer: None,
+        my_chat_member: None,
+        chat_member: None,
+        chat_join_request: None,
+        chat_boost: None,
+        removed_chat_boost: None,
+    })
+    .map_err(ApiError::internal)?;
+    persist_and_dispatch_update(state, &mut conn, token, bot.id, paid_update)?;
+
+    conn.execute(
+        "UPDATE invoices SET paid_at = ?1 WHERE bot_id = ?2 AND chat_key = ?3 AND message_id = ?4",
+        params![now, bot.id, body.chat_id.to_string(), body.message_id],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!({
+        "status": "success",
+        "pre_checkout_query_id": pre_checkout_query_id,
+        "message_id": paid_message_id,
+        "payment_method": payment_method,
+    }))
 }
 
 fn send_media_message(

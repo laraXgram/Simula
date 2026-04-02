@@ -17,6 +17,7 @@ use crate::handlers::{
     handle_sim_get_callback_query_answer,
     handle_sim_get_inline_query_answer,
     handle_sim_get_poll_voters,
+    handle_sim_pay_invoice,
     handle_sim_edit_user_message_media, handle_sim_send_user_media, handle_sim_send_user_message,
     handle_sim_send_inline_query,
     handle_sim_press_inline_button,
@@ -25,7 +26,7 @@ use crate::handlers::{
     handle_sim_update_bot,
     handle_sim_upsert_user,
     handle_download_file,
-    SimChooseInlineResultRequest, SimClearHistoryRequest, SimCreateBotRequest, SimPressInlineButtonRequest, SimSendInlineQueryRequest, SimSendUserMessageRequest, SimSetUserReactionRequest, SimUpdateBotRequest,
+    SimChooseInlineResultRequest, SimClearHistoryRequest, SimCreateBotRequest, SimPayInvoiceRequest, SimPressInlineButtonRequest, SimSendInlineQueryRequest, SimSendUserMessageRequest, SimSetUserReactionRequest, SimUpdateBotRequest,
     SimVotePollRequest,
     SimUpsertUserRequest,
 };
@@ -175,6 +176,16 @@ pub async fn sim_vote_poll(
 ) -> impl Responder {
     let token = path.into_inner();
     into_telegram_response(handle_sim_vote_poll(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/payInvoice")]
+pub async fn sim_pay_invoice(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimPayInvoiceRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_pay_invoice(&state, &token, payload.into_inner()))
 }
 
 #[post("/client-api/bot{token}/pressInlineButton")]

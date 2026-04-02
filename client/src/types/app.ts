@@ -9,6 +9,7 @@ import type {
   Message as GeneratedMessage,
   MessageEntity as GeneratedMessageEntity,
   Invoice as GeneratedInvoice,
+  SuccessfulPayment as GeneratedSuccessfulPayment,
   Poll as GeneratedPoll,
   MessageReactionCountUpdated as GeneratedMessageReactionCountUpdated,
   MessageReactionUpdated as GeneratedMessageReactionUpdated,
@@ -54,6 +55,7 @@ export interface ChatMessage {
   viaBotUsername?: string;
   poll?: GeneratedPoll;
   invoice?: GeneratedInvoice;
+  successfulPayment?: GeneratedSuccessfulPayment;
   media?: {
     type: 'photo' | 'video' | 'audio' | 'voice' | 'document';
     fileId: string;
