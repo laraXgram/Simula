@@ -41,6 +41,33 @@ RUST_KEYWORDS = {
 CUSTOM_TYPE_NAMES: set[str] = set()
 
 
+def extract_custom_type_tokens(type_str: str) -> set[str]:
+    """Extract referenced custom Telegram type names from a raw type expression."""
+    normalized = normalize_type_expr(type_str)
+    tokens = set(re.findall(r'[A-Za-z_][A-Za-z0-9_]*', normalized))
+    return {token for token in tokens if token in CUSTOM_TYPE_NAMES}
+
+
+def has_dependency_path(graph: dict[str, set[str]], start: str, target: str, visited: set[str] | None = None) -> bool:
+    """Return True if a dependency path exists from start -> target."""
+    if start == target:
+        return True
+
+    if visited is None:
+        visited = set()
+    if start in visited:
+        return False
+
+    visited.add(start)
+    for neighbor in graph.get(start, set()):
+        if neighbor == target:
+            return True
+        if has_dependency_path(graph, neighbor, target, visited):
+            return True
+
+    return False
+
+
 def normalize_type_expr(type_str: str) -> str:
     """Normalize type strings scraped from docs into parseable expressions."""
     s = (type_str or '').strip()
@@ -195,6 +222,7 @@ use super::types::*;
 {% for method in methods %}
 /// {{ method.description[:80] }}...
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct {{ method.struct_name }}Request {
 {% for param in method.parameters %}
     {% if not param.required %}#[serde(skip_serializing_if = "Option::is_none")]
@@ -279,6 +307,13 @@ class CodeGenerator:
         """Process types for code generation."""
         processed = []
 
+        type_dependency_graph: dict[str, set[str]] = {}
+        for t in self.types_data:
+            dependencies: set[str] = set()
+            for p in t.get('properties', []):
+                dependencies |= extract_custom_type_tokens(p.get('type', ''))
+            type_dependency_graph[t['name']] = dependencies
+
         for t in self.types_data:
             if not t['properties']:
                 processed.append({
@@ -294,8 +329,9 @@ class CodeGenerator:
                 rust_name = sanitize_rust_field_name(p['name'])
                 rust_type = parse_type(p['type'], 'rust')
 
-                # Break direct self-recursion in Rust structs (e.g., Message -> reply_to_message: Message).
-                if rust_type == t['name']:
+                # Break recursive cycles in Rust structs using indirection.
+                # This covers both direct self-recursion and indirect cycles like A -> B -> A.
+                if rust_type in CUSTOM_TYPE_NAMES and has_dependency_path(type_dependency_graph, rust_type, t['name']):
                     rust_type = f'Box<{rust_type}>'
 
                 props.append({
