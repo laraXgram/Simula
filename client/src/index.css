@@ -36,6 +36,26 @@ body {
   background-size: 28px 28px, 34px 34px, cover;
 }
 
+@keyframes tg-emoji-spin {
+  from {
+    transform: rotate(0deg) scale(1);
+  }
+  50% {
+    transform: rotate(10deg) scale(1.08);
+  }
+  to {
+    transform: rotate(0deg) scale(1);
+  }
+}
+
+.tg-premium-emoji {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform-origin: center;
+  animation: tg-emoji-spin 1.9s ease-in-out infinite;
+}
+
 ::-webkit-scrollbar {
   width: 6px;
 }

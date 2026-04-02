@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  chooseInlineResult,
   clearSimHistory,
   createSimBot,
   deleteBotMessage,
@@ -24,7 +25,16 @@ import {
   editBotMessageCaption,
   editUserMessageMedia,
   editBotMessageText,
+  sendPoll,
+  stopPoll,
+  votePoll,
+  getPollVoters,
+  PollVoterInfo,
+  getCallbackQueryAnswer,
   getBotFile,
+  pressInlineButton,
+  sendInlineQuery,
+  getInlineQueryAnswer,
   getSimulationBootstrap,
   sendUserMedia,
   sendUserMessage,
@@ -38,6 +48,8 @@ import {
   BotReplyMarkup,
   BotUpdate,
   ChatMessage,
+  InlineKeyboardButton,
+  InlineQueryResult,
   MessageEntity,
   ReplyKeyboardButton,
   SimBot,
@@ -81,6 +93,13 @@ function mapIncomingReplyMarkup(raw?: Record<string, unknown>): BotReplyMarkup |
       one_time_keyboard: typeof raw.one_time_keyboard === 'boolean' ? raw.one_time_keyboard : undefined,
       input_field_placeholder: typeof raw.input_field_placeholder === 'string' ? raw.input_field_placeholder : undefined,
       selective: typeof raw.selective === 'boolean' ? raw.selective : undefined,
+    };
+  }
+
+  if (Array.isArray(raw.inline_keyboard)) {
+    return {
+      kind: 'inline',
+      inline_keyboard: raw.inline_keyboard as InlineKeyboardButton[][],
     };
   }
 
@@ -169,6 +188,34 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null);
   const [dismissedOneTimeKeyboards, setDismissedOneTimeKeyboards] = useState<Record<string, number>>({});
+  const [activeInlineQueryId, setActiveInlineQueryId] = useState<string | null>(null);
+  const [inlineResults, setInlineResults] = useState<InlineQueryResult[]>([]);
+  const [inlineNextOffset, setInlineNextOffset] = useState<string | null>(null);
+  const [inlineModeError, setInlineModeError] = useState('');
+  const [isInlineModeSending, setIsInlineModeSending] = useState(false);
+  const [callbackToast, setCallbackToast] = useState<string | null>(null);
+  const [callbackModalText, setCallbackModalText] = useState<string | null>(null);
+  const [pollSelections, setPollSelections] = useState<Record<string, number[]>>({});
+  const [pollVotersByPollId, setPollVotersByPollId] = useState<Record<string, PollVoterInfo[]>>({});
+  const [pollAnonymousByPollId, setPollAnonymousByPollId] = useState<Record<string, boolean>>({});
+  const [expandedPollVoters, setExpandedPollVoters] = useState<Record<string, boolean>>({});
+  const [pollVotersLoading, setPollVotersLoading] = useState<Record<string, boolean>>({});
+  const [showPollBuilder, setShowPollBuilder] = useState(false);
+  const [pollBuilder, setPollBuilder] = useState({
+    type: 'regular' as 'regular' | 'quiz',
+    question: '',
+    options: ['', ''],
+    optionsParseMode: 'none' as ComposerParseMode,
+    isAnonymous: false,
+    allowsMultipleAnswers: false,
+    correctOptionId: 0,
+    explanation: '',
+    questionParseMode: 'none' as ComposerParseMode,
+    explanationParseMode: 'none' as ComposerParseMode,
+    openPeriod: '',
+    closeDate: '',
+    isClosed: false,
+  });
   const [startedChats, setStartedChats] = useState<Record<string, boolean>>(() => {
     try {
       const raw = localStorage.getItem(START_KEY);
@@ -188,6 +235,27 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     [availableUsers, selectedUserId],
   );
 
+  const inlineTrigger = useMemo(() => {
+    const username = selectedBot?.username?.toLowerCase();
+    if (!username) {
+      return null;
+    }
+
+    const trimmed = composerText.trimStart();
+    const match = trimmed.match(/^@([A-Za-z0-9_]{3,64})(?:\s+([\s\S]*))?$/);
+    if (!match) {
+      return null;
+    }
+
+    if (match[1].toLowerCase() !== username) {
+      return null;
+    }
+
+    return {
+      query: (match[2] || '').trim(),
+    };
+  }, [composerText, selectedBot?.username]);
+
   const selectedChatId = selectedUser.id;
   const chatKey = `${selectedBotToken}:${selectedChatId}`;
   const hasStarted = Boolean(startedChats[chatKey]);
@@ -197,6 +265,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const isNearBottomRef = useRef(true);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const inlineRequestSeqRef = useRef(0);
 
   const visibleMessages = useMemo(
     () => messages.filter((message) => message.chatId === selectedChatId && message.botToken === selectedBotToken),
@@ -321,7 +390,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         const actorKey = actor ? `${actor.id}:${actor.is_bot ? 1 : 0}` : null;
         const newReactionEmojis = update.message_reaction.new_reaction
           .filter((item) => item.type === 'emoji')
-          .map((item) => item.emoji);
+          .map((item) => item.emoji)
+          .filter((emoji): emoji is string => typeof emoji === 'string' && emoji.length > 0);
 
         if (actorKey) {
           setMessages((prev) => prev.map((message) => {
@@ -374,6 +444,28 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       }
 
       const payload = update.edited_message || update.message;
+      if (update.poll) {
+        setMessages((prev) => prev.map((message) => {
+          if (!message.poll || message.poll.id !== update.poll!.id) {
+            return message;
+          }
+
+          return {
+            ...message,
+            poll: update.poll,
+          };
+        }));
+      }
+
+      if (update.poll_answer?.poll_id && update.poll_answer.user?.id) {
+        const voter = update.poll_answer.user;
+        const selectionKey = `${voter.id}:${update.poll_answer.poll_id}`;
+        setPollSelections((prev) => ({
+          ...prev,
+          [selectionKey]: update.poll_answer!.option_ids,
+        }));
+      }
+
       if (!payload) {
         setLastUpdateId((current) => Math.max(current, update.update_id));
         return;
@@ -385,7 +477,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         media = {
           type: 'photo',
           fileId: bestPhoto.file_id,
-          mimeType: bestPhoto.mime_type,
         };
       } else if (payload.video) {
         media = {
@@ -425,6 +516,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         isOutgoing: Boolean(payload.from?.is_bot),
         fromName: payload.from?.first_name || 'Bot',
         fromUserId: payload.from?.id || 0,
+        isInlineOrigin: Boolean(payload.via_bot?.id),
+        viaBotUsername: payload.via_bot?.username,
+        poll: payload.poll,
         media,
         mediaGroupId: payload.media_group_id,
         replyTo: payload.reply_to_message ? {
@@ -466,6 +560,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           const existing = next[existingIndex];
           next[existingIndex] = {
             ...mapped,
+            isInlineOrigin: Boolean(existing.isInlineOrigin || mapped.isInlineOrigin),
             reactionCounts: existing.reactionCounts,
             actorReactions: existing.actorReactions,
           };
@@ -566,11 +661,89 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
   const submitComposer = async () => {
     const text = composerText.trim();
+
+    const pollTrigger = (() => {
+      const lower = text.toLowerCase();
+      const isPoll = lower.startsWith('/poll ');
+      const isQuiz = lower.startsWith('/quiz ');
+      if (!isPoll && !isQuiz) {
+        return null;
+      }
+
+      const payload = text.slice(isQuiz ? 6 : 6).trim();
+      const parts = payload.split('|').map((item) => item.trim()).filter(Boolean);
+      if (parts.length < 3) {
+        return null;
+      }
+
+      if (isQuiz) {
+        const maybeCorrectIndex = Number(parts[parts.length - 1]);
+        const hasCorrectIndex = Number.isInteger(maybeCorrectIndex)
+          && maybeCorrectIndex >= 1
+          && maybeCorrectIndex <= parts.length - 2;
+
+        const options = hasCorrectIndex ? parts.slice(1, -1) : parts.slice(1);
+        if (options.length < 2) {
+          return null;
+        }
+
+        return {
+          type: 'quiz' as const,
+          question: parts[0],
+          options,
+          correctOptionId: hasCorrectIndex ? maybeCorrectIndex - 1 : 0,
+        };
+      }
+
+      return {
+        type: 'regular' as const,
+        question: parts[0],
+        options: parts.slice(1),
+      };
+    })();
+
+    if (pollTrigger && !composerEditTarget && selectedUploads.length === 0) {
+      try {
+        await sendPoll(selectedBotToken, {
+          chat_id: selectedChatId,
+          question: pollTrigger.question,
+          options: pollTrigger.options.map((option) => ({ text: option })),
+          is_anonymous: false,
+          allows_multiple_answers: false,
+          type: pollTrigger.type,
+          correct_option_id: pollTrigger.type === 'quiz' ? pollTrigger.correctOptionId : undefined,
+        });
+        setComposerText('');
+      } catch (error) {
+        setErrorText(error instanceof Error ? error.message : 'Poll send failed');
+      }
+      return;
+    }
+
+    if (inlineTrigger) {
+      if (inlineResults.length === 0) {
+        setInlineModeError(isInlineModeSending
+          ? 'Inline results are loading...'
+          : 'No inline result yet. Wait for bot answer.');
+        return;
+      }
+
+      await onChooseInlineResult(inlineResults[0]);
+      return;
+    }
+
     if (!text && selectedUploads.length === 0 && !composerEditTarget) {
       return;
     }
 
     if (composerEditTarget) {
+      if (composerEditTarget.isInlineOrigin || composerEditTarget.viaBotUsername) {
+        setErrorText('Inline-origin messages cannot be edited from the client simulator.');
+        setComposerEditTarget(null);
+        setSelectedUploads([]);
+        return;
+      }
+
       try {
         if (composerEditTarget.media) {
           if (selectedUploads.length > 0) {
@@ -675,6 +848,75 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     window.setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }, 0);
+  };
+
+  const submitPollBuilder = async () => {
+    const question = pollBuilder.question.trim();
+    const options = pollBuilder.options.map((item) => item.trim()).filter(Boolean);
+
+    if (question.length === 0) {
+      setErrorText('Poll question is required.');
+      return;
+    }
+    if (options.length < 2) {
+      setErrorText('Poll needs at least 2 options.');
+      return;
+    }
+
+    const parseOrUndefined = (mode: ComposerParseMode): string | undefined => (
+      mode === 'none' ? undefined : mode
+    );
+
+    const closeDateUnix = pollBuilder.closeDate
+      ? Math.floor(new Date(pollBuilder.closeDate).getTime() / 1000)
+      : undefined;
+    const openPeriodNum = pollBuilder.openPeriod ? Number(pollBuilder.openPeriod) : undefined;
+
+    if (pollBuilder.type === 'quiz' && (pollBuilder.correctOptionId < 0 || pollBuilder.correctOptionId >= options.length)) {
+      setErrorText('Quiz correct option is invalid.');
+      return;
+    }
+
+    try {
+      await sendPoll(selectedBotToken, {
+        chat_id: selectedChatId,
+        question,
+        question_parse_mode: parseOrUndefined(pollBuilder.questionParseMode),
+        options: options.map((text) => ({
+          text,
+          text_parse_mode: parseOrUndefined(pollBuilder.optionsParseMode),
+        })),
+        is_anonymous: pollBuilder.isAnonymous,
+        type: pollBuilder.type,
+        allows_multiple_answers: pollBuilder.type === 'quiz' ? false : pollBuilder.allowsMultipleAnswers,
+        correct_option_id: pollBuilder.type === 'quiz' ? pollBuilder.correctOptionId : undefined,
+        explanation: pollBuilder.type === 'quiz' ? (pollBuilder.explanation.trim() || undefined) : undefined,
+        explanation_parse_mode: pollBuilder.type === 'quiz' ? parseOrUndefined(pollBuilder.explanationParseMode) : undefined,
+        open_period: openPeriodNum,
+        close_date: closeDateUnix,
+        is_closed: pollBuilder.isClosed || undefined,
+      });
+
+      setPollBuilder({
+        type: 'regular',
+        question: '',
+        options: ['', ''],
+        optionsParseMode: 'none',
+        isAnonymous: false,
+        allowsMultipleAnswers: false,
+        correctOptionId: 0,
+        explanation: '',
+        questionParseMode: 'none',
+        explanationParseMode: 'none',
+        openPeriod: '',
+        closeDate: '',
+        isClosed: false,
+      });
+      setShowPollBuilder(false);
+      setErrorText('');
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Poll send failed');
+    }
   };
 
   const onSubmitComposer = async (event: FormEvent) => {
@@ -836,7 +1078,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   };
 
   const onEditMessage = (message: ChatMessage) => {
-    if (message.isOutgoing) {
+    if (message.isOutgoing || message.isInlineOrigin || message.viaBotUsername) {
       setMessageMenu(null);
       return;
     }
@@ -880,14 +1122,55 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }));
   };
 
-  const onReplyKeyboardButtonPress = async (buttonText: string) => {
-    const text = buttonText.trim();
+  const onReplyKeyboardButtonPress = async (button: ReplyKeyboardButton) => {
+    const text = button.text.trim();
     if (!text || isSending) {
       return;
     }
 
+    let outgoingText = text;
+    if (button.request_contact) {
+      outgoingText = `📱 ${selectedUser.first_name} shared contact`;
+    } else if (button.request_location) {
+      outgoingText = `📍 ${selectedUser.first_name} shared location`;
+    } else if (button.request_poll) {
+      const isQuiz = button.request_poll.type === 'quiz';
+      try {
+        await sendPoll(selectedBotToken, {
+          chat_id: selectedChatId,
+          question: isQuiz ? `${selectedUser.first_name}'s Quiz` : `${selectedUser.first_name}'s Poll`,
+          options: isQuiz
+            ? [{ text: 'Correct option' }, { text: 'Wrong option' }]
+            : [{ text: 'Yes' }, { text: 'No' }],
+          is_anonymous: false,
+          allows_multiple_answers: false,
+          type: isQuiz ? 'quiz' : 'regular',
+          correct_option_id: isQuiz ? 0 : undefined,
+          explanation: isQuiz ? 'Choose the correct answer.' : undefined,
+        });
+        dismissActiveOneTimeKeyboard();
+        setReplyTarget(null);
+        isNearBottomRef.current = true;
+        window.setTimeout(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        }, 0);
+      } catch (error) {
+        setErrorText(error instanceof Error ? error.message : 'Poll send failed');
+      }
+      setMessageMenu(null);
+      return;
+    } else if (button.request_users) {
+      outgoingText = `👥 ${selectedUser.first_name} shared selected users`;
+    } else if (button.request_chat) {
+      outgoingText = `💬 ${selectedUser.first_name} shared selected chat`;
+    }
+
+    if (button.web_app?.url) {
+      window.open(button.web_app.url, '_blank', 'noopener,noreferrer');
+    }
+
     await sendAsUser(
-      text,
+      outgoingText,
       composerParseMode === 'none' ? undefined : composerParseMode,
       replyTarget?.id,
     );
@@ -946,6 +1229,110 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'Reaction failed');
     }
+  };
+
+  const onInlineButtonClick = async (message: ChatMessage, button: InlineKeyboardButton) => {
+    const url = typeof button.url === 'string' ? button.url : undefined;
+    if (url) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    const callbackData = typeof button.callback_data === 'string' ? button.callback_data : undefined;
+    if (callbackData) {
+      try {
+        setCallbackToast(null);
+        const pressed = await pressInlineButton(selectedBotToken, {
+          chat_id: selectedChatId,
+          message_id: message.id,
+          user_id: selectedUser.id,
+          first_name: selectedUser.first_name,
+          username: selectedUser.username,
+          callback_data: callbackData,
+        });
+
+        if (pressed.callback_query_id) {
+          for (let attempt = 0; attempt < 30; attempt += 1) {
+            const callbackAnswer = await getCallbackQueryAnswer(
+              selectedBotToken,
+              pressed.callback_query_id,
+            );
+            if (callbackAnswer.answered && callbackAnswer.answer) {
+              if (callbackAnswer.answer.url) {
+                window.open(callbackAnswer.answer.url, '_blank', 'noopener,noreferrer');
+              }
+
+              presentCallbackAnswer(
+                callbackAnswer.answer.text,
+                callbackAnswer.answer.show_alert,
+              );
+              break;
+            }
+
+            await new Promise((resolve) => window.setTimeout(resolve, 350));
+            if (attempt === 29) {
+              setCallbackToast('No callback response from bot yet.');
+            }
+          }
+        }
+      } catch (error) {
+        setErrorText(error instanceof Error ? error.message : 'Inline callback failed');
+      }
+      return;
+    }
+
+    if (typeof button.switch_inline_query_current_chat === 'string') {
+      const username = selectedBot?.username || 'bot';
+      const suffix = button.switch_inline_query_current_chat.trim();
+      setComposerText(`@${username}${suffix ? ` ${suffix}` : ''}`);
+      composerTextareaRef.current?.focus();
+      return;
+    }
+
+    if (typeof button.switch_inline_query === 'string') {
+      const username = selectedBot?.username || 'bot';
+      const suffix = button.switch_inline_query.trim();
+      setComposerText(`@${username}${suffix ? ` ${suffix}` : ''}`);
+      composerTextareaRef.current?.focus();
+      return;
+    }
+
+    if (button.switch_inline_query_chosen_chat && typeof button.switch_inline_query_chosen_chat === 'object') {
+      const query = button.switch_inline_query_chosen_chat.query;
+      if (typeof query === 'string') {
+        const username = selectedBot?.username || 'bot';
+        const suffix = query.trim();
+        setComposerText(`@${username}${suffix ? ` ${suffix}` : ''}`);
+        composerTextareaRef.current?.focus();
+        return;
+      }
+    }
+
+    if (button.copy_text && typeof button.copy_text === 'object') {
+      const textToCopy = typeof button.copy_text.text === 'string' && button.copy_text.text.length > 0
+        ? button.copy_text.text
+        : (typeof button.text === 'string' ? button.text : '');
+      if (textToCopy) {
+        try {
+          await navigator.clipboard.writeText(textToCopy);
+        } catch {
+          setErrorText('Copy to clipboard failed');
+        }
+      }
+      return;
+    }
+
+    if (button.login_url?.url) {
+      window.open(button.login_url.url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    if (button.web_app?.url) {
+      window.open(button.web_app.url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    setErrorText('This inline button type is not implemented yet.');
   };
 
   const onDeleteMessage = async (message: ChatMessage) => {
@@ -1192,23 +1579,136 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       case 'pre':
         return 'rounded bg-black/35 px-1 py-0.5 font-mono text-[13px]';
       case 'hashtag':
+      case 'cashtag':
+        return 'rounded-md bg-[#0c3048]/55 px-1 text-[#8fcfff] underline-offset-2';
       case 'mention':
+        return 'rounded-md bg-[#1d3b57]/65 px-1 text-[#a7dcff] font-medium underline-offset-2 hover:underline';
+      case 'bot_command':
+        return 'rounded-md bg-[#114463]/70 px-1 text-[#8ce1ff] font-semibold underline-offset-2 hover:underline';
       case 'url':
       case 'text_link':
-        return 'text-[#8bd1ff] underline-offset-2 hover:underline';
+        return 'rounded-md bg-[#0c3048]/55 px-1 text-[#9ad8ff] underline-offset-2 hover:underline';
+      case 'custom_emoji':
+        return 'inline-flex items-center justify-center align-middle text-[1.08em]';
       default:
         return '';
     }
   };
 
-  const renderEntityText = (text: string, entities?: MessageEntity[]) => {
-    if (!entities || entities.length === 0) {
-      return text;
+  const premiumEmojiGlyph = (customEmojiId?: string) => {
+    const glyphs = ['✨', '⭐', '💠', '🌟', '🔹'];
+    if (!customEmojiId) {
+      return glyphs[0];
     }
 
-    const validEntities = [...entities]
+    let hash = 0;
+    for (let i = 0; i < customEmojiId.length; i += 1) {
+      hash = (hash * 31 + customEmojiId.charCodeAt(i)) >>> 0;
+    }
+    return glyphs[hash % glyphs.length];
+  };
+
+  const keyboardButtonClass = (style?: string, inline = false) => {
+    const normalized = (style || '').toLowerCase();
+    if (normalized === 'primary' || normalized === 'filled') {
+      return inline
+        ? 'border-[#67bcf2]/50 bg-[#2f6ea1]/90 text-white hover:bg-[#3b82bf]'
+        : 'border-[#67bcf2]/50 bg-[#2f6ea1]/90 text-white hover:bg-[#3b82bf]';
+    }
+    if (normalized === 'danger') {
+      return inline
+        ? 'border-red-300/35 bg-red-600/35 text-red-100 hover:bg-red-600/45'
+        : 'border-red-300/35 bg-red-600/35 text-red-100 hover:bg-red-600/45';
+    }
+    if (normalized === 'bordered' || normalized === 'secondary') {
+      return inline
+        ? 'border-[#7dbbde]/50 bg-black/20 text-[#d9efff] hover:bg-[#24435a]/45'
+        : 'border-[#7dbbde]/50 bg-[#1f3d56]/70 text-[#d9efff] hover:bg-[#2b5278]';
+    }
+    return inline
+      ? 'border-white/20 bg-black/25 text-white hover:bg-white/10'
+      : 'border-white/20 bg-[#234666]/75 text-white hover:bg-[#2f5e85]';
+  };
+
+  const mergeAutoEntities = (text: string, entities: MessageEntity[]) => {
+    const occupied = entities.map((e) => [e.offset, e.offset + e.length] as const);
+    const isFree = (start: number, end: number) => occupied.every(([s, e]) => end <= s || start >= e);
+
+    const patterns: Array<{ regex: RegExp; type: MessageEntity['type'] }> = [
+      { regex: /\/[A-Za-z][A-Za-z0-9_]{0,31}(?:@[A-Za-z0-9_]{5,32})?/g, type: 'bot_command' },
+      { regex: /@[A-Za-z0-9_]{1,32}/g, type: 'mention' },
+      { regex: /#[\p{L}\p{N}_]{1,64}/gu, type: 'hashtag' },
+      { regex: /\$[A-Za-z]{1,8}(?:_[A-Za-z]{1,8})?/g, type: 'cashtag' },
+    ];
+
+    const auto: MessageEntity[] = [];
+    patterns.forEach(({ regex, type }) => {
+      const local = new RegExp(regex.source, regex.flags);
+      let match = local.exec(text);
+      while (match) {
+        const value = match[0] || '';
+        const start = match.index;
+        const end = start + value.length;
+        if (value.length > 0 && isFree(start, end)) {
+          auto.push({ type, offset: start, length: value.length });
+          occupied.push([start, end]);
+        }
+        match = local.exec(text);
+      }
+    });
+
+    return [...entities, ...auto].sort((a, b) => a.offset - b.offset);
+  };
+
+  const parseHtmlPreview = (input: string): { text: string; entities: MessageEntity[] } => {
+    const normalized = input.replace(/<br\s*\/?\s*>/gi, '\n');
+    const tgEmojiRegex = /<tg-emoji\b([^>]*)>([\s\S]*?)<\/tg-emoji>/gi;
+    const entities: MessageEntity[] = [];
+    let text = '';
+    let cursor = 0;
+    let match = tgEmojiRegex.exec(normalized);
+
+    while (match) {
+      const index = match.index;
+      const attrs = match[1] || '';
+      const rawInner = match[2] || '';
+      const plainBefore = normalized.slice(cursor, index).replace(/<[^>]+>/g, '');
+      text += plainBefore;
+
+      const plainInner = rawInner.replace(/<[^>]+>/g, '');
+      const start = text.length;
+      text += plainInner;
+
+      const emojiIdMatch = attrs.match(/emoji-id\s*=\s*['\"]([^'\"]+)['\"]/i);
+      const emojiId = emojiIdMatch?.[1];
+      if (emojiId && plainInner.length > 0) {
+        entities.push({
+          type: 'custom_emoji',
+          offset: start,
+          length: plainInner.length,
+          custom_emoji_id: emojiId,
+        });
+      }
+
+      cursor = index + match[0].length;
+      match = tgEmojiRegex.exec(normalized);
+    }
+
+    text += normalized.slice(cursor).replace(/<[^>]+>/g, '');
+    return { text, entities };
+  };
+
+  const renderEntityText = (text: string, entities?: MessageEntity[]) => {
+    const validEntities = mergeAutoEntities(
+      text,
+      [...(entities || [])]
       .filter((entity) => entity.length > 0)
-      .sort((a, b) => a.offset - b.offset);
+      .sort((a, b) => a.offset - b.offset),
+    );
+
+    if (validEntities.length === 0) {
+      return text;
+    }
 
     const nodes: Array<string | JSX.Element> = [];
     let cursor = 0;
@@ -1238,11 +1738,54 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             {highlightCode(chunk, entity.language)}
           </code>,
         );
+      } else if (entity.type === 'custom_emoji') {
+        nodes.push(
+          <span key={key} className={`${classes} tg-premium-emoji`} title="Telegram custom emoji">
+            {chunk || premiumEmojiGlyph(entity.custom_emoji_id)}
+          </span>,
+        );
       } else if ((entity.type === 'text_link' || entity.type === 'url') && entity.url) {
         nodes.push(
           <a key={key} href={entity.url} target="_blank" rel="noreferrer" className={classes}>
             {chunk}
           </a>,
+        );
+      } else if (entity.type === 'url') {
+        const href = chunk.startsWith('http://') || chunk.startsWith('https://') ? chunk : `https://${chunk}`;
+        nodes.push(
+          <a key={key} href={href} target="_blank" rel="noreferrer" className={classes}>
+            {chunk}
+          </a>,
+        );
+      } else if (entity.type === 'bot_command') {
+        nodes.push(
+          <button
+            key={key}
+            type="button"
+            className={`${classes} cursor-pointer`}
+            onClick={() => {
+              if (!hasStarted || isSending) {
+                return;
+              }
+              void sendAsUser(chunk, undefined, replyTarget?.id);
+              setReplyTarget(null);
+            }}
+            title="Send command"
+          >
+            {chunk}
+          </button>,
+        );
+      } else if (entity.type === 'mention') {
+        nodes.push(
+          <span key={key} className={classes} title="Mention">
+            {chunk}
+          </span>,
+        );
+      } else if (entity.type === 'hashtag' || entity.type === 'cashtag') {
+        nodes.push(
+          <span key={key} className={classes} title={entity.type === 'cashtag' ? 'Cashtag' : 'Hashtag'}>
+            {chunk}
+          </span>,
         );
       } else {
         nodes.push(
@@ -1268,14 +1811,15 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
 
     if (mode === 'none') {
-      return { text: input, entities: [] };
+      return { text: input, entities: mergeAutoEntities(input, []) };
     }
 
     if (mode === 'HTML') {
-      const stripped = input
-        .replace(/<br\s*\/?\s*>/gi, '\n')
-        .replace(/<[^>]+>/g, '');
-      return { text: stripped, entities: [] };
+      const parsed = parseHtmlPreview(input);
+      return {
+        text: parsed.text,
+        entities: mergeAutoEntities(parsed.text, parsed.entities),
+      };
     }
 
     const entities: MessageEntity[] = [];
@@ -1302,13 +1846,366 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       });
     });
 
-    return { text, entities };
+    return { text, entities: mergeAutoEntities(text, entities) };
+  };
+
+  const pollInlineAnswer = async (inlineQueryId: string, requestSeq: number, append = false) => {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const result = await getInlineQueryAnswer(selectedBotToken, inlineQueryId);
+      if (requestSeq !== inlineRequestSeqRef.current) {
+        return;
+      }
+
+      if (result.answered) {
+        const nextOffset = result.answer?.next_offset?.trim();
+        setInlineNextOffset(nextOffset ? nextOffset : null);
+        const incoming = result.answer?.results || [];
+        if (append) {
+          setInlineResults((prev) => {
+            const merged = new Map<string, InlineQueryResult>();
+            prev.forEach((item) => merged.set(String(item.id || ''), item));
+            incoming.forEach((item) => merged.set(String(item.id || ''), item));
+            return Array.from(merged.values());
+          });
+        } else {
+          setInlineResults(incoming);
+        }
+        setInlineModeError('');
+        return;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 350));
+    }
+    if (requestSeq === inlineRequestSeqRef.current) {
+      setInlineResults([]);
+      setInlineNextOffset(null);
+      setInlineModeError('No inline answer yet. Bot should call answerInlineQuery.');
+    }
+  };
+
+  const onLoadMoreInlineResults = async () => {
+    if (!inlineTrigger || !inlineNextOffset) {
+      return;
+    }
+
+    const requestSeq = inlineRequestSeqRef.current + 1;
+    inlineRequestSeqRef.current = requestSeq;
+    setIsInlineModeSending(true);
+    setInlineModeError('');
+
+    try {
+      const created = await sendInlineQuery(selectedBotToken, {
+        chat_id: selectedChatId,
+        user_id: selectedUser.id,
+        first_name: selectedUser.first_name,
+        username: selectedUser.username,
+        query: inlineTrigger.query,
+        offset: inlineNextOffset,
+      });
+
+      if (requestSeq !== inlineRequestSeqRef.current) {
+        return;
+      }
+
+      setActiveInlineQueryId(created.inline_query_id);
+      await pollInlineAnswer(created.inline_query_id, requestSeq, true);
+    } catch (error) {
+      if (requestSeq === inlineRequestSeqRef.current) {
+        setInlineModeError(error instanceof Error ? error.message : 'Loading more inline results failed');
+      }
+    } finally {
+      if (requestSeq === inlineRequestSeqRef.current) {
+        setIsInlineModeSending(false);
+      }
+    }
+  };
+
+  const onChooseInlineResult = async (result: InlineQueryResult) => {
+    if (!activeInlineQueryId) {
+      return;
+    }
+
+    const resultId = String(result.id || '').trim();
+    if (!resultId) {
+      setInlineModeError('Inline result id is missing.');
+      return;
+    }
+
+    try {
+      await chooseInlineResult(selectedBotToken, {
+        inline_query_id: activeInlineQueryId,
+        result_id: resultId,
+      });
+      setComposerText('');
+      setInlineResults([]);
+      setInlineNextOffset(null);
+      setInlineModeError('');
+      setActiveInlineQueryId(null);
+    } catch (error) {
+      setInlineModeError(error instanceof Error ? error.message : 'Choosing inline result failed');
+    }
   };
 
   const composerPreview = useMemo(
     () => parseComposerPreview(composerText, composerParseMode),
     [composerText, composerParseMode],
   );
+
+  const presentCallbackAnswer = (text?: string, showAlert?: boolean) => {
+    const normalized = (text || '').trim();
+    if (!normalized) {
+      return;
+    }
+
+    if (showAlert) {
+      setCallbackModalText(normalized);
+      return;
+    }
+
+    setCallbackToast(normalized);
+  };
+
+  const onVotePoll = async (message: ChatMessage, optionIndex: number) => {
+    if (!message.poll || message.poll.is_closed) {
+      return;
+    }
+
+    const selectionKey = `${selectedUser.id}:${message.poll.id}`;
+    const currentSelection = pollSelections[selectionKey] || [];
+    const quizLocked = message.poll.type === 'quiz' && currentSelection.length > 0;
+    if (quizLocked) {
+      return;
+    }
+
+    let nextSelection: number[] = [optionIndex];
+    if (message.poll.type === 'quiz') {
+      nextSelection = [optionIndex];
+    } else if (message.poll.allows_multiple_answers) {
+      if (currentSelection.includes(optionIndex)) {
+        nextSelection = currentSelection.filter((id) => id !== optionIndex);
+      } else {
+        nextSelection = [...currentSelection, optionIndex].sort((a, b) => a - b);
+      }
+    } else if (currentSelection.includes(optionIndex)) {
+      nextSelection = [];
+    }
+
+    try {
+      await votePoll(selectedBotToken, {
+        chat_id: selectedChatId,
+        message_id: message.id,
+        user_id: selectedUser.id,
+        first_name: selectedUser.first_name,
+        username: selectedUser.username,
+        option_ids: nextSelection,
+      });
+      setPollSelections((prev) => ({
+        ...prev,
+        [selectionKey]: nextSelection,
+      }));
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Poll vote failed');
+    }
+  };
+
+  const togglePollVoters = async (message: ChatMessage) => {
+    if (!message.poll) {
+      return;
+    }
+
+    const pollId = message.poll.id;
+    const isExpanded = Boolean(expandedPollVoters[pollId]);
+    if (isExpanded) {
+      setExpandedPollVoters((prev) => ({ ...prev, [pollId]: false }));
+      return;
+    }
+
+    setExpandedPollVoters((prev) => ({ ...prev, [pollId]: true }));
+    if (pollVotersByPollId[pollId] || pollAnonymousByPollId[pollId]) {
+      return;
+    }
+
+    setPollVotersLoading((prev) => ({ ...prev, [pollId]: true }));
+    try {
+      const result = await getPollVoters(selectedBotToken, selectedChatId, message.id);
+      setPollAnonymousByPollId((prev) => ({
+        ...prev,
+        [pollId]: result.anonymous,
+      }));
+      setPollVotersByPollId((prev) => ({
+        ...prev,
+        [pollId]: result.voters,
+      }));
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Poll voters load failed');
+    } finally {
+      setPollVotersLoading((prev) => ({ ...prev, [pollId]: false }));
+    }
+  };
+
+  const onRetractPollVote = async (message: ChatMessage) => {
+    if (!message.poll || message.poll.is_closed || message.poll.type === 'quiz') {
+      return;
+    }
+
+    try {
+      await votePoll(selectedBotToken, {
+        chat_id: selectedChatId,
+        message_id: message.id,
+        user_id: selectedUser.id,
+        first_name: selectedUser.first_name,
+        username: selectedUser.username,
+        option_ids: [],
+      });
+      const selectionKey = `${selectedUser.id}:${message.poll.id}`;
+      setPollSelections((prev) => ({
+        ...prev,
+        [selectionKey]: [],
+      }));
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Poll vote retraction failed');
+    }
+  };
+
+  const onStopPoll = async (message: ChatMessage) => {
+    if (!message.poll || message.poll.is_closed) {
+      return;
+    }
+
+    try {
+      await stopPoll(selectedBotToken, {
+        chat_id: selectedChatId,
+        message_id: message.id,
+      });
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Stop poll failed');
+    }
+  };
+
+  const renderPollCard = (message: ChatMessage) => {
+    if (!message.poll) {
+      return null;
+    }
+
+    const totalVotes = Math.max(message.poll.total_voter_count, 1);
+    const selectionKey = `${selectedUser.id}:${message.poll.id}`;
+    const currentSelection = pollSelections[selectionKey] || [];
+    const hasVoted = currentSelection.length > 0;
+    const quizLocked = message.poll.type === 'quiz' && hasVoted;
+    const canRetract = !message.poll.is_closed && message.poll.type !== 'quiz' && hasVoted;
+    const votersExpanded = Boolean(expandedPollVoters[message.poll.id]);
+    const votersLoading = Boolean(pollVotersLoading[message.poll.id]);
+    const isAnonymous = pollAnonymousByPollId[message.poll.id] ?? message.poll.is_anonymous;
+    const voters = pollVotersByPollId[message.poll.id] || [];
+
+    return (
+      <div className="mb-2 rounded-xl border border-white/20 bg-black/20 p-3">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <div className="text-sm font-semibold text-white">{message.poll.question}</div>
+          <span className="rounded-md border border-white/20 bg-white/10 px-1.5 py-0.5 text-[10px] text-[#d8ecfb]">
+            {isAnonymous ? 'anonymous' : 'public'}
+          </span>
+        </div>
+        {message.poll.explanation ? (
+          <div className="mb-2 rounded-md border border-[#6caad4]/30 bg-[#17354b]/55 px-2 py-1 text-[11px] text-[#d6eeff]">
+            {message.poll.explanation}
+          </div>
+        ) : null}
+        <div className="space-y-1.5">
+          {message.poll.options.map((option, index) => {
+            const ratio = Math.round((option.voter_count / totalVotes) * 100);
+            const isSelected = currentSelection.includes(index);
+            const isQuiz = message.poll?.type === 'quiz';
+            const showQuizResult = isQuiz && hasVoted;
+            const isCorrect = typeof message.poll?.correct_option_id === 'number' && message.poll.correct_option_id === index;
+            const isWrongSelected = showQuizResult && isSelected && !isCorrect;
+            return (
+              <button
+                key={`${message.id}-poll-${index}`}
+                type="button"
+                disabled={message.poll?.is_closed || (quizLocked && !isSelected)}
+                onClick={() => void onVotePoll(message, index)}
+                className={`relative w-full overflow-hidden rounded-lg border px-2 py-2 text-left text-xs text-[#dcefff] disabled:cursor-not-allowed disabled:opacity-70 ${
+                  isWrongSelected
+                    ? 'border-red-400/50 bg-[#3a1f28]'
+                    : showQuizResult && isCorrect
+                      ? 'border-emerald-400/55 bg-[#153828]'
+                      : isSelected
+                        ? 'border-cyan-300/60 bg-[#1a3f56]'
+                        : 'border-white/15 bg-[#123148]'
+                }`}
+              >
+                <span
+                  className="absolute inset-y-0 left-0 bg-[#2b5278]/55"
+                  style={{ width: `${ratio}%` }}
+                />
+                <span className="relative z-10 flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5">
+                    <span>{option.text}</span>
+                    {showQuizResult && isCorrect ? <span className="text-emerald-200">✓</span> : null}
+                    {isWrongSelected ? <span className="text-red-200">✗</span> : null}
+                  </span>
+                  <span>{option.voter_count}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="mt-2 flex items-center justify-between text-[11px] text-telegram-textSecondary">
+          <span>{message.poll.total_voter_count} votes</span>
+          {message.poll.is_closed ? <span>closed</span> : null}
+        </div>
+        {!isAnonymous ? (
+          <button
+            type="button"
+            onClick={() => void togglePollVoters(message)}
+            className="mt-2 rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[11px] text-white hover:bg-white/15"
+          >
+            {votersExpanded ? 'Hide voters' : 'Show voters'}
+          </button>
+        ) : null}
+        {votersExpanded ? (
+          <div className="mt-2 rounded-md border border-white/15 bg-black/25 px-2 py-2 text-[11px] text-[#d6eaff]">
+            {votersLoading ? (
+              <div>Loading voters...</div>
+            ) : isAnonymous ? (
+              <div>This poll is anonymous. Voter identities are hidden.</div>
+            ) : voters.length === 0 ? (
+              <div>No voters yet.</div>
+            ) : (
+              <div className="space-y-1">
+                {voters.map((voter) => (
+                  <div key={`${message.poll!.id}-${voter.user_id}`} className="flex items-center justify-between gap-2">
+                    <span>{voter.first_name}{voter.username ? ` (@${voter.username})` : ''}</span>
+                    <span className="text-[#9cc8e3]">
+                      {voter.option_ids.map((id) => message.poll!.options[id]?.text).filter(Boolean).join(', ')}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null}
+        {!message.poll.is_closed && message.isOutgoing ? (
+          <button
+            type="button"
+            onClick={() => void onStopPoll(message)}
+            className="mt-2 rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[11px] text-white hover:bg-white/15"
+          >
+            Stop poll
+          </button>
+        ) : null}
+        {canRetract ? (
+          <button
+            type="button"
+            onClick={() => void onRetractPollVote(message)}
+            className="mt-2 ml-2 rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[11px] text-white hover:bg-white/15"
+          >
+            Retract vote
+          </button>
+        ) : null}
+      </div>
+    );
+  };
 
   const renderMediaContent = (message: ChatMessage, compact = false) => {
     if (!message.media) {
@@ -1391,6 +2288,80 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             </button>
           );
         })}
+      </div>
+    );
+  };
+
+  const renderInlineKeyboard = (message: ChatMessage) => {
+    if (!message.replyMarkup || message.replyMarkup.kind !== 'inline') {
+      return null;
+    }
+
+    if (!message.replyMarkup.inline_keyboard || message.replyMarkup.inline_keyboard.length === 0) {
+      return null;
+    }
+
+    const buttonIndicator = (button: InlineKeyboardButton): { icon: string; hint: string } => {
+      if (button.callback_data) {
+        return { icon: '⏺', hint: 'Callback data' };
+      }
+      if (button.url) {
+        return { icon: '↗', hint: 'Open link' };
+      }
+      if (button.copy_text) {
+        return { icon: '⧉', hint: 'Copy text' };
+      }
+      if (button.switch_inline_query || button.switch_inline_query_current_chat || button.switch_inline_query_chosen_chat) {
+        return { icon: '⌕', hint: 'Switch inline query' };
+      }
+      if (button.login_url) {
+        return { icon: '🔐', hint: 'Login URL' };
+      }
+      if (button.web_app) {
+        return { icon: '🗔', hint: 'Web App' };
+      }
+      if (button.callback_game) {
+        return { icon: '🎮', hint: 'Game callback' };
+      }
+      if (button.pay) {
+        return { icon: '★', hint: 'Payment' };
+      }
+      return { icon: '•', hint: 'Inline button' };
+    };
+
+    return (
+      <div className="mt-2 space-y-1.5">
+        {message.replyMarkup.inline_keyboard.map((row, rowIndex) => (
+          <div
+            key={`ik-row-${message.id}-${rowIndex}`}
+            className="grid gap-1.5"
+            style={{ gridTemplateColumns: `repeat(${Math.max(row.length, 1)}, minmax(0, 1fr))` }}
+          >
+            {row.map((button, buttonIndex) => {
+              const label = typeof button.text === 'string' ? button.text : 'Button';
+              const indicator = buttonIndicator(button);
+              return (
+                <button
+                  key={`ik-btn-${message.id}-${rowIndex}-${buttonIndex}`}
+                  type="button"
+                  onClick={() => void onInlineButtonClick(message, button)}
+                  className={`rounded-lg border px-3 py-1.5 text-xs transition ${keyboardButtonClass(button.style, true)}`}
+                  title={`${indicator.hint}: ${label}`}
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    {button.icon_custom_emoji_id ? (
+                      <span className="tg-premium-emoji text-[13px] leading-none" title="Premium custom emoji icon">
+                        {premiumEmojiGlyph(button.icon_custom_emoji_id)}
+                      </span>
+                    ) : null}
+                    <span className="text-[11px] leading-none opacity-90">{indicator.icon}</span>
+                    <span className="line-clamp-1">{label}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </div>
     );
   };
@@ -1499,6 +2470,76 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     textarea.style.height = `${nextHeight}px`;
     textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
   }, [composerText, composerEditTarget]);
+
+  useEffect(() => {
+    if (!hasStarted || !inlineTrigger) {
+      inlineRequestSeqRef.current += 1;
+      setIsInlineModeSending(false);
+      setActiveInlineQueryId(null);
+      setInlineResults([]);
+      setInlineModeError('');
+      return;
+    }
+
+    const requestSeq = inlineRequestSeqRef.current + 1;
+    inlineRequestSeqRef.current = requestSeq;
+    const timeout = window.setTimeout(() => {
+      void (async () => {
+        setIsInlineModeSending(true);
+        setInlineModeError('');
+        try {
+          const created = await sendInlineQuery(selectedBotToken, {
+            chat_id: selectedChatId,
+            user_id: selectedUser.id,
+            first_name: selectedUser.first_name,
+            username: selectedUser.username,
+            query: inlineTrigger.query,
+          });
+
+          if (requestSeq !== inlineRequestSeqRef.current) {
+            return;
+          }
+
+          setActiveInlineQueryId(created.inline_query_id);
+          await pollInlineAnswer(created.inline_query_id, requestSeq);
+        } catch (error) {
+          if (requestSeq === inlineRequestSeqRef.current) {
+            setInlineResults([]);
+            setInlineNextOffset(null);
+            setInlineModeError(error instanceof Error ? error.message : 'Inline query failed');
+          }
+        } finally {
+          if (requestSeq === inlineRequestSeqRef.current) {
+            setIsInlineModeSending(false);
+          }
+        }
+      })();
+    }, 280);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [
+    hasStarted,
+    inlineTrigger,
+    selectedBotToken,
+    selectedChatId,
+    selectedUser.id,
+    selectedUser.first_name,
+    selectedUser.username,
+  ]);
+
+  useEffect(() => {
+    if (!callbackToast) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setCallbackToast(null);
+    }, 4200);
+
+    return () => window.clearTimeout(timeout);
+  }, [callbackToast]);
 
   return (
     <div className="h-screen bg-app-pattern text-telegram-text">
@@ -1850,14 +2891,19 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                             </div>
                           </button>
                         ) : null}
+                        {message.viaBotUsername ? (
+                          <div className="mb-2 text-[11px] text-[#9dd4ff]">via @{message.viaBotUsername}</div>
+                        ) : null}
                         {message.media ? <div className="mb-2">{renderMediaContent(message)}</div> : null}
+                        {renderPollCard(message)}
                         {message.text ? (
                           <div className="text-sm leading-6 break-words whitespace-pre-wrap">{renderEntityText(message.text, message.entities || message.captionEntities)}</div>
                         ) : null}
+                        {renderInlineKeyboard(message)}
                         {renderReactionChips(message)}
                         <div className="mt-1 flex items-center justify-end gap-2 text-[10px] text-[#a5bfd3]">
                           <span>#{message.id}</span>
-                          {message.editDate ? <span>edited</span> : null}
+                          {message.editDate && !message.isInlineOrigin ? <span>edited</span> : null}
                           <span>{formatMessageTime(message.date)}</span>
                         </div>
                       </div>
@@ -1894,6 +2940,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                           </div>
                         </button>
                       ) : null}
+                      {lead.viaBotUsername ? (
+                        <div className="mb-2 text-[11px] text-[#9dd4ff]">via @{lead.viaBotUsername}</div>
+                      ) : null}
                       <div className="mb-2 grid grid-cols-2 gap-2">
                         {block.messages.map((message) => (
                           <div key={message.id} className="overflow-hidden rounded-xl bg-black/20">
@@ -1905,10 +2954,12 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       {lead.text ? (
                         <div className="text-sm leading-6 break-words whitespace-pre-wrap">{renderEntityText(lead.text, lead.captionEntities)}</div>
                       ) : null}
+                      {renderPollCard(lead)}
+                      {renderInlineKeyboard(lead)}
                       {renderReactionChips(lead)}
                       <div className="mt-1 flex items-center justify-end gap-2 text-[10px] text-[#a5bfd3]">
                         <span>Album {block.messages.length} items</span>
-                        {lead.editDate ? <span>edited</span> : null}
+                        {lead.editDate && !lead.isInlineOrigin ? <span>edited</span> : null}
                         <span>{formatMessageTime(lead.date)}</span>
                       </div>
                     </div>
@@ -1987,24 +3038,31 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     </button>
                   </div>
                 ) : null}
-                <div className="flex items-center justify-end">
+                <div className="flex items-center justify-end gap-2">
                   <button
                     type="button"
                     onClick={() => setShowFormattingTools((prev) => !prev)}
-                    className="rounded-md border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-telegram-textSecondary hover:bg-white/10"
+                    className="rounded-md border border-[#2f4e66]/60 bg-[#163041]/70 px-3 py-1 text-[11px] text-[#cfe7f8] hover:bg-[#1f3f56]"
                   >
                     {showFormattingTools ? 'Hide formatting' : 'Show formatting'}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowPollBuilder((prev) => !prev)}
+                    className="rounded-md border border-[#2f4e66]/60 bg-[#163041]/70 px-3 py-1 text-[11px] text-[#cfe7f8] hover:bg-[#1f3f56]"
+                  >
+                    {showPollBuilder ? 'Hide Poll Builder' : 'Open Poll Builder'}
+                  </button>
                 </div>
                 {showFormattingTools ? (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                  <div className="space-y-2 rounded-xl border border-[#2f4e66]/55 bg-[#102638]/80 px-3 py-2">
+                    <div className="flex items-center justify-between gap-2 rounded-xl bg-black/20 px-3 py-2">
                       <label htmlFor="parse-mode" className="text-[11px] text-telegram-textSecondary">Parse mode</label>
                       <select
                         id="parse-mode"
                         value={composerParseMode}
                         onChange={(event) => setComposerParseMode(event.target.value as ComposerParseMode)}
-                        className="rounded-md border border-white/10 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                        className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
                       >
                         <option value="none">None</option>
                         <option value="MarkdownV2">MarkdownV2</option>
@@ -2013,11 +3071,56 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       </select>
                     </div>
                     {composerText.trim() ? (
-                      <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                      <div className="rounded-xl bg-black/20 px-3 py-2">
                         <p className="mb-1 text-[11px] text-telegram-textSecondary">Rich preview</p>
                         <div className="text-sm leading-6 break-words whitespace-pre-wrap">{renderEntityText(composerPreview.text, composerPreview.entities)}</div>
                       </div>
                     ) : null}
+                  </div>
+                ) : null}
+                {inlineTrigger ? (
+                  <div className="rounded-xl border border-[#4f7ea6]/55 bg-[#102235]/90 px-3 py-2">
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="text-[11px] text-[#a9d9ff]">
+                        Inline mode @{selectedBot?.username || 'bot'}
+                        {inlineTrigger.query ? `: ${inlineTrigger.query}` : ''}
+                      </p>
+                      <div className="text-[10px] text-[#9ad8ff]">
+                        {isInlineModeSending ? 'loading...' : (activeInlineQueryId ? `query id: ${activeInlineQueryId}` : 'awaiting query')}
+                      </div>
+                    </div>
+                    {inlineModeError ? (
+                      <p className="mb-2 text-[11px] text-amber-200">{inlineModeError}</p>
+                    ) : null}
+                    {inlineResults.length > 0 ? (
+                      <div className="space-y-1">
+                        {inlineResults.slice(0, 8).map((item, idx) => (
+                          <button
+                            key={`inline-result-${idx}`}
+                            type="button"
+                            onClick={() => void onChooseInlineResult(item)}
+                            className="block w-full rounded-md border border-white/10 bg-black/25 px-2 py-1.5 text-left text-xs text-[#d5e9f9] transition hover:border-[#85cbff]/60 hover:bg-[#1b3852]"
+                          >
+                            <div className="font-medium text-white">{String(item.title || item.id || `result_${idx + 1}`)}</div>
+                            {item.description ? (
+                              <div className="text-[11px] text-telegram-textSecondary">{String(item.description)}</div>
+                            ) : null}
+                          </button>
+                        ))}
+                        {inlineNextOffset ? (
+                          <button
+                            type="button"
+                            onClick={() => void onLoadMoreInlineResults()}
+                            disabled={isInlineModeSending}
+                            className="mt-1 block w-full rounded-md border border-[#85cbff]/40 bg-[#14314a] px-2 py-1.5 text-left text-xs text-[#d5e9f9] transition hover:bg-[#1b3f5d] disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {isInlineModeSending ? 'loading more...' : 'Load more inline results'}
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-telegram-textSecondary">Bot should answer via answerInlineQuery to show selectable results.</p>
+                    )}
                   </div>
                 ) : null}
                 {activeReplyKeyboard && activeReplyKeyboard.markup.kind === 'reply' ? (
@@ -2033,16 +3136,196 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                             <button
                               key={`rk-btn-${activeReplyKeyboard.sourceMessageId}-${rowIndex}-${buttonIndex}`}
                               type="button"
-                              onClick={() => void onReplyKeyboardButtonPress(button.text)}
-                              className="rounded-xl border border-white/20 bg-[#234666]/75 px-3 py-2 text-sm text-white transition hover:bg-[#2f5e85]"
+                              onClick={() => void onReplyKeyboardButtonPress(button)}
+                              className={`rounded-xl border px-3 py-2 text-sm transition ${keyboardButtonClass(button.style, false)}`}
                               title={button.text}
                             >
-                              <span className="line-clamp-1">{button.text}</span>
+                              <span className="inline-flex items-center gap-1.5">
+                                {button.icon_custom_emoji_id ? (
+                                  <span className="tg-premium-emoji text-[14px] leading-none" title="Premium custom emoji icon">
+                                    {premiumEmojiGlyph(button.icon_custom_emoji_id)}
+                                  </span>
+                                ) : null}
+                                <span className="line-clamp-1">{button.text}</span>
+                                {button.request_contact ? <span className="text-[11px] opacity-80">📱</span> : null}
+                                {button.request_location ? <span className="text-[11px] opacity-80">📍</span> : null}
+                                {button.request_poll ? <span className="text-[11px] opacity-80">📊</span> : null}
+                                {button.web_app ? <span className="text-[11px] opacity-80">🗔</span> : null}
+                              </span>
                             </button>
                           ))}
                         </div>
                       ))}
                     </div>
+                  </div>
+                ) : null}
+                {showPollBuilder ? (
+                  <div className="space-y-2 rounded-xl border border-[#2f4e66]/55 bg-[#102638]/80 px-3 py-2">
+                      <input
+                        value={pollBuilder.question}
+                        onChange={(event) => setPollBuilder((prev) => ({ ...prev, question: event.target.value }))}
+                        placeholder="Poll title/question"
+                        className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <select
+                          value={pollBuilder.type}
+                          onChange={(event) => setPollBuilder((prev) => ({
+                            ...prev,
+                            type: event.target.value as 'regular' | 'quiz',
+                            allowsMultipleAnswers: event.target.value === 'quiz' ? false : prev.allowsMultipleAnswers,
+                          }))}
+                          className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                        >
+                          <option value="regular">Regular</option>
+                          <option value="quiz">Quiz</option>
+                        </select>
+                        <select
+                          value={pollBuilder.isAnonymous ? 'anonymous' : 'public'}
+                          onChange={(event) => setPollBuilder((prev) => ({ ...prev, isAnonymous: event.target.value === 'anonymous' }))}
+                          className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                        >
+                          <option value="public">Public</option>
+                          <option value="anonymous">Anonymous</option>
+                        </select>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <select
+                          value={pollBuilder.questionParseMode}
+                          onChange={(event) => setPollBuilder((prev) => ({ ...prev, questionParseMode: event.target.value as ComposerParseMode }))}
+                          className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                        >
+                          <option value="none">Question mode: None</option>
+                          <option value="MarkdownV2">Question mode: MarkdownV2</option>
+                          <option value="Markdown">Question mode: Markdown</option>
+                          <option value="HTML">Question mode: HTML</option>
+                        </select>
+                        <select
+                          value={pollBuilder.optionsParseMode}
+                          onChange={(event) => setPollBuilder((prev) => ({ ...prev, optionsParseMode: event.target.value as ComposerParseMode }))}
+                          className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                        >
+                          <option value="none">Option mode: None</option>
+                          <option value="MarkdownV2">Option mode: MarkdownV2</option>
+                          <option value="Markdown">Option mode: Markdown</option>
+                          <option value="HTML">Option mode: HTML</option>
+                        </select>
+                        <select
+                          value={pollBuilder.explanationParseMode}
+                          onChange={(event) => setPollBuilder((prev) => ({ ...prev, explanationParseMode: event.target.value as ComposerParseMode }))}
+                          className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                        >
+                          <option value="none">Explain mode: None</option>
+                          <option value="MarkdownV2">Explain mode: MarkdownV2</option>
+                          <option value="Markdown">Explain mode: Markdown</option>
+                          <option value="HTML">Explain mode: HTML</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        {pollBuilder.options.map((option, index) => (
+                          <div key={`poll-builder-option-${index}`} className="flex items-center gap-1.5">
+                            <input
+                              value={option}
+                              onChange={(event) => setPollBuilder((prev) => {
+                                const nextOptions = [...prev.options];
+                                nextOptions[index] = event.target.value;
+                                return { ...prev, options: nextOptions };
+                              })}
+                              placeholder={`Option ${index + 1}`}
+                              className="flex-1 rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                            />
+                            {pollBuilder.type === 'quiz' ? (
+                              <button
+                                type="button"
+                                onClick={() => setPollBuilder((prev) => ({ ...prev, correctOptionId: index }))}
+                                className={`rounded-md border px-2 py-1 text-[11px] ${pollBuilder.correctOptionId === index ? 'border-emerald-300/60 bg-emerald-700/35 text-emerald-100' : 'border-[#355a76]/60 bg-[#163041]/70 text-white'}`}
+                              >
+                                Correct
+                              </button>
+                            ) : null}
+                            {pollBuilder.options.length > 2 ? (
+                              <button
+                                type="button"
+                                onClick={() => setPollBuilder((prev) => {
+                                  const nextOptions = prev.options.filter((_, i) => i !== index);
+                                  return {
+                                    ...prev,
+                                    options: nextOptions,
+                                    correctOptionId: Math.min(prev.correctOptionId, Math.max(nextOptions.length - 1, 0)),
+                                  };
+                                })}
+                                className="rounded-md border border-red-300/30 bg-red-600/30 px-2 py-1 text-[11px] text-red-100"
+                              >
+                                Remove
+                              </button>
+                            ) : null}
+                          </div>
+                        ))}
+                        {pollBuilder.options.length < 10 ? (
+                          <button
+                            type="button"
+                            onClick={() => setPollBuilder((prev) => ({ ...prev, options: [...prev.options, ''] }))}
+                            className="rounded-md border border-[#355a76]/60 bg-[#163041]/70 px-2 py-1 text-[11px] text-white hover:bg-[#1f3f56]"
+                          >
+                            Add option
+                          </button>
+                        ) : null}
+                      </div>
+                      {pollBuilder.type === 'quiz' ? (
+                        <textarea
+                          value={pollBuilder.explanation}
+                          onChange={(event) => setPollBuilder((prev) => ({ ...prev, explanation: event.target.value }))}
+                          placeholder="Quiz explanation"
+                          rows={2}
+                          className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                        />
+                      ) : null}
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="number"
+                          min={5}
+                          max={600}
+                          value={pollBuilder.openPeriod}
+                          onChange={(event) => setPollBuilder((prev) => ({ ...prev, openPeriod: event.target.value, closeDate: event.target.value ? '' : prev.closeDate }))}
+                          placeholder="open_period (sec)"
+                          className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                        />
+                        <input
+                          type="datetime-local"
+                          value={pollBuilder.closeDate}
+                          onChange={(event) => setPollBuilder((prev) => ({ ...prev, closeDate: event.target.value, openPeriod: event.target.value ? '' : prev.openPeriod }))}
+                          className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                        />
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3 text-[11px] text-white">
+                        <label className="inline-flex items-center gap-1">
+                          <input
+                            type="checkbox"
+                            checked={pollBuilder.type === 'quiz' ? false : pollBuilder.allowsMultipleAnswers}
+                            onChange={(event) => setPollBuilder((prev) => ({ ...prev, allowsMultipleAnswers: event.target.checked }))}
+                            disabled={pollBuilder.type === 'quiz'}
+                          />
+                          Multiple answers
+                        </label>
+                        <label className="inline-flex items-center gap-1">
+                          <input
+                            type="checkbox"
+                            checked={pollBuilder.isClosed}
+                            onChange={(event) => setPollBuilder((prev) => ({ ...prev, isClosed: event.target.checked }))}
+                          />
+                          Send closed
+                        </label>
+                      </div>
+                      <div className="flex items-center justify-end">
+                        <button
+                          type="button"
+                          onClick={() => void submitPollBuilder()}
+                          disabled={!hasStarted || isSending}
+                          className="rounded-md border border-[#2f7fb4]/60 bg-[#22567c] px-3 py-1.5 text-xs text-white hover:bg-[#2f6f9f] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Send Poll
+                        </button>
+                      </div>
                   </div>
                 ) : null}
                 <form onSubmit={onSubmitComposer} className="flex items-center gap-3">
@@ -2100,6 +3383,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             )}
 
             {errorText ? <p className="mt-2 text-xs text-red-300">{errorText}</p> : null}
+            {callbackToast ? (
+              <p className="mt-2 rounded-lg border border-[#84cfff]/35 bg-[#1c3f5c]/70 px-2 py-1 text-xs text-[#d7eeff]">
+                {callbackToast}
+              </p>
+            ) : null}
             <div className="mt-2 text-[11px] text-telegram-textSecondary">
               {isBootstrapping ? 'syncing bot profile...' : 'realtime mode active'}
             </div>
@@ -2264,7 +3552,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   <Reply className="h-4 w-4" />
                   Reply
                 </button>
-                {!target.isOutgoing ? (
+                {!target.isOutgoing && !target.isInlineOrigin && !target.viaBotUsername ? (
                   <button
                     type="button"
                     onClick={() => onEditMessage(target)}
@@ -2283,6 +3571,24 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               </>
             );
           })()}
+        </div>
+      ) : null}
+
+      {callbackModalText ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 px-4 pb-8 sm:items-center sm:pb-0">
+          <div className="w-full max-w-sm rounded-2xl border border-white/20 bg-[#182b3c] p-4 shadow-2xl">
+            <h3 className="mb-2 text-sm font-semibold text-white">Bot Notification</h3>
+            <p className="mb-4 whitespace-pre-wrap text-sm leading-6 text-[#d8ecfb]">{callbackModalText}</p>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setCallbackModalText(null)}
+                className="rounded-lg bg-[#2b5278] px-4 py-2 text-sm font-medium text-white hover:bg-[#366892]"
+              >
+                OK
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
     </div>

@@ -13,12 +13,20 @@ use std::path::Path;
 use crate::database::AppState;
 use crate::handlers::{
     dispatch_method, handle_sim_bootstrap, handle_sim_clear_history, handle_sim_create_bot,
+    handle_sim_choose_inline_result,
+    handle_sim_get_callback_query_answer,
+    handle_sim_get_inline_query_answer,
+    handle_sim_get_poll_voters,
     handle_sim_edit_user_message_media, handle_sim_send_user_media, handle_sim_send_user_message,
+    handle_sim_send_inline_query,
+    handle_sim_press_inline_button,
     handle_sim_set_user_reaction,
+    handle_sim_vote_poll,
     handle_sim_update_bot,
     handle_sim_upsert_user,
     handle_download_file,
-    SimClearHistoryRequest, SimCreateBotRequest, SimSendUserMessageRequest, SimSetUserReactionRequest, SimUpdateBotRequest,
+    SimChooseInlineResultRequest, SimClearHistoryRequest, SimCreateBotRequest, SimPressInlineButtonRequest, SimSendInlineQueryRequest, SimSendUserMessageRequest, SimSetUserReactionRequest, SimUpdateBotRequest,
+    SimVotePollRequest,
     SimUpsertUserRequest,
 };
 use crate::types::{into_telegram_response, ApiError};
@@ -159,6 +167,93 @@ pub async fn sim_set_user_reaction(
     into_telegram_response(handle_sim_set_user_reaction(&state, &token, payload.into_inner()))
 }
 
+#[post("/client-api/bot{token}/votePoll")]
+pub async fn sim_vote_poll(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimVotePollRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_vote_poll(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/pressInlineButton")]
+pub async fn sim_press_inline_button(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimPressInlineButtonRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_press_inline_button(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/sendInlineQuery")]
+pub async fn sim_send_inline_query(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimSendInlineQueryRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_send_inline_query(&state, &token, payload.into_inner()))
+}
+
+#[get("/client-api/bot{token}/inlineQueryAnswer")]
+pub async fn sim_inline_query_answer(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    query: Query<HashMap<String, String>>,
+) -> impl Responder {
+    let token = path.into_inner();
+    let inline_query_id = query
+        .get("inline_query_id")
+        .map(String::as_str)
+        .unwrap_or_default();
+    into_telegram_response(handle_sim_get_inline_query_answer(&state, &token, inline_query_id))
+}
+
+#[get("/client-api/bot{token}/callbackQueryAnswer")]
+pub async fn sim_callback_query_answer(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    query: Query<HashMap<String, String>>,
+) -> impl Responder {
+    let token = path.into_inner();
+    let callback_query_id = query
+        .get("callback_query_id")
+        .map(String::as_str)
+        .unwrap_or_default();
+    into_telegram_response(handle_sim_get_callback_query_answer(&state, &token, callback_query_id))
+}
+
+#[get("/client-api/bot{token}/pollVoters")]
+pub async fn sim_poll_voters(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    query: Query<HashMap<String, String>>,
+) -> impl Responder {
+    let token = path.into_inner();
+    let chat_id = query
+        .get("chat_id")
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or_default();
+    let message_id = query
+        .get("message_id")
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or_default();
+
+    into_telegram_response(handle_sim_get_poll_voters(&state, &token, chat_id, message_id))
+}
+
+#[post("/client-api/bot{token}/chooseInlineResult")]
+pub async fn sim_choose_inline_result(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimChooseInlineResultRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_choose_inline_result(&state, &token, payload.into_inner()))
+}
+
 #[post("/client-api/bots/create")]
 pub async fn sim_create_bot(
     state: Data<AppState>,
@@ -223,6 +318,17 @@ fn query_to_json_map(query: &HashMap<String, String>) -> HashMap<String, Value> 
 }
 
 fn guess_json_value(raw: &str) -> Value {
+    // Keep oversized integer-like tokens (e.g., callback_query_id/inline_query_id)
+    // as strings; coercing them to JSON numbers can lose precision.
+    let looks_integer = raw
+        .chars()
+        .enumerate()
+        .all(|(idx, ch)| ch.is_ascii_digit() || (idx == 0 && ch == '-'));
+    let digit_count = raw.chars().filter(|ch| ch.is_ascii_digit()).count();
+    if looks_integer && digit_count > 15 {
+        return Value::String(raw.to_string());
+    }
+
     if let Ok(v) = serde_json::from_str::<Value>(raw) {
         return v;
     }

@@ -1,3 +1,21 @@
+import type {
+  CallbackQuery as GeneratedCallbackQuery,
+  ChosenInlineResult as GeneratedChosenInlineResult,
+  InlineKeyboardButton as GeneratedInlineKeyboardButton,
+  InlineKeyboardMarkup as GeneratedInlineKeyboardMarkup,
+  InlineQuery as GeneratedInlineQuery,
+  InlineQueryResult as GeneratedInlineQueryResult,
+  KeyboardButton as GeneratedKeyboardButton,
+  Message as GeneratedMessage,
+  MessageEntity as GeneratedMessageEntity,
+  Poll as GeneratedPoll,
+  MessageReactionCountUpdated as GeneratedMessageReactionCountUpdated,
+  MessageReactionUpdated as GeneratedMessageReactionUpdated,
+  ReplyKeyboardMarkup as GeneratedReplyKeyboardMarkup,
+  ReplyKeyboardRemove as GeneratedReplyKeyboardRemove,
+  Update as GeneratedUpdate,
+} from './generated/types';
+
 export interface ChatItem {
   id: number;
   title: string;
@@ -31,6 +49,9 @@ export interface ChatMessage {
   isOutgoing: boolean;
   fromName: string;
   fromUserId: number;
+  isInlineOrigin?: boolean;
+  viaBotUsername?: string;
+  poll?: GeneratedPoll;
   media?: {
     type: 'photo' | 'video' | 'audio' | 'voice' | 'document';
     fileId: string;
@@ -56,108 +77,42 @@ export interface ChatMessage {
   actorReactions?: Record<string, string[]>;
 }
 
-export interface ReplyKeyboardButton {
-  text: string;
-  request_contact?: boolean;
-  request_location?: boolean;
-  request_poll?: {
-    type?: string;
-  };
-}
-
-export interface ReplyKeyboardMarkup {
-  keyboard: ReplyKeyboardButton[][];
-  is_persistent?: boolean;
-  resize_keyboard?: boolean;
-  one_time_keyboard?: boolean;
-  input_field_placeholder?: string;
-  selective?: boolean;
-}
-
-export interface ReplyKeyboardRemove {
-  remove_keyboard: boolean;
-  selective?: boolean;
-}
+export type ReplyKeyboardButton = GeneratedKeyboardButton;
+export type ReplyKeyboardMarkup = GeneratedReplyKeyboardMarkup;
+export type ReplyKeyboardRemove = GeneratedReplyKeyboardRemove;
+export type InlineKeyboardButton = GeneratedInlineKeyboardButton;
+export type InlineKeyboardMarkup = GeneratedInlineKeyboardMarkup;
+export type InlineQueryResult = GeneratedInlineQueryResult;
 
 export type BotReplyMarkup =
   | ({ kind: 'reply' } & ReplyKeyboardMarkup)
+  | ({ kind: 'inline' } & InlineKeyboardMarkup)
   | ({ kind: 'remove' } & ReplyKeyboardRemove)
   | ({ kind: 'other'; raw: Record<string, unknown> });
 
-export interface MessageEntity {
-  type: string;
-  offset: number;
-  length: number;
-  url?: string;
-  language?: string;
-}
+export type MessageEntity = GeneratedMessageEntity;
 
-interface BotApiFileRef {
-  file_id: string;
-  file_unique_id: string;
-  file_size?: number;
-  mime_type?: string;
-  file_name?: string;
-}
-
-export interface BotUpdateMessage {
-  message_id: number;
-  date: number;
-  edit_date?: number;
-  text?: string;
-  caption?: string;
-  chat: {
-    id: number;
-    type: string;
-  };
-  from?: {
-    id: number;
-    is_bot: boolean;
-    first_name: string;
-    username?: string;
-  };
-  photo?: BotApiFileRef[];
-  video?: BotApiFileRef;
-  audio?: BotApiFileRef;
-  voice?: BotApiFileRef;
-  document?: BotApiFileRef;
-  media_group_id?: string;
+export type BotUpdateMessage = Omit<GeneratedMessage, 'reply_markup' | 'reply_to_message'> & {
   reply_markup?: Record<string, unknown>;
   reply_to_message?: BotUpdateMessage;
-  entities?: MessageEntity[];
-  caption_entities?: MessageEntity[];
-}
+};
 
-export interface BotUpdate {
-  update_id: number;
+export type BotUpdate = Omit<GeneratedUpdate,
+  'message'
+  | 'edited_message'
+  | 'inline_query'
+  | 'callback_query'
+  | 'chosen_inline_result'
+  | 'message_reaction'
+  | 'message_reaction_count'
+> & {
   message?: BotUpdateMessage;
   edited_message?: BotUpdateMessage;
-  message_reaction?: {
-    chat: {
-      id: number;
-      type: string;
-    };
-    message_id: number;
-    user?: {
-      id: number;
-      is_bot: boolean;
-      first_name: string;
-      username?: string;
-    };
-    date: number;
-    old_reaction: Array<{ type: 'emoji'; emoji: string }>;
-    new_reaction: Array<{ type: 'emoji'; emoji: string }>;
+  inline_query?: GeneratedInlineQuery;
+  callback_query?: Omit<GeneratedCallbackQuery, 'message'> & {
+    message?: BotUpdateMessage;
   };
-  message_reaction_count?: {
-    chat: {
-      id: number;
-      type: string;
-    };
-    message_id: number;
-    date: number;
-    reactions: Array<{
-      type: { type: 'emoji'; emoji: string };
-      total_count: number;
-    }>;
-  };
-}
+  chosen_inline_result?: GeneratedChosenInlineResult;
+  message_reaction?: GeneratedMessageReactionUpdated;
+  message_reaction_count?: GeneratedMessageReactionCountUpdated;
+};

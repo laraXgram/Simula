@@ -11,12 +11,12 @@ use std::time::Duration;
 
 use crate::database::{ensure_bot, ensure_chat, lock_db, AppState};
 use crate::generated::methods::{
-    DeleteMessageRequest, DeleteMessagesRequest, DeleteWebhookRequest, EditMessageCaptionRequest,
-    EditMessageMediaRequest, EditMessageTextRequest, GetFileRequest, GetMeRequest,
+    AnswerCallbackQueryRequest, AnswerInlineQueryRequest, DeleteMessageRequest, DeleteMessagesRequest, DeleteWebhookRequest, EditMessageCaptionRequest,
+    EditMessageMediaRequest, EditMessageReplyMarkupRequest, EditMessageTextRequest, GetFileRequest, GetMeRequest,
     GetUpdatesRequest, SendAudioRequest, SendDocumentRequest, SendMediaGroupRequest,
-    SendMessageRequest, SendPhotoRequest, SendVideoRequest, SendVoiceRequest, SetMessageReactionRequest, SetWebhookRequest,
+    SendMessageRequest, SendPhotoRequest, SendPollRequest, SendVideoRequest, SendVoiceRequest, SetMessageReactionRequest, SetWebhookRequest, StopPollRequest,
 };
-use crate::generated::types::{Chat, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Update, User};
+use crate::generated::types::{CallbackQuery, Chat, ChosenInlineResult, InlineKeyboardMarkup, InlineQuery, MaybeInaccessibleMessage, Message, MessageReactionCountUpdated, MessageReactionUpdated, Poll, PollAnswer, PollOption, ReactionCount, ReactionType, ReplyKeyboardMarkup, ReplyKeyboardRemove, Update, User};
 use crate::types::{strip_nulls, ApiError, ApiResult};
 
 #[derive(Deserialize)]
@@ -87,6 +87,113 @@ pub struct SimSetUserReactionRequest {
     pub reaction: Option<Vec<Value>>,
 }
 
+#[derive(Deserialize)]
+pub struct SimPressInlineButtonRequest {
+    pub chat_id: i64,
+    pub message_id: i64,
+    pub user_id: Option<i64>,
+    pub first_name: Option<String>,
+    pub username: Option<String>,
+    pub callback_data: String,
+}
+
+#[derive(Deserialize)]
+pub struct SimSendInlineQueryRequest {
+    pub chat_id: Option<i64>,
+    pub user_id: Option<i64>,
+    pub first_name: Option<String>,
+    pub username: Option<String>,
+    pub query: String,
+    pub offset: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct SimChooseInlineResultRequest {
+    pub inline_query_id: String,
+    pub result_id: String,
+}
+
+#[derive(Deserialize)]
+pub struct SimVotePollRequest {
+    pub chat_id: i64,
+    pub message_id: i64,
+    pub user_id: Option<i64>,
+    pub first_name: Option<String>,
+    pub username: Option<String>,
+    pub option_ids: Vec<i64>,
+}
+
+pub fn handle_sim_get_poll_voters(
+    state: &Data<AppState>,
+    token: &str,
+    chat_id: i64,
+    message_id: i64,
+) -> ApiResult {
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let chat_key = chat_id.to_string();
+
+    let row: Option<(String, i64)> = conn
+        .query_row(
+            "SELECT id, is_anonymous FROM polls WHERE bot_id = ?1 AND chat_key = ?2 AND message_id = ?3",
+            params![bot.id, chat_key, message_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    let Some((poll_id, is_anonymous)) = row else {
+        return Err(ApiError::not_found("poll not found"));
+    };
+
+    if is_anonymous == 1 {
+        return Ok(json!({
+            "poll_id": poll_id,
+            "anonymous": true,
+            "voters": [],
+        }));
+    }
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT v.voter_user_id, u.first_name, u.username, v.option_ids_json
+             FROM poll_votes v
+             LEFT JOIN users u ON u.id = v.voter_user_id
+             WHERE v.poll_id = ?1
+             ORDER BY v.updated_at ASC",
+        )
+        .map_err(ApiError::internal)?;
+
+    let rows = stmt
+        .query_map(params![poll_id.clone()], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, String>(3)?,
+            ))
+        })
+        .map_err(ApiError::internal)?;
+
+    let mut voters = Vec::new();
+    for row in rows {
+        let (user_id, first_name, username, option_ids_json) = row.map_err(ApiError::internal)?;
+        let option_ids: Vec<i64> = serde_json::from_str(&option_ids_json).unwrap_or_default();
+        voters.push(json!({
+            "user_id": user_id,
+            "first_name": first_name.unwrap_or_else(|| "User".to_string()),
+            "username": username,
+            "option_ids": option_ids,
+        }));
+    }
+
+    Ok(json!({
+        "poll_id": poll_id,
+        "anonymous": false,
+        "voters": voters,
+    }))
+}
+
 
 pub fn dispatch_method(
     state: &Data<AppState>,
@@ -102,10 +209,12 @@ pub fn dispatch_method(
         "senddocument" => handle_send_document(state, token, &params),
         "sendvideo" => handle_send_video(state, token, &params),
         "sendvoice" => handle_send_voice(state, token, &params),
+        "sendpoll" => handle_send_poll(state, token, &params),
         "sendmediagroup" => handle_send_media_group(state, token, &params),
         "editmessagetext" => handle_edit_message_text(state, token, &params),
         "editmessagecaption" => handle_edit_message_caption(state, token, &params),
         "editmessagemedia" => handle_edit_message_media(state, token, &params),
+        "editmessagereplymarkup" => handle_edit_message_reply_markup(state, token, &params),
         "deletemessage" => handle_delete_message(state, token, &params),
         "deletemessages" => handle_delete_messages(state, token, &params),
         "getfile" => handle_get_file(state, token, &params),
@@ -113,8 +222,88 @@ pub fn dispatch_method(
         "setwebhook" => handle_set_webhook(state, token, &params),
         "deletewebhook" => handle_delete_webhook(state, token, &params),
         "setmessagereaction" => handle_set_message_reaction(state, token, &params),
+        "stoppoll" => handle_stop_poll(state, token, &params),
+        "answercallbackquery" => handle_answer_callback_query(state, token, &params),
+        "answerinlinequery" => handle_answer_inline_query(state, token, &params),
         _ => Err(ApiError::not_found(format!("method {} not found", method))),
     }
+}
+
+fn handle_answer_callback_query(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let mut normalized = params.clone();
+    if let Some(raw) = params.get("show_alert") {
+        if let Some(loose) = value_to_optional_bool_loose(raw) {
+            normalized.insert("show_alert".to_string(), Value::Bool(loose));
+        }
+    }
+
+    let request: AnswerCallbackQueryRequest = parse_request(&normalized)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let callback_row: Option<String> = conn
+        .query_row(
+            "SELECT id FROM callback_queries WHERE id = ?1 AND bot_id = ?2",
+            params![request.callback_query_id, bot.id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    if callback_row.is_none() {
+        return Err(ApiError::not_found("callback query not found"));
+    }
+
+    let now = Utc::now().timestamp();
+    let answer_payload = serde_json::to_value(&request).map_err(ApiError::internal)?;
+
+    conn.execute(
+        "UPDATE callback_queries SET answered_at = ?1, answer_json = ?2 WHERE id = ?3 AND bot_id = ?4",
+        params![now, answer_payload.to_string(), request.callback_query_id, bot.id],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_answer_inline_query(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: AnswerInlineQueryRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let exists: Option<String> = conn
+        .query_row(
+            "SELECT id FROM inline_queries WHERE id = ?1 AND bot_id = ?2",
+            params![request.inline_query_id, bot.id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    if exists.is_none() {
+        return Err(ApiError::not_found("inline query not found"));
+    }
+
+    let now = Utc::now().timestamp();
+    let answer_payload = serde_json::to_value(&request).map_err(ApiError::internal)?;
+
+    conn.execute(
+        "UPDATE inline_queries SET answered_at = ?1, answer_json = ?2 WHERE id = ?3 AND bot_id = ?4",
+        params![now, answer_payload.to_string(), request.inline_query_id, bot.id],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
 }
 
 fn handle_get_me(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
@@ -450,6 +639,267 @@ fn handle_send_voice(state: &Data<AppState>, token: &str, params: &HashMap<Strin
     )
 }
 
+fn handle_send_poll(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: SendPollRequest = parse_request(params)?;
+    let explicit_question_entities = request
+        .question_entities
+        .as_ref()
+        .and_then(|v| serde_json::to_value(v).ok());
+    let (question, question_entities) = parse_formatted_text(
+        &request.question,
+        request.question_parse_mode.as_deref(),
+        explicit_question_entities,
+    );
+
+    if question.trim().is_empty() {
+        return Err(ApiError::bad_request("question is empty"));
+    }
+    if question.chars().count() > 300 {
+        return Err(ApiError::bad_request("question is too long"));
+    }
+
+    if request.options.len() < 2 || request.options.len() > 10 {
+        return Err(ApiError::bad_request("options must include 2-10 items"));
+    }
+
+    if request.open_period.is_some() && request.close_date.is_some() {
+        return Err(ApiError::bad_request("open_period and close_date are mutually exclusive"));
+    }
+
+    if let Some(open_period) = request.open_period {
+        if !(5..=600).contains(&open_period) {
+            return Err(ApiError::bad_request("open_period must be between 5 and 600"));
+        }
+    }
+
+    let now = Utc::now().timestamp();
+    if let Some(close_date) = request.close_date {
+        let delta = close_date - now;
+        if !(5..=600).contains(&delta) {
+            return Err(ApiError::bad_request("close_date must be 5-600 seconds in the future"));
+        }
+    }
+
+    let poll_type = request
+        .type_param
+        .clone()
+        .unwrap_or_else(|| "regular".to_string());
+    if poll_type != "regular" && poll_type != "quiz" {
+        return Err(ApiError::bad_request("poll type must be regular or quiz"));
+    }
+
+    let allows_multiple_answers = request.allows_multiple_answers.unwrap_or(false);
+    if poll_type == "quiz" && allows_multiple_answers {
+        return Err(ApiError::bad_request("quiz poll cannot allow multiple answers"));
+    }
+
+    let correct_option_id = request.correct_option_id;
+    if poll_type == "quiz" {
+        let Some(correct_idx) = correct_option_id else {
+            return Err(ApiError::bad_request("quiz poll requires correct_option_id"));
+        };
+        if correct_idx < 0 || correct_idx >= request.options.len() as i64 {
+            return Err(ApiError::bad_request("correct_option_id out of range"));
+        }
+    } else if correct_option_id.is_some() {
+        return Err(ApiError::bad_request("correct_option_id is allowed only for quiz polls"));
+    }
+
+    let explicit_explanation_entities = request
+        .explanation_entities
+        .as_ref()
+        .and_then(|v| serde_json::to_value(v).ok());
+    let (explanation, explanation_entities) = parse_optional_formatted_text(
+        request.explanation.as_deref(),
+        request.explanation_parse_mode.as_deref(),
+        explicit_explanation_entities,
+    );
+
+    if poll_type == "quiz" {
+        if let Some(exp) = explanation.as_ref() {
+            if exp.chars().count() > 200 {
+                return Err(ApiError::bad_request("explanation is too long"));
+            }
+        }
+    }
+
+    let mut poll_options: Vec<PollOption> = Vec::with_capacity(request.options.len());
+    for item in &request.options {
+        let explicit_option_entities = item
+            .text_entities
+            .as_ref()
+            .and_then(|v| serde_json::to_value(v).ok());
+        let (option_text, option_entities) = parse_formatted_text(
+            &item.text,
+            item.text_parse_mode.as_deref(),
+            explicit_option_entities,
+        );
+
+        if option_text.trim().is_empty() {
+            return Err(ApiError::bad_request("poll option text is empty"));
+        }
+        if option_text.chars().count() > 100 {
+            return Err(ApiError::bad_request("poll option text is too long"));
+        }
+
+        let text_entities = option_entities
+            .and_then(|value| serde_json::from_value(value).ok());
+
+        poll_options.push(PollOption {
+            text: option_text,
+            text_entities,
+            voter_count: 0,
+        });
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let chat_key = value_to_chat_key(&request.chat_id)?;
+    ensure_chat(&mut conn, &chat_key)?;
+
+    let reply_markup = handle_reply_markup_state(
+        &mut conn,
+        bot.id,
+        &chat_key,
+        request.reply_markup.as_ref(),
+    )?;
+
+    conn.execute(
+        "INSERT INTO messages (bot_id, chat_key, from_user_id, text, date) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![bot.id, chat_key, bot.id, question, now],
+    )
+    .map_err(ApiError::internal)?;
+
+    let message_id = conn.last_insert_rowid();
+
+    let poll_id = generate_telegram_numeric_id();
+    let poll = Poll {
+        id: poll_id.clone(),
+        question,
+        question_entities: question_entities
+            .clone()
+            .and_then(|value| serde_json::from_value(value).ok()),
+        options: poll_options.clone(),
+        total_voter_count: 0,
+        is_closed: request.is_closed.unwrap_or(false),
+        is_anonymous: request.is_anonymous.unwrap_or(true),
+        r#type: poll_type,
+        allows_multiple_answers,
+        correct_option_id,
+        explanation,
+        explanation_entities: explanation_entities
+            .clone()
+            .and_then(|value| serde_json::from_value(value).ok()),
+        open_period: request.open_period,
+        close_date: request.close_date,
+    };
+
+    conn.execute(
+        "INSERT INTO polls (id, bot_id, chat_key, message_id, question, options_json, total_voter_count, is_closed, is_anonymous, poll_type, allows_multiple_answers, correct_option_id, explanation, open_period, close_date, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+        params![
+            poll.id,
+            bot.id,
+            chat_key,
+            message_id,
+            poll.question,
+            serde_json::to_string(&poll.options).map_err(ApiError::internal)?,
+            poll.total_voter_count,
+            if poll.is_closed { 1 } else { 0 },
+            if poll.is_anonymous { 1 } else { 0 },
+            poll.r#type,
+            if poll.allows_multiple_answers { 1 } else { 0 },
+            poll.correct_option_id,
+            poll.explanation,
+            poll.open_period,
+            poll.close_date,
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    conn.execute(
+        "INSERT OR REPLACE INTO poll_metadata (poll_id, question_entities_json, explanation_entities_json)
+         VALUES (?1, ?2, ?3)",
+        params![
+            poll.id,
+            question_entities
+                .as_ref()
+                .and_then(Value::as_array)
+                .map(|_| question_entities.as_ref().unwrap().to_string()),
+            explanation_entities
+                .as_ref()
+                .and_then(Value::as_array)
+                .map(|_| explanation_entities.as_ref().unwrap().to_string()),
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    let mut message_value = load_message_value(&mut conn, &bot, message_id)?;
+    message_value["poll"] = serde_json::to_value(&poll).map_err(ApiError::internal)?;
+    message_value.as_object_mut().map(|obj| obj.remove("text"));
+    message_value.as_object_mut().map(|obj| obj.remove("edit_date"));
+
+    if let Some(markup) = reply_markup {
+        message_value["reply_markup"] = markup;
+    }
+
+    if let Some(reply_parameters) = request.reply_parameters {
+        let reply_chat_key = match reply_parameters.chat_id {
+            Some(ref value) => value_to_chat_key(value).unwrap_or_else(|_| chat_key.clone()),
+            None => chat_key.clone(),
+        };
+
+        if let Ok(reply_value) = load_message_value(&mut conn, &bot, reply_parameters.message_id) {
+            let belongs_to_chat = reply_value
+                .get("chat")
+                .and_then(|v| v.get("id"))
+                .and_then(Value::as_i64)
+                .map(|chat_id| chat_id.to_string() == reply_chat_key)
+                .unwrap_or(false);
+
+            if belongs_to_chat {
+                message_value["reply_to_message"] = reply_value;
+            } else if !reply_parameters.allow_sending_without_reply.unwrap_or(false) {
+                return Err(ApiError::bad_request("replied message not found"));
+            }
+        } else if !reply_parameters.allow_sending_without_reply.unwrap_or(false) {
+            return Err(ApiError::bad_request("replied message not found"));
+        }
+    }
+
+    let update_value = serde_json::to_value(Update {
+        update_id: 0,
+        message: Some(serde_json::from_value(message_value.clone()).map_err(ApiError::internal)?),
+        edited_message: None,
+        channel_post: None,
+        edited_channel_post: None,
+        business_connection: None,
+        business_message: None,
+        edited_business_message: None,
+        deleted_business_messages: None,
+        message_reaction: None,
+        message_reaction_count: None,
+        inline_query: None,
+        chosen_inline_result: None,
+        callback_query: None,
+        shipping_query: None,
+        pre_checkout_query: None,
+        purchased_paid_media: None,
+        poll: None,
+        poll_answer: None,
+        my_chat_member: None,
+        chat_member: None,
+        chat_join_request: None,
+        chat_boost: None,
+        removed_chat_boost: None,
+    })
+    .map_err(ApiError::internal)?;
+
+    persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
+    Ok(message_value)
+}
+
 fn handle_send_media_group(
     state: &Data<AppState>,
     token: &str,
@@ -500,7 +950,7 @@ fn handle_send_media_group(
         ));
     }
 
-    let media_group_id = format!("mg_{}", uuid::Uuid::new_v4().simple());
+    let media_group_id = generate_telegram_numeric_id();
     let mut result = Vec::with_capacity(request.media.len());
 
     for raw_item in &request.media {
@@ -655,6 +1105,439 @@ fn handle_get_file(state: &Data<AppState>, token: &str, params: &HashMap<String,
         "file_size": file_size,
         "file_path": file_path
     }))
+}
+
+fn handle_stop_poll(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: StopPollRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let chat_key = value_to_chat_key(&request.chat_id)?;
+
+    let row: Option<(String, String, String, i64, i64, i64, String, i64, Option<i64>, Option<String>, Option<i64>, Option<i64>, Option<String>, Option<String>)> = conn
+        .query_row(
+            "SELECT p.id, p.question, p.options_json, p.total_voter_count, p.is_closed, p.is_anonymous, p.poll_type, p.allows_multiple_answers, p.correct_option_id, p.explanation, p.open_period, p.close_date,
+                    m.question_entities_json, m.explanation_entities_json
+             FROM polls p
+             LEFT JOIN poll_metadata m ON m.poll_id = p.id
+             WHERE p.bot_id = ?1 AND p.chat_key = ?2 AND p.message_id = ?3",
+            params![bot.id, chat_key, request.message_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?)),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    let Some((poll_id, question, options_json, total_voter_count, _is_closed, is_anonymous, poll_type, allows_multiple_answers, correct_option_id, explanation, open_period, close_date, question_entities_json, explanation_entities_json)) = row else {
+        return Err(ApiError::not_found("poll not found"));
+    };
+
+    conn.execute(
+        "UPDATE polls SET is_closed = 1 WHERE id = ?1 AND bot_id = ?2",
+        params![poll_id, bot.id],
+    )
+    .map_err(ApiError::internal)?;
+
+    let options: Vec<PollOption> = serde_json::from_str(&options_json).map_err(ApiError::internal)?;
+    let question_entities = question_entities_json
+        .as_deref()
+        .and_then(|raw| serde_json::from_str(raw).ok());
+    let explanation_entities = explanation_entities_json
+        .as_deref()
+        .and_then(|raw| serde_json::from_str(raw).ok());
+    let poll = Poll {
+        id: poll_id,
+        question,
+        question_entities,
+        options,
+        total_voter_count,
+        is_closed: true,
+        is_anonymous: is_anonymous == 1,
+        r#type: poll_type,
+        allows_multiple_answers: allows_multiple_answers == 1,
+        correct_option_id,
+        explanation,
+        explanation_entities,
+        open_period,
+        close_date,
+    };
+
+    let mut edited_message = load_message_value(&mut conn, &bot, request.message_id)?;
+    edited_message["poll"] = serde_json::to_value(&poll).map_err(ApiError::internal)?;
+    edited_message.as_object_mut().map(|obj| obj.remove("text"));
+    apply_inline_reply_markup(&mut edited_message, request.reply_markup);
+
+    publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
+    Ok(edited_message)
+}
+
+pub fn handle_auto_close_due_polls(state: &Data<AppState>) -> Result<(), ApiError> {
+    let now = Utc::now().timestamp();
+    let mut conn = lock_db(state)?;
+
+    let due_rows: Vec<(i64, String, String, String, String, i64, i64, String, i64, Option<i64>, Option<String>, Option<i64>, Option<i64>, Option<String>, Option<String>)> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT p.bot_id, b.token, p.id, p.question, p.options_json, p.total_voter_count, p.is_anonymous, p.poll_type,
+                        p.allows_multiple_answers, p.correct_option_id, p.explanation, p.open_period, p.close_date,
+                        m.question_entities_json, m.explanation_entities_json
+                 FROM polls p
+                 INNER JOIN bots b ON b.id = p.bot_id
+                 LEFT JOIN poll_metadata m ON m.poll_id = p.id
+                 WHERE p.is_closed = 0
+                 AND (
+                    (p.close_date IS NOT NULL AND p.close_date <= ?1)
+                    OR
+                    (p.open_period IS NOT NULL AND p.created_at + p.open_period <= ?1)
+                 )",
+            )
+            .map_err(ApiError::internal)?;
+
+        let rows = stmt
+            .query_map(params![now], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, i64>(5)?,
+                    r.get::<_, i64>(6)?,
+                    r.get::<_, String>(7)?,
+                    r.get::<_, i64>(8)?,
+                    r.get::<_, Option<i64>>(9)?,
+                    r.get::<_, Option<String>>(10)?,
+                    r.get::<_, Option<i64>>(11)?,
+                    r.get::<_, Option<i64>>(12)?,
+                    r.get::<_, Option<String>>(13)?,
+                    r.get::<_, Option<String>>(14)?,
+                ))
+            })
+            .map_err(ApiError::internal)?;
+
+        let mut collected = Vec::new();
+        for row in rows {
+            collected.push(row.map_err(ApiError::internal)?);
+        }
+        collected
+    };
+
+    for (
+        bot_id,
+        token,
+        poll_id,
+        question,
+        options_json,
+        total_voter_count,
+        is_anonymous,
+        poll_type,
+        allows_multiple_answers,
+        correct_option_id,
+        explanation,
+        open_period,
+        close_date,
+        question_entities_json,
+        explanation_entities_json,
+    ) in due_rows
+    {
+        conn.execute(
+            "UPDATE polls SET is_closed = 1 WHERE id = ?1 AND bot_id = ?2 AND is_closed = 0",
+            params![poll_id, bot_id],
+        )
+        .map_err(ApiError::internal)?;
+
+        let options: Vec<PollOption> = serde_json::from_str(&options_json).map_err(ApiError::internal)?;
+        let poll = Poll {
+            id: poll_id,
+            question,
+            question_entities: question_entities_json
+                .as_deref()
+                .and_then(|raw| serde_json::from_str(raw).ok()),
+            options,
+            total_voter_count,
+            is_closed: true,
+            is_anonymous: is_anonymous == 1,
+            r#type: poll_type,
+            allows_multiple_answers: allows_multiple_answers == 1,
+            correct_option_id,
+            explanation,
+            explanation_entities: explanation_entities_json
+                .as_deref()
+                .and_then(|raw| serde_json::from_str(raw).ok()),
+            open_period,
+            close_date,
+        };
+
+        let update_value = serde_json::to_value(Update {
+            update_id: 0,
+            message: None,
+            edited_message: None,
+            channel_post: None,
+            edited_channel_post: None,
+            business_connection: None,
+            business_message: None,
+            edited_business_message: None,
+            deleted_business_messages: None,
+            message_reaction: None,
+            message_reaction_count: None,
+            inline_query: None,
+            chosen_inline_result: None,
+            callback_query: None,
+            shipping_query: None,
+            pre_checkout_query: None,
+            purchased_paid_media: None,
+            poll: Some(poll),
+            poll_answer: None,
+            my_chat_member: None,
+            chat_member: None,
+            chat_join_request: None,
+            chat_boost: None,
+            removed_chat_boost: None,
+        })
+        .map_err(ApiError::internal)?;
+
+        persist_and_dispatch_update(state, &mut conn, &token, bot_id, update_value)?;
+    }
+
+    Ok(())
+}
+
+pub fn handle_sim_vote_poll(
+    state: &Data<AppState>,
+    token: &str,
+    body: SimVotePollRequest,
+) -> ApiResult {
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let user = ensure_user(&mut conn, body.user_id, body.first_name, body.username)?;
+    let chat_key = body.chat_id.to_string();
+
+    let row: Option<(String, String, String, i64, i64, i64, String, i64, Option<i64>, Option<String>, Option<i64>, Option<i64>, i64, Option<String>, Option<String>)> = conn
+        .query_row(
+            "SELECT p.id, p.question, p.options_json, p.total_voter_count, p.is_closed, p.is_anonymous, p.poll_type, p.allows_multiple_answers, p.correct_option_id, p.explanation, p.open_period, p.close_date, p.created_at,
+                    m.question_entities_json, m.explanation_entities_json
+             FROM polls p
+             LEFT JOIN poll_metadata m ON m.poll_id = p.id
+             WHERE p.bot_id = ?1 AND p.chat_key = ?2 AND p.message_id = ?3",
+            params![bot.id, chat_key, body.message_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?, r.get(14)?)),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    let Some((poll_id, question, options_json, _total_voter_count, is_closed, is_anonymous, poll_type, allows_multiple_answers, correct_option_id, explanation, open_period, close_date, created_at, question_entities_json, explanation_entities_json)) = row else {
+        return Err(ApiError::not_found("poll not found"));
+    };
+
+    let now = Utc::now().timestamp();
+    let auto_closed = close_date.map(|ts| now >= ts).unwrap_or(false)
+        || open_period.map(|p| now >= created_at + p).unwrap_or(false);
+
+    if is_closed == 1 || auto_closed {
+        if auto_closed && is_closed == 0 {
+            conn.execute(
+                "UPDATE polls SET is_closed = 1 WHERE id = ?1 AND bot_id = ?2",
+                params![poll_id, bot.id],
+            )
+            .map_err(ApiError::internal)?;
+        }
+        return Err(ApiError::bad_request("poll is closed"));
+    }
+
+    if poll_type == "quiz" {
+        if body.option_ids.is_empty() {
+            return Err(ApiError::bad_request("quiz polls do not allow vote retraction"));
+        }
+        if body.option_ids.len() != 1 {
+            return Err(ApiError::bad_request("quiz polls accept exactly one option"));
+        }
+
+        let existing_vote: Option<String> = conn
+            .query_row(
+                "SELECT option_ids_json FROM poll_votes WHERE poll_id = ?1 AND voter_user_id = ?2",
+                params![poll_id, user.id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(ApiError::internal)?;
+
+        if existing_vote.is_some() {
+            return Err(ApiError::bad_request("quiz vote is final and cannot be changed"));
+        }
+    }
+
+    let mut options: Vec<PollOption> = serde_json::from_str(&options_json).map_err(ApiError::internal)?;
+    let max_index = options.len() as i64;
+    if body.option_ids.iter().any(|v| *v < 0 || *v >= max_index) {
+        return Err(ApiError::bad_request("option_ids contains invalid index"));
+    }
+
+    if allows_multiple_answers == 0 && body.option_ids.len() > 1 {
+        return Err(ApiError::bad_request("poll accepts only one option"));
+    }
+
+    if poll_type == "quiz" && allows_multiple_answers == 1 {
+        return Err(ApiError::bad_request("quiz poll cannot allow multiple answers"));
+    }
+
+    if body.option_ids.is_empty() {
+        conn.execute(
+            "DELETE FROM poll_votes WHERE poll_id = ?1 AND voter_user_id = ?2",
+            params![poll_id, user.id],
+        )
+        .map_err(ApiError::internal)?;
+    } else {
+        conn.execute(
+            "INSERT OR REPLACE INTO poll_votes (poll_id, voter_user_id, option_ids_json, updated_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![
+                poll_id,
+                user.id,
+                serde_json::to_string(&body.option_ids).map_err(ApiError::internal)?,
+                Utc::now().timestamp(),
+            ],
+        )
+        .map_err(ApiError::internal)?;
+    }
+
+    let (total_voter_count, counts) = {
+        let mut total_voter_count: i64 = 0;
+        let mut counts = vec![0i64; options.len()];
+        let mut stmt = conn
+            .prepare("SELECT option_ids_json FROM poll_votes WHERE poll_id = ?1")
+            .map_err(ApiError::internal)?;
+        let rows = stmt
+            .query_map(params![poll_id], |r| r.get::<_, String>(0))
+            .map_err(ApiError::internal)?;
+
+        for row in rows {
+            let raw = row.map_err(ApiError::internal)?;
+            let ids: Vec<i64> = serde_json::from_str(&raw).unwrap_or_default();
+            total_voter_count += 1;
+            for id in ids {
+                if let Some(slot) = counts.get_mut(id as usize) {
+                    *slot += 1;
+                }
+            }
+        }
+
+        (total_voter_count, counts)
+    };
+
+    for (idx, option) in options.iter_mut().enumerate() {
+        option.voter_count = counts[idx];
+    }
+
+    conn.execute(
+        "UPDATE polls SET options_json = ?1, total_voter_count = ?2 WHERE id = ?3",
+        params![serde_json::to_string(&options).map_err(ApiError::internal)?, total_voter_count, poll_id],
+    )
+    .map_err(ApiError::internal)?;
+
+    let poll = Poll {
+        id: poll_id.clone(),
+        question,
+        question_entities: question_entities_json
+            .as_deref()
+            .and_then(|raw| serde_json::from_str(raw).ok()),
+        options,
+        total_voter_count,
+        is_closed: false,
+        is_anonymous: is_anonymous == 1,
+        r#type: poll_type,
+        allows_multiple_answers: allows_multiple_answers == 1,
+        correct_option_id,
+        explanation,
+        explanation_entities: explanation_entities_json
+            .as_deref()
+            .and_then(|raw| serde_json::from_str(raw).ok()),
+        open_period,
+        close_date,
+    };
+
+    let poll_update = serde_json::to_value(Update {
+        update_id: 0,
+        message: None,
+        edited_message: None,
+        channel_post: None,
+        edited_channel_post: None,
+        business_connection: None,
+        business_message: None,
+        edited_business_message: None,
+        deleted_business_messages: None,
+        message_reaction: None,
+        message_reaction_count: None,
+        inline_query: None,
+        chosen_inline_result: None,
+        callback_query: None,
+        shipping_query: None,
+        pre_checkout_query: None,
+        purchased_paid_media: None,
+        poll: Some(poll.clone()),
+        poll_answer: None,
+        my_chat_member: None,
+        chat_member: None,
+        chat_join_request: None,
+        chat_boost: None,
+        removed_chat_boost: None,
+    })
+    .map_err(ApiError::internal)?;
+    persist_and_dispatch_update(state, &mut conn, token, bot.id, poll_update)?;
+
+    if is_anonymous == 1 {
+        return Ok(serde_json::to_value(true).map_err(ApiError::internal)?);
+    }
+
+    let poll_answer_update = serde_json::to_value(Update {
+        update_id: 0,
+        message: None,
+        edited_message: None,
+        channel_post: None,
+        edited_channel_post: None,
+        business_connection: None,
+        business_message: None,
+        edited_business_message: None,
+        deleted_business_messages: None,
+        message_reaction: None,
+        message_reaction_count: None,
+        inline_query: None,
+        chosen_inline_result: None,
+        callback_query: None,
+        shipping_query: None,
+        pre_checkout_query: None,
+        purchased_paid_media: None,
+        poll: None,
+        poll_answer: Some(PollAnswer {
+            poll_id,
+            voter_chat: None,
+            user: Some(User {
+                id: user.id,
+                is_bot: false,
+                first_name: user.first_name,
+                last_name: None,
+                username: user.username,
+                language_code: None,
+                is_premium: None,
+                added_to_attachment_menu: None,
+                can_join_groups: None,
+                can_read_all_group_messages: None,
+                supports_inline_queries: None,
+                can_connect_to_business: None,
+                has_main_web_app: None,
+                has_topics_enabled: None,
+                allows_users_to_create_topics: None,
+            }),
+            option_ids: body.option_ids,
+        }),
+        my_chat_member: None,
+        chat_member: None,
+        chat_join_request: None,
+        chat_boost: None,
+        removed_chat_boost: None,
+    })
+    .map_err(ApiError::internal)?;
+    persist_and_dispatch_update(state, &mut conn, token, bot.id, poll_answer_update)?;
+
+    Ok(serde_json::to_value(true).map_err(ApiError::internal)?)
 }
 
 fn send_media_message(
@@ -924,8 +1807,8 @@ fn store_binary_file(
     source: Option<String>,
 ) -> Result<StoredFile, ApiError> {
     let now = Utc::now().timestamp();
-    let file_id = format!("file_{}", uuid::Uuid::new_v4().simple());
-    let file_unique_id = uuid::Uuid::new_v4().simple().to_string();
+    let file_id = generate_telegram_file_id("file");
+    let file_unique_id = generate_telegram_file_unique_id();
     let file_path = format!("media/{}/{}", bot_id, file_id);
 
     let base_dir = media_storage_root();
@@ -1700,6 +2583,509 @@ pub fn handle_sim_set_user_reaction(
     )
 }
 
+pub fn handle_sim_press_inline_button(
+    state: &Data<AppState>,
+    token: &str,
+    body: SimPressInlineButtonRequest,
+) -> ApiResult {
+    if body.callback_data.trim().is_empty() {
+        return Err(ApiError::bad_request("callback_data is empty"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let user = ensure_user(&mut conn, body.user_id, body.first_name, body.username)?;
+
+    let chat_key = body.chat_id.to_string();
+    let message_value = load_message_value(&mut conn, &bot, body.message_id)?;
+
+    let exists: Option<i64> = conn
+        .query_row(
+            "SELECT message_id FROM messages WHERE bot_id = ?1 AND chat_key = ?2 AND message_id = ?3",
+            params![bot.id, chat_key, body.message_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    if exists.is_none() {
+        return Err(ApiError::not_found("message not found"));
+    }
+
+    let callback_query_id = generate_telegram_numeric_id();
+    let now = Utc::now().timestamp();
+
+    let callback_from = User {
+        id: user.id,
+        is_bot: false,
+        first_name: user.first_name.clone(),
+        last_name: None,
+        username: user.username.clone(),
+        language_code: None,
+        is_premium: None,
+        added_to_attachment_menu: None,
+        can_join_groups: None,
+        can_read_all_group_messages: None,
+        supports_inline_queries: None,
+        can_connect_to_business: None,
+        has_main_web_app: None,
+        has_topics_enabled: None,
+        allows_users_to_create_topics: None,
+    };
+
+    let is_inline_origin = message_value
+        .get("via_bot")
+        .and_then(|v| v.get("id"))
+        .and_then(Value::as_i64)
+        == Some(bot.id);
+
+    let inline_message_id = if is_inline_origin {
+        let existing: Option<String> = conn
+            .query_row(
+                "SELECT inline_message_id FROM inline_messages WHERE bot_id = ?1 AND chat_key = ?2 AND message_id = ?3",
+                params![bot.id, chat_key, body.message_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(ApiError::internal)?;
+
+        if let Some(existing_id) = existing {
+            Some(existing_id)
+        } else {
+            let generated = generate_telegram_numeric_id();
+            conn.execute(
+                "INSERT OR REPLACE INTO inline_messages (inline_message_id, bot_id, chat_key, message_id, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![generated, bot.id, chat_key, body.message_id, now],
+            )
+            .map_err(ApiError::internal)?;
+            Some(generated)
+        }
+    } else {
+        None
+    };
+
+    let callback_message: Option<MaybeInaccessibleMessage> = if inline_message_id.is_some() {
+        None
+    } else {
+        Some(serde_json::from_value(message_value).map_err(ApiError::internal)?)
+    };
+
+    let callback_query = CallbackQuery {
+        id: callback_query_id.clone(),
+        from: callback_from,
+        message: callback_message,
+        inline_message_id,
+        chat_instance: generate_telegram_numeric_id(),
+        data: Some(body.callback_data.clone()),
+        game_short_name: None,
+    };
+
+    conn.execute(
+        "INSERT INTO callback_queries (id, bot_id, chat_key, message_id, from_user_id, data, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![callback_query_id, bot.id, chat_key, body.message_id, user.id, body.callback_data, now],
+    )
+    .map_err(ApiError::internal)?;
+
+    let update_value = serde_json::to_value(Update {
+        update_id: 0,
+        message: None,
+        edited_message: None,
+        channel_post: None,
+        edited_channel_post: None,
+        business_connection: None,
+        business_message: None,
+        edited_business_message: None,
+        deleted_business_messages: None,
+        message_reaction: None,
+        message_reaction_count: None,
+        inline_query: None,
+        chosen_inline_result: None,
+        callback_query: Some(callback_query),
+        shipping_query: None,
+        pre_checkout_query: None,
+        purchased_paid_media: None,
+        poll: None,
+        poll_answer: None,
+        my_chat_member: None,
+        chat_member: None,
+        chat_join_request: None,
+        chat_boost: None,
+        removed_chat_boost: None,
+    })
+    .map_err(ApiError::internal)?;
+
+    persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
+
+    Ok(json!({
+        "ok": true,
+        "callback_query_id": callback_query_id,
+    }))
+}
+
+pub fn handle_sim_send_inline_query(
+    state: &Data<AppState>,
+    token: &str,
+    body: SimSendInlineQueryRequest,
+) -> ApiResult {
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let user = ensure_user(&mut conn, body.user_id, body.first_name, body.username)?;
+
+    let chat_id = body.chat_id.unwrap_or(user.id);
+    let chat_key = chat_id.to_string();
+    ensure_chat(&mut conn, &chat_key)?;
+
+    let inline_query_id = generate_telegram_numeric_id();
+    let now = Utc::now().timestamp();
+    let query_text = body.query;
+    let offset = body.offset.unwrap_or_default();
+
+    let inline_from = User {
+        id: user.id,
+        is_bot: false,
+        first_name: user.first_name.clone(),
+        last_name: None,
+        username: user.username.clone(),
+        language_code: None,
+        is_premium: None,
+        added_to_attachment_menu: None,
+        can_join_groups: None,
+        can_read_all_group_messages: None,
+        supports_inline_queries: None,
+        can_connect_to_business: None,
+        has_main_web_app: None,
+        has_topics_enabled: None,
+        allows_users_to_create_topics: None,
+    };
+
+    let inline_query = InlineQuery {
+        id: inline_query_id.clone(),
+        from: inline_from,
+        query: query_text.clone(),
+        offset: offset.clone(),
+        chat_type: Some("private".to_string()),
+        location: None,
+    };
+
+    conn.execute(
+        "INSERT INTO inline_queries (id, bot_id, chat_key, from_user_id, query, offset, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            inline_query_id,
+            bot.id,
+            chat_key,
+            user.id,
+            query_text,
+            offset,
+            now
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    let update_value = serde_json::to_value(Update {
+        update_id: 0,
+        message: None,
+        edited_message: None,
+        channel_post: None,
+        edited_channel_post: None,
+        business_connection: None,
+        business_message: None,
+        edited_business_message: None,
+        deleted_business_messages: None,
+        message_reaction: None,
+        message_reaction_count: None,
+        inline_query: Some(inline_query.clone()),
+        chosen_inline_result: None,
+        callback_query: None,
+        shipping_query: None,
+        pre_checkout_query: None,
+        purchased_paid_media: None,
+        poll: None,
+        poll_answer: None,
+        my_chat_member: None,
+        chat_member: None,
+        chat_join_request: None,
+        chat_boost: None,
+        removed_chat_boost: None,
+    })
+    .map_err(ApiError::internal)?;
+
+    persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
+
+    Ok(json!({
+        "inline_query_id": inline_query_id,
+    }))
+}
+
+pub fn handle_sim_get_inline_query_answer(
+    state: &Data<AppState>,
+    token: &str,
+    inline_query_id: &str,
+) -> ApiResult {
+    if inline_query_id.trim().is_empty() {
+        return Err(ApiError::bad_request("inline_query_id is required"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let row: Option<(Option<String>, Option<i64>)> = conn
+        .query_row(
+            "SELECT answer_json, answered_at FROM inline_queries WHERE id = ?1 AND bot_id = ?2",
+            params![inline_query_id, bot.id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    let Some((answer_json, answered_at)) = row else {
+        return Err(ApiError::not_found("inline query not found"));
+    };
+
+    let parsed = answer_json
+        .as_deref()
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok());
+
+    Ok(json!({
+        "inline_query_id": inline_query_id,
+        "answered": answered_at.is_some(),
+        "answered_at": answered_at,
+        "answer": parsed,
+    }))
+}
+
+pub fn handle_sim_get_callback_query_answer(
+    state: &Data<AppState>,
+    token: &str,
+    callback_query_id: &str,
+) -> ApiResult {
+    if callback_query_id.trim().is_empty() {
+        return Err(ApiError::bad_request("callback_query_id is required"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let row: Option<(Option<String>, Option<i64>)> = conn
+        .query_row(
+            "SELECT answer_json, answered_at FROM callback_queries WHERE id = ?1 AND bot_id = ?2",
+            params![callback_query_id, bot.id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    let Some((answer_json, answered_at)) = row else {
+        return Err(ApiError::not_found("callback query not found"));
+    };
+
+    let parsed = answer_json
+        .as_deref()
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok());
+
+    Ok(json!({
+        "callback_query_id": callback_query_id,
+        "answered": answered_at.is_some(),
+        "answered_at": answered_at,
+        "answer": parsed,
+    }))
+}
+
+pub fn handle_sim_choose_inline_result(
+    state: &Data<AppState>,
+    token: &str,
+    body: SimChooseInlineResultRequest,
+) -> ApiResult {
+    if body.inline_query_id.trim().is_empty() {
+        return Err(ApiError::bad_request("inline_query_id is required"));
+    }
+    if body.result_id.trim().is_empty() {
+        return Err(ApiError::bad_request("result_id is required"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let row: Option<(String, i64, String, Option<String>)> = conn
+        .query_row(
+            "SELECT chat_key, from_user_id, query, answer_json FROM inline_queries WHERE id = ?1 AND bot_id = ?2",
+            params![body.inline_query_id, bot.id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    let Some((chat_key, from_user_id, query_text, answer_json)) = row else {
+        return Err(ApiError::not_found("inline query not found"));
+    };
+
+    let answer_value: Value = answer_json
+        .as_deref()
+        .and_then(|raw| serde_json::from_str(raw).ok())
+        .ok_or_else(|| ApiError::bad_request("inline query has no answer yet"))?;
+
+    let results = answer_value
+        .get("results")
+        .and_then(Value::as_array)
+        .ok_or_else(|| ApiError::bad_request("inline query answer has no results"))?;
+
+    let selected = results
+        .iter()
+        .find(|item| item.get("id").and_then(Value::as_str) == Some(body.result_id.as_str()))
+        .or_else(|| results.first())
+        .ok_or_else(|| ApiError::bad_request("inline query answer has empty results"))?;
+
+    let message_text = selected
+        .get("input_message_content")
+        .and_then(|c| c.get("message_text"))
+        .and_then(Value::as_str)
+        .map(|v| v.to_string())
+        .or_else(|| selected.get("title").and_then(Value::as_str).map(|v| v.to_string()))
+        .or_else(|| selected.get("description").and_then(Value::as_str).map(|v| v.to_string()))
+        .unwrap_or_else(|| "inline result".to_string());
+
+    ensure_chat(&mut conn, &chat_key)?;
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO messages (bot_id, chat_key, from_user_id, text, date) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![bot.id, chat_key, from_user_id, message_text, now],
+    )
+    .map_err(ApiError::internal)?;
+
+    let message_id = conn.last_insert_rowid();
+    let chat_id = chat_key
+        .parse::<i64>()
+        .unwrap_or_else(|_| fallback_chat_id(&chat_key));
+
+    let user_info: Option<(String, Option<String>)> = conn
+        .query_row(
+            "SELECT first_name, username FROM users WHERE id = ?1",
+            params![from_user_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+    let (first_name, username) = user_info.unwrap_or_else(|| ("User".to_string(), None));
+
+    let message_payload = json!({
+        "message_id": message_id,
+        "date": now,
+        "chat": {
+            "id": chat_id,
+            "type": "private"
+        },
+        "from": {
+            "id": from_user_id,
+            "is_bot": false,
+            "first_name": first_name,
+            "username": username
+        },
+        "text": message_text,
+        "via_bot": {
+            "id": bot.id,
+            "is_bot": true,
+            "first_name": bot.first_name,
+            "username": bot.username
+        }
+    });
+    let message_for_update: Message = serde_json::from_value(message_payload).map_err(ApiError::internal)?;
+    let message_update = serde_json::to_value(Update {
+        update_id: 0,
+        message: Some(message_for_update),
+        edited_message: None,
+        channel_post: None,
+        edited_channel_post: None,
+        business_connection: None,
+        business_message: None,
+        edited_business_message: None,
+        deleted_business_messages: None,
+        message_reaction: None,
+        message_reaction_count: None,
+        inline_query: None,
+        chosen_inline_result: None,
+        callback_query: None,
+        shipping_query: None,
+        pre_checkout_query: None,
+        purchased_paid_media: None,
+        poll: None,
+        poll_answer: None,
+        my_chat_member: None,
+        chat_member: None,
+        chat_join_request: None,
+        chat_boost: None,
+        removed_chat_boost: None,
+    })
+    .map_err(ApiError::internal)?;
+    persist_and_dispatch_update(state, &mut conn, token, bot.id, message_update)?;
+
+    let chosen_from = User {
+        id: from_user_id,
+        is_bot: false,
+        first_name: first_name.clone(),
+        last_name: None,
+        username: username.clone(),
+        language_code: None,
+        is_premium: None,
+        added_to_attachment_menu: None,
+        can_join_groups: None,
+        can_read_all_group_messages: None,
+        supports_inline_queries: None,
+        can_connect_to_business: None,
+        has_main_web_app: None,
+        has_topics_enabled: None,
+        allows_users_to_create_topics: None,
+    };
+    let inline_message_id = generate_telegram_numeric_id();
+    conn.execute(
+        "INSERT OR REPLACE INTO inline_messages (inline_message_id, bot_id, chat_key, message_id, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![inline_message_id, bot.id, chat_key, message_id, now],
+    )
+    .map_err(ApiError::internal)?;
+
+    let chosen_inline_result_update = serde_json::to_value(Update {
+        update_id: 0,
+        message: None,
+        edited_message: None,
+        channel_post: None,
+        edited_channel_post: None,
+        business_connection: None,
+        business_message: None,
+        edited_business_message: None,
+        deleted_business_messages: None,
+        message_reaction: None,
+        message_reaction_count: None,
+        inline_query: None,
+        chosen_inline_result: Some(ChosenInlineResult {
+            result_id: body.result_id.clone(),
+            from: chosen_from,
+            location: None,
+            inline_message_id: Some(inline_message_id),
+            query: query_text,
+        }),
+        callback_query: None,
+        shipping_query: None,
+        pre_checkout_query: None,
+        purchased_paid_media: None,
+        poll: None,
+        poll_answer: None,
+        my_chat_member: None,
+        chat_member: None,
+        chat_join_request: None,
+        chat_boost: None,
+        removed_chat_boost: None,
+    })
+    .map_err(ApiError::internal)?;
+    persist_and_dispatch_update(state, &mut conn, token, bot.id, chosen_inline_result_update)?;
+
+    Ok(json!({
+        "message_id": message_id,
+        "result_id": body.result_id,
+    }))
+}
+
 fn handle_get_updates(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: GetUpdatesRequest = parse_request(params)?;
 
@@ -1761,57 +3147,64 @@ fn handle_get_updates(state: &Data<AppState>, token: &str, params: &HashMap<Stri
     Ok(Value::Array(updates))
 }
 
-fn handle_edit_message_text(
-    state: &Data<AppState>,
-    token: &str,
-    params: &HashMap<String, Value>,
-) -> ApiResult {
-    let request: EditMessageTextRequest = parse_request(params)?;
-    let Some(chat_id) = request.chat_id else {
+fn resolve_edit_target(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    chat_id: Option<Value>,
+    message_id: Option<i64>,
+    inline_message_id: Option<String>,
+    method_name: &str,
+) -> Result<(String, i64, bool), ApiError> {
+    if let Some(inline_id) = inline_message_id {
+        let trimmed = inline_id.trim();
+        if trimmed.is_empty() {
+            return Err(ApiError::bad_request("inline_message_id is empty"));
+        }
+
+        let row: Option<(String, i64)> = conn
+            .query_row(
+                "SELECT chat_key, message_id FROM inline_messages WHERE inline_message_id = ?1 AND bot_id = ?2",
+                params![trimmed, bot_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(ApiError::internal)?;
+
+        if let Some((chat_key, resolved_message_id)) = row {
+            return Ok((chat_key, resolved_message_id, true));
+        }
+
+        return Err(ApiError::not_found(format!(
+            "{} inline_message_id not found",
+            method_name
+        )));
+    }
+
+    let Some(chat) = chat_id else {
         return Err(ApiError::bad_request("chat_id is required"));
     };
-    let Some(message_id) = request.message_id else {
+    let Some(msg_id) = message_id else {
         return Err(ApiError::bad_request("message_id is required"));
     };
 
-    let explicit_entities = request
-        .entities
-        .as_ref()
-        .and_then(|v| serde_json::to_value(v).ok());
-    let (parsed_text, parsed_entities) = parse_formatted_text(
-        &request.text,
-        request.parse_mode.as_deref(),
-        explicit_entities,
-    );
+    let chat_key = value_to_chat_key(&chat)?;
+    Ok((chat_key, msg_id, false))
+}
 
-    if parsed_text.trim().is_empty() {
-        return Err(ApiError::bad_request("text is empty"));
-    }
+fn publish_edited_message_update(
+    state: &Data<AppState>,
+    conn: &mut rusqlite::Connection,
+    token: &str,
+    bot_id: i64,
+    edited_message: &Value,
+) -> Result<(), ApiError> {
+    let mut edited_with_timestamp = edited_message.clone();
+    edited_with_timestamp["edit_date"] = Value::from(Utc::now().timestamp());
 
-    let mut conn = lock_db(state)?;
-    let bot = ensure_bot(&mut conn, token)?;
-    let chat_key = value_to_chat_key(&chat_id)?;
-
-    let updated = conn
-        .execute(
-            "UPDATE messages SET text = ?1 WHERE bot_id = ?2 AND chat_key = ?3 AND message_id = ?4",
-            params![parsed_text, bot.id, chat_key, message_id],
-        )
-        .map_err(ApiError::internal)?;
-
-    if updated == 0 {
-        return Err(ApiError::not_found("message to edit was not found"));
-    }
-
-    let mut edited_message = load_message_value(&mut conn, &bot, message_id)?;
-    if let Some(entities) = parsed_entities {
-        edited_message["entities"] = entities;
-    }
-
-    let update_stub = Update {
+    let update_value = serde_json::to_value(Update {
         update_id: 0,
         message: None,
-        edited_message: serde_json::from_value(edited_message.clone()).ok(),
+        edited_message: Some(serde_json::from_value(edited_with_timestamp).map_err(ApiError::internal)?),
         channel_post: None,
         edited_channel_post: None,
         business_connection: None,
@@ -1833,30 +3226,68 @@ fn handle_edit_message_text(
         chat_join_request: None,
         chat_boost: None,
         removed_chat_boost: None,
-    };
-
-    conn.execute(
-        "INSERT INTO updates (bot_id, update_json) VALUES (?1, ?2)",
-        params![bot.id, serde_json::to_string(&update_stub).map_err(ApiError::internal)?],
-    )
+    })
     .map_err(ApiError::internal)?;
 
-    let update_id = conn.last_insert_rowid();
-    let mut update_value = serde_json::to_value(update_stub).map_err(ApiError::internal)?;
-    update_value["update_id"] = json!(update_id);
-    update_value["edited_message"] = edited_message.clone();
+    persist_and_dispatch_update(state, conn, token, bot_id, update_value)
+}
 
-    conn.execute(
-        "UPDATE updates SET update_json = ?1 WHERE update_id = ?2",
-        params![update_value.to_string(), update_id],
-    )
-    .map_err(ApiError::internal)?;
+fn handle_edit_message_text(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: EditMessageTextRequest = parse_request(params)?;
 
-    let clean_update = strip_nulls(update_value);
-    state.ws_hub.publish_json(token, &clean_update);
-    dispatch_webhook_if_configured(&mut conn, bot.id, clean_update);
+    let explicit_entities = request
+        .entities
+        .as_ref()
+        .and_then(|v| serde_json::to_value(v).ok());
+    let (parsed_text, parsed_entities) = parse_formatted_text(
+        &request.text,
+        request.parse_mode.as_deref(),
+        explicit_entities,
+    );
 
-    Ok(edited_message)
+    if parsed_text.trim().is_empty() {
+        return Err(ApiError::bad_request("text is empty"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let (chat_key, message_id, via_inline_message) = resolve_edit_target(
+        &mut conn,
+        bot.id,
+        request.chat_id.clone(),
+        request.message_id,
+        request.inline_message_id.clone(),
+        "editMessageText",
+    )?;
+
+    let updated = conn
+        .execute(
+            "UPDATE messages SET text = ?1 WHERE bot_id = ?2 AND chat_key = ?3 AND message_id = ?4",
+            params![parsed_text, bot.id, chat_key, message_id],
+        )
+        .map_err(ApiError::internal)?;
+
+    if updated == 0 {
+        return Err(ApiError::not_found("message to edit was not found"));
+    }
+
+    let mut edited_message = load_message_value(&mut conn, &bot, message_id)?;
+    apply_inline_reply_markup(&mut edited_message, request.reply_markup);
+    if let Some(entities) = parsed_entities {
+        edited_message["entities"] = entities;
+    }
+
+    publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
+
+    if via_inline_message {
+        Ok(json!(true))
+    } else {
+        Ok(edited_message)
+    }
 }
 
 fn handle_edit_message_media(
@@ -1865,12 +3296,6 @@ fn handle_edit_message_media(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: EditMessageMediaRequest = parse_request(params)?;
-    let Some(chat_id) = request.chat_id else {
-        return Err(ApiError::bad_request("chat_id is required"));
-    };
-    let Some(message_id) = request.message_id else {
-        return Err(ApiError::bad_request("message_id is required"));
-    };
 
     let media_obj = request
         .media
@@ -1898,7 +3323,14 @@ fn handle_edit_message_media(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let chat_key = value_to_chat_key(&chat_id)?;
+    let (chat_key, message_id, via_inline_message) = resolve_edit_target(
+        &mut conn,
+        bot.id,
+        request.chat_id.clone(),
+        request.message_id,
+        request.inline_message_id.clone(),
+        "editMessageMedia",
+    )?;
 
     let exists: Option<i64> = conn
         .query_row(
@@ -1973,6 +3405,7 @@ fn handle_edit_message_media(
     }
 
     edited_message[media_type.as_str()] = media_payload;
+    apply_inline_reply_markup(&mut edited_message, request.reply_markup);
     if let Some(c) = caption {
         edited_message["caption"] = Value::String(c.clone());
         conn.execute(
@@ -1988,55 +3421,13 @@ fn handle_edit_message_media(
     }
     edited_message.as_object_mut().map(|obj| obj.remove("text"));
 
-    let update_stub = Update {
-        update_id: 0,
-        message: None,
-        edited_message: serde_json::from_value(edited_message.clone()).ok(),
-        channel_post: None,
-        edited_channel_post: None,
-        business_connection: None,
-        business_message: None,
-        edited_business_message: None,
-        deleted_business_messages: None,
-        message_reaction: None,
-        message_reaction_count: None,
-        inline_query: None,
-        chosen_inline_result: None,
-        callback_query: None,
-        shipping_query: None,
-        pre_checkout_query: None,
-        purchased_paid_media: None,
-        poll: None,
-        poll_answer: None,
-        my_chat_member: None,
-        chat_member: None,
-        chat_join_request: None,
-        chat_boost: None,
-        removed_chat_boost: None,
-    };
+    publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
 
-    conn.execute(
-        "INSERT INTO updates (bot_id, update_json) VALUES (?1, ?2)",
-        params![bot.id, serde_json::to_string(&update_stub).map_err(ApiError::internal)?],
-    )
-    .map_err(ApiError::internal)?;
-
-    let update_id = conn.last_insert_rowid();
-    let mut update_value = serde_json::to_value(update_stub).map_err(ApiError::internal)?;
-    update_value["update_id"] = json!(update_id);
-    update_value["edited_message"] = edited_message.clone();
-
-    conn.execute(
-        "UPDATE updates SET update_json = ?1 WHERE update_id = ?2",
-        params![update_value.to_string(), update_id],
-    )
-    .map_err(ApiError::internal)?;
-
-    let clean_update = strip_nulls(update_value);
-    state.ws_hub.publish_json(token, &clean_update);
-    dispatch_webhook_if_configured(&mut conn, bot.id, clean_update);
-
-    Ok(edited_message)
+    if via_inline_message {
+        Ok(json!(true))
+    } else {
+        Ok(edited_message)
+    }
 }
 
 fn handle_edit_message_caption(
@@ -2045,12 +3436,6 @@ fn handle_edit_message_caption(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: EditMessageCaptionRequest = parse_request(params)?;
-    let Some(chat_id) = request.chat_id else {
-        return Err(ApiError::bad_request("chat_id is required"));
-    };
-    let Some(message_id) = request.message_id else {
-        return Err(ApiError::bad_request("message_id is required"));
-    };
 
     let explicit_entities = request
         .caption_entities
@@ -2064,7 +3449,14 @@ fn handle_edit_message_caption(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let chat_key = value_to_chat_key(&chat_id)?;
+    let (chat_key, message_id, via_inline_message) = resolve_edit_target(
+        &mut conn,
+        bot.id,
+        request.chat_id.clone(),
+        request.message_id,
+        request.inline_message_id.clone(),
+        "editMessageCaption",
+    )?;
 
     let exists: Option<i64> = conn
         .query_row(
@@ -2085,6 +3477,7 @@ fn handle_edit_message_caption(
             "message has no media caption to edit; use editMessageText",
         ));
     }
+    apply_inline_reply_markup(&mut edited_message, request.reply_markup);
 
     let new_caption = parsed_caption.unwrap_or_default();
     conn.execute(
@@ -2103,55 +3496,66 @@ fn handle_edit_message_caption(
     }
     edited_message.as_object_mut().map(|obj| obj.remove("text"));
 
-    let update_stub = Update {
-        update_id: 0,
-        message: None,
-        edited_message: serde_json::from_value(edited_message.clone()).ok(),
-        channel_post: None,
-        edited_channel_post: None,
-        business_connection: None,
-        business_message: None,
-        edited_business_message: None,
-        deleted_business_messages: None,
-        message_reaction: None,
-        message_reaction_count: None,
-        inline_query: None,
-        chosen_inline_result: None,
-        callback_query: None,
-        shipping_query: None,
-        pre_checkout_query: None,
-        purchased_paid_media: None,
-        poll: None,
-        poll_answer: None,
-        my_chat_member: None,
-        chat_member: None,
-        chat_join_request: None,
-        chat_boost: None,
-        removed_chat_boost: None,
-    };
+    publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
 
-    conn.execute(
-        "INSERT INTO updates (bot_id, update_json) VALUES (?1, ?2)",
-        params![bot.id, serde_json::to_string(&update_stub).map_err(ApiError::internal)?],
-    )
-    .map_err(ApiError::internal)?;
+    if via_inline_message {
+        Ok(json!(true))
+    } else {
+        Ok(edited_message)
+    }
+}
 
-    let update_id = conn.last_insert_rowid();
-    let mut update_value = serde_json::to_value(update_stub).map_err(ApiError::internal)?;
-    update_value["update_id"] = json!(update_id);
-    update_value["edited_message"] = edited_message.clone();
+fn handle_edit_message_reply_markup(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: EditMessageReplyMarkupRequest = parse_request(params)?;
 
-    conn.execute(
-        "UPDATE updates SET update_json = ?1 WHERE update_id = ?2",
-        params![update_value.to_string(), update_id],
-    )
-    .map_err(ApiError::internal)?;
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let (chat_key, message_id, via_inline_message) = resolve_edit_target(
+        &mut conn,
+        bot.id,
+        request.chat_id.clone(),
+        request.message_id,
+        request.inline_message_id.clone(),
+        "editMessageReplyMarkup",
+    )?;
 
-    let clean_update = strip_nulls(update_value);
-    state.ws_hub.publish_json(token, &clean_update);
-    dispatch_webhook_if_configured(&mut conn, bot.id, clean_update);
+    let exists: Option<i64> = conn
+        .query_row(
+            "SELECT message_id FROM messages WHERE bot_id = ?1 AND chat_key = ?2 AND message_id = ?3",
+            params![bot.id, chat_key, message_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
 
-    Ok(edited_message)
+    if exists.is_none() {
+        return Err(ApiError::not_found("message to edit was not found"));
+    }
+
+    let mut edited_message = load_message_value(&mut conn, &bot, message_id)?;
+    apply_inline_reply_markup(&mut edited_message, request.reply_markup);
+
+    publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
+
+    if via_inline_message {
+        Ok(json!(true))
+    } else {
+        Ok(edited_message)
+    }
+}
+
+fn apply_inline_reply_markup(target: &mut Value, reply_markup: Option<InlineKeyboardMarkup>) {
+    if let Some(markup) = reply_markup {
+        if let Ok(value) = serde_json::to_value(markup) {
+            target["reply_markup"] = value;
+        }
+    } else {
+        target.as_object_mut().map(|obj| obj.remove("reply_markup"));
+    }
 }
 
 fn handle_delete_message(
@@ -2268,6 +3672,30 @@ fn handle_delete_webhook(state: &Data<AppState>, token: &str, params: &HashMap<S
 fn parse_request<T: DeserializeOwned>(params: &HashMap<String, Value>) -> Result<T, ApiError> {
     let object = Map::from_iter(params.iter().map(|(k, v)| (k.clone(), v.clone())));
     serde_json::from_value(Value::Object(object)).map_err(|err| ApiError::bad_request(err.to_string()))
+}
+
+fn value_to_optional_bool_loose(value: &Value) -> Option<bool> {
+    match value {
+        Value::Bool(v) => Some(*v),
+        Value::Number(n) => {
+            if n.as_i64() == Some(1) {
+                Some(true)
+            } else if n.as_i64() == Some(0) {
+                Some(false)
+            } else {
+                None
+            }
+        }
+        Value::String(raw) => {
+            let normalized = raw.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "1" | "true" | "yes" | "on" => Some(true),
+                "0" | "false" | "no" | "off" | "" => Some(false),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
 }
 
 fn value_to_optional_string(value: &Value) -> Option<String> {
@@ -2960,7 +4388,7 @@ fn apply_message_reaction_change(
     }
 
     let count_payload = {
-        let mut counts: HashMap<String, (Value, i64)> = HashMap::new();
+        let mut counts: HashMap<String, (ReactionType, i64)> = HashMap::new();
         let mut stmt = conn
             .prepare(
                 "SELECT reactions_json FROM message_reactions
@@ -2976,50 +4404,113 @@ fn apply_message_reaction_change(
             if let Ok(reactions) = serde_json::from_str::<Vec<Value>>(&raw) {
                 for reaction in reactions {
                     let key = serde_json::to_string(&reaction).map_err(ApiError::internal)?;
-                    let entry = counts.entry(key).or_insert((reaction, 0));
+                    let reaction_type: ReactionType =
+                        serde_json::from_value(reaction).map_err(ApiError::internal)?;
+                    let entry = counts.entry(key).or_insert((reaction_type, 0));
                     entry.1 += 1;
                 }
             }
         }
 
-        let mut payload = Vec::<Value>::new();
+        let mut payload = Vec::<ReactionCount>::new();
         for (_, (reaction_type, total_count)) in counts {
-            payload.push(json!({
-                "type": reaction_type,
-                "total_count": total_count,
-            }));
+            payload.push(ReactionCount {
+                r#type: reaction_type,
+                total_count,
+            });
         }
         payload
     };
 
-    let chat = json!({
-        "id": chat_id,
-        "type": "private",
-    });
+    let chat = Chat {
+        id: chat_id,
+        r#type: "private".to_string(),
+        title: None,
+        username: None,
+        first_name: None,
+        last_name: None,
+        is_forum: None,
+        is_direct_messages: None,
+    };
+    let old_reaction_types: Vec<ReactionType> = old_reaction
+        .into_iter()
+        .map(|value| serde_json::from_value(value).map_err(ApiError::internal))
+        .collect::<Result<Vec<_>, _>>()?;
+    let new_reaction_types: Vec<ReactionType> = new_reaction
+        .into_iter()
+        .map(|value| serde_json::from_value(value).map_err(ApiError::internal))
+        .collect::<Result<Vec<_>, _>>()?;
 
-    let reaction_update = json!({
-        "update_id": 0,
-        "message_reaction": {
-            "chat": chat.clone(),
-            "message_id": message_id,
-            "user": actor,
-            "date": now,
-            "old_reaction": old_reaction,
-            "new_reaction": new_reaction,
-        }
-    });
+    let reaction_update = serde_json::to_value(Update {
+        update_id: 0,
+        message: None,
+        edited_message: None,
+        channel_post: None,
+        edited_channel_post: None,
+        business_connection: None,
+        business_message: None,
+        edited_business_message: None,
+        deleted_business_messages: None,
+        message_reaction: Some(MessageReactionUpdated {
+            chat: chat.clone(),
+            message_id,
+            user: Some(actor),
+            actor_chat: None,
+            date: now,
+            old_reaction: old_reaction_types,
+            new_reaction: new_reaction_types,
+        }),
+        message_reaction_count: None,
+        inline_query: None,
+        chosen_inline_result: None,
+        callback_query: None,
+        shipping_query: None,
+        pre_checkout_query: None,
+        purchased_paid_media: None,
+        poll: None,
+        poll_answer: None,
+        my_chat_member: None,
+        chat_member: None,
+        chat_join_request: None,
+        chat_boost: None,
+        removed_chat_boost: None,
+    })
+    .map_err(ApiError::internal)?;
 
     persist_and_dispatch_update(state, conn, token, bot.id, reaction_update)?;
 
-    let reaction_count_update = json!({
-        "update_id": 0,
-        "message_reaction_count": {
-            "chat": chat,
-            "message_id": message_id,
-            "date": now,
-            "reactions": count_payload,
-        }
-    });
+    let reaction_count_update = serde_json::to_value(Update {
+        update_id: 0,
+        message: None,
+        edited_message: None,
+        channel_post: None,
+        edited_channel_post: None,
+        business_connection: None,
+        business_message: None,
+        edited_business_message: None,
+        deleted_business_messages: None,
+        message_reaction: None,
+        message_reaction_count: Some(MessageReactionCountUpdated {
+            chat,
+            message_id,
+            date: now,
+            reactions: count_payload,
+        }),
+        inline_query: None,
+        chosen_inline_result: None,
+        callback_query: None,
+        shipping_query: None,
+        pre_checkout_query: None,
+        purchased_paid_media: None,
+        poll: None,
+        poll_answer: None,
+        my_chat_member: None,
+        chat_member: None,
+        chat_join_request: None,
+        chat_boost: None,
+        removed_chat_boost: None,
+    })
+    .map_err(ApiError::internal)?;
 
     persist_and_dispatch_update(state, conn, token, bot.id, reaction_count_update)?;
 
@@ -3109,7 +4600,7 @@ fn load_message_value(
 
     message["message_id"] = Value::from(message_id);
     message["date"] = Value::from(date);
-    message["edit_date"] = Value::from(Utc::now().timestamp());
+    message.as_object_mut().map(|obj| obj.remove("edit_date"));
     message["chat"] = json!({
         "id": chat_id,
         "type": "private"
@@ -3370,6 +4861,38 @@ fn token_suffix(token: &str) -> String {
         .chars()
         .rev()
         .collect()
+}
+
+fn generate_telegram_numeric_id() -> String {
+    let ts = Utc::now().timestamp_micros().unsigned_abs();
+    let bytes = uuid::Uuid::new_v4().as_bytes().to_vec();
+    let mut mix: u64 = 0;
+    for b in bytes.iter().take(8) {
+        mix = (mix << 8) | u64::from(*b);
+    }
+    format!("{}{}", ts, mix % 1_000_000)
+}
+
+fn generate_telegram_file_id(kind: &str) -> String {
+    use sha2::{Digest, Sha256};
+
+    let raw = format!("{}:{}:{}", kind, Utc::now().timestamp_nanos_opt().unwrap_or_default(), uuid::Uuid::new_v4());
+    let mut hasher = Sha256::new();
+    hasher.update(raw.as_bytes());
+    let digest = hasher.finalize();
+    let hexed = hex::encode(digest);
+    format!("AgACAgQAAxk{}", &hexed[..48])
+}
+
+fn generate_telegram_file_unique_id() -> String {
+    use sha2::{Digest, Sha256};
+
+    let raw = format!("{}:{}", Utc::now().timestamp_micros(), uuid::Uuid::new_v4());
+    let mut hasher = Sha256::new();
+    hasher.update(raw.as_bytes());
+    let digest = hasher.finalize();
+    let hexed = hex::encode(digest);
+    format!("AQAD{}", &hexed[..24])
 }
 
 fn generate_telegram_token() -> String {

@@ -163,6 +163,81 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
             FOREIGN KEY(bot_id) REFERENCES bots(id),
             FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
         );
+
+        CREATE TABLE IF NOT EXISTS callback_queries (
+            id            TEXT PRIMARY KEY,
+            bot_id        INTEGER NOT NULL,
+            chat_key      TEXT NOT NULL,
+            message_id    INTEGER,
+            from_user_id  INTEGER NOT NULL,
+            data          TEXT,
+            created_at    INTEGER NOT NULL,
+            answered_at   INTEGER,
+            answer_json   TEXT,
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS inline_queries (
+            id            TEXT PRIMARY KEY,
+            bot_id        INTEGER NOT NULL,
+            chat_key      TEXT NOT NULL,
+            from_user_id  INTEGER NOT NULL,
+            query         TEXT NOT NULL,
+            offset        TEXT NOT NULL DEFAULT '',
+            created_at    INTEGER NOT NULL,
+            answered_at   INTEGER,
+            answer_json   TEXT,
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS inline_messages (
+            inline_message_id TEXT PRIMARY KEY,
+            bot_id            INTEGER NOT NULL,
+            chat_key          TEXT NOT NULL,
+            message_id        INTEGER NOT NULL,
+            created_at        INTEGER NOT NULL,
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS polls (
+            id                       TEXT PRIMARY KEY,
+            bot_id                   INTEGER NOT NULL,
+            chat_key                 TEXT NOT NULL,
+            message_id               INTEGER NOT NULL,
+            question                 TEXT NOT NULL,
+            options_json             TEXT NOT NULL,
+            total_voter_count        INTEGER NOT NULL DEFAULT 0,
+            is_closed                INTEGER NOT NULL DEFAULT 0,
+            is_anonymous             INTEGER NOT NULL DEFAULT 1,
+            poll_type                TEXT NOT NULL DEFAULT 'regular',
+            allows_multiple_answers  INTEGER NOT NULL DEFAULT 0,
+            correct_option_id        INTEGER,
+            explanation              TEXT,
+            open_period              INTEGER,
+            close_date               INTEGER,
+            created_at               INTEGER NOT NULL,
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS poll_votes (
+            poll_id          TEXT NOT NULL,
+            voter_user_id    INTEGER NOT NULL,
+            option_ids_json  TEXT NOT NULL,
+            updated_at       INTEGER NOT NULL,
+            PRIMARY KEY (poll_id, voter_user_id),
+            FOREIGN KEY(poll_id) REFERENCES polls(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS poll_metadata (
+            poll_id                   TEXT PRIMARY KEY,
+            question_entities_json    TEXT,
+            explanation_entities_json TEXT,
+            FOREIGN KEY(poll_id) REFERENCES polls(id)
+        );
         "#,
     )?;
 

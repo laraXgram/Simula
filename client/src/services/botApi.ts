@@ -1,10 +1,58 @@
 import { API_BASE_URL } from './config';
 import { SimBootstrapResponse } from '../types/app';
+import type {
+  AnswerCallbackQueryRequest,
+  EditMessageCaptionRequest,
+  EditMessageMediaRequest,
+  EditMessageTextRequest,
+  SendPollRequest,
+  SetMessageReactionRequest,
+  StopPollRequest,
+} from '../types/generated/methods';
+import type { InlineQueryResult, InlineQueryResultsButton, Message } from '../types/generated/types';
+
+interface InlineQueryAnswerResult {
+  inline_query_id: string;
+  answered: boolean;
+  answered_at?: number;
+  answer?: {
+    results?: InlineQueryResult[];
+    cache_time?: number;
+    is_personal?: boolean;
+    next_offset?: string;
+    button?: InlineQueryResultsButton;
+  };
+}
+
+interface CallbackQueryAnswerResult {
+  callback_query_id: string;
+  answered: boolean;
+  answered_at?: number;
+  answer?: {
+    text?: string;
+    show_alert?: boolean;
+    url?: string;
+    cache_time?: number;
+  };
+}
+
+export interface PollVoterInfo {
+  user_id: number;
+  first_name: string;
+  username?: string;
+  option_ids: number[];
+}
+
+export interface PollVotersResult {
+  poll_id: string;
+  anonymous: boolean;
+  voters: PollVoterInfo[];
+}
 
 export async function callBotMethod<T>(
   token: string,
   method: string,
-  params: Record<string, unknown> = {},
+  params: object = {},
 ): Promise<T> {
   const response = await fetch(`${API_BASE_URL}/bot${token}/${method}`, {
     method: 'POST',
@@ -59,12 +107,61 @@ export async function sendUserMessage(token: string, payload: {
   return data.result;
 }
 
+export async function sendPoll(token: string, payload: SendPollRequest): Promise<Message> {
+  return callBotMethod<Message>(token, 'sendPoll', payload);
+}
+
+export async function stopPoll(token: string, payload: StopPollRequest): Promise<Message> {
+  return callBotMethod<Message>(token, 'stopPoll', payload);
+}
+
+export async function votePoll(token: string, payload: {
+  chat_id: number;
+  message_id: number;
+  user_id: number;
+  first_name: string;
+  username?: string;
+  option_ids: number[];
+}): Promise<boolean> {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/votePoll`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to vote poll');
+  }
+
+  return Boolean(data.result);
+}
+
+export async function getPollVoters(
+  token: string,
+  chatId: number,
+  messageId: number,
+): Promise<PollVotersResult> {
+  const response = await fetch(
+    `${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/pollVoters?chat_id=${encodeURIComponent(String(chatId))}&message_id=${encodeURIComponent(String(messageId))}`,
+  );
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to get poll voters');
+  }
+
+  return data.result as PollVotersResult;
+}
+
 export async function setBotMessageReaction(token: string, payload: {
   chat_id: number;
   message_id: number;
   reaction: Array<{ type: 'emoji'; emoji: string }>;
 }) {
-  return callBotMethod<boolean>(token, 'setMessageReaction', payload);
+  return callBotMethod<boolean>(token, 'setMessageReaction', payload as SetMessageReactionRequest);
 }
 
 export async function setUserMessageReaction(token: string, payload: {
@@ -89,6 +186,104 @@ export async function setUserMessageReaction(token: string, payload: {
   }
 
   return data.result;
+}
+
+export async function pressInlineButton(token: string, payload: {
+  chat_id: number;
+  message_id: number;
+  user_id: number;
+  first_name: string;
+  username?: string;
+  callback_data: string;
+}): Promise<{ ok: boolean; callback_query_id: string }> {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/pressInlineButton`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to press inline button');
+  }
+
+  return data.result as { ok: boolean; callback_query_id: string };
+}
+
+export async function answerCallbackQuery(token: string, payload: AnswerCallbackQueryRequest) {
+  return callBotMethod<boolean>(token, 'answerCallbackQuery', payload);
+}
+
+export async function sendInlineQuery(token: string, payload: {
+  chat_id: number;
+  user_id: number;
+  first_name: string;
+  username?: string;
+  query: string;
+  offset?: string;
+}): Promise<{ inline_query_id: string }> {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/sendInlineQuery`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to send inline query');
+  }
+
+  return data.result as { inline_query_id: string };
+}
+
+export async function getInlineQueryAnswer(token: string, inlineQueryId: string): Promise<InlineQueryAnswerResult> {
+  const response = await fetch(
+    `${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/inlineQueryAnswer?inline_query_id=${encodeURIComponent(inlineQueryId)}`,
+  );
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to get inline query answer');
+  }
+
+  return data.result as InlineQueryAnswerResult;
+}
+
+export async function chooseInlineResult(token: string, payload: {
+  inline_query_id: string;
+  result_id: string;
+}): Promise<{ message_id: number; result_id: string }> {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/chooseInlineResult`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to choose inline result');
+  }
+
+  return data.result as { message_id: number; result_id: string };
+}
+
+export async function getCallbackQueryAnswer(token: string, callbackQueryId: string): Promise<CallbackQueryAnswerResult> {
+  const response = await fetch(
+    `${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/callbackQueryAnswer?callback_query_id=${encodeURIComponent(callbackQueryId)}`,
+  );
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to get callback query answer');
+  }
+
+  return data.result as CallbackQueryAnswerResult;
 }
 
 export async function sendUserMedia(token: string, payload: {
@@ -234,35 +429,25 @@ export async function clearSimHistory(token: string, chatId: number) {
   return data.result as { deleted_count: number };
 }
 
-export async function editBotMessageText(token: string, payload: {
-  chat_id: number;
-  message_id: number;
-  text: string;
-  parse_mode?: 'HTML' | 'Markdown' | 'MarkdownV2';
-}) {
+export async function editBotMessageText(token: string, payload: EditMessageTextRequest) {
   return callBotMethod(token, 'editMessageText', payload);
 }
 
-export async function editBotMessageCaption(token: string, payload: {
-  chat_id: number;
-  message_id: number;
-  caption?: string;
-  parse_mode?: 'HTML' | 'Markdown' | 'MarkdownV2';
-}) {
+export async function editBotMessageCaption(token: string, payload: EditMessageCaptionRequest) {
   return callBotMethod(token, 'editMessageCaption', payload);
 }
 
 export async function editBotMessageMedia(token: string, payload: {
-  chatId: number;
-  messageId: number;
+  chat_id: EditMessageMediaRequest['chat_id'];
+  message_id: EditMessageMediaRequest['message_id'];
   mediaType: 'photo' | 'video' | 'audio' | 'document';
   file: File;
   caption?: string;
   parseMode?: 'HTML' | 'Markdown' | 'MarkdownV2';
 }) {
   const formData = new FormData();
-  formData.append('chat_id', String(payload.chatId));
-  formData.append('message_id', String(payload.messageId));
+  formData.append('chat_id', String(payload.chat_id));
+  formData.append('message_id', String(payload.message_id));
 
   const attachName = 'media_file';
   formData.append(attachName, payload.file, payload.file.name);

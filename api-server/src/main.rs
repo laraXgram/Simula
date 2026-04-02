@@ -13,7 +13,8 @@ use std::{env, sync::Mutex};
 use crate::database::{init_database, AppState};
 use crate::routes::{
     bot_api_get, bot_api_post, file_download, health, sim_bootstrap, sim_clear_history, sim_create_bot,
-    sim_edit_user_message_media, sim_send_user_message, sim_set_user_reaction, sim_update_bot, sim_upsert_user,
+    sim_callback_query_answer, sim_choose_inline_result, sim_edit_user_message_media, sim_inline_query_answer, sim_press_inline_button, sim_send_inline_query, sim_send_user_message, sim_set_user_reaction, sim_update_bot, sim_upsert_user,
+    sim_poll_voters, sim_vote_poll,
     sim_send_user_media,
 };
 use crate::websocket::{ws_bot_updates, WebSocketHub};
@@ -38,6 +39,16 @@ async fn main() -> std::io::Result<()> {
         ws_hub: WebSocketHub::new(),
     });
 
+    let auto_close_state = state.clone();
+    actix_web::rt::spawn(async move {
+        loop {
+            if let Err(error) = crate::handlers::handle_auto_close_due_polls(&auto_close_state) {
+                log::warn!("auto-close poll sweep failed: {}", error.description);
+            }
+            actix_web::rt::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+    });
+
     println!("LaraGram API Server starting on http://{host}:{port}");
 
     HttpServer::new(move || {
@@ -51,9 +62,16 @@ async fn main() -> std::io::Result<()> {
             .service(file_download)
             .service(sim_bootstrap)
             .service(sim_send_user_message)
-                .service(sim_send_user_media)
+            .service(sim_send_user_media)
             .service(sim_edit_user_message_media)
             .service(sim_set_user_reaction)
+            .service(sim_vote_poll)
+            .service(sim_press_inline_button)
+            .service(sim_send_inline_query)
+            .service(sim_inline_query_answer)
+            .service(sim_callback_query_answer)
+            .service(sim_poll_voters)
+            .service(sim_choose_inline_result)
             .service(sim_create_bot)
             .service(sim_update_bot)
             .service(sim_upsert_user)
