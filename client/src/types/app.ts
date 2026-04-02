@@ -8,6 +8,7 @@ import type {
   KeyboardButton as GeneratedKeyboardButton,
   Message as GeneratedMessage,
   MessageEntity as GeneratedMessageEntity,
+  Invoice as GeneratedInvoice,
   Poll as GeneratedPoll,
   MessageReactionCountUpdated as GeneratedMessageReactionCountUpdated,
   MessageReactionUpdated as GeneratedMessageReactionUpdated,
@@ -52,6 +53,7 @@ export interface ChatMessage {
   isInlineOrigin?: boolean;
   viaBotUsername?: string;
   poll?: GeneratedPoll;
+  invoice?: GeneratedInvoice;
   media?: {
     type: 'photo' | 'video' | 'audio' | 'voice' | 'document';
     fileId: string;

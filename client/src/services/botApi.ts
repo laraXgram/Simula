@@ -5,6 +5,7 @@ import type {
   EditMessageCaptionRequest,
   EditMessageMediaRequest,
   EditMessageTextRequest,
+  SendInvoiceRequest,
   SendPollRequest,
   SetMessageReactionRequest,
   StopPollRequest,
@@ -109,6 +110,10 @@ export async function sendUserMessage(token: string, payload: {
 
 export async function sendPoll(token: string, payload: SendPollRequest): Promise<Message> {
   return callBotMethod<Message>(token, 'sendPoll', payload);
+}
+
+export async function sendInvoice(token: string, payload: SendInvoiceRequest): Promise<Message> {
+  return callBotMethod<Message>(token, 'sendInvoice', payload);
 }
 
 export async function stopPoll(token: string, payload: StopPollRequest): Promise<Message> {

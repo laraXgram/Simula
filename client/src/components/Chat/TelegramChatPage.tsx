@@ -26,6 +26,7 @@ import {
   editUserMessageMedia,
   editBotMessageText,
   sendPoll,
+  sendInvoice,
   stopPoll,
   votePoll,
   getPollVoters,
@@ -519,6 +520,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         isInlineOrigin: Boolean(payload.via_bot?.id),
         viaBotUsername: payload.via_bot?.username,
         poll: payload.poll,
+        invoice: payload.invoice,
         media,
         mediaGroupId: payload.media_group_id,
         replyTo: payload.reply_to_message ? {
@@ -702,6 +704,30 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       };
     })();
 
+    const invoiceTrigger = (() => {
+      if (!text.toLowerCase().startsWith('/invoice ')) {
+        return null;
+      }
+
+      const payload = text.slice(9).trim();
+      const parts = payload.split('|').map((item) => item.trim()).filter(Boolean);
+      if (parts.length < 3) {
+        return null;
+      }
+
+      const amount = Number(parts[2]);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return null;
+      }
+
+      return {
+        title: parts[0],
+        description: parts[1],
+        amount: Math.floor(amount),
+        currency: parts[3] || 'USD',
+      };
+    })();
+
     if (pollTrigger && !composerEditTarget && selectedUploads.length === 0) {
       try {
         await sendPoll(selectedBotToken, {
@@ -716,6 +742,30 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         setComposerText('');
       } catch (error) {
         setErrorText(error instanceof Error ? error.message : 'Poll send failed');
+      }
+      return;
+    }
+
+    if (invoiceTrigger && !composerEditTarget && selectedUploads.length === 0) {
+      try {
+        await sendInvoice(selectedBotToken, {
+          chat_id: selectedChatId,
+          title: invoiceTrigger.title,
+          description: invoiceTrigger.description,
+          payload: `invoice_${Date.now()}`,
+          currency: invoiceTrigger.currency,
+          prices: [
+            {
+              label: invoiceTrigger.title,
+              amount: invoiceTrigger.amount,
+            },
+          ],
+          need_shipping_address: false,
+          is_flexible: false,
+        });
+        setComposerText('');
+      } catch (error) {
+        setErrorText(error instanceof Error ? error.message : 'Invoice send failed');
       }
       return;
     }
@@ -1135,29 +1185,25 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       outgoingText = `📍 ${selectedUser.first_name} shared location`;
     } else if (button.request_poll) {
       const isQuiz = button.request_poll.type === 'quiz';
-      try {
-        await sendPoll(selectedBotToken, {
-          chat_id: selectedChatId,
-          question: isQuiz ? `${selectedUser.first_name}'s Quiz` : `${selectedUser.first_name}'s Poll`,
-          options: isQuiz
-            ? [{ text: 'Correct option' }, { text: 'Wrong option' }]
-            : [{ text: 'Yes' }, { text: 'No' }],
-          is_anonymous: false,
-          allows_multiple_answers: false,
-          type: isQuiz ? 'quiz' : 'regular',
-          correct_option_id: isQuiz ? 0 : undefined,
-          explanation: isQuiz ? 'Choose the correct answer.' : undefined,
-        });
-        dismissActiveOneTimeKeyboard();
-        setReplyTarget(null);
-        isNearBottomRef.current = true;
-        window.setTimeout(() => {
-          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-        }, 0);
-      } catch (error) {
-        setErrorText(error instanceof Error ? error.message : 'Poll send failed');
-      }
+      setShowPollBuilder(true);
+      setShowFormattingTools(true);
+      setPollBuilder({
+        type: isQuiz ? 'quiz' : 'regular',
+        question: isQuiz ? `${selectedUser.first_name}'s Quiz` : `${selectedUser.first_name}'s Poll`,
+        options: isQuiz ? ['Correct option', 'Wrong option'] : ['Yes', 'No'],
+        optionsParseMode: 'none',
+        isAnonymous: false,
+        allowsMultipleAnswers: false,
+        correctOptionId: 0,
+        explanation: isQuiz ? 'Choose the correct answer.' : '',
+        questionParseMode: 'none',
+        explanationParseMode: 'none',
+        openPeriod: '',
+        closeDate: '',
+        isClosed: false,
+      });
       setMessageMenu(null);
+      composerTextareaRef.current?.focus();
       return;
     } else if (button.request_users) {
       outgoingText = `👥 ${selectedUser.first_name} shared selected users`;
@@ -2203,6 +2249,22 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             Retract vote
           </button>
         ) : null}
+      </div>
+    );
+  };
+
+  const renderInvoiceCard = (message: ChatMessage) => {
+    if (!message.invoice) {
+      return null;
+    }
+
+    return (
+      <div className="mb-2 rounded-xl border border-[#2f4e66]/55 bg-[#102638]/80 p-3">
+        <div className="text-sm font-semibold text-white">{message.invoice.title}</div>
+        <div className="mt-1 text-xs text-[#d1e7f7]">{message.invoice.description}</div>
+        <div className="mt-2 text-xs text-[#9fc6df]">
+          {message.invoice.total_amount} {message.invoice.currency}
+        </div>
       </div>
     );
   };
