@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-core: #17212b;
+  --bg-soft: #202f3f;
+  --bg-accent: #1f3d56;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'SF Pro Text', 'Segoe UI Variable', 'Noto Sans', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background:
+    radial-gradient(1200px 700px at -10% -30%, rgba(84, 169, 235, 0.22), transparent 50%),
+    radial-gradient(1200px 700px at 120% 130%, rgba(0, 136, 204, 0.18), transparent 48%),
+    linear-gradient(160deg, var(--bg-core) 0%, var(--bg-soft) 45%, var(--bg-accent) 100%);
+}
+
+#root {
+  height: 100vh;
+}
+
+.bg-app-pattern {
+  background-image:
+    radial-gradient(circle at 22% 20%, rgba(255, 255, 255, 0.06) 0 1px, transparent 1px),
+    radial-gradient(circle at 78% 60%, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px),
+    linear-gradient(155deg, #121e2b 0%, #172839 52%, #1d3449 100%);
+  background-size: 28px 28px, 34px 34px, cover;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
