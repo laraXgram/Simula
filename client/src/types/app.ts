@@ -47,6 +47,7 @@ export interface ChatMessage {
   };
   entities?: MessageEntity[];
   captionEntities?: MessageEntity[];
+  replyMarkup?: BotReplyMarkup;
   editDate?: number;
   reactionCounts?: Array<{
     emoji: string;
@@ -54,6 +55,34 @@ export interface ChatMessage {
   }>;
   actorReactions?: Record<string, string[]>;
 }
+
+export interface ReplyKeyboardButton {
+  text: string;
+  request_contact?: boolean;
+  request_location?: boolean;
+  request_poll?: {
+    type?: string;
+  };
+}
+
+export interface ReplyKeyboardMarkup {
+  keyboard: ReplyKeyboardButton[][];
+  is_persistent?: boolean;
+  resize_keyboard?: boolean;
+  one_time_keyboard?: boolean;
+  input_field_placeholder?: string;
+  selective?: boolean;
+}
+
+export interface ReplyKeyboardRemove {
+  remove_keyboard: boolean;
+  selective?: boolean;
+}
+
+export type BotReplyMarkup =
+  | ({ kind: 'reply' } & ReplyKeyboardMarkup)
+  | ({ kind: 'remove' } & ReplyKeyboardRemove)
+  | ({ kind: 'other'; raw: Record<string, unknown> });
 
 export interface MessageEntity {
   type: string;
@@ -93,6 +122,7 @@ export interface BotUpdateMessage {
   voice?: BotApiFileRef;
   document?: BotApiFileRef;
   media_group_id?: string;
+  reply_markup?: Record<string, unknown>;
   reply_to_message?: BotUpdateMessage;
   entities?: MessageEntity[];
   caption_entities?: MessageEntity[];

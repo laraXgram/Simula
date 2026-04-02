@@ -153,6 +153,16 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
             FOREIGN KEY(bot_id) REFERENCES bots(id),
             FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
         );
+
+        CREATE TABLE IF NOT EXISTS chat_reply_keyboards (
+            bot_id       INTEGER NOT NULL,
+            chat_key     TEXT NOT NULL,
+            markup_json  TEXT NOT NULL,
+            updated_at   INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, chat_key),
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
         "#,
     )?;
 

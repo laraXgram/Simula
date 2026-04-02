@@ -16,7 +16,7 @@ use crate::generated::methods::{
     GetUpdatesRequest, SendAudioRequest, SendDocumentRequest, SendMediaGroupRequest,
     SendMessageRequest, SendPhotoRequest, SendVideoRequest, SendVoiceRequest, SetMessageReactionRequest, SetWebhookRequest,
 };
-use crate::generated::types::{Chat, Message, Update, User};
+use crate::generated::types::{Chat, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Update, User};
 use crate::types::{strip_nulls, ApiError, ApiResult};
 
 #[derive(Deserialize)]
@@ -86,6 +86,7 @@ pub struct SimSetUserReactionRequest {
     pub username: Option<String>,
     pub reaction: Option<Vec<Value>>,
 }
+
 
 pub fn dispatch_method(
     state: &Data<AppState>,
@@ -161,6 +162,13 @@ fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap<Str
     let chat_key = value_to_chat_key(&request.chat_id)?;
     ensure_chat(&mut conn, &chat_key)?;
 
+    let reply_markup = handle_reply_markup_state(
+        &mut conn,
+        bot.id,
+        &chat_key,
+        request.reply_markup.as_ref(),
+    )?;
+
     let now = Utc::now().timestamp();
 
     conn.execute(
@@ -213,7 +221,6 @@ fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap<Str
     if let Some(entities) = parsed_entities {
         base_message_json["entities"] = entities;
     }
-
     let message: Message = serde_json::from_value(base_message_json).map_err(ApiError::internal)?;
 
     let update_stub = Update {
@@ -254,7 +261,10 @@ fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap<Str
     let mut update_value = serde_json::to_value(update_stub).map_err(ApiError::internal)?;
     update_value["update_id"] = json!(update_id);
 
-    let message_value = serde_json::to_value(&message).map_err(ApiError::internal)?;
+    let mut message_value = serde_json::to_value(&message).map_err(ApiError::internal)?;
+    if let Some(markup) = reply_markup {
+        message_value["reply_markup"] = markup;
+    }
     update_value["message"] = message_value.clone();
 
     conn.execute(
@@ -298,6 +308,7 @@ fn handle_send_photo(state: &Data<AppState>, token: &str, params: &HashMap<Strin
         &request.chat_id,
         caption,
         caption_entities,
+        request.reply_markup,
         "photo",
         photo,
     )
@@ -332,6 +343,7 @@ fn handle_send_audio(state: &Data<AppState>, token: &str, params: &HashMap<Strin
         &request.chat_id,
         caption,
         caption_entities,
+        request.reply_markup,
         "audio",
         audio,
     )
@@ -364,6 +376,7 @@ fn handle_send_document(state: &Data<AppState>, token: &str, params: &HashMap<St
         &request.chat_id,
         caption,
         caption_entities,
+        request.reply_markup,
         "document",
         document,
     )
@@ -398,6 +411,7 @@ fn handle_send_video(state: &Data<AppState>, token: &str, params: &HashMap<Strin
         &request.chat_id,
         caption,
         caption_entities,
+        request.reply_markup,
         "video",
         video,
     )
@@ -430,6 +444,7 @@ fn handle_send_voice(state: &Data<AppState>, token: &str, params: &HashMap<Strin
         &request.chat_id,
         caption,
         caption_entities,
+        request.reply_markup,
         "voice",
         voice,
     )
@@ -529,6 +544,7 @@ fn handle_send_media_group(
                     &request.chat_id,
                     caption,
                     caption_entities,
+                    None,
                     "photo",
                     payload,
                     Some(&media_group_id),
@@ -551,6 +567,7 @@ fn handle_send_media_group(
                     &request.chat_id,
                     caption,
                     caption_entities,
+                    None,
                     "video",
                     payload,
                     Some(&media_group_id),
@@ -573,6 +590,7 @@ fn handle_send_media_group(
                     &request.chat_id,
                     caption,
                     caption_entities,
+                    None,
                     "audio",
                     payload,
                     Some(&media_group_id),
@@ -593,6 +611,7 @@ fn handle_send_media_group(
                     &request.chat_id,
                     caption,
                     caption_entities,
+                    None,
                     "document",
                     payload,
                     Some(&media_group_id),
@@ -644,6 +663,7 @@ fn send_media_message(
     chat_id_value: &Value,
     caption: Option<String>,
     caption_entities: Option<Value>,
+    reply_markup: Option<Value>,
     media_field: &str,
     media_payload: Value,
 ) -> ApiResult {
@@ -653,6 +673,7 @@ fn send_media_message(
         chat_id_value,
         caption,
         caption_entities,
+        reply_markup,
         media_field,
         media_payload,
         None,
@@ -665,6 +686,7 @@ fn send_media_message_with_group(
     chat_id_value: &Value,
     caption: Option<String>,
     caption_entities: Option<Value>,
+    reply_markup: Option<Value>,
     media_field: &str,
     media_payload: Value,
     media_group_id: Option<&str>,
@@ -674,6 +696,13 @@ fn send_media_message_with_group(
 
     let chat_key = value_to_chat_key(chat_id_value)?;
     ensure_chat(&mut conn, &chat_key)?;
+
+    let resolved_reply_markup = handle_reply_markup_state(
+        &mut conn,
+        bot.id,
+        &chat_key,
+        reply_markup.as_ref(),
+    )?;
 
     let now = Utc::now().timestamp();
     conn.execute(
@@ -712,7 +741,10 @@ fn send_media_message_with_group(
     }
 
     let message: Message = serde_json::from_value(base).map_err(ApiError::internal)?;
-    let message_value = serde_json::to_value(&message).map_err(ApiError::internal)?;
+    let mut message_value = serde_json::to_value(&message).map_err(ApiError::internal)?;
+    if let Some(markup) = resolved_reply_markup {
+        message_value["reply_markup"] = markup;
+    }
 
     let update_stub = Update {
         update_id: 0,
@@ -3098,6 +3130,67 @@ fn load_message_value(
     }
 
     Ok(message)
+}
+
+fn handle_reply_markup_state(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    chat_key: &str,
+    reply_markup: Option<&Value>,
+) -> Result<Option<Value>, ApiError> {
+    let Some(markup_value) = reply_markup else {
+        return Ok(None);
+    };
+
+    if markup_value.get("keyboard").is_some() {
+        let parsed: ReplyKeyboardMarkup = serde_json::from_value(markup_value.clone())
+            .map_err(|_| ApiError::bad_request("reply_markup keyboard is invalid"))?;
+
+        if parsed.keyboard.is_empty() {
+            return Err(ApiError::bad_request("reply_markup keyboard must have at least one row"));
+        }
+
+        if parsed
+            .keyboard
+            .iter()
+            .any(|row| row.is_empty() || row.iter().any(|button| button.text.trim().is_empty()))
+        {
+            return Err(ApiError::bad_request("keyboard rows/buttons must not be empty"));
+        }
+
+        let normalized = serde_json::to_value(parsed).map_err(ApiError::internal)?;
+        let now = Utc::now().timestamp();
+        conn.execute(
+            "INSERT INTO chat_reply_keyboards (bot_id, chat_key, markup_json, updated_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(bot_id, chat_key)
+             DO UPDATE SET markup_json = excluded.markup_json, updated_at = excluded.updated_at",
+            params![bot_id, chat_key, normalized.to_string(), now],
+        )
+        .map_err(ApiError::internal)?;
+
+        return Ok(Some(normalized));
+    }
+
+    if markup_value.get("remove_keyboard").is_some() {
+        let parsed: ReplyKeyboardRemove = serde_json::from_value(markup_value.clone())
+            .map_err(|_| ApiError::bad_request("reply_markup remove_keyboard is invalid"))?;
+
+        if !parsed.remove_keyboard {
+            return Err(ApiError::bad_request("remove_keyboard must be true"));
+        }
+
+        conn.execute(
+            "DELETE FROM chat_reply_keyboards WHERE bot_id = ?1 AND chat_key = ?2",
+            params![bot_id, chat_key],
+        )
+        .map_err(ApiError::internal)?;
+
+        let normalized = serde_json::to_value(parsed).map_err(ApiError::internal)?;
+        return Ok(Some(normalized));
+    }
+
+    Ok(Some(markup_value.clone()))
 }
 
 fn find_message_snapshot(

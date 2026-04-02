@@ -34,7 +34,15 @@ import {
 } from '../../services/botApi';
 import { API_BASE_URL, DEFAULT_BOT_TOKEN } from '../../services/config';
 import { useBotUpdates } from '../../hooks/useBotUpdates';
-import { BotUpdate, ChatMessage, MessageEntity, SimBot, SimUser } from '../../types/app';
+import {
+  BotReplyMarkup,
+  BotUpdate,
+  ChatMessage,
+  MessageEntity,
+  ReplyKeyboardButton,
+  SimBot,
+  SimUser,
+} from '../../types/app';
 
 const DEFAULT_USER: SimUser = {
   id: 10001,
@@ -58,6 +66,37 @@ const TELEGRAM_REACTION_EMOJIS = [
   '👍', '👎', '❤', '🔥', '🎉', '😁', '🤔', '😢', '😱', '👏', '🤩', '🙏', '👌', '🤣', '💯', '⚡',
   '💔', '🥰', '🤬', '🤯', '🤮', '🥱', '😈', '😎', '🗿', '🆒', '😘', '👀', '🤝', '🍾',
 ];
+
+function mapIncomingReplyMarkup(raw?: Record<string, unknown>): BotReplyMarkup | undefined {
+  if (!raw || typeof raw !== 'object') {
+    return undefined;
+  }
+
+  if (Array.isArray(raw.keyboard)) {
+    return {
+      kind: 'reply',
+      keyboard: raw.keyboard as ReplyKeyboardButton[][],
+      is_persistent: typeof raw.is_persistent === 'boolean' ? raw.is_persistent : undefined,
+      resize_keyboard: typeof raw.resize_keyboard === 'boolean' ? raw.resize_keyboard : undefined,
+      one_time_keyboard: typeof raw.one_time_keyboard === 'boolean' ? raw.one_time_keyboard : undefined,
+      input_field_placeholder: typeof raw.input_field_placeholder === 'string' ? raw.input_field_placeholder : undefined,
+      selective: typeof raw.selective === 'boolean' ? raw.selective : undefined,
+    };
+  }
+
+  if (typeof raw.remove_keyboard === 'boolean') {
+    return {
+      kind: 'remove',
+      remove_keyboard: raw.remove_keyboard,
+      selective: typeof raw.selective === 'boolean' ? raw.selective : undefined,
+    };
+  }
+
+  return {
+    kind: 'other',
+    raw,
+  };
+}
 
 interface TelegramChatPageProps {
   initialTab?: SidebarTab;
@@ -129,6 +168,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const [mediaUrlByFileId, setMediaUrlByFileId] = useState<Record<string, string>>({});
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null);
+  const [dismissedOneTimeKeyboards, setDismissedOneTimeKeyboards] = useState<Record<string, number>>({});
   const [startedChats, setStartedChats] = useState<Record<string, boolean>>(() => {
     try {
       const raw = localStorage.getItem(START_KEY);
@@ -202,6 +242,41 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
     return blocks;
   }, [visibleMessages]);
+
+  const activeReplyKeyboard = useMemo(() => {
+    let active: { sourceMessageId: number; markup: BotReplyMarkup } | null = null;
+
+    for (const message of visibleMessages) {
+      if (!message.isOutgoing || !message.replyMarkup) {
+        continue;
+      }
+
+      if (message.replyMarkup.kind === 'remove' && message.replyMarkup.remove_keyboard) {
+        active = null;
+        continue;
+      }
+
+      if (message.replyMarkup.kind === 'reply') {
+        active = {
+          sourceMessageId: message.id,
+          markup: message.replyMarkup,
+        };
+      }
+    }
+
+    if (!active || active.markup.kind !== 'reply') {
+      return null;
+    }
+
+    if (
+      active.markup.one_time_keyboard
+      && dismissedOneTimeKeyboards[chatKey] === active.sourceMessageId
+    ) {
+      return null;
+    }
+
+    return active;
+  }, [visibleMessages, dismissedOneTimeKeyboards, chatKey]);
 
   const filteredUsers = useMemo(() => {
     const keyword = chatSearch.trim().toLowerCase();
@@ -377,6 +452,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         } : undefined,
         entities: payload.entities,
         captionEntities: payload.caption_entities,
+        replyMarkup: mapIncomingReplyMarkup(payload.reply_markup),
         editDate: payload.edit_date,
       };
 
@@ -576,6 +652,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         setComposerText('');
         setSelectedUploads([]);
         setReplyTarget(null);
+        dismissActiveOneTimeKeyboard();
         isNearBottomRef.current = true;
         window.setTimeout(() => {
           messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -593,6 +670,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       replyTarget?.id,
     );
     setReplyTarget(null);
+    dismissActiveOneTimeKeyboard();
     isNearBottomRef.current = true;
     window.setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -785,6 +863,40 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
   const cancelReplyingMessage = () => {
     setReplyTarget(null);
+  };
+
+  const dismissActiveOneTimeKeyboard = () => {
+    if (!activeReplyKeyboard || activeReplyKeyboard.markup.kind !== 'reply') {
+      return;
+    }
+
+    if (!activeReplyKeyboard.markup.one_time_keyboard) {
+      return;
+    }
+
+    setDismissedOneTimeKeyboards((prev) => ({
+      ...prev,
+      [chatKey]: activeReplyKeyboard.sourceMessageId,
+    }));
+  };
+
+  const onReplyKeyboardButtonPress = async (buttonText: string) => {
+    const text = buttonText.trim();
+    if (!text || isSending) {
+      return;
+    }
+
+    await sendAsUser(
+      text,
+      composerParseMode === 'none' ? undefined : composerParseMode,
+      replyTarget?.id,
+    );
+    setReplyTarget(null);
+    dismissActiveOneTimeKeyboard();
+    isNearBottomRef.current = true;
+    window.setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }, 0);
   };
 
   const scrollToBottom = () => {
@@ -1908,6 +2020,31 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     ) : null}
                   </div>
                 ) : null}
+                {activeReplyKeyboard && activeReplyKeyboard.markup.kind === 'reply' ? (
+                  <div className={`rounded-2xl border border-white/15 bg-black/20 p-2 ${activeReplyKeyboard.markup.resize_keyboard ? '' : 'pb-3'}`}>
+                    <div className="space-y-1.5">
+                      {activeReplyKeyboard.markup.keyboard.map((row, rowIndex) => (
+                        <div
+                          key={`rk-row-${activeReplyKeyboard.sourceMessageId}-${rowIndex}`}
+                          className="grid gap-1.5"
+                          style={{ gridTemplateColumns: `repeat(${Math.max(row.length, 1)}, minmax(0, 1fr))` }}
+                        >
+                          {row.map((button, buttonIndex) => (
+                            <button
+                              key={`rk-btn-${activeReplyKeyboard.sourceMessageId}-${rowIndex}-${buttonIndex}`}
+                              type="button"
+                              onClick={() => void onReplyKeyboardButtonPress(button.text)}
+                              className="rounded-xl border border-white/20 bg-[#234666]/75 px-3 py-2 text-sm text-white transition hover:bg-[#2f5e85]"
+                              title={button.text}
+                            >
+                              <span className="line-clamp-1">{button.text}</span>
+                            </button>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 <form onSubmit={onSubmitComposer} className="flex items-center gap-3">
                   <input
                     ref={fileInputRef}
@@ -1945,7 +2082,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     disabled={!hasStarted}
                     rows={2}
                     className="min-h-[52px] max-h-[180px] flex-1 resize-none rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm leading-6 outline-none transition focus:border-telegram-lightBlue disabled:cursor-not-allowed disabled:opacity-60"
-                    placeholder={composerEditTarget ? 'Edit message...' : 'Write a message...'}
+                    placeholder={composerEditTarget
+                      ? 'Edit message...'
+                      : (activeReplyKeyboard?.markup.kind === 'reply'
+                        ? (activeReplyKeyboard.markup.input_field_placeholder || 'Write a message...')
+                        : 'Write a message...')}
                   />
                   <button
                     type="submit"
