@@ -19,6 +19,7 @@ use crate::handlers::{
     handle_sim_get_poll_voters,
     handle_sim_pay_invoice,
     handle_sim_edit_user_message_media, handle_sim_send_user_media, handle_sim_send_user_message,
+    handle_sim_send_user_contact, handle_sim_send_user_dice, handle_sim_send_user_game, handle_sim_send_user_location, handle_sim_send_user_venue,
     handle_sim_send_inline_query,
     handle_sim_press_inline_button,
     handle_sim_set_user_reaction,
@@ -27,6 +28,7 @@ use crate::handlers::{
     handle_sim_upsert_user,
     handle_download_file,
     SimChooseInlineResultRequest, SimClearHistoryRequest, SimCreateBotRequest, SimPayInvoiceRequest, SimPressInlineButtonRequest, SimSendInlineQueryRequest, SimSendUserMessageRequest, SimSetUserReactionRequest, SimUpdateBotRequest,
+    SimSendUserContactRequest, SimSendUserDiceRequest, SimSendUserGameRequest, SimSendUserLocationRequest, SimSendUserVenueRequest,
     SimVotePollRequest,
     SimUpsertUserRequest,
 };
@@ -130,30 +132,168 @@ pub async fn sim_send_user_message(
 pub async fn sim_send_user_media(
     state: Data<AppState>,
     path: web::Path<String>,
+    query: Query<HashMap<String, String>>,
     req: HttpRequest,
-    payload: web::Payload,
+    mut payload: web::Payload,
 ) -> impl Responder {
     let token = path.into_inner();
-    let params = match parse_multipart_payload(req.headers(), payload).await {
-        Ok(value) => value,
-        Err(err) => return into_telegram_response(Err(err)),
-    };
+    let mut params = query_to_json_map(&query.into_inner());
+    let content_type = req
+        .headers()
+        .get(actix_web::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    if content_type.starts_with("multipart/form-data") {
+        let multipart_params = match parse_multipart_payload(req.headers(), payload).await {
+            Ok(value) => value,
+            Err(err) => return into_telegram_response(Err(err)),
+        };
+        for (k, v) in multipart_params {
+            params.insert(k, v);
+        }
+    } else {
+        let mut body = Bytes::new();
+        while let Some(chunk) = payload.next().await {
+            let chunk = match chunk {
+                Ok(bytes) => bytes,
+                Err(_) => return into_telegram_response(Err(ApiError::bad_request("invalid request body"))),
+            };
+            if body.is_empty() {
+                body = chunk;
+            } else {
+                let mut merged = web::BytesMut::with_capacity(body.len() + chunk.len());
+                merged.extend_from_slice(&body);
+                merged.extend_from_slice(&chunk);
+                body = merged.freeze();
+            }
+        }
+
+        if !body.is_empty() {
+            if let Ok(json_body) = serde_json::from_slice::<Value>(&body) {
+                if let Some(obj) = json_body.as_object() {
+                    for (k, v) in obj {
+                        params.insert(k.clone(), v.clone());
+                    }
+                }
+            } else if let Ok(form_body) = serde_urlencoded::from_bytes::<HashMap<String, String>>(&body) {
+                for (k, v) in form_body {
+                    params.insert(k, guess_json_value(&v));
+                }
+            }
+        }
+    }
 
     into_telegram_response(handle_sim_send_user_media(&state, &token, params))
+}
+
+#[post("/client-api/bot{token}/sendUserDice")]
+pub async fn sim_send_user_dice(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimSendUserDiceRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_send_user_dice(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/sendUserGame")]
+pub async fn sim_send_user_game(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimSendUserGameRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_send_user_game(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/sendUserContact")]
+pub async fn sim_send_user_contact(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimSendUserContactRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_send_user_contact(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/sendUserLocation")]
+pub async fn sim_send_user_location(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimSendUserLocationRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_send_user_location(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/sendUserVenue")]
+pub async fn sim_send_user_venue(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimSendUserVenueRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_send_user_venue(&state, &token, payload.into_inner()))
 }
 
 #[post("/client-api/bot{token}/editUserMessageMedia")]
 pub async fn sim_edit_user_message_media(
     state: Data<AppState>,
     path: web::Path<String>,
+    query: Query<HashMap<String, String>>,
     req: HttpRequest,
-    payload: web::Payload,
+    mut payload: web::Payload,
 ) -> impl Responder {
     let token = path.into_inner();
-    let params = match parse_multipart_payload(req.headers(), payload).await {
-        Ok(value) => value,
-        Err(err) => return into_telegram_response(Err(err)),
-    };
+    let mut params = query_to_json_map(&query.into_inner());
+    let content_type = req
+        .headers()
+        .get(actix_web::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    if content_type.starts_with("multipart/form-data") {
+        let multipart_params = match parse_multipart_payload(req.headers(), payload).await {
+            Ok(value) => value,
+            Err(err) => return into_telegram_response(Err(err)),
+        };
+        for (k, v) in multipart_params {
+            params.insert(k, v);
+        }
+    } else {
+        let mut body = Bytes::new();
+        while let Some(chunk) = payload.next().await {
+            let chunk = match chunk {
+                Ok(bytes) => bytes,
+                Err(_) => return into_telegram_response(Err(ApiError::bad_request("invalid request body"))),
+            };
+            if body.is_empty() {
+                body = chunk;
+            } else {
+                let mut merged = web::BytesMut::with_capacity(body.len() + chunk.len());
+                merged.extend_from_slice(&body);
+                merged.extend_from_slice(&chunk);
+                body = merged.freeze();
+            }
+        }
+
+        if !body.is_empty() {
+            if let Ok(json_body) = serde_json::from_slice::<Value>(&body) {
+                if let Some(obj) = json_body.as_object() {
+                    for (k, v) in obj {
+                        params.insert(k.clone(), v.clone());
+                    }
+                }
+            } else if let Ok(form_body) = serde_urlencoded::from_bytes::<HashMap<String, String>>(&body) {
+                for (k, v) in form_body {
+                    params.insert(k, guess_json_value(&v));
+                }
+            }
+        }
+    }
 
     into_telegram_response(handle_sim_edit_user_message_media(&state, &token, params))
 }

@@ -322,6 +322,76 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
             explanation_entities_json TEXT,
             FOREIGN KEY(poll_id) REFERENCES polls(id)
         );
+
+        CREATE TABLE IF NOT EXISTS sticker_sets (
+            bot_id              INTEGER NOT NULL,
+            name                TEXT NOT NULL,
+            title               TEXT NOT NULL,
+            sticker_type        TEXT NOT NULL DEFAULT 'regular',
+            needs_repainting    INTEGER NOT NULL DEFAULT 0,
+            owner_user_id       INTEGER NOT NULL,
+            thumbnail_file_id   TEXT,
+            thumbnail_format    TEXT,
+            custom_emoji_id     TEXT,
+            created_at          INTEGER NOT NULL,
+            updated_at          INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, name),
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS stickers (
+            bot_id               INTEGER NOT NULL,
+            file_id              TEXT NOT NULL,
+            file_unique_id       TEXT NOT NULL,
+            set_name             TEXT,
+            sticker_type         TEXT NOT NULL DEFAULT 'regular',
+            format               TEXT NOT NULL DEFAULT 'static',
+            width                INTEGER NOT NULL DEFAULT 512,
+            height               INTEGER NOT NULL DEFAULT 512,
+            is_animated          INTEGER NOT NULL DEFAULT 0,
+            is_video             INTEGER NOT NULL DEFAULT 0,
+            emoji                TEXT,
+            emoji_list_json      TEXT,
+            keywords_json        TEXT,
+            mask_position_json   TEXT,
+            custom_emoji_id      TEXT,
+            needs_repainting     INTEGER NOT NULL DEFAULT 0,
+            position             INTEGER NOT NULL DEFAULT 0,
+            created_at           INTEGER NOT NULL,
+            updated_at           INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, file_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_stickers_by_set ON stickers (bot_id, set_name, position, created_at);
+
+        CREATE TABLE IF NOT EXISTS games (
+            bot_id            INTEGER NOT NULL,
+            chat_key          TEXT NOT NULL,
+            message_id        INTEGER NOT NULL,
+            game_short_name   TEXT NOT NULL,
+            title             TEXT NOT NULL,
+            description       TEXT NOT NULL,
+            created_at        INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, chat_key, message_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS game_scores (
+            bot_id            INTEGER NOT NULL,
+            chat_key          TEXT NOT NULL,
+            message_id        INTEGER NOT NULL,
+            user_id           INTEGER NOT NULL,
+            score             INTEGER NOT NULL,
+            updated_at        INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, chat_key, message_id, user_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_game_scores_ordered
+            ON game_scores (bot_id, chat_key, message_id, score DESC, updated_at ASC);
         "#,
     )?;
 

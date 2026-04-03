@@ -1,16 +1,43 @@
 import { API_BASE_URL } from './config';
 import { SimBootstrapResponse } from '../types/app';
 import type {
+  AddStickerToSetRequest,
   AnswerCallbackQueryRequest,
+  CreateNewStickerSetRequest,
+  DeleteStickerFromSetRequest,
+  DeleteStickerSetRequest,
   EditMessageCaptionRequest,
+  EditMessageLiveLocationRequest,
   EditMessageMediaRequest,
+  StopMessageLiveLocationRequest,
   EditMessageTextRequest,
+  GetGameHighScoresRequest,
+  GetCustomEmojiStickersRequest,
+  GetStickerSetRequest,
+  ReplaceStickerInSetRequest,
+  SendAnimationRequest,
+  SendContactRequest,
+  SendDiceRequest,
+  SendGameRequest,
   SendInvoiceRequest,
+  SendLocationRequest,
   SendPollRequest,
+  SendStickerRequest,
+  SendVenueRequest,
+  SendVideoNoteRequest,
+  SetGameScoreRequest,
+  SetCustomEmojiStickerSetThumbnailRequest,
   SetMessageReactionRequest,
+  SetStickerEmojiListRequest,
+  SetStickerKeywordsRequest,
+  SetStickerMaskPositionRequest,
+  SetStickerPositionInSetRequest,
+  SetStickerSetThumbnailRequest,
+  SetStickerSetTitleRequest,
   StopPollRequest,
+  UploadStickerFileRequest,
 } from '../types/generated/methods';
-import type { InlineQueryResult, InlineQueryResultsButton, Message } from '../types/generated/types';
+import type { File as TgFile, GameHighScore, InlineQueryResult, InlineQueryResultsButton, Message, Sticker, StickerSet } from '../types/generated/types';
 
 interface InlineQueryAnswerResult {
   inline_query_id: string;
@@ -329,12 +356,13 @@ export async function sendUserMedia(token: string, payload: {
   userId: number;
   firstName: string;
   username?: string;
-  file: File;
+  file: globalThis.File;
+  mediaKind?: 'photo' | 'video' | 'audio' | 'voice' | 'document' | 'sticker' | 'animation' | 'video_note';
   caption?: string;
   parseMode?: 'HTML' | 'Markdown' | 'MarkdownV2';
   replyToMessageId?: number;
 }) {
-  const inferMediaKind = (file: File): 'photo' | 'video' | 'audio' | 'voice' | 'document' => {
+  const inferMediaKind = (file: globalThis.File): 'photo' | 'video' | 'audio' | 'voice' | 'document' => {
     const mime = file.type.toLowerCase();
     if (mime.startsWith('image/')) {
       return 'photo';
@@ -362,7 +390,7 @@ export async function sendUserMedia(token: string, payload: {
     formData.append('reply_to_message_id', String(payload.replyToMessageId));
   }
 
-  const mediaKind = inferMediaKind(payload.file);
+  const mediaKind = payload.mediaKind || inferMediaKind(payload.file);
   formData.append('media_kind', mediaKind);
   formData.append('media', payload.file, payload.file.name);
 
@@ -384,6 +412,215 @@ export async function sendUserMedia(token: string, payload: {
   }
 
   return data.result;
+}
+
+export async function sendUserMediaByReference(token: string, payload: {
+  chatId: number;
+  userId: number;
+  firstName: string;
+  username?: string;
+  mediaKind: 'sticker' | 'animation' | 'video_note' | 'voice';
+  media: string;
+  caption?: string;
+  parseMode?: 'HTML' | 'Markdown' | 'MarkdownV2';
+  replyToMessageId?: number;
+}) {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/sendUserMedia`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      chat_id: payload.chatId,
+      user_id: payload.userId,
+      first_name: payload.firstName,
+      username: payload.username,
+      media_kind: payload.mediaKind,
+      media: payload.media,
+      caption: payload.caption,
+      parse_mode: payload.parseMode,
+      reply_to_message_id: payload.replyToMessageId,
+    }),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to send referenced user media');
+  }
+
+  return data.result;
+}
+
+export async function sendUserDice(token: string, payload: {
+  chatId: number;
+  userId: number;
+  firstName: string;
+  username?: string;
+  emoji?: string;
+  replyToMessageId?: number;
+}) {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/sendUserDice`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      chat_id: payload.chatId,
+      user_id: payload.userId,
+      first_name: payload.firstName,
+      username: payload.username,
+      emoji: payload.emoji,
+      reply_to_message_id: payload.replyToMessageId,
+    }),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to send user dice');
+  }
+  return data.result as Message;
+}
+
+export async function sendUserGame(token: string, payload: {
+  chatId: number;
+  userId: number;
+  firstName: string;
+  username?: string;
+  gameShortName: string;
+  replyToMessageId?: number;
+}) {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/sendUserGame`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      chat_id: payload.chatId,
+      user_id: payload.userId,
+      first_name: payload.firstName,
+      username: payload.username,
+      game_short_name: payload.gameShortName,
+      reply_to_message_id: payload.replyToMessageId,
+    }),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to send user game');
+  }
+  return data.result as Message;
+}
+
+export async function sendUserContact(token: string, payload: {
+  chatId: number;
+  userId: number;
+  firstName: string;
+  username?: string;
+  phoneNumber: string;
+  contactFirstName: string;
+  contactLastName?: string;
+  vcard?: string;
+  replyToMessageId?: number;
+}) {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/sendUserContact`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      chat_id: payload.chatId,
+      user_id: payload.userId,
+      first_name: payload.firstName,
+      username: payload.username,
+      phone_number: payload.phoneNumber,
+      contact_first_name: payload.contactFirstName,
+      contact_last_name: payload.contactLastName,
+      vcard: payload.vcard,
+      reply_to_message_id: payload.replyToMessageId,
+    }),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to send user contact');
+  }
+  return data.result as Message;
+}
+
+export async function sendUserLocation(token: string, payload: {
+  chatId: number;
+  userId: number;
+  firstName: string;
+  username?: string;
+  latitude: number;
+  longitude: number;
+  horizontalAccuracy?: number;
+  livePeriod?: number;
+  heading?: number;
+  proximityAlertRadius?: number;
+  replyToMessageId?: number;
+}) {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/sendUserLocation`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      chat_id: payload.chatId,
+      user_id: payload.userId,
+      first_name: payload.firstName,
+      username: payload.username,
+      latitude: payload.latitude,
+      longitude: payload.longitude,
+      horizontal_accuracy: payload.horizontalAccuracy,
+      live_period: payload.livePeriod,
+      heading: payload.heading,
+      proximity_alert_radius: payload.proximityAlertRadius,
+      reply_to_message_id: payload.replyToMessageId,
+    }),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to send user location');
+  }
+  return data.result as Message;
+}
+
+export async function sendUserVenue(token: string, payload: {
+  chatId: number;
+  userId: number;
+  firstName: string;
+  username?: string;
+  latitude: number;
+  longitude: number;
+  title: string;
+  address: string;
+  replyToMessageId?: number;
+}) {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/sendUserVenue`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      chat_id: payload.chatId,
+      user_id: payload.userId,
+      first_name: payload.firstName,
+      username: payload.username,
+      latitude: payload.latitude,
+      longitude: payload.longitude,
+      title: payload.title,
+      address: payload.address,
+      reply_to_message_id: payload.replyToMessageId,
+    }),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to send user venue');
+  }
+  return data.result as Message;
 }
 
 export async function createSimBot(payload: {
@@ -479,7 +716,7 @@ export async function editBotMessageMedia(token: string, payload: {
   chat_id: EditMessageMediaRequest['chat_id'];
   message_id: EditMessageMediaRequest['message_id'];
   mediaType: 'photo' | 'video' | 'audio' | 'document';
-  file: File;
+  file: globalThis.File;
   caption?: string;
   parseMode?: 'HTML' | 'Markdown' | 'MarkdownV2';
 }) {
@@ -518,11 +755,19 @@ export async function editBotMessageMedia(token: string, payload: {
   return data.result;
 }
 
+export async function editMessageLiveLocation(token: string, payload: EditMessageLiveLocationRequest): Promise<Message | boolean> {
+  return callBotMethod<Message | boolean>(token, 'editMessageLiveLocation', payload);
+}
+
+export async function stopMessageLiveLocation(token: string, payload: StopMessageLiveLocationRequest): Promise<Message | boolean> {
+  return callBotMethod<Message | boolean>(token, 'stopMessageLiveLocation', payload);
+}
+
 export async function editUserMessageMedia(token: string, payload: {
   chatId: number;
   messageId: number;
   mediaKind: 'photo' | 'video' | 'audio' | 'voice' | 'document';
-  file: File;
+  file: globalThis.File;
   caption?: string;
   parseMode?: 'HTML' | 'Markdown' | 'MarkdownV2';
 }) {
@@ -578,11 +823,16 @@ export async function getBotFile(token: string, fileId: string): Promise<{
 
 export async function sendBotMediaFile(token: string, payload: {
   chatId: number;
-  method: 'sendPhoto' | 'sendVideo' | 'sendAudio' | 'sendVoice' | 'sendDocument';
-  field: 'photo' | 'video' | 'audio' | 'voice' | 'document';
-  file: File;
+  method: 'sendPhoto' | 'sendVideo' | 'sendAudio' | 'sendVoice' | 'sendDocument' | 'sendSticker' | 'sendAnimation' | 'sendVideoNote';
+  field: 'photo' | 'video' | 'audio' | 'voice' | 'document' | 'sticker' | 'animation' | 'video_note';
+  file: globalThis.File;
   caption?: string;
   parseMode?: 'HTML' | 'Markdown' | 'MarkdownV2';
+  emoji?: string;
+  duration?: number;
+  width?: number;
+  height?: number;
+  length?: number;
 }) {
   const formData = new FormData();
   formData.append('chat_id', String(payload.chatId));
@@ -592,6 +842,22 @@ export async function sendBotMediaFile(token: string, payload: {
     if (payload.parseMode) {
       formData.append('parse_mode', payload.parseMode);
     }
+  }
+
+  if (payload.emoji && payload.field === 'sticker') {
+    formData.append('emoji', payload.emoji);
+  }
+  if (typeof payload.duration === 'number') {
+    formData.append('duration', String(payload.duration));
+  }
+  if (typeof payload.width === 'number') {
+    formData.append('width', String(payload.width));
+  }
+  if (typeof payload.height === 'number') {
+    formData.append('height', String(payload.height));
+  }
+  if (typeof payload.length === 'number') {
+    formData.append('length', String(payload.length));
   }
 
   const response = await fetch(`${API_BASE_URL}/bot${token}/${payload.method}`, {
@@ -607,12 +873,163 @@ export async function sendBotMediaFile(token: string, payload: {
   return data.result;
 }
 
+export async function sendSticker(token: string, payload: SendStickerRequest): Promise<Message> {
+  return callBotMethod<Message>(token, 'sendSticker', payload);
+}
+
+export async function sendAnimation(token: string, payload: SendAnimationRequest): Promise<Message> {
+  return callBotMethod<Message>(token, 'sendAnimation', payload);
+}
+
+export async function sendVideoNote(token: string, payload: SendVideoNoteRequest): Promise<Message> {
+  return callBotMethod<Message>(token, 'sendVideoNote', payload);
+}
+
+export async function sendDice(token: string, payload: SendDiceRequest): Promise<Message> {
+  return callBotMethod<Message>(token, 'sendDice', payload);
+}
+
+export async function sendContact(token: string, payload: SendContactRequest): Promise<Message> {
+  return callBotMethod<Message>(token, 'sendContact', payload);
+}
+
+export async function sendLocation(token: string, payload: SendLocationRequest): Promise<Message> {
+  return callBotMethod<Message>(token, 'sendLocation', payload);
+}
+
+export async function sendVenue(token: string, payload: SendVenueRequest): Promise<Message> {
+  return callBotMethod<Message>(token, 'sendVenue', payload);
+}
+
+export async function sendGame(token: string, payload: SendGameRequest): Promise<Message> {
+  return callBotMethod<Message>(token, 'sendGame', payload);
+}
+
+export async function setGameScore(token: string, payload: SetGameScoreRequest): Promise<Message | boolean> {
+  return callBotMethod<Message | boolean>(token, 'setGameScore', payload);
+}
+
+export async function getGameHighScores(token: string, payload: GetGameHighScoresRequest): Promise<GameHighScore[]> {
+  return callBotMethod<GameHighScore[]>(token, 'getGameHighScores', payload);
+}
+
+export async function getStickerSet(token: string, payload: GetStickerSetRequest): Promise<StickerSet> {
+  return callBotMethod<StickerSet>(token, 'getStickerSet', payload);
+}
+
+export async function getCustomEmojiStickers(token: string, payload: GetCustomEmojiStickersRequest): Promise<Sticker[]> {
+  return callBotMethod<Sticker[]>(token, 'getCustomEmojiStickers', payload);
+}
+
+export async function uploadStickerFile(token: string, payload: UploadStickerFileRequest): Promise<TgFile> {
+  const formData = new FormData();
+  formData.append('user_id', String(payload.user_id));
+  formData.append('sticker_format', payload.sticker_format);
+
+  const stickerValue = payload.sticker as unknown;
+  const extra = (typeof stickerValue === 'object' && stickerValue !== null && 'extra' in stickerValue)
+    ? (stickerValue as { extra?: unknown }).extra
+    : undefined;
+  if (extra instanceof window.File) {
+    formData.append('sticker', extra, extra.name);
+  } else if (typeof extra === 'string') {
+    formData.append('sticker', extra);
+  } else if (typeof payload.sticker === 'string') {
+    formData.append('sticker', payload.sticker);
+  } else {
+    throw new Error('uploadStickerFile requires sticker file or path');
+  }
+
+  const response = await fetch(`${API_BASE_URL}/bot${token}/uploadStickerFile`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to upload sticker file');
+  }
+  return data.result as TgFile;
+}
+
+export async function createNewStickerSet(token: string, payload: CreateNewStickerSetRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'createNewStickerSet', payload);
+}
+
+export async function addStickerToSet(token: string, payload: AddStickerToSetRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'addStickerToSet', payload);
+}
+
+export async function setStickerPositionInSet(token: string, payload: SetStickerPositionInSetRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'setStickerPositionInSet', payload);
+}
+
+export async function deleteStickerFromSet(token: string, payload: DeleteStickerFromSetRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'deleteStickerFromSet', payload);
+}
+
+export async function replaceStickerInSet(token: string, payload: ReplaceStickerInSetRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'replaceStickerInSet', payload);
+}
+
+export async function setStickerEmojiList(token: string, payload: SetStickerEmojiListRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'setStickerEmojiList', payload);
+}
+
+export async function setStickerKeywords(token: string, payload: SetStickerKeywordsRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'setStickerKeywords', payload);
+}
+
+export async function setStickerMaskPosition(token: string, payload: SetStickerMaskPositionRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'setStickerMaskPosition', payload);
+}
+
+export async function setStickerSetTitle(token: string, payload: SetStickerSetTitleRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'setStickerSetTitle', payload);
+}
+
+export async function setStickerSetThumbnail(token: string, payload: SetStickerSetThumbnailRequest): Promise<boolean> {
+  const formData = new FormData();
+  formData.append('name', payload.name);
+  formData.append('user_id', String(payload.user_id));
+  formData.append('format', payload.format);
+
+  if (payload.thumbnail !== undefined && payload.thumbnail !== null) {
+    const thumb = payload.thumbnail as unknown;
+    if (thumb instanceof window.File) {
+      formData.append('thumbnail', thumb, thumb.name);
+    } else if (typeof thumb === 'string') {
+      formData.append('thumbnail', thumb);
+    }
+  }
+
+  const response = await fetch(`${API_BASE_URL}/bot${token}/setStickerSetThumbnail`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to set sticker set thumbnail');
+  }
+
+  return Boolean(data.result);
+}
+
+export async function setCustomEmojiStickerSetThumbnail(token: string, payload: SetCustomEmojiStickerSetThumbnailRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'setCustomEmojiStickerSetThumbnail', payload);
+}
+
+export async function deleteStickerSet(token: string, payload: DeleteStickerSetRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'deleteStickerSet', payload);
+}
+
 type MediaGroupItem = {
   type: 'photo' | 'video' | 'audio' | 'document';
-  file: File;
+  file: globalThis.File;
 };
 
-function inferMediaGroupItem(file: File): MediaGroupItem {
+function inferMediaGroupItem(file: globalThis.File): MediaGroupItem {
   const mime = file.type.toLowerCase();
   if (mime.startsWith('image/')) {
     return { type: 'photo', file };
@@ -628,7 +1045,7 @@ function inferMediaGroupItem(file: File): MediaGroupItem {
 
 export async function sendBotMediaGroup(token: string, payload: {
   chatId: number;
-  files: File[];
+  files: globalThis.File[];
   caption?: string;
   parseMode?: 'HTML' | 'Markdown' | 'MarkdownV2';
 }) {

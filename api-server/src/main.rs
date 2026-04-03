@@ -15,7 +15,7 @@ use crate::routes::{
     bot_api_get, bot_api_post, file_download, health, sim_bootstrap, sim_clear_history, sim_create_bot,
     sim_callback_query_answer, sim_choose_inline_result, sim_edit_user_message_media, sim_inline_query_answer, sim_press_inline_button, sim_send_inline_query, sim_send_user_message, sim_set_user_reaction, sim_update_bot, sim_upsert_user,
     sim_pay_invoice, sim_poll_voters, sim_vote_poll,
-    sim_send_user_media,
+    sim_send_user_contact, sim_send_user_dice, sim_send_user_game, sim_send_user_location, sim_send_user_media, sim_send_user_venue,
 };
 use crate::websocket::{ws_bot_updates, WebSocketHub};
 
@@ -63,6 +63,11 @@ async fn main() -> std::io::Result<()> {
             .service(sim_bootstrap)
             .service(sim_send_user_message)
             .service(sim_send_user_media)
+            .service(sim_send_user_dice)
+            .service(sim_send_user_game)
+            .service(sim_send_user_contact)
+            .service(sim_send_user_location)
+            .service(sim_send_user_venue)
             .service(sim_edit_user_message_media)
             .service(sim_set_user_reaction)
             .service(sim_vote_poll)

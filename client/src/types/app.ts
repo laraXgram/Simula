@@ -9,6 +9,11 @@ import type {
   Message as GeneratedMessage,
   MessageEntity as GeneratedMessageEntity,
   Invoice as GeneratedInvoice,
+  Contact as GeneratedContact,
+  Location as GeneratedLocation,
+  Venue as GeneratedVenue,
+  Dice as GeneratedDice,
+  Game as GeneratedGame,
   SuccessfulPayment as GeneratedSuccessfulPayment,
   Poll as GeneratedPoll,
   MessageReactionCountUpdated as GeneratedMessageReactionCountUpdated,
@@ -54,6 +59,11 @@ export interface ChatMessage {
   isInlineOrigin?: boolean;
   viaBotUsername?: string;
   poll?: GeneratedPoll;
+  contact?: GeneratedContact;
+  location?: GeneratedLocation;
+  venue?: GeneratedVenue;
+  dice?: GeneratedDice;
+  game?: GeneratedGame;
   invoice?: GeneratedInvoice;
   invoiceMeta?: {
     photoUrl?: string;
@@ -73,6 +83,7 @@ export interface ChatMessage {
     fileId: string;
     mimeType?: string;
     fileName?: string;
+    setName?: string;
   };
   mediaGroupId?: string;
   replyTo?: {

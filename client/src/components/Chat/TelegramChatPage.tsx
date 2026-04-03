@@ -1,9 +1,18 @@
 import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown,
+  Clapperboard,
+  Contact,
+  Dice5,
+  Gamepad2,
+  MapPin,
+  MapPinned,
   Bot,
   Copy,
+  Mic,
   MoreVertical,
+  Pause,
+  Play,
   Reply,
   Pencil,
   Paperclip,
@@ -11,22 +20,39 @@ import {
   Search,
   SendHorizonal,
   ShieldCheck,
+  Smile,
   Star,
   Trash2,
   UserPlus,
+  Video,
   Wallet,
+  Wrench,
   X,
 } from 'lucide-react';
 import {
   chooseInlineResult,
   clearSimHistory,
   createSimBot,
+  createNewStickerSet,
+  addStickerToSet,
+  deleteStickerFromSet,
+  deleteStickerSet,
+  getCustomEmojiStickers,
+  getStickerSet,
   deleteBotMessage,
   deleteBotMessages,
   editBotMessageCaption,
   editUserMessageMedia,
   editBotMessageText,
+  replaceStickerInSet,
   sendPoll,
+  setCustomEmojiStickerSetThumbnail,
+  setStickerEmojiList,
+  setStickerKeywords,
+  setStickerMaskPosition,
+  setStickerPositionInSet,
+  setStickerSetThumbnail,
+  setStickerSetTitle,
   sendInvoice,
   stopPoll,
   votePoll,
@@ -35,11 +61,20 @@ import {
   PollVoterInfo,
   getCallbackQueryAnswer,
   getBotFile,
+  getGameHighScores,
   pressInlineButton,
+  sendUserContact,
+  sendUserDice,
+  sendUserGame,
+  sendUserLocation,
+  sendUserVenue,
   sendInlineQuery,
   getInlineQueryAnswer,
+  setGameScore,
   getSimulationBootstrap,
   sendUserMedia,
+  sendUserMediaByReference,
+  uploadStickerFile,
   sendUserMessage,
   setUserMessageReaction,
   updateSimBot,
@@ -79,6 +114,32 @@ type UserModalMode = 'create' | 'edit';
 type ComposerParseMode = 'none' | 'MarkdownV2' | 'Markdown' | 'HTML';
 type PaymentMethod = 'wallet' | 'card' | 'stars';
 type CheckoutStep = 1 | 2 | 3;
+type MediaDrawerTab =
+  | 'stickers'
+  | 'animations'
+  | 'voice'
+  | 'video_note'
+  | 'dice'
+  | 'game'
+  | 'contact'
+  | 'location'
+  | 'venue'
+  | 'poll'
+  | 'invoice'
+  | 'studio';
+
+interface StickerShelfSet {
+  name: string;
+  title: string;
+  stickers: Array<{
+    file_id: string;
+    file_unique_id: string;
+    is_video: boolean;
+    is_animated: boolean;
+    set_name?: string;
+    emoji?: string;
+  }>;
+}
 
 interface CheckoutFlowState {
   messageId: number;
@@ -92,6 +153,8 @@ const TELEGRAM_REACTION_EMOJIS = [
   '👍', '👎', '❤', '🔥', '🎉', '😁', '🤔', '😢', '😱', '👏', '🤩', '🙏', '👌', '🤣', '💯', '⚡',
   '💔', '🥰', '🤬', '🤯', '🤮', '🥱', '😈', '😎', '🗿', '🆒', '😘', '👀', '🤝', '🍾',
 ];
+
+const DICE_EMOJIS = ['🎲', '🎯', '🏀', '⚽', '🎳', '🎰', '🏐'] as const;
 
 function mapIncomingReplyMarkup(raw?: Record<string, unknown>): BotReplyMarkup | undefined {
   if (!raw || typeof raw !== 'object') {
@@ -231,9 +294,19 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const [pollAnonymousByPollId, setPollAnonymousByPollId] = useState<Record<string, boolean>>({});
   const [expandedPollVoters, setExpandedPollVoters] = useState<Record<string, boolean>>({});
   const [pollVotersLoading, setPollVotersLoading] = useState<Record<string, boolean>>({});
-  const [showPollBuilder, setShowPollBuilder] = useState(false);
-  const [showInvoiceBuilder, setShowInvoiceBuilder] = useState(false);
-  const [showPaymentLab, setShowPaymentLab] = useState(false);
+  const [selectedDiceEmoji, setSelectedDiceEmoji] = useState<(typeof DICE_EMOJIS)[number]>('🎲');
+  const [gameShortNameDraft, setGameShortNameDraft] = useState('');
+  const [showMediaDrawer, setShowMediaDrawer] = useState(false);
+  const [mediaDrawerTab, setMediaDrawerTab] = useState<MediaDrawerTab>('stickers');
+  const [shareDraft, setShareDraft] = useState({
+    phoneNumber: '+10000000000',
+    contactFirstName: '',
+    contactLastName: '',
+    latitude: '35.6892',
+    longitude: '51.3890',
+    venueTitle: 'Coffee Spot',
+    venueAddress: 'Main Street',
+  });
   const [pollBuilder, setPollBuilder] = useState({
     type: 'regular' as 'regular' | 'quiz',
     question: '',
@@ -266,6 +339,43 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     sendPhoneNumberToProvider: false,
     sendEmailToProvider: false,
   });
+  const [stickerStudio, setStickerStudio] = useState({
+    userId: String(DEFAULT_USER.id),
+    setName: '',
+    setTitle: '',
+    stickerType: 'regular',
+    stickerFormat: 'static',
+    emojiList: '😀',
+    keywords: '',
+    oldStickerId: '',
+    targetStickerId: '',
+    position: '0',
+    customEmojiId: '',
+    maskPoint: 'forehead',
+    maskXShift: '0',
+    maskYShift: '0',
+    maskScale: '1',
+    sendEmoji: '😀',
+    sendDuration: '5',
+    sendLength: '384',
+  });
+  const [stickerStudioFile, setStickerStudioFile] = useState<File | null>(null);
+  const [stickerStudioThumbnailFile, setStickerStudioThumbnailFile] = useState<File | null>(null);
+  const [uploadedStickerFileId, setUploadedStickerFileId] = useState('');
+  const [stickerStudioOutput, setStickerStudioOutput] = useState('');
+  const [stickerShelf, setStickerShelf] = useState<StickerShelfSet[]>([]);
+  const [stickerShelfActiveSet, setStickerShelfActiveSet] = useState('');
+  const [stickerPreviewFailedByFileId, setStickerPreviewFailedByFileId] = useState<Record<string, boolean>>({});
+  const [stickerShelfNameInput, setStickerShelfNameInput] = useState('');
+  const [animationUploadFile, setAnimationUploadFile] = useState<File | null>(null);
+  const [voiceUploadFile, setVoiceUploadFile] = useState<File | null>(null);
+  const [videoNoteUploadFile, setVideoNoteUploadFile] = useState<File | null>(null);
+  const [canUseMicrophone, setCanUseMicrophone] = useState(false);
+  const [canUseCamera, setCanUseCamera] = useState(false);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [recordedVoiceBlob, setRecordedVoiceBlob] = useState<Blob | null>(null);
+  const [voiceRecordError, setVoiceRecordError] = useState('');
+  const [playingVideoNoteMessageId, setPlayingVideoNoteMessageId] = useState<number | null>(null);
   const [paymentMethodByInvoice, setPaymentMethodByInvoice] = useState<Record<number, PaymentMethod>>({});
   const [paymentTipByInvoice, setPaymentTipByInvoice] = useState<Record<number, string>>({});
   const [checkoutFlow, setCheckoutFlow] = useState<CheckoutFlowState | null>(null);
@@ -322,6 +432,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const isNearBottomRef = useRef(true);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const videoNoteRefs = useRef<Record<number, HTMLVideoElement | null>>({});
+  const voiceRecorderRef = useRef<MediaRecorder | null>(null);
+  const voiceRecorderChunksRef = useRef<BlobPart[]>([]);
   const inlineRequestSeqRef = useRef(0);
 
   const visibleMessages = useMemo(
@@ -424,6 +537,71 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       return firstName.includes(keyword) || username.includes(keyword) || idText.includes(keyword);
     });
   }, [availableUsers, chatSearch]);
+
+  const stickerSetNamesFromMessages = useMemo(() => {
+    const names = new Set<string>();
+    visibleMessages.forEach((message) => {
+      const setName = message.media?.type === 'sticker' ? message.media.setName : undefined;
+      if (setName) {
+        names.add(setName);
+      }
+    });
+    return Array.from(names);
+  }, [visibleMessages]);
+
+  const activeStickerSet = useMemo(
+    () => stickerShelf.find((set) => set.name === stickerShelfActiveSet) || null,
+    [stickerShelf, stickerShelfActiveSet],
+  );
+
+  const animationGallery = useMemo(() => {
+    const seen = new Set<string>();
+    const items: Array<{ fileId: string; from: string }> = [];
+    [...visibleMessages].reverse().forEach((message) => {
+      if (message.media?.type !== 'animation') {
+        return;
+      }
+      if (seen.has(message.media.fileId)) {
+        return;
+      }
+      seen.add(message.media.fileId);
+      items.push({
+        fileId: message.media.fileId,
+        from: message.fromName,
+      });
+    });
+    return items;
+  }, [visibleMessages]);
+
+  useEffect(() => {
+    let mounted = true;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+      setCanUseMicrophone(false);
+      setCanUseCamera(false);
+      return;
+    }
+
+    navigator.mediaDevices
+      .enumerateDevices()
+      .then((devices) => {
+        if (!mounted) {
+          return;
+        }
+        setCanUseMicrophone(devices.some((d) => d.kind === 'audioinput'));
+        setCanUseCamera(devices.some((d) => d.kind === 'videoinput'));
+      })
+      .catch(() => {
+        if (!mounted) {
+          return;
+        }
+        setCanUseMicrophone(false);
+        setCanUseCamera(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem(BOTS_KEY, JSON.stringify(availableBots));
@@ -595,8 +773,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         media = {
           type: 'sticker',
           fileId: payload.sticker.file_id,
-          mimeType: payload.sticker.is_animated ? 'application/x-tgsticker' : (payload.sticker.is_video ? 'video/webm' : 'image/webp'),
+          mimeType: (payload.sticker.is_video || payload.sticker.is_animated) ? 'video/webm' : 'image/webp',
           fileName: payload.sticker.set_name ? `${payload.sticker.set_name}.webp` : 'sticker.webp',
+          setName: payload.sticker.set_name,
         };
       } else if (payload.animation) {
         media = {
@@ -624,6 +803,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         fromUserId: payload.from?.id || 0,
         isInlineOrigin: Boolean(payload.via_bot?.id),
         viaBotUsername: payload.via_bot?.username,
+        contact: payload.contact,
+        location: payload.location,
+        venue: payload.venue,
+        dice: payload.dice,
+        game: payload.game,
         poll: payload.poll,
         invoice: payload.invoice,
         invoiceMeta: (() => {
@@ -879,9 +1063,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         currency: parts[3] || prev.currency || 'USD',
         payload: parts[4] || prev.payload,
       }));
-      setShowPollBuilder(false);
-      setShowInvoiceBuilder(true);
-      setShowPaymentLab(true);
+      setShowMediaDrawer(true);
+      setMediaDrawerTab('invoice');
       setShowFormattingTools(false);
       setComposerText('');
       return;
@@ -1079,7 +1262,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         closeDate: '',
         isClosed: false,
       });
-      setShowPollBuilder(false);
       setErrorText('');
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'Poll send failed');
@@ -1175,7 +1357,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         is_flexible: isStarsCurrency ? false : invoiceBuilder.isFlexible,
       });
 
-      setShowInvoiceBuilder(false);
       setErrorText('');
       setInvoiceBuilder((prev) => ({
         ...prev,
@@ -1183,6 +1364,442 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       }));
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'Invoice send failed');
+    }
+  };
+
+  const stickerEmojiList = useMemo(
+    () => stickerStudio.emojiList.split(',').map((item) => item.trim()).filter(Boolean),
+    [stickerStudio.emojiList],
+  );
+
+  const stickerKeywordList = useMemo(
+    () => stickerStudio.keywords.split(',').map((item) => item.trim()).filter(Boolean),
+    [stickerStudio.keywords],
+  );
+
+  const uploadStickerAsset = async () => {
+    if (!stickerStudioFile) {
+      setErrorText('Select a sticker file first.');
+      return;
+    }
+
+    try {
+      const uploaded = await uploadStickerFile(selectedBotToken, {
+        user_id: Number(stickerStudio.userId) || selectedUser.id,
+        sticker_format: stickerStudio.stickerFormat,
+        sticker: { extra: stickerStudioFile },
+      });
+      setUploadedStickerFileId(uploaded.file_id);
+      setStickerStudioOutput(`Uploaded sticker file_id: ${uploaded.file_id}`);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Sticker upload failed');
+    }
+  };
+
+  const createStickerSetAction = async () => {
+    if (!uploadedStickerFileId) {
+      setErrorText('Upload sticker file first.');
+      return;
+    }
+    if (!stickerStudio.setName.trim() || !stickerStudio.setTitle.trim()) {
+      setErrorText('Sticker set name/title are required.');
+      return;
+    }
+
+    try {
+      await createNewStickerSet(selectedBotToken, {
+        user_id: Number(stickerStudio.userId) || selectedUser.id,
+        name: stickerStudio.setName.trim(),
+        title: stickerStudio.setTitle.trim(),
+        sticker_type: stickerStudio.stickerType,
+        needs_repainting: false,
+        stickers: [
+          {
+            sticker: uploadedStickerFileId,
+            format: stickerStudio.stickerFormat,
+            emoji_list: stickerEmojiList,
+            keywords: stickerKeywordList.length ? stickerKeywordList : undefined,
+            mask_position: stickerStudio.stickerType === 'mask'
+              ? {
+                point: stickerStudio.maskPoint,
+                x_shift: Number(stickerStudio.maskXShift) || 0,
+                y_shift: Number(stickerStudio.maskYShift) || 0,
+                scale: Number(stickerStudio.maskScale) || 1,
+              }
+              : undefined,
+          },
+        ],
+      });
+      await loadStickerSetIntoShelf(stickerStudio.setName.trim(), { silent: true });
+      setStickerStudioOutput(`Sticker set created: ${stickerStudio.setName.trim()}`);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Create sticker set failed');
+    }
+  };
+
+  const addStickerToSetAction = async () => {
+    if (!uploadedStickerFileId || !stickerStudio.setName.trim()) {
+      setErrorText('Upload sticker and provide set name.');
+      return;
+    }
+
+    try {
+      await addStickerToSet(selectedBotToken, {
+        user_id: Number(stickerStudio.userId) || selectedUser.id,
+        name: stickerStudio.setName.trim(),
+        sticker: {
+          sticker: uploadedStickerFileId,
+          format: stickerStudio.stickerFormat,
+          emoji_list: stickerEmojiList,
+          keywords: stickerKeywordList.length ? stickerKeywordList : undefined,
+          mask_position: stickerStudio.stickerType === 'mask'
+            ? {
+              point: stickerStudio.maskPoint,
+              x_shift: Number(stickerStudio.maskXShift) || 0,
+              y_shift: Number(stickerStudio.maskYShift) || 0,
+              scale: Number(stickerStudio.maskScale) || 1,
+            }
+            : undefined,
+        },
+      });
+      await loadStickerSetIntoShelf(stickerStudio.setName.trim(), { silent: true });
+      setStickerStudioOutput(`Sticker added to: ${stickerStudio.setName.trim()}`);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Add sticker failed');
+    }
+  };
+
+  const fetchStickerSetAction = async () => {
+    if (!stickerStudio.setName.trim()) {
+      setErrorText('Set name is required.');
+      return;
+    }
+
+    try {
+      const result = await getStickerSet(selectedBotToken, { name: stickerStudio.setName.trim() });
+      setStickerStudioOutput(JSON.stringify(result, null, 2));
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Get sticker set failed');
+    }
+  };
+
+  const applyStickerSetMetaActions = async () => {
+    if (!stickerStudio.setName.trim()) {
+      setErrorText('Set name is required.');
+      return;
+    }
+
+    try {
+      await setStickerSetTitle(selectedBotToken, {
+        name: stickerStudio.setName.trim(),
+        title: stickerStudio.setTitle.trim() || stickerStudio.setName.trim(),
+      });
+
+      if (stickerStudioThumbnailFile) {
+        await setStickerSetThumbnail(selectedBotToken, {
+          name: stickerStudio.setName.trim(),
+          user_id: Number(stickerStudio.userId) || selectedUser.id,
+          thumbnail: { extra: stickerStudioThumbnailFile } as unknown as Record<string, unknown>,
+          format: stickerStudio.stickerFormat,
+        });
+      }
+
+      if (stickerStudio.customEmojiId.trim()) {
+        await setCustomEmojiStickerSetThumbnail(selectedBotToken, {
+          name: stickerStudio.setName.trim(),
+          custom_emoji_id: stickerStudio.customEmojiId.trim(),
+        });
+      }
+
+      await loadStickerSetIntoShelf(stickerStudio.setName.trim(), { silent: true });
+      setStickerStudioOutput(`Sticker set metadata updated: ${stickerStudio.setName.trim()}`);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Sticker set metadata update failed');
+    }
+  };
+
+  const applyStickerItemActions = async () => {
+    const stickerRef = stickerStudio.targetStickerId.trim() || uploadedStickerFileId;
+    if (!stickerRef) {
+      setErrorText('Sticker file_id is required for item actions.');
+      return;
+    }
+
+    try {
+      await setStickerEmojiList(selectedBotToken, {
+        sticker: stickerRef,
+        emoji_list: stickerEmojiList,
+      });
+      await setStickerKeywords(selectedBotToken, {
+        sticker: stickerRef,
+        keywords: stickerKeywordList.length ? stickerKeywordList : undefined,
+      });
+      if (stickerStudio.stickerType === 'mask') {
+        await setStickerMaskPosition(selectedBotToken, {
+          sticker: stickerRef,
+          mask_position: {
+            point: stickerStudio.maskPoint,
+            x_shift: Number(stickerStudio.maskXShift) || 0,
+            y_shift: Number(stickerStudio.maskYShift) || 0,
+            scale: Number(stickerStudio.maskScale) || 1,
+          },
+        });
+      }
+
+      if (stickerStudio.setName.trim()) {
+        await loadStickerSetIntoShelf(stickerStudio.setName.trim(), { silent: true });
+      }
+      setStickerStudioOutput(`Sticker item metadata updated: ${stickerRef}`);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Sticker item actions failed');
+    }
+  };
+
+  const reorderOrReplaceStickerAction = async () => {
+    if (!stickerStudio.targetStickerId.trim()) {
+      setErrorText('target sticker id is required.');
+      return;
+    }
+
+    try {
+      await setStickerPositionInSet(selectedBotToken, {
+        sticker: stickerStudio.targetStickerId.trim(),
+        position: Number(stickerStudio.position) || 0,
+      });
+
+      if (stickerStudio.oldStickerId.trim() && uploadedStickerFileId && stickerStudio.setName.trim()) {
+        await replaceStickerInSet(selectedBotToken, {
+          user_id: Number(stickerStudio.userId) || selectedUser.id,
+          name: stickerStudio.setName.trim(),
+          old_sticker: stickerStudio.oldStickerId.trim(),
+          sticker: {
+            sticker: uploadedStickerFileId,
+            format: stickerStudio.stickerFormat,
+            emoji_list: stickerEmojiList,
+            keywords: stickerKeywordList.length ? stickerKeywordList : undefined,
+          },
+        });
+      }
+
+      if (stickerStudio.setName.trim()) {
+        await loadStickerSetIntoShelf(stickerStudio.setName.trim(), { silent: true });
+      }
+      setStickerStudioOutput('Sticker position/replace operation completed.');
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Sticker reorder/replace failed');
+    }
+  };
+
+  const deleteStickerActions = async () => {
+    try {
+      if (stickerStudio.targetStickerId.trim()) {
+        await deleteStickerFromSet(selectedBotToken, { sticker: stickerStudio.targetStickerId.trim() });
+      }
+      if (stickerStudio.setName.trim()) {
+        await deleteStickerSet(selectedBotToken, { name: stickerStudio.setName.trim() });
+        setStickerShelf((prev) => prev.filter((set) => set.name !== stickerStudio.setName.trim()));
+        setStickerShelfActiveSet((prev) => (prev === stickerStudio.setName.trim() ? '' : prev));
+      }
+      setStickerStudioOutput('Delete action completed (sticker and/or set).');
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Delete sticker/set failed');
+    }
+  };
+
+  const queryCustomEmojiStickersAction = async () => {
+    if (!stickerStudio.customEmojiId.trim()) {
+      setErrorText('custom emoji id is required.');
+      return;
+    }
+
+    try {
+      const result = await getCustomEmojiStickers(selectedBotToken, {
+        custom_emoji_ids: stickerStudio.customEmojiId.split(',').map((item) => item.trim()).filter(Boolean),
+      });
+      setStickerStudioOutput(JSON.stringify(result, null, 2));
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'getCustomEmojiStickers failed');
+    }
+  };
+
+  const loadStickerSetIntoShelf = async (setNameRaw?: string, options?: { silent?: boolean }) => {
+    const setName = (setNameRaw || stickerShelfNameInput).trim();
+    if (!setName) {
+      if (!options?.silent) {
+        setErrorText('Set name is required.');
+      }
+      return;
+    }
+
+    try {
+      const result = await getStickerSet(selectedBotToken, { name: setName });
+      const normalized: StickerShelfSet = {
+        name: result.name,
+        title: result.title,
+        stickers: (result.stickers || []).map((item) => ({
+          file_id: item.file_id,
+          file_unique_id: item.file_unique_id,
+          is_video: Boolean(item.is_video),
+          is_animated: Boolean(item.is_animated),
+          set_name: item.set_name,
+          emoji: item.emoji,
+        })),
+      };
+
+      setStickerShelf((prev) => {
+        const idx = prev.findIndex((entry) => entry.name === normalized.name);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = normalized;
+          return next;
+        }
+        return [...prev, normalized];
+      });
+      setStickerShelfActiveSet(normalized.name);
+      setStickerShelfNameInput('');
+    } catch (error) {
+      if (!options?.silent) {
+        setErrorText(error instanceof Error ? error.message : 'Unable to load sticker set');
+      }
+    }
+  };
+
+  const sendUserMediaByFileRef = async (
+    mediaKind: 'sticker' | 'animation' | 'video_note' | 'voice',
+    mediaRef: string,
+  ) => {
+    try {
+      await sendUserMediaByReference(selectedBotToken, {
+        chatId: selectedChatId,
+        userId: selectedUser.id,
+        firstName: selectedUser.first_name,
+        username: selectedUser.username,
+        mediaKind,
+        media: mediaRef,
+      });
+      setShowMediaDrawer(false);
+      setReplyTarget(null);
+      isNearBottomRef.current = true;
+      window.setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      }, 0);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'User media send failed');
+    }
+  };
+
+  const sendUserMediaFile = async (
+    file: File | null,
+    mediaKind: 'animation' | 'voice' | 'video_note',
+  ) => {
+    if (!file) {
+      setErrorText('Select a file first.');
+      return;
+    }
+
+    try {
+      await sendUserMedia(selectedBotToken, {
+        chatId: selectedChatId,
+        userId: selectedUser.id,
+        firstName: selectedUser.first_name,
+        username: selectedUser.username,
+        file,
+        mediaKind,
+      });
+      if (mediaKind === 'animation') {
+        setAnimationUploadFile(null);
+      }
+      if (mediaKind === 'voice') {
+        setVoiceUploadFile(null);
+      }
+      if (mediaKind === 'video_note') {
+        setVideoNoteUploadFile(null);
+      }
+      setShowMediaDrawer(false);
+      setReplyTarget(null);
+      isNearBottomRef.current = true;
+      window.setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      }, 0);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'User media upload failed');
+    }
+  };
+
+  const startVoiceRecording = async () => {
+    if (!canUseMicrophone || isRecordingVoice) {
+      return;
+    }
+
+    try {
+      setVoiceRecordError('');
+      setRecordedVoiceBlob(null);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      voiceRecorderChunksRef.current = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          voiceRecorderChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(voiceRecorderChunksRef.current, { type: recorder.mimeType || 'audio/ogg' });
+        setRecordedVoiceBlob(blob.size > 0 ? blob : null);
+        stream.getTracks().forEach((track) => track.stop());
+        setIsRecordingVoice(false);
+      };
+
+      recorder.onerror = () => {
+        setVoiceRecordError('Voice recording failed. You can still upload an audio file.');
+        stream.getTracks().forEach((track) => track.stop());
+        setIsRecordingVoice(false);
+      };
+
+      voiceRecorderRef.current = recorder;
+      recorder.start();
+      setIsRecordingVoice(true);
+    } catch {
+      setVoiceRecordError('Microphone is unavailable. Use upload fallback.');
+      setIsRecordingVoice(false);
+    }
+  };
+
+  const stopVoiceRecording = () => {
+    const recorder = voiceRecorderRef.current;
+    if (!recorder || recorder.state !== 'recording') {
+      return;
+    }
+    recorder.stop();
+  };
+
+  const sendRecordedVoice = async () => {
+    if (!recordedVoiceBlob) {
+      setErrorText('No recorded voice found.');
+      return;
+    }
+
+    const file = new File([recordedVoiceBlob], `voice_${Date.now()}.ogg`, { type: recordedVoiceBlob.type || 'audio/ogg' });
+    await sendUserMediaFile(file, 'voice');
+    setRecordedVoiceBlob(null);
+  };
+
+  const toggleVideoNotePlayback = (messageId: number) => {
+    const node = videoNoteRefs.current[messageId];
+    if (!node) {
+      return;
+    }
+
+    if (node.paused) {
+      void node.play().then(() => {
+        setPlayingVideoNoteMessageId(messageId);
+      }).catch(() => {
+        setPlayingVideoNoteMessageId(null);
+      });
+    } else {
+      node.pause();
+      setPlayingVideoNoteMessageId(null);
     }
   };
 
@@ -1544,13 +2161,49 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
     let outgoingText = text;
     if (button.request_contact) {
-      outgoingText = `📱 ${selectedUser.first_name} shared contact`;
+      try {
+        await sendUserContact(selectedBotToken, {
+          chatId: selectedChatId,
+          userId: selectedUser.id,
+          firstName: selectedUser.first_name,
+          username: selectedUser.username,
+          phoneNumber: '+10000000000',
+          contactFirstName: selectedUser.first_name,
+        });
+        setReplyTarget(null);
+        dismissActiveOneTimeKeyboard();
+        isNearBottomRef.current = true;
+        window.setTimeout(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        }, 0);
+      } catch (error) {
+        setErrorText(error instanceof Error ? error.message : 'Unable to share contact');
+      }
+      return;
     } else if (button.request_location) {
-      outgoingText = `📍 ${selectedUser.first_name} shared location`;
+      try {
+        await sendUserLocation(selectedBotToken, {
+          chatId: selectedChatId,
+          userId: selectedUser.id,
+          firstName: selectedUser.first_name,
+          username: selectedUser.username,
+          latitude: 35.6892,
+          longitude: 51.3890,
+        });
+        setReplyTarget(null);
+        dismissActiveOneTimeKeyboard();
+        isNearBottomRef.current = true;
+        window.setTimeout(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        }, 0);
+      } catch (error) {
+        setErrorText(error instanceof Error ? error.message : 'Unable to share location');
+      }
+      return;
     } else if (button.request_poll) {
       const isQuiz = button.request_poll.type === 'quiz';
-      setShowInvoiceBuilder(false);
-      setShowPollBuilder(true);
+      setShowMediaDrawer(true);
+      setMediaDrawerTab('poll');
       setShowFormattingTools(false);
       setPollBuilder({
         type: isQuiz ? 'quiz' : 'regular',
@@ -1755,6 +2408,35 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
     if (button.web_app?.url) {
       window.open(button.web_app.url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    if (button.callback_game) {
+      if (!message.game) {
+        setErrorText('Game payload not found on message');
+        return;
+      }
+
+      try {
+        const scores = await getGameHighScores(selectedBotToken, {
+          user_id: selectedUser.id,
+          chat_id: message.chatId,
+          message_id: message.id,
+        });
+        const current = scores.find((item) => item.user.id === selectedUser.id)?.score || 0;
+        await setGameScore(selectedBotToken, {
+          user_id: selectedUser.id,
+          score: current + 1,
+          force: false,
+          disable_edit_message: false,
+          chat_id: message.chatId,
+          message_id: message.id,
+        });
+
+        setCallbackToast(`Game callback handled: ${message.game.title}`);
+      } catch (error) {
+        setErrorText(error instanceof Error ? error.message : 'Game callback failed');
+      }
       return;
     }
 
@@ -2729,6 +3411,131 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     );
   };
 
+  const renderContactCard = (message: ChatMessage) => {
+    if (!message.contact) {
+      return null;
+    }
+
+    return (
+      <div className="mb-2 rounded-xl border border-[#4f7ea0]/45 bg-[#17374d]/75 p-3 text-[#dcf0ff]">
+        <div className="text-sm font-semibold">Contact</div>
+        <div className="mt-1 text-xs">
+          {message.contact.first_name}{message.contact.last_name ? ` ${message.contact.last_name}` : ''}
+        </div>
+        <div className="text-xs text-[#b7d7ed]">{message.contact.phone_number}</div>
+      </div>
+    );
+  };
+
+  const renderLocationCard = (message: ChatMessage) => {
+    if (!message.location) {
+      return null;
+    }
+
+    const lat = message.location.latitude.toFixed(6);
+    const lon = message.location.longitude.toFixed(6);
+    return (
+      <div className="mb-2 rounded-xl border border-[#4f7ea0]/45 bg-[#17374d]/75 p-3 text-[#dcf0ff]">
+        <div className="text-sm font-semibold">Location</div>
+        <div className="mt-1 text-xs">{lat}, {lon}</div>
+      </div>
+    );
+  };
+
+  const renderVenueCard = (message: ChatMessage) => {
+    if (!message.venue) {
+      return null;
+    }
+
+    const lat = message.venue.location.latitude.toFixed(6);
+    const lon = message.venue.location.longitude.toFixed(6);
+    return (
+      <div className="mb-2 rounded-xl border border-[#4f7ea0]/45 bg-[#17374d]/75 p-3 text-[#dcf0ff]">
+        <div className="text-sm font-semibold">{message.venue.title}</div>
+        <div className="mt-1 text-xs text-[#b7d7ed]">{message.venue.address}</div>
+        <div className="mt-1 text-[11px] text-[#a7cadf]">{lat}, {lon}</div>
+      </div>
+    );
+  };
+
+  const renderDiceCard = (message: ChatMessage) => {
+    if (!message.dice) {
+      return null;
+    }
+
+    return (
+      <div className="mb-2 inline-flex items-center gap-2 rounded-xl border border-white/20 bg-black/20 px-3 py-2 text-sm text-white">
+        <span className="text-xl leading-none">{message.dice.emoji}</span>
+        <span className="font-semibold">{message.dice.value}</span>
+      </div>
+    );
+  };
+
+  const renderGameCard = (message: ChatMessage) => {
+    if (!message.game) {
+      return null;
+    }
+
+    return (
+      <div className="mb-2 rounded-xl border border-[#2f4e66]/55 bg-[#102638]/80 p-3">
+        <div className="text-sm font-semibold text-white">{message.game.title}</div>
+        <div className="mt-1 text-xs text-[#d1e7f7]">{message.game.description}</div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              void (async () => {
+                try {
+                  const scores = await getGameHighScores(selectedBotToken, {
+                    user_id: selectedUser.id,
+                    chat_id: message.chatId,
+                    message_id: message.id,
+                  });
+                  const current = scores.find((item) => item.user.id === selectedUser.id)?.score || 0;
+                  const nextScore = current + (Math.floor(Math.random() * 12) + 1);
+                  await setGameScore(selectedBotToken, {
+                    user_id: selectedUser.id,
+                    score: nextScore,
+                    force: false,
+                    disable_edit_message: false,
+                    chat_id: message.chatId,
+                    message_id: message.id,
+                  });
+                } catch (error) {
+                  setErrorText(error instanceof Error ? error.message : 'Set game score failed');
+                }
+              })();
+            }}
+            className="rounded-md border border-[#6ab8ef]/50 bg-[#1f5379] px-2 py-1 text-[11px] text-white transition hover:bg-[#2b6a98]"
+          >
+            Play (+score)
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              void (async () => {
+                try {
+                  const scores = await getGameHighScores(selectedBotToken, {
+                    user_id: selectedUser.id,
+                    chat_id: message.chatId,
+                    message_id: message.id,
+                  });
+                  const top = scores.slice(0, 5).map((s) => `${s.position}. ${s.user.first_name}: ${s.score}`).join('\n');
+                  setCallbackModalText(top || 'No scores yet');
+                } catch (error) {
+                  setErrorText(error instanceof Error ? error.message : 'Get game scores failed');
+                }
+              })();
+            }}
+            className="rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[11px] text-white transition hover:bg-white/15"
+          >
+            High scores
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   const renderMediaContent = (message: ChatMessage, compact = false) => {
     if (!message.media) {
       return null;
@@ -2763,23 +3570,81 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
 
     if (message.media.type === 'animation') {
-      return <video src={mediaUrl} controls loop className={compact ? 'h-40 w-full rounded-xl object-cover' : 'max-h-80 w-full rounded-xl object-contain sm:w-auto'} />;
+      return (
+        <div className={compact ? 'h-40 w-full overflow-hidden rounded-xl bg-black/25' : 'max-w-[260px] overflow-hidden rounded-xl bg-black/25 sm:max-w-[300px]'}>
+          <video
+            src={mediaUrl}
+            autoPlay
+            muted
+            loop
+            playsInline
+            controls={false}
+            className="h-full w-full object-cover"
+          />
+        </div>
+      );
     }
 
     if (message.media.type === 'video_note') {
-      return <video src={mediaUrl} controls className={compact ? 'h-36 w-36 rounded-full object-cover' : 'h-44 w-44 rounded-full object-cover'} />;
+      const isPlaying = playingVideoNoteMessageId === message.id;
+      return (
+        <button
+          type="button"
+          onClick={() => toggleVideoNotePlayback(message.id)}
+          className={compact
+            ? 'relative h-32 w-32 overflow-hidden rounded-full border border-white/20 bg-black/35'
+            : 'relative h-40 w-40 overflow-hidden rounded-full border border-white/20 bg-black/35'}
+        >
+          <video
+            ref={(node) => {
+              videoNoteRefs.current[message.id] = node;
+            }}
+            src={mediaUrl}
+            playsInline
+            controls={false}
+            className="h-full w-full object-cover"
+            onPause={() => {
+              if (playingVideoNoteMessageId === message.id) {
+                setPlayingVideoNoteMessageId(null);
+              }
+            }}
+            onEnded={() => {
+              if (playingVideoNoteMessageId === message.id) {
+                setPlayingVideoNoteMessageId(null);
+              }
+            }}
+          />
+          <span className="absolute inset-0 flex items-center justify-center bg-black/30">
+            {isPlaying ? <Pause className="h-8 w-8 text-white" /> : <Play className="h-8 w-8 text-white" />}
+          </span>
+        </button>
+      );
     }
 
     if (message.media.type === 'sticker') {
       const isVideoSticker = (message.media.mimeType || '').toLowerCase().includes('video');
       if (isVideoSticker) {
-        return <video src={mediaUrl} controls loop className={compact ? 'h-28 w-28 rounded-xl object-contain' : 'h-36 w-36 rounded-xl object-contain'} />;
+        return (
+          <video
+            src={mediaUrl}
+            autoPlay
+            muted
+            loop
+            playsInline
+            controls={false}
+            className={compact ? 'h-28 w-28 rounded-xl object-contain' : 'h-36 w-36 rounded-xl object-contain'}
+          />
+        );
       }
       return <img src={mediaUrl} alt="sticker" className={compact ? 'h-28 w-28 rounded-xl object-contain' : 'h-36 w-36 rounded-xl object-contain'} />;
     }
 
     if (message.media.type === 'audio' || message.media.type === 'voice') {
-      return <audio src={mediaUrl} controls className="w-72 max-w-full" />;
+      return (
+        <div className="max-w-full rounded-xl border border-white/15 bg-black/20 px-2 py-2">
+          <audio src={mediaUrl} controls className="w-64 max-w-full" controlsList="nodownload noplaybackrate" />
+        </div>
+      );
     }
 
     if (message.media.type === 'document') {
@@ -3004,6 +3869,81 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       setSelectionMode(false);
     }
   }, [selectionMode, selectedMessageIds.length]);
+
+  useEffect(() => {
+    if (!stickerShelfActiveSet && stickerShelf.length > 0) {
+      setStickerShelfActiveSet(stickerShelf[0].name);
+    }
+  }, [stickerShelf, stickerShelfActiveSet]);
+
+  const stickerRealtimeKey = useMemo(
+    () => visibleMessages
+      .filter((message) => message.media?.type === 'sticker' && message.media.setName)
+      .slice(-16)
+      .map((message) => `${message.id}:${message.media?.setName || ''}`)
+      .join('|'),
+    [visibleMessages],
+  );
+
+  useEffect(() => {
+    const discovered = new Set<string>(stickerSetNamesFromMessages.filter(Boolean));
+    if (stickerStudio.setName.trim()) {
+      discovered.add(stickerStudio.setName.trim());
+    }
+
+    const toLoad = Array.from(discovered);
+    if (toLoad.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      for (const setName of toLoad) {
+        if (cancelled) {
+          return;
+        }
+        await loadStickerSetIntoShelf(setName, { silent: true });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [stickerSetNamesFromMessages, stickerStudio.setName, stickerRealtimeKey]);
+
+  useEffect(() => {
+    const targets = [
+      ...(activeStickerSet?.stickers || []).map((item) => item.file_id),
+      ...animationGallery.slice(0, 18).map((item) => item.fileId),
+    ].filter((fileId) => !mediaUrlByFileId[fileId]);
+
+    if (targets.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const updates: Record<string, string> = {};
+      for (const fileId of targets) {
+        try {
+          const url = await resolveMediaUrl(selectedBotToken, fileId);
+          if (cancelled) {
+            return;
+          }
+          updates[fileId] = url;
+        } catch {
+          // Ignore preview fetch failures to keep drawer responsive.
+        }
+      }
+      if (!cancelled && Object.keys(updates).length > 0) {
+        setMediaUrlByFileId((prev) => ({ ...prev, ...updates }));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeStickerSet, animationGallery, mediaUrlByFileId, selectedBotToken]);
 
   useEffect(() => {
     const textarea = composerTextareaRef.current;
@@ -3329,17 +4269,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   Exit Select ({selectedMessageIds.length})
                 </button>
               ) : null}
-              <button
-                type="button"
-                onClick={() => setShowPaymentLab((prev) => !prev)}
-                className={`rounded-full border px-3 py-1.5 text-xs text-white transition ${showPaymentLab ? 'border-[#7ec8fb]/60 bg-[#2b5278]' : 'border-white/15 bg-black/20 hover:bg-white/10'}`}
-                title="Toggle Payment Lab"
-              >
-                <span className="inline-flex items-center gap-1.5">
-                  <Wallet className="h-3.5 w-3.5" />
-                  {showPaymentLab ? 'Hide Lab' : 'Payment Lab'}
-                </span>
-              </button>
               <div className="relative">
               <button
                 type="button"
@@ -3378,28 +4307,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             </div>
           </header>
 
-          {showPaymentLab ? (
-            <div className="border-b border-white/10 bg-[#122536]/95 px-3 py-3 sm:px-4 lg:px-5">
-              <div className="rounded-xl border border-[#355a76]/60 bg-black/20 px-3 py-2 text-xs text-[#d7ecfb]">
-                <div className="mb-2 inline-flex items-center gap-1 text-[11px] text-[#9fc6df]"><Wallet className="h-3.5 w-3.5" /> Wallet</div>
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="min-w-[80px] text-[11px] text-[#9fc6df]">Fiat</span>
-                    <span className="rounded border border-white/20 bg-white/5 px-2 py-1">{walletState.fiat}</span>
-                    <button type="button" onClick={() => setWalletState((prev) => ({ ...prev, fiat: Math.max(prev.fiat - 1000, 0) }))} className="min-w-[78px] rounded border border-white/20 bg-white/10 px-2 py-1 text-center text-[11px]">-1000</button>
-                    <button type="button" onClick={() => setWalletState((prev) => ({ ...prev, fiat: prev.fiat + 1000 }))} className="min-w-[78px] rounded border border-white/20 bg-white/10 px-2 py-1 text-center text-[11px]">+1000</button>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="min-w-[80px] text-[11px] text-[#9fc6df]">Stars</span>
-                    <span className="rounded border border-white/20 bg-white/5 px-2 py-1">{walletState.stars}</span>
-                    <button type="button" onClick={() => setWalletState((prev) => ({ ...prev, stars: Math.max(prev.stars - 200, 0) }))} className="min-w-[78px] rounded border border-white/20 bg-white/10 px-2 py-1 text-center text-[11px]">-200⭐</button>
-                    <button type="button" onClick={() => setWalletState((prev) => ({ ...prev, stars: prev.stars + 200 }))} className="min-w-[78px] rounded border border-white/20 bg-white/10 px-2 py-1 text-center text-[11px]">+200⭐</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
           <main
             ref={messagesContainerRef}
             onScroll={onMessagesScroll}
@@ -3427,6 +4334,13 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                 {renderedMessageBlocks.map((block) => {
                   if (block.kind === 'single') {
                     const message = block.message;
+                    const isMediaOnly = Boolean(
+                      message.media
+                      && !message.text
+                      && !message.poll
+                      && !message.invoice
+                      && !message.successfulPayment,
+                    );
                     return (
                       <div
                         key={message.id}
@@ -3435,7 +4349,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         onClick={() => onMessageClick(message.id)}
                         onDoubleClick={() => onMessageDoubleClick(message.id)}
                         className={[
-                          'relative min-w-0 max-w-[92%] overflow-hidden rounded-2xl px-3 py-3 shadow-lg sm:max-w-[84%] sm:px-4 lg:max-w-[72%]',
+                          'relative min-w-0 overflow-hidden rounded-2xl px-3 py-3 shadow-lg sm:px-4',
+                          isMediaOnly ? 'w-fit max-w-[90vw] sm:max-w-[340px]' : 'w-full max-w-[92%] sm:max-w-[84%] lg:max-w-[72%]',
                           selectionMode && selectedMessageIds.includes(message.id) ? 'ring-2 ring-[#87cbff]' : '',
                           highlightedMessageId === message.id ? 'ring-2 ring-[#f9e07f] shadow-[0_0_0_2px_rgba(249,224,127,0.35)]' : '',
                           message.isOutgoing ? 'mr-auto rounded-bl-md bg-[#182533]' : 'ml-auto rounded-br-md bg-[#2b5278]',
@@ -3460,6 +4375,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                           <div className="mb-2 text-[11px] text-[#9dd4ff]">via @{message.viaBotUsername}</div>
                         ) : null}
                         {message.media ? <div className="mb-2">{renderMediaContent(message)}</div> : null}
+                        {renderDiceCard(message)}
+                        {renderGameCard(message)}
+                        {renderContactCard(message)}
+                        {renderLocationCard(message)}
+                        {renderVenueCard(message)}
                         {renderInvoiceCard(message)}
                         {renderSuccessfulPaymentCard(message)}
                         {renderPollCard(message)}
@@ -3521,6 +4441,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       {lead.text ? (
                         <div className="text-sm leading-6 break-words whitespace-pre-wrap [overflow-wrap:anywhere]">{renderEntityText(lead.text, lead.captionEntities)}</div>
                       ) : null}
+                      {renderDiceCard(lead)}
+                      {renderGameCard(lead)}
+                      {renderContactCard(lead)}
+                      {renderLocationCard(lead)}
+                      {renderVenueCard(lead)}
                       {renderInvoiceCard(lead)}
                       {renderSuccessfulPaymentCard(lead)}
                       {renderPollCard(lead)}
@@ -3607,56 +4532,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     </button>
                   </div>
                 ) : null}
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowFormattingTools((prev) => {
-                        const next = !prev;
-                        if (next) {
-                          setShowPollBuilder(false);
-                          setShowInvoiceBuilder(false);
-                        }
-                        return next;
-                      });
-                    }}
-                    className="rounded-md border border-[#2f4e66]/60 bg-[#163041]/70 px-3 py-1 text-[11px] text-[#cfe7f8] hover:bg-[#1f3f56]"
-                  >
-                    {showFormattingTools ? 'Hide formatting' : 'Show formatting'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowPollBuilder((prev) => {
-                        const next = !prev;
-                        if (next) {
-                          setShowInvoiceBuilder(false);
-                          setShowFormattingTools(false);
-                        }
-                        return next;
-                      });
-                    }}
-                    className="rounded-md border border-[#2f4e66]/60 bg-[#163041]/70 px-3 py-1 text-[11px] text-[#cfe7f8] hover:bg-[#1f3f56]"
-                  >
-                    {showPollBuilder ? 'Hide Poll Builder' : 'Open Poll Builder'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowInvoiceBuilder((prev) => {
-                        const next = !prev;
-                        if (next) {
-                          setShowPollBuilder(false);
-                          setShowFormattingTools(false);
-                        }
-                        return next;
-                      });
-                    }}
-                    className="rounded-md border border-[#2f4e66]/60 bg-[#163041]/70 px-3 py-1 text-[11px] text-[#cfe7f8] hover:bg-[#1f3f56]"
-                  >
-                    {showInvoiceBuilder ? 'Hide Invoice Builder' : 'Open Invoice Builder'}
-                  </button>
-                </div>
+                <div className="space-y-2 rounded-2xl border border-white/10 bg-black/15 p-2">
                 {showFormattingTools ? (
                   <div className="space-y-2 rounded-xl border border-[#2f4e66]/55 bg-[#102638]/80 px-3 py-2">
                     <div className="flex items-center justify-between gap-2 rounded-xl bg-black/20 px-3 py-2">
@@ -3726,317 +4602,36 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     )}
                   </div>
                 ) : null}
-                {showPollBuilder ? (
-                  <div className="space-y-2 rounded-xl border border-[#2f4e66]/55 bg-[#102638]/80 px-3 py-2">
-                      <input
-                        value={pollBuilder.question}
-                        onChange={(event) => setPollBuilder((prev) => ({ ...prev, question: event.target.value }))}
-                        placeholder="Poll title/question"
-                        className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
-                      />
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        <select
-                          value={pollBuilder.type}
-                          onChange={(event) => setPollBuilder((prev) => ({
-                            ...prev,
-                            type: event.target.value as 'regular' | 'quiz',
-                            allowsMultipleAnswers: event.target.value === 'quiz' ? false : prev.allowsMultipleAnswers,
-                          }))}
-                          className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
-                        >
-                          <option value="regular">Regular</option>
-                          <option value="quiz">Quiz</option>
-                        </select>
-                        <select
-                          value={pollBuilder.isAnonymous ? 'anonymous' : 'public'}
-                          onChange={(event) => setPollBuilder((prev) => ({ ...prev, isAnonymous: event.target.value === 'anonymous' }))}
-                          className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
-                        >
-                          <option value="public">Public</option>
-                          <option value="anonymous">Anonymous</option>
-                        </select>
-                      </div>
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                        <select
-                          value={pollBuilder.questionParseMode}
-                          onChange={(event) => setPollBuilder((prev) => ({ ...prev, questionParseMode: event.target.value as ComposerParseMode }))}
-                          className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
-                        >
-                          <option value="none">Question mode: None</option>
-                          <option value="MarkdownV2">Question mode: MarkdownV2</option>
-                          <option value="Markdown">Question mode: Markdown</option>
-                          <option value="HTML">Question mode: HTML</option>
-                        </select>
-                        <select
-                          value={pollBuilder.optionsParseMode}
-                          onChange={(event) => setPollBuilder((prev) => ({ ...prev, optionsParseMode: event.target.value as ComposerParseMode }))}
-                          className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
-                        >
-                          <option value="none">Option mode: None</option>
-                          <option value="MarkdownV2">Option mode: MarkdownV2</option>
-                          <option value="Markdown">Option mode: Markdown</option>
-                          <option value="HTML">Option mode: HTML</option>
-                        </select>
-                        <select
-                          value={pollBuilder.explanationParseMode}
-                          onChange={(event) => setPollBuilder((prev) => ({ ...prev, explanationParseMode: event.target.value as ComposerParseMode }))}
-                          className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
-                        >
-                          <option value="none">Explain mode: None</option>
-                          <option value="MarkdownV2">Explain mode: MarkdownV2</option>
-                          <option value="Markdown">Explain mode: Markdown</option>
-                          <option value="HTML">Explain mode: HTML</option>
-                        </select>
-                      </div>
-                      <div className="space-y-1">
-                        {pollBuilder.options.map((option, index) => (
-                          <div key={`poll-builder-option-${index}`} className="flex items-center gap-1.5">
-                            <input
-                              value={option}
-                              onChange={(event) => setPollBuilder((prev) => {
-                                const nextOptions = [...prev.options];
-                                nextOptions[index] = event.target.value;
-                                return { ...prev, options: nextOptions };
-                              })}
-                              placeholder={`Option ${index + 1}`}
-                              className="flex-1 rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
-                            />
-                            {pollBuilder.type === 'quiz' ? (
-                              <button
-                                type="button"
-                                onClick={() => setPollBuilder((prev) => ({ ...prev, correctOptionId: index }))}
-                                className={`rounded-md border px-2 py-1 text-[11px] ${pollBuilder.correctOptionId === index ? 'border-emerald-300/60 bg-emerald-700/35 text-emerald-100' : 'border-[#355a76]/60 bg-[#163041]/70 text-white'}`}
-                              >
-                                Correct
-                              </button>
-                            ) : null}
-                            {pollBuilder.options.length > 2 ? (
-                              <button
-                                type="button"
-                                onClick={() => setPollBuilder((prev) => {
-                                  const nextOptions = prev.options.filter((_, i) => i !== index);
-                                  return {
-                                    ...prev,
-                                    options: nextOptions,
-                                    correctOptionId: Math.min(prev.correctOptionId, Math.max(nextOptions.length - 1, 0)),
-                                  };
-                                })}
-                                className="rounded-md border border-red-300/30 bg-red-600/30 px-2 py-1 text-[11px] text-red-100"
-                              >
-                                Remove
-                              </button>
-                            ) : null}
-                          </div>
-                        ))}
-                        {pollBuilder.options.length < 10 ? (
-                          <button
-                            type="button"
-                            onClick={() => setPollBuilder((prev) => ({ ...prev, options: [...prev.options, ''] }))}
-                            className="rounded-md border border-[#355a76]/60 bg-[#163041]/70 px-2 py-1 text-[11px] text-white hover:bg-[#1f3f56]"
-                          >
-                            Add option
-                          </button>
-                        ) : null}
-                      </div>
-                      {pollBuilder.type === 'quiz' ? (
-                        <textarea
-                          value={pollBuilder.explanation}
-                          onChange={(event) => setPollBuilder((prev) => ({ ...prev, explanation: event.target.value }))}
-                          placeholder="Quiz explanation"
-                          rows={2}
-                          className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
-                        />
-                      ) : null}
-                      <div className="grid grid-cols-2 gap-2">
-                        <input
-                          type="number"
-                          min={5}
-                          max={600}
-                          value={pollBuilder.openPeriod}
-                          onChange={(event) => setPollBuilder((prev) => ({ ...prev, openPeriod: event.target.value, closeDate: event.target.value ? '' : prev.closeDate }))}
-                          placeholder="open_period (sec)"
-                          className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
-                        />
-                        <input
-                          type="datetime-local"
-                          value={pollBuilder.closeDate}
-                          onChange={(event) => setPollBuilder((prev) => ({ ...prev, closeDate: event.target.value, openPeriod: event.target.value ? '' : prev.openPeriod }))}
-                          className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
-                        />
-                      </div>
-                      <div className="flex flex-wrap items-center gap-3 text-[11px] text-white">
-                        <label className="inline-flex items-center gap-1">
-                          <input
-                            type="checkbox"
-                            checked={pollBuilder.type === 'quiz' ? false : pollBuilder.allowsMultipleAnswers}
-                            onChange={(event) => setPollBuilder((prev) => ({ ...prev, allowsMultipleAnswers: event.target.checked }))}
-                            disabled={pollBuilder.type === 'quiz'}
-                          />
-                          Multiple answers
-                        </label>
-                        <label className="inline-flex items-center gap-1">
-                          <input
-                            type="checkbox"
-                            checked={pollBuilder.isClosed}
-                            onChange={(event) => setPollBuilder((prev) => ({ ...prev, isClosed: event.target.checked }))}
-                          />
-                          Send closed
-                        </label>
-                      </div>
-                      <div className="flex items-center justify-end">
-                        <button
-                          type="button"
-                          onClick={() => void submitPollBuilder()}
-                          disabled={!hasStarted || isSending}
-                          className="rounded-md border border-[#2f7fb4]/60 bg-[#22567c] px-3 py-1.5 text-xs text-white hover:bg-[#2f6f9f] disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          Send Poll
-                        </button>
-                      </div>
+                <div className="flex items-end gap-2 sm:gap-3">
+                  <div className="flex shrink-0 flex-col items-center gap-2 rounded-2xl border border-white/10 bg-black/25 p-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMediaDrawer((prev) => {
+                          const next = !prev;
+                          if (next) {
+                            setShowFormattingTools(false);
+                          }
+                          return next;
+                        });
+                      }}
+                      disabled={!hasStarted}
+                      className="shrink-0 rounded-full border border-white/10 bg-black/20 p-3 text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      title="Open media drawer"
+                    >
+                      <Smile className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={!hasStarted || (!!composerEditTarget && !composerEditTarget?.media)}
+                      className="shrink-0 rounded-full border border-white/10 bg-black/20 p-3 text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      title="Attach media"
+                    >
+                      <Paperclip className="h-5 w-5" />
+                    </button>
                   </div>
-                ) : null}
-                {showInvoiceBuilder ? (
-                  <div className="space-y-2 rounded-xl border border-[#2f4e66]/55 bg-[#102638]/80 px-3 py-2">
-                    <input
-                      value={invoiceBuilder.title}
-                      onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, title: event.target.value }))}
-                      placeholder="Invoice title"
-                      className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
-                    />
-                    <textarea
-                      value={invoiceBuilder.description}
-                      onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, description: event.target.value }))}
-                      placeholder="Invoice description"
-                      rows={2}
-                      className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
-                    />
-                    <div className="grid grid-cols-3 gap-2">
-                      <input
-                        type="number"
-                        min={1}
-                        value={invoiceBuilder.amount}
-                        onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, amount: event.target.value }))}
-                        placeholder="Amount"
-                        className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
-                      />
-                      <input
-                        value={invoiceBuilder.currency}
-                        onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, currency: event.target.value.toUpperCase() }))}
-                        placeholder="Currency"
-                        className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
-                      />
-                      <input
-                        value={invoiceBuilder.payload}
-                        onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, payload: event.target.value }))}
-                        placeholder="Payload (optional)"
-                        className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
-                      />
-                    </div>
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                      <input
-                        type="number"
-                        min={0}
-                        value={invoiceBuilder.maxTipAmount}
-                        onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, maxTipAmount: event.target.value }))}
-                        placeholder="Max tip amount"
-                        className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
-                      />
-                      <input
-                        value={invoiceBuilder.suggestedTips}
-                        onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, suggestedTips: event.target.value }))}
-                        placeholder="Suggested tips (e.g. 50,100)"
-                        className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none sm:col-span-2"
-                      />
-                    </div>
-                    <input
-                      value={invoiceBuilder.photoUrl}
-                      onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, photoUrl: event.target.value }))}
-                      placeholder="Photo URL (optional)"
-                      className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
-                    />
-                    <div className="flex flex-wrap items-center gap-3 text-[11px] text-white">
-                      {invoiceBuilder.currency.trim().toUpperCase() === 'XTR' ? (
-                        <span className="rounded border border-[#7ec8fb]/40 bg-[#1f3f56]/70 px-2 py-1 text-[10px] text-[#cbe9ff]">
-                          XTR invoice: shipping fields are disabled
-                        </span>
-                      ) : null}
-                      <label className="inline-flex items-center gap-1">
-                        <input
-                          type="checkbox"
-                          checked={invoiceBuilder.needShippingAddress}
-                          onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, needShippingAddress: event.target.checked }))}
-                          disabled={invoiceBuilder.currency.trim().toUpperCase() === 'XTR'}
-                        />
-                        Need shipping
-                      </label>
-                      <label className="inline-flex items-center gap-1">
-                        <input
-                          type="checkbox"
-                          checked={invoiceBuilder.isFlexible}
-                          onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, isFlexible: event.target.checked }))}
-                          disabled={invoiceBuilder.currency.trim().toUpperCase() === 'XTR'}
-                        />
-                        Flexible shipping
-                      </label>
-                      <label className="inline-flex items-center gap-1">
-                        <input
-                          type="checkbox"
-                          checked={invoiceBuilder.needName}
-                          onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, needName: event.target.checked }))}
-                          disabled={invoiceBuilder.currency.trim().toUpperCase() === 'XTR'}
-                        />
-                        Need name
-                      </label>
-                      <label className="inline-flex items-center gap-1">
-                        <input
-                          type="checkbox"
-                          checked={invoiceBuilder.needPhoneNumber}
-                          onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, needPhoneNumber: event.target.checked }))}
-                          disabled={invoiceBuilder.currency.trim().toUpperCase() === 'XTR'}
-                        />
-                        Need phone
-                      </label>
-                      <label className="inline-flex items-center gap-1">
-                        <input
-                          type="checkbox"
-                          checked={invoiceBuilder.needEmail}
-                          onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, needEmail: event.target.checked }))}
-                          disabled={invoiceBuilder.currency.trim().toUpperCase() === 'XTR'}
-                        />
-                        Need email
-                      </label>
-                      <label className="inline-flex items-center gap-1">
-                        <input
-                          type="checkbox"
-                          checked={invoiceBuilder.sendPhoneNumberToProvider}
-                          onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, sendPhoneNumberToProvider: event.target.checked }))}
-                          disabled={invoiceBuilder.currency.trim().toUpperCase() === 'XTR'}
-                        />
-                        Send phone to provider
-                      </label>
-                      <label className="inline-flex items-center gap-1">
-                        <input
-                          type="checkbox"
-                          checked={invoiceBuilder.sendEmailToProvider}
-                          onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, sendEmailToProvider: event.target.checked }))}
-                          disabled={invoiceBuilder.currency.trim().toUpperCase() === 'XTR'}
-                        />
-                        Send email to provider
-                      </label>
-                    </div>
-                    <div className="flex items-center justify-end">
-                      <button
-                        type="button"
-                        onClick={() => void submitInvoiceBuilder()}
-                        disabled={!hasStarted || isSending}
-                        className="rounded-md border border-[#2f7fb4]/60 bg-[#22567c] px-3 py-1.5 text-xs text-white hover:bg-[#2f6f9f] disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        Send Invoice
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-                <form onSubmit={onSubmitComposer} className="flex items-end gap-2 sm:gap-3">
+                <form onSubmit={onSubmitComposer} className="flex min-w-0 flex-1 flex-col gap-2">
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -4051,15 +4646,18 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       event.currentTarget.value = '';
                     }}
                   />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={!hasStarted || (!!composerEditTarget && !composerEditTarget?.media)}
-                    className="shrink-0 rounded-full border border-white/10 bg-black/25 p-3 text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
-                    title="Attach media"
-                  >
-                    <Paperclip className="h-5 w-5" />
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowFormattingTools((prev) => !prev);
+                      }}
+                      className="rounded-md border border-[#2f4e66]/60 bg-[#163041]/70 px-3 py-1 text-[11px] text-[#cfe7f8] hover:bg-[#1f3f56]"
+                    >
+                      {showFormattingTools ? 'Hide formatting' : 'Show formatting'}
+                    </button>
+                  </div>
+                  <div className="flex items-end gap-2 sm:gap-3">
                   <textarea
                     ref={composerTextareaRef}
                     value={composerText}
@@ -4086,7 +4684,977 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   >
                     <SendHorizonal className="h-5 w-5" />
                   </button>
+                  </div>
                 </form>
+                </div>
+                {showMediaDrawer ? (
+                  <div className="rounded-2xl border border-white/15 bg-[#0f2334]/95 p-2">
+                    <div className="mb-2 grid grid-cols-5 gap-1 sm:grid-cols-6 lg:grid-cols-12">
+                      <button
+                        type="button"
+                        onClick={() => setMediaDrawerTab('stickers')}
+                        className={`rounded-lg px-2 py-1 text-[11px] ${mediaDrawerTab === 'stickers' ? 'bg-[#2b5278] text-white' : 'bg-black/20 text-[#d8ecfb]'}`}
+                      >
+                        <span className="inline-flex items-center gap-1"><Smile className="h-3.5 w-3.5" />Stickers</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMediaDrawerTab('animations')}
+                        className={`rounded-lg px-2 py-1 text-[11px] ${mediaDrawerTab === 'animations' ? 'bg-[#2b5278] text-white' : 'bg-black/20 text-[#d8ecfb]'}`}
+                      >
+                        <span className="inline-flex items-center gap-1"><Clapperboard className="h-3.5 w-3.5" />GIFs</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMediaDrawerTab('voice')}
+                        className={`rounded-lg px-2 py-1 text-[11px] ${mediaDrawerTab === 'voice' ? 'bg-[#2b5278] text-white' : 'bg-black/20 text-[#d8ecfb]'}`}
+                      >
+                        <span className="inline-flex items-center gap-1"><Mic className="h-3.5 w-3.5" />Voice</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMediaDrawerTab('video_note')}
+                        className={`rounded-lg px-2 py-1 text-[11px] ${mediaDrawerTab === 'video_note' ? 'bg-[#2b5278] text-white' : 'bg-black/20 text-[#d8ecfb]'}`}
+                      >
+                        <span className="inline-flex items-center gap-1"><Video className="h-3.5 w-3.5" />Video Note</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMediaDrawerTab('studio');
+                        }}
+                        className={`rounded-lg px-2 py-1 text-[11px] ${mediaDrawerTab === 'studio' ? 'bg-[#2b5278] text-white' : 'bg-black/20 text-[#d8ecfb]'}`}
+                      >
+                        <span className="inline-flex items-center gap-1"><Wrench className="h-3.5 w-3.5" />Studio</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMediaDrawerTab('dice');
+                        }}
+                        className={`rounded-lg px-2 py-1 text-[11px] ${mediaDrawerTab === 'dice' ? 'bg-[#2b5278] text-white' : 'bg-black/20 text-[#d8ecfb]'}`}
+                      >
+                        <span className="inline-flex items-center gap-1"><Dice5 className="h-3.5 w-3.5" />Dice</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMediaDrawerTab('game');
+                        }}
+                        className={`rounded-lg px-2 py-1 text-[11px] ${mediaDrawerTab === 'game' ? 'bg-[#2b5278] text-white' : 'bg-black/20 text-[#d8ecfb]'}`}
+                      >
+                        <span className="inline-flex items-center gap-1"><Gamepad2 className="h-3.5 w-3.5" />Game</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMediaDrawerTab('contact');
+                        }}
+                        className={`rounded-lg px-2 py-1 text-[11px] ${mediaDrawerTab === 'contact' ? 'bg-[#2b5278] text-white' : 'bg-black/20 text-[#d8ecfb]'}`}
+                      >
+                        <span className="inline-flex items-center gap-1"><Contact className="h-3.5 w-3.5" />Contact</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMediaDrawerTab('location');
+                        }}
+                        className={`rounded-lg px-2 py-1 text-[11px] ${mediaDrawerTab === 'location' ? 'bg-[#2b5278] text-white' : 'bg-black/20 text-[#d8ecfb]'}`}
+                      >
+                        <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />Location</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMediaDrawerTab('venue');
+                        }}
+                        className={`rounded-lg px-2 py-1 text-[11px] ${mediaDrawerTab === 'venue' ? 'bg-[#2b5278] text-white' : 'bg-black/20 text-[#d8ecfb]'}`}
+                      >
+                        <span className="inline-flex items-center gap-1"><MapPinned className="h-3.5 w-3.5" />Venue</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMediaDrawerTab('poll');
+                        }}
+                        className={`rounded-lg px-2 py-1 text-[11px] ${mediaDrawerTab === 'poll' ? 'bg-[#2b5278] text-white' : 'bg-black/20 text-[#d8ecfb]'}`}
+                      >
+                        <span className="inline-flex items-center gap-1"><ShieldCheck className="h-3.5 w-3.5" />Poll</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMediaDrawerTab('invoice');
+                        }}
+                        className={`rounded-lg px-2 py-1 text-[11px] ${mediaDrawerTab === 'invoice' ? 'bg-[#2b5278] text-white' : 'bg-black/20 text-[#d8ecfb]'}`}
+                      >
+                        <span className="inline-flex items-center gap-1"><Wallet className="h-3.5 w-3.5" />Invoice</span>
+                      </button>
+                    </div>
+
+                    <div className="max-h-[44vh] overflow-y-auto pr-1">
+                      {mediaDrawerTab === 'stickers' ? (
+                        <div className="space-y-2">
+                          <p className="text-[11px] text-[#9fc6df]">Sticker sets are auto-discovered from conversation and kept updated.</p>
+                          {stickerShelf.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {stickerShelf.map((set) => (
+                                <button
+                                  key={`sticker-set-${set.name}`}
+                                  type="button"
+                                  onClick={() => setStickerShelfActiveSet(set.name)}
+                                  className={`rounded-full border px-2 py-0.5 text-[10px] ${stickerShelfActiveSet === set.name ? 'border-[#87cfff]/70 bg-[#2b5278]/70 text-white' : 'border-white/20 bg-black/20 text-[#d9efff]'}`}
+                                >
+                                  {set.title}
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+
+                          {activeStickerSet ? (
+                            <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 lg:grid-cols-8">
+                              {activeStickerSet.stickers.map((sticker) => {
+                                const mediaUrl = mediaUrlByFileId[sticker.file_id];
+                                const maybeVideo = sticker.is_video || sticker.is_animated;
+                                const previewFailed = Boolean(stickerPreviewFailedByFileId[sticker.file_id]);
+                                return (
+                                  <button
+                                    key={`sticker-item-${sticker.file_id}`}
+                                    type="button"
+                                    onClick={() => void sendUserMediaByFileRef('sticker', sticker.file_id)}
+                                    className="flex h-16 items-center justify-center rounded-lg border border-white/10 bg-black/20 p-1 hover:bg-white/10"
+                                    title={sticker.emoji || sticker.file_id}
+                                  >
+                                    {mediaUrl && !previewFailed ? (
+                                      maybeVideo ? (
+                                        <video src={mediaUrl} autoPlay muted loop playsInline controls={false} className="h-12 w-12 object-contain" />
+                                      ) : (
+                                        <img
+                                          src={mediaUrl}
+                                          alt={sticker.emoji || 'sticker'}
+                                          className="h-12 w-12 object-contain"
+                                          onError={() => {
+                                            setStickerPreviewFailedByFileId((prev) => ({ ...prev, [sticker.file_id]: true }));
+                                          }}
+                                        />
+                                      )
+                                    ) : (
+                                      <span className="text-[10px] text-[#bcd7eb]">{sticker.emoji || (sticker.is_animated ? 'ANIM' : 'load')}</span>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-[#a6cbe4]">No discovered sticker set yet. Send/receive a sticker to populate this panel.</p>
+                          )}
+                        </div>
+                      ) : null}
+
+                      {mediaDrawerTab === 'animations' ? (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                            {animationGallery.map((item) => {
+                              const mediaUrl = mediaUrlByFileId[item.fileId];
+                              return (
+                                <button
+                                  key={`animation-gallery-${item.fileId}`}
+                                  type="button"
+                                  onClick={() => void sendUserMediaByFileRef('animation', item.fileId)}
+                                  className="overflow-hidden rounded-lg border border-white/10 bg-black/20 text-left hover:bg-white/10"
+                                >
+                                  {mediaUrl ? <video src={mediaUrl} autoPlay muted loop playsInline controls={false} className="h-24 w-full object-cover" /> : <div className="h-24 bg-black/40" />}
+                                  <div className="px-2 py-1 text-[10px] text-[#cde7f9]">from {item.from}</div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <input
+                              type="file"
+                              accept="video/*,image/gif"
+                              onChange={(event) => setAnimationUploadFile(event.target.files?.[0] || null)}
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void sendUserMediaFile(animationUploadFile, 'animation')}
+                              className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-2 py-1 text-xs text-white hover:bg-[#245a80]"
+                            >
+                              Send animation
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {mediaDrawerTab === 'voice' ? (
+                        <div className="space-y-2">
+                          <p className="text-xs text-[#a6cbe4]">
+                            {canUseMicrophone
+                              ? 'Microphone detected. Upload fallback is always available.'
+                              : 'No microphone detected. Upload fallback is enabled.'}
+                          </p>
+                          {canUseMicrophone ? (
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                              <button
+                                type="button"
+                                onClick={() => void startVoiceRecording()}
+                                disabled={isRecordingVoice}
+                                className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-2 py-1 text-xs text-white hover:bg-[#245a80] disabled:opacity-60"
+                              >
+                                Start recording
+                              </button>
+                              <button
+                                type="button"
+                                onClick={stopVoiceRecording}
+                                disabled={!isRecordingVoice}
+                                className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-2 py-1 text-xs text-white hover:bg-[#245a80] disabled:opacity-60"
+                              >
+                                Stop recording
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void sendRecordedVoice()}
+                                disabled={!recordedVoiceBlob}
+                                className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-2 py-1 text-xs text-white hover:bg-[#245a80] disabled:opacity-60"
+                              >
+                                Send recorded voice
+                              </button>
+                            </div>
+                          ) : null}
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <input
+                              type="file"
+                              accept="audio/*"
+                              onChange={(event) => setVoiceUploadFile(event.target.files?.[0] || null)}
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void sendUserMediaFile(voiceUploadFile, 'voice')}
+                              className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-2 py-1 text-xs text-white hover:bg-[#245a80]"
+                            >
+                              Send voice file
+                            </button>
+                          </div>
+                          {isRecordingVoice ? <p className="text-[11px] text-[#cfe7f8]">Recording in progress...</p> : null}
+                          {voiceRecordError ? <p className="text-[11px] text-amber-200">{voiceRecordError}</p> : null}
+                        </div>
+                      ) : null}
+
+                      {mediaDrawerTab === 'video_note' ? (
+                        <div className="space-y-2">
+                          <p className="text-xs text-[#a6cbe4]">
+                            {canUseCamera
+                              ? 'Camera detected. Upload fallback is always available.'
+                              : 'No camera detected. Upload fallback is enabled.'}
+                          </p>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <input
+                              type="file"
+                              accept="video/*"
+                              onChange={(event) => setVideoNoteUploadFile(event.target.files?.[0] || null)}
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void sendUserMediaFile(videoNoteUploadFile, 'video_note')}
+                              className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-2 py-1 text-xs text-white hover:bg-[#245a80]"
+                            >
+                              Send video note
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {mediaDrawerTab === 'dice' ? (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[auto_1fr_auto]">
+                            <select
+                              value={selectedDiceEmoji}
+                              onChange={(event) => setSelectedDiceEmoji(event.target.value as (typeof DICE_EMOJIS)[number])}
+                              className="rounded-md border border-white/20 bg-black/20 px-2 py-1 text-xs text-white outline-none"
+                            >
+                              {DICE_EMOJIS.map((item) => (
+                                <option key={`dice-emoji-${item}`} value={item}>{item}</option>
+                              ))}
+                            </select>
+                            <p className="self-center text-xs text-[#a6cbe4]">Dice type</p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void (async () => {
+                                  try {
+                                    await sendUserDice(selectedBotToken, {
+                                      chatId: selectedChatId,
+                                      userId: selectedUser.id,
+                                      firstName: selectedUser.first_name,
+                                      username: selectedUser.username,
+                                      emoji: selectedDiceEmoji,
+                                    });
+                                  } catch (error) {
+                                    setErrorText(error instanceof Error ? error.message : 'Send dice failed');
+                                  }
+                                })();
+                              }}
+                              disabled={!hasStarted || isSending}
+                              className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-2 py-1 text-xs text-white hover:bg-[#245a80] disabled:opacity-60"
+                            >
+                              Send Dice
+                            </button>
+                          </div>
+
+                        </div>
+                      ) : null}
+
+                      {mediaDrawerTab === 'game' ? (
+                        <div className="space-y-2">
+
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+                            <input
+                              value={gameShortNameDraft}
+                              onChange={(event) => setGameShortNameDraft(event.target.value)}
+                              placeholder="game short name"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void (async () => {
+                                  try {
+                                    const shortName = gameShortNameDraft.trim() || `game_${Math.floor(Date.now() / 1000)}`;
+                                    await sendUserGame(selectedBotToken, {
+                                      chatId: selectedChatId,
+                                      userId: selectedUser.id,
+                                      firstName: selectedUser.first_name,
+                                      username: selectedUser.username,
+                                      gameShortName: shortName,
+                                    });
+                                  } catch (error) {
+                                    setErrorText(error instanceof Error ? error.message : 'Send game failed');
+                                  }
+                                })();
+                              }}
+                              disabled={!hasStarted || isSending}
+                              className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-2 py-1 text-xs text-white hover:bg-[#245a80] disabled:opacity-60"
+                            >
+                              Send Game
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {mediaDrawerTab === 'contact' ? (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                            <input
+                              value={shareDraft.phoneNumber}
+                              onChange={(event) => setShareDraft((prev) => ({ ...prev, phoneNumber: event.target.value }))}
+                              placeholder="phone number"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                            <input
+                              value={shareDraft.contactFirstName}
+                              onChange={(event) => setShareDraft((prev) => ({ ...prev, contactFirstName: event.target.value }))}
+                              placeholder="contact first name"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void (async () => {
+                                  try {
+                                    await sendUserContact(selectedBotToken, {
+                                      chatId: selectedChatId,
+                                      userId: selectedUser.id,
+                                      firstName: selectedUser.first_name,
+                                      username: selectedUser.username,
+                                      phoneNumber: shareDraft.phoneNumber.trim() || '+10000000000',
+                                      contactFirstName: shareDraft.contactFirstName.trim() || selectedUser.first_name,
+                                      contactLastName: shareDraft.contactLastName.trim() || undefined,
+                                    });
+                                  } catch (error) {
+                                    setErrorText(error instanceof Error ? error.message : 'Send contact failed');
+                                  }
+                                })();
+                              }}
+                              className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-2 py-1 text-xs text-white hover:bg-[#245a80]"
+                            >
+                              Send Contact
+                            </button>
+                          </div>
+
+                        </div>
+                      ) : null}
+
+                      {mediaDrawerTab === 'location' ? (
+                        <div className="space-y-2">
+
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                            <input
+                              value={shareDraft.latitude}
+                              onChange={(event) => setShareDraft((prev) => ({ ...prev, latitude: event.target.value }))}
+                              placeholder="latitude"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                            <input
+                              value={shareDraft.longitude}
+                              onChange={(event) => setShareDraft((prev) => ({ ...prev, longitude: event.target.value }))}
+                              placeholder="longitude"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void (async () => {
+                                  try {
+                                    await sendUserLocation(selectedBotToken, {
+                                      chatId: selectedChatId,
+                                      userId: selectedUser.id,
+                                      firstName: selectedUser.first_name,
+                                      username: selectedUser.username,
+                                      latitude: Number(shareDraft.latitude) || 35.6892,
+                                      longitude: Number(shareDraft.longitude) || 51.389,
+                                    });
+                                  } catch (error) {
+                                    setErrorText(error instanceof Error ? error.message : 'Send location failed');
+                                  }
+                                })();
+                              }}
+                              className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-2 py-1 text-xs text-white hover:bg-[#245a80]"
+                            >
+                              Send Location
+                            </button>
+                          </div>
+
+                        </div>
+                      ) : null}
+
+                      {mediaDrawerTab === 'venue' ? (
+                        <div className="space-y-2">
+
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <input
+                              value={shareDraft.venueTitle}
+                              onChange={(event) => setShareDraft((prev) => ({ ...prev, venueTitle: event.target.value }))}
+                              placeholder="venue title"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                            <input
+                              value={shareDraft.venueAddress}
+                              onChange={(event) => setShareDraft((prev) => ({ ...prev, venueAddress: event.target.value }))}
+                              placeholder="venue address"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                          </div>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                            <input
+                              value={shareDraft.latitude}
+                              onChange={(event) => setShareDraft((prev) => ({ ...prev, latitude: event.target.value }))}
+                              placeholder="lat"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                            <input
+                              value={shareDraft.longitude}
+                              onChange={(event) => setShareDraft((prev) => ({ ...prev, longitude: event.target.value }))}
+                              placeholder="lon"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void (async () => {
+                                  try {
+                                    await sendUserVenue(selectedBotToken, {
+                                      chatId: selectedChatId,
+                                      userId: selectedUser.id,
+                                      firstName: selectedUser.first_name,
+                                      username: selectedUser.username,
+                                      latitude: Number(shareDraft.latitude) || 35.6892,
+                                      longitude: Number(shareDraft.longitude) || 51.389,
+                                      title: shareDraft.venueTitle.trim() || 'Venue',
+                                      address: shareDraft.venueAddress.trim() || 'Unknown address',
+                                    });
+                                  } catch (error) {
+                                    setErrorText(error instanceof Error ? error.message : 'Send venue failed');
+                                  }
+                                })();
+                              }}
+                              className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-2 py-1 text-xs text-white hover:bg-[#245a80]"
+                            >
+                              Send Venue
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {mediaDrawerTab === 'poll' ? (
+                        <div className="space-y-2 rounded-xl border border-[#2f4e66]/55 bg-[#102638]/80 px-3 py-2">
+                          <input
+                            value={pollBuilder.question}
+                            onChange={(event) => setPollBuilder((prev) => ({ ...prev, question: event.target.value }))}
+                            placeholder="Poll title/question"
+                            className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                          />
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <select
+                              value={pollBuilder.type}
+                              onChange={(event) => setPollBuilder((prev) => ({
+                                ...prev,
+                                type: event.target.value as 'regular' | 'quiz',
+                                allowsMultipleAnswers: event.target.value === 'quiz' ? false : prev.allowsMultipleAnswers,
+                              }))}
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                            >
+                              <option value="regular">Regular</option>
+                              <option value="quiz">Quiz</option>
+                            </select>
+                            <select
+                              value={pollBuilder.isAnonymous ? 'anonymous' : 'public'}
+                              onChange={(event) => setPollBuilder((prev) => ({ ...prev, isAnonymous: event.target.value === 'anonymous' }))}
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                            >
+                              <option value="public">Public</option>
+                              <option value="anonymous">Anonymous</option>
+                            </select>
+                          </div>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            <select
+                              value={pollBuilder.questionParseMode}
+                              onChange={(event) => setPollBuilder((prev) => ({ ...prev, questionParseMode: event.target.value as ComposerParseMode }))}
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                            >
+                              <option value="none">Question mode: None</option>
+                              <option value="MarkdownV2">Question mode: MarkdownV2</option>
+                              <option value="Markdown">Question mode: Markdown</option>
+                              <option value="HTML">Question mode: HTML</option>
+                            </select>
+                            <select
+                              value={pollBuilder.optionsParseMode}
+                              onChange={(event) => setPollBuilder((prev) => ({ ...prev, optionsParseMode: event.target.value as ComposerParseMode }))}
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                            >
+                              <option value="none">Option mode: None</option>
+                              <option value="MarkdownV2">Option mode: MarkdownV2</option>
+                              <option value="Markdown">Option mode: Markdown</option>
+                              <option value="HTML">Option mode: HTML</option>
+                            </select>
+                            <select
+                              value={pollBuilder.explanationParseMode}
+                              onChange={(event) => setPollBuilder((prev) => ({ ...prev, explanationParseMode: event.target.value as ComposerParseMode }))}
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                            >
+                              <option value="none">Explain mode: None</option>
+                              <option value="MarkdownV2">Explain mode: MarkdownV2</option>
+                              <option value="Markdown">Explain mode: Markdown</option>
+                              <option value="HTML">Explain mode: HTML</option>
+                            </select>
+                          </div>
+                          <div className="space-y-1">
+                            {pollBuilder.options.map((option, index) => (
+                              <div key={`poll-builder-option-${index}`} className="flex items-center gap-1.5">
+                                <input
+                                  value={option}
+                                  onChange={(event) => setPollBuilder((prev) => {
+                                    const nextOptions = [...prev.options];
+                                    nextOptions[index] = event.target.value;
+                                    return { ...prev, options: nextOptions };
+                                  })}
+                                  placeholder={`Option ${index + 1}`}
+                                  className="flex-1 rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                                />
+                                {pollBuilder.type === 'quiz' ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPollBuilder((prev) => ({ ...prev, correctOptionId: index }))}
+                                    className={`rounded-md border px-2 py-1 text-[11px] ${pollBuilder.correctOptionId === index ? 'border-emerald-300/60 bg-emerald-700/35 text-emerald-100' : 'border-[#355a76]/60 bg-[#163041]/70 text-white'}`}
+                                  >
+                                    Correct
+                                  </button>
+                                ) : null}
+                                {pollBuilder.options.length > 2 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPollBuilder((prev) => {
+                                      const nextOptions = prev.options.filter((_, i) => i !== index);
+                                      return {
+                                        ...prev,
+                                        options: nextOptions,
+                                        correctOptionId: Math.min(prev.correctOptionId, Math.max(nextOptions.length - 1, 0)),
+                                      };
+                                    })}
+                                    className="rounded-md border border-red-300/30 bg-red-600/30 px-2 py-1 text-[11px] text-red-100"
+                                  >
+                                    Remove
+                                  </button>
+                                ) : null}
+                              </div>
+                            ))}
+                            {pollBuilder.options.length < 10 ? (
+                              <button
+                                type="button"
+                                onClick={() => setPollBuilder((prev) => ({ ...prev, options: [...prev.options, ''] }))}
+                                className="rounded-md border border-[#355a76]/60 bg-[#163041]/70 px-2 py-1 text-[11px] text-white hover:bg-[#1f3f56]"
+                              >
+                                Add option
+                              </button>
+                            ) : null}
+                          </div>
+                          {pollBuilder.type === 'quiz' ? (
+                            <textarea
+                              value={pollBuilder.explanation}
+                              onChange={(event) => setPollBuilder((prev) => ({ ...prev, explanation: event.target.value }))}
+                              placeholder="Quiz explanation"
+                              rows={2}
+                              className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                            />
+                          ) : null}
+                          <div className="grid grid-cols-2 gap-2">
+                            <input
+                              type="number"
+                              min={5}
+                              max={600}
+                              value={pollBuilder.openPeriod}
+                              onChange={(event) => setPollBuilder((prev) => ({ ...prev, openPeriod: event.target.value, closeDate: event.target.value ? '' : prev.closeDate }))}
+                              placeholder="open_period (sec)"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                            />
+                            <input
+                              type="datetime-local"
+                              value={pollBuilder.closeDate}
+                              onChange={(event) => setPollBuilder((prev) => ({ ...prev, closeDate: event.target.value, openPeriod: event.target.value ? '' : prev.openPeriod }))}
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                            />
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3 text-[11px] text-white">
+                            <label className="inline-flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={pollBuilder.type === 'quiz' ? false : pollBuilder.allowsMultipleAnswers}
+                                onChange={(event) => setPollBuilder((prev) => ({ ...prev, allowsMultipleAnswers: event.target.checked }))}
+                                disabled={pollBuilder.type === 'quiz'}
+                              />
+                              Multiple answers
+                            </label>
+                            <label className="inline-flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={pollBuilder.isClosed}
+                                onChange={(event) => setPollBuilder((prev) => ({ ...prev, isClosed: event.target.checked }))}
+                              />
+                              Send closed
+                            </label>
+                          </div>
+                          <div className="flex items-center justify-end">
+                            <button
+                              type="button"
+                              onClick={() => void submitPollBuilder()}
+                              disabled={!hasStarted || isSending}
+                              className="rounded-md border border-[#2f7fb4]/60 bg-[#22567c] px-3 py-1.5 text-xs text-white hover:bg-[#2f6f9f] disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Send Poll
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {mediaDrawerTab === 'invoice' ? (
+                        <div className="space-y-2 rounded-xl border border-[#2f4e66]/55 bg-[#102638]/80 px-3 py-2">
+                          <input
+                            value={invoiceBuilder.title}
+                            onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, title: event.target.value }))}
+                            placeholder="Invoice title"
+                            className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                          />
+                          <textarea
+                            value={invoiceBuilder.description}
+                            onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, description: event.target.value }))}
+                            placeholder="Invoice description"
+                            rows={2}
+                            className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                          />
+                          <div className="grid grid-cols-3 gap-2">
+                            <input
+                              type="number"
+                              min={1}
+                              value={invoiceBuilder.amount}
+                              onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, amount: event.target.value }))}
+                              placeholder="Amount"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                            />
+                            <input
+                              value={invoiceBuilder.currency}
+                              onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, currency: event.target.value.toUpperCase() }))}
+                              placeholder="Currency"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                            />
+                            <input
+                              value={invoiceBuilder.payload}
+                              onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, payload: event.target.value }))}
+                              placeholder="Payload (optional)"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                            />
+                          </div>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            <input
+                              type="number"
+                              min={0}
+                              value={invoiceBuilder.maxTipAmount}
+                              onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, maxTipAmount: event.target.value }))}
+                              placeholder="Max tip amount"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                            />
+                            <input
+                              value={invoiceBuilder.suggestedTips}
+                              onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, suggestedTips: event.target.value }))}
+                              placeholder="Suggested tips (e.g. 50,100)"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none sm:col-span-2"
+                            />
+                          </div>
+                          <input
+                            value={invoiceBuilder.photoUrl}
+                            onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, photoUrl: event.target.value }))}
+                            placeholder="Photo URL (optional)"
+                            className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                          />
+                          <div className="flex flex-wrap items-center gap-3 text-[11px] text-white">
+                            {invoiceBuilder.currency.trim().toUpperCase() === 'XTR' ? (
+                              <span className="rounded border border-[#7ec8fb]/40 bg-[#1f3f56]/70 px-2 py-1 text-[10px] text-[#cbe9ff]">
+                                XTR invoice: shipping fields are disabled
+                              </span>
+                            ) : null}
+                            <label className="inline-flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={invoiceBuilder.needShippingAddress}
+                                onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, needShippingAddress: event.target.checked }))}
+                                disabled={invoiceBuilder.currency.trim().toUpperCase() === 'XTR'}
+                              />
+                              Need shipping
+                            </label>
+                            <label className="inline-flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={invoiceBuilder.isFlexible}
+                                onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, isFlexible: event.target.checked }))}
+                                disabled={invoiceBuilder.currency.trim().toUpperCase() === 'XTR'}
+                              />
+                              Flexible shipping
+                            </label>
+                            <label className="inline-flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={invoiceBuilder.needName}
+                                onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, needName: event.target.checked }))}
+                                disabled={invoiceBuilder.currency.trim().toUpperCase() === 'XTR'}
+                              />
+                              Need name
+                            </label>
+                            <label className="inline-flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={invoiceBuilder.needPhoneNumber}
+                                onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, needPhoneNumber: event.target.checked }))}
+                                disabled={invoiceBuilder.currency.trim().toUpperCase() === 'XTR'}
+                              />
+                              Need phone
+                            </label>
+                            <label className="inline-flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={invoiceBuilder.needEmail}
+                                onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, needEmail: event.target.checked }))}
+                                disabled={invoiceBuilder.currency.trim().toUpperCase() === 'XTR'}
+                              />
+                              Need email
+                            </label>
+                            <label className="inline-flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={invoiceBuilder.sendPhoneNumberToProvider}
+                                onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, sendPhoneNumberToProvider: event.target.checked }))}
+                                disabled={invoiceBuilder.currency.trim().toUpperCase() === 'XTR'}
+                              />
+                              Send phone to provider
+                            </label>
+                            <label className="inline-flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={invoiceBuilder.sendEmailToProvider}
+                                onChange={(event) => setInvoiceBuilder((prev) => ({ ...prev, sendEmailToProvider: event.target.checked }))}
+                                disabled={invoiceBuilder.currency.trim().toUpperCase() === 'XTR'}
+                              />
+                              Send email to provider
+                            </label>
+                          </div>
+                          <div className="flex items-center justify-end">
+                            <button
+                              type="button"
+                              onClick={() => void submitInvoiceBuilder()}
+                              disabled={!hasStarted || isSending}
+                              className="rounded-md border border-[#2f7fb4]/60 bg-[#22567c] px-3 py-1.5 text-xs text-white hover:bg-[#2f6f9f] disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Send Invoice
+                            </button>
+                          </div>
+                          <div className="mt-1 rounded-xl border border-[#355a76]/60 bg-black/20 px-3 py-2 text-xs text-[#d7ecfb]">
+                            <div className="mb-2 inline-flex items-center gap-1 text-[11px] text-[#9fc6df]"><Wallet className="h-3.5 w-3.5" /> Payment Lab</div>
+                            <div className="space-y-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="min-w-[80px] text-[11px] text-[#9fc6df]">Fiat</span>
+                                <span className="rounded border border-white/20 bg-white/5 px-2 py-1">{walletState.fiat}</span>
+                                <button type="button" onClick={() => setWalletState((prev) => ({ ...prev, fiat: Math.max(prev.fiat - 1000, 0) }))} className="min-w-[78px] rounded border border-white/20 bg-white/10 px-2 py-1 text-center text-[11px]">-1000</button>
+                                <button type="button" onClick={() => setWalletState((prev) => ({ ...prev, fiat: prev.fiat + 1000 }))} className="min-w-[78px] rounded border border-white/20 bg-white/10 px-2 py-1 text-center text-[11px]">+1000</button>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="min-w-[80px] text-[11px] text-[#9fc6df]">Stars</span>
+                                <span className="rounded border border-white/20 bg-white/5 px-2 py-1">{walletState.stars}</span>
+                                <button type="button" onClick={() => setWalletState((prev) => ({ ...prev, stars: Math.max(prev.stars - 200, 0) }))} className="min-w-[78px] rounded border border-white/20 bg-white/10 px-2 py-1 text-center text-[11px]">-200⭐</button>
+                                <button type="button" onClick={() => setWalletState((prev) => ({ ...prev, stars: prev.stars + 200 }))} className="min-w-[78px] rounded border border-white/20 bg-white/10 px-2 py-1 text-center text-[11px]">+200⭐</button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {mediaDrawerTab === 'studio' ? (
+                        <div className="space-y-2 text-[11px] text-[#d7ecfb]">
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <input
+                              value={stickerStudio.userId}
+                              onChange={(event) => setStickerStudio((prev) => ({ ...prev, userId: event.target.value }))}
+                              placeholder="owner user id"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                            <select
+                              value={stickerStudio.stickerType}
+                              onChange={(event) => setStickerStudio((prev) => ({ ...prev, stickerType: event.target.value }))}
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            >
+                              <option value="regular">regular</option>
+                              <option value="mask">mask</option>
+                              <option value="custom_emoji">custom_emoji</option>
+                            </select>
+                          </div>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <select
+                              value={stickerStudio.stickerFormat}
+                              onChange={(event) => setStickerStudio((prev) => ({ ...prev, stickerFormat: event.target.value }))}
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            >
+                              <option value="static">static</option>
+                              <option value="animated">animated (.tgs)</option>
+                              <option value="video">video (.webm)</option>
+                            </select>
+                            <input
+                              value={stickerStudio.emojiList}
+                              onChange={(event) => setStickerStudio((prev) => ({ ...prev, emojiList: event.target.value }))}
+                              placeholder="emoji list csv"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                          </div>
+                          <hr className="border-white/15" />
+
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+                            <input
+                              value={stickerStudio.setName}
+                              onChange={(event) => setStickerStudio((prev) => ({ ...prev, setName: event.target.value }))}
+                              placeholder="set name"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                            <button type="button" onClick={() => void fetchStickerSetAction()} className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-3 py-1 text-xs text-white hover:bg-[#245a80]">getStickerSet</button>
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+                            <input
+                              value={stickerStudio.setTitle}
+                              onChange={(event) => setStickerStudio((prev) => ({ ...prev, setTitle: event.target.value }))}
+                              placeholder="set title"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                            <button type="button" onClick={() => void applyStickerSetMetaActions()} className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-3 py-1 text-xs text-white hover:bg-[#245a80]">set title</button>
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+                            <input
+                              type="file"
+                              onChange={(event) => setStickerStudioThumbnailFile(event.target.files?.[0] || null)}
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                            <button type="button" onClick={() => void applyStickerSetMetaActions()} className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-3 py-1 text-xs text-white hover:bg-[#245a80]">set thumbnail</button>
+                          </div>
+                          <hr className="border-white/15" />
+
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+                            <input
+                              type="file"
+                              onChange={(event) => setStickerStudioFile(event.target.files?.[0] || null)}
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                            <button type="button" onClick={() => void uploadStickerAsset()} className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-3 py-1 text-xs text-white hover:bg-[#245a80]">uploadStickerFile</button>
+                          </div>
+                          <div className="rounded-md border border-white/20 bg-black/25 px-2 py-1 text-[10px] text-[#cfe7f8] break-all">
+                            uploaded file_id: {uploadedStickerFileId || '-'}
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <button type="button" onClick={() => void createStickerSetAction()} className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-2 py-1 text-xs text-white hover:bg-[#245a80]">createNewStickerSet</button>
+                            <button type="button" onClick={() => void addStickerToSetAction()} className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-2 py-1 text-xs text-white hover:bg-[#245a80]">addStickerToSet</button>
+                          </div>
+                          <hr className="border-white/15" />
+
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+                            <input
+                              value={stickerStudio.targetStickerId}
+                              onChange={(event) => setStickerStudio((prev) => ({ ...prev, targetStickerId: event.target.value }))}
+                              placeholder="target sticker file_id"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                            <button type="button" onClick={() => void applyStickerItemActions()} className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-3 py-1 text-xs text-white hover:bg-[#245a80]">set emoji/meta</button>
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+                            <input
+                              value={stickerStudio.position}
+                              onChange={(event) => setStickerStudio((prev) => ({ ...prev, position: event.target.value }))}
+                              placeholder="position"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                            <button type="button" onClick={() => void reorderOrReplaceStickerAction()} className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-3 py-1 text-xs text-white hover:bg-[#245a80]">set position</button>
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+                            <input
+                              value={stickerStudio.oldStickerId}
+                              onChange={(event) => setStickerStudio((prev) => ({ ...prev, oldStickerId: event.target.value }))}
+                              placeholder="old sticker file_id"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                            <button type="button" onClick={() => void reorderOrReplaceStickerAction()} className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-3 py-1 text-xs text-white hover:bg-[#245a80]">replace</button>
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+                            <input
+                              value={stickerStudio.customEmojiId}
+                              onChange={(event) => setStickerStudio((prev) => ({ ...prev, customEmojiId: event.target.value }))}
+                              placeholder="custom emoji ids csv"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                            <button type="button" onClick={() => void queryCustomEmojiStickersAction()} className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-3 py-1 text-xs text-white hover:bg-[#245a80]">getCustomEmojiStickers</button>
+                          </div>
+
+                          <div className="flex justify-end">
+                            <button type="button" onClick={() => void deleteStickerActions()} className="rounded-md border border-red-400/45 bg-red-700/35 px-3 py-1 text-xs text-red-100 hover:bg-red-700/45">delete sticker/set</button>
+                          </div>
+                          <div className="rounded border border-white/20 bg-black/25 px-2 py-1 text-[10px] text-[#d2ebfb]">
+                            <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-all">{stickerStudioOutput || 'Sticker Studio output...'}</pre>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+                </div>
                 {activeReplyKeyboard && activeReplyKeyboard.markup.kind === 'reply' ? (
                   <div className={`rounded-2xl border border-white/15 bg-black/20 p-2 ${activeReplyKeyboard.markup.resize_keyboard ? '' : 'pb-3'}`}>
                     <div className="space-y-1.5 overflow-x-hidden">

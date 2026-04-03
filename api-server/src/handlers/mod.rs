@@ -11,12 +11,12 @@ use std::time::Duration;
 
 use crate::database::{ensure_bot, ensure_chat, lock_db, AppState};
 use crate::generated::methods::{
-    AnswerCallbackQueryRequest, AnswerInlineQueryRequest, AnswerPreCheckoutQueryRequest, AnswerShippingQueryRequest, DeleteMessageRequest, DeleteMessagesRequest, DeleteWebhookRequest, EditMessageCaptionRequest,
-    CreateInvoiceLinkRequest, EditMessageMediaRequest, EditMessageReplyMarkupRequest, EditMessageTextRequest, EditUserStarSubscriptionRequest, GetFileRequest, GetMeRequest, GetMyStarBalanceRequest, GetStarTransactionsRequest,
-    GetUpdatesRequest, SendAudioRequest, SendDocumentRequest, SendMediaGroupRequest,
-    RefundStarPaymentRequest, SendInvoiceRequest, SendMessageRequest, SendPhotoRequest, SendPollRequest, SendVideoRequest, SendVoiceRequest, SetMessageReactionRequest, SetWebhookRequest, StopPollRequest,
+    AddStickerToSetRequest, AnswerCallbackQueryRequest, AnswerInlineQueryRequest, AnswerPreCheckoutQueryRequest, AnswerShippingQueryRequest, CreateNewStickerSetRequest, DeleteMessageRequest, DeleteMessagesRequest, DeleteStickerFromSetRequest, DeleteStickerSetRequest, DeleteWebhookRequest, EditMessageCaptionRequest,
+    CreateInvoiceLinkRequest, EditMessageLiveLocationRequest, EditMessageMediaRequest, EditMessageReplyMarkupRequest, EditMessageTextRequest, EditUserStarSubscriptionRequest, GetFileRequest, GetMeRequest, GetMyStarBalanceRequest, GetStarTransactionsRequest,
+    GetCustomEmojiStickersRequest, GetGameHighScoresRequest, GetStickerSetRequest, GetUpdatesRequest, ReplaceStickerInSetRequest, SendAnimationRequest, SendAudioRequest, SendContactRequest, SendDiceRequest, SendDocumentRequest, SendGameRequest, SendLocationRequest, SendMediaGroupRequest,
+    RefundStarPaymentRequest, SendInvoiceRequest, SendMessageRequest, SendPhotoRequest, SendPollRequest, SendStickerRequest, SendVenueRequest, SendVideoNoteRequest, SendVideoRequest, SendVoiceRequest, SetCustomEmojiStickerSetThumbnailRequest, SetGameScoreRequest, SetMessageReactionRequest, SetStickerEmojiListRequest, SetStickerKeywordsRequest, SetStickerMaskPositionRequest, SetStickerPositionInSetRequest, SetStickerSetThumbnailRequest, SetStickerSetTitleRequest, SetWebhookRequest, StopMessageLiveLocationRequest, StopPollRequest,
 };
-use crate::generated::types::{CallbackQuery, Chat, ChosenInlineResult, InlineKeyboardMarkup, InlineQuery, Invoice, MaybeInaccessibleMessage, Message, MessageReactionCountUpdated, MessageReactionUpdated, OrderInfo, Poll, PollAnswer, PollOption, PreCheckoutQuery, ReactionCount, ReactionType, ReplyKeyboardMarkup, ReplyKeyboardRemove, ShippingAddress, ShippingQuery, SuccessfulPayment, Update, User};
+use crate::generated::types::{Animation, Audio, CallbackQuery, Chat, ChosenInlineResult, Contact, Dice, Document, File, Game, GameHighScore, InlineKeyboardMarkup, InlineQuery, InputSticker, Invoice, Location, MaskPosition, MaybeInaccessibleMessage, Message, MessageReactionCountUpdated, MessageReactionUpdated, OrderInfo, PhotoSize, Poll, PollAnswer, PollOption, PreCheckoutQuery, ReactionCount, ReactionType, ReplyKeyboardMarkup, ReplyKeyboardRemove, ShippingAddress, ShippingQuery, Sticker, StickerSet, SuccessfulPayment, Update, User, Venue, Video, VideoNote, Voice};
 use crate::types::{strip_nulls, ApiError, ApiResult};
 
 #[derive(Deserialize)]
@@ -124,6 +124,71 @@ pub struct SimVotePollRequest {
 }
 
 #[derive(Deserialize)]
+pub struct SimSendUserDiceRequest {
+    pub chat_id: Option<i64>,
+    pub user_id: Option<i64>,
+    pub first_name: Option<String>,
+    pub username: Option<String>,
+    pub emoji: Option<String>,
+    pub reply_to_message_id: Option<i64>,
+}
+
+#[derive(Deserialize)]
+pub struct SimSendUserGameRequest {
+    pub chat_id: Option<i64>,
+    pub user_id: Option<i64>,
+    pub first_name: Option<String>,
+    pub username: Option<String>,
+    pub game_short_name: String,
+    pub reply_to_message_id: Option<i64>,
+}
+
+#[derive(Deserialize)]
+pub struct SimSendUserContactRequest {
+    pub chat_id: Option<i64>,
+    pub user_id: Option<i64>,
+    pub first_name: Option<String>,
+    pub username: Option<String>,
+    pub phone_number: String,
+    pub contact_first_name: String,
+    pub contact_last_name: Option<String>,
+    pub vcard: Option<String>,
+    pub reply_to_message_id: Option<i64>,
+}
+
+#[derive(Deserialize)]
+pub struct SimSendUserLocationRequest {
+    pub chat_id: Option<i64>,
+    pub user_id: Option<i64>,
+    pub first_name: Option<String>,
+    pub username: Option<String>,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub horizontal_accuracy: Option<f64>,
+    pub live_period: Option<i64>,
+    pub heading: Option<i64>,
+    pub proximity_alert_radius: Option<i64>,
+    pub reply_to_message_id: Option<i64>,
+}
+
+#[derive(Deserialize)]
+pub struct SimSendUserVenueRequest {
+    pub chat_id: Option<i64>,
+    pub user_id: Option<i64>,
+    pub first_name: Option<String>,
+    pub username: Option<String>,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub title: String,
+    pub address: String,
+    pub foursquare_id: Option<String>,
+    pub foursquare_type: Option<String>,
+    pub google_place_id: Option<String>,
+    pub google_place_type: Option<String>,
+    pub reply_to_message_id: Option<i64>,
+}
+
+#[derive(Deserialize)]
 pub struct SimPayInvoiceRequest {
     pub chat_id: i64,
     pub message_id: i64,
@@ -221,12 +286,22 @@ pub fn dispatch_method(
         "senddocument" => handle_send_document(state, token, &params),
         "sendvideo" => handle_send_video(state, token, &params),
         "sendvoice" => handle_send_voice(state, token, &params),
+        "sendcontact" => handle_send_contact(state, token, &params),
+        "sendlocation" => handle_send_location(state, token, &params),
+        "sendvenue" => handle_send_venue(state, token, &params),
+        "senddice" => handle_send_dice(state, token, &params),
+        "sendgame" => handle_send_game(state, token, &params),
+        "sendanimation" => handle_send_animation(state, token, &params),
+        "sendvideonote" => handle_send_video_note(state, token, &params),
+        "sendsticker" => handle_send_sticker(state, token, &params),
         "sendpoll" => handle_send_poll(state, token, &params),
         "sendinvoice" => handle_send_invoice(state, token, &params),
         "sendmediagroup" => handle_send_media_group(state, token, &params),
         "editmessagetext" => handle_edit_message_text(state, token, &params),
         "editmessagecaption" => handle_edit_message_caption(state, token, &params),
         "editmessagemedia" => handle_edit_message_media(state, token, &params),
+        "editmessagelivelocation" => handle_edit_message_live_location(state, token, &params),
+        "stopmessagelivelocation" => handle_stop_message_live_location(state, token, &params),
         "editmessagereplymarkup" => handle_edit_message_reply_markup(state, token, &params),
         "deletemessage" => handle_delete_message(state, token, &params),
         "deletemessages" => handle_delete_messages(state, token, &params),
@@ -245,6 +320,23 @@ pub fn dispatch_method(
         "getstartransactions" => handle_get_star_transactions(state, token, &params),
         "refundstarpayment" => handle_refund_star_payment(state, token, &params),
         "edituserstarsubscription" => handle_edit_user_star_subscription(state, token, &params),
+        "getstickerset" => handle_get_sticker_set(state, token, &params),
+        "getcustomemojistickers" => handle_get_custom_emoji_stickers(state, token, &params),
+        "uploadstickerfile" => handle_upload_sticker_file(state, token, &params),
+        "createnewstickerset" => handle_create_new_sticker_set(state, token, &params),
+        "addstickertoset" => handle_add_sticker_to_set(state, token, &params),
+        "setstickerpositioninset" => handle_set_sticker_position_in_set(state, token, &params),
+        "deletestickerfromset" => handle_delete_sticker_from_set(state, token, &params),
+        "replacestickerinset" => handle_replace_sticker_in_set(state, token, &params),
+        "setgamescore" => handle_set_game_score(state, token, &params),
+        "getgamehighscores" => handle_get_game_high_scores(state, token, &params),
+        "setstickeremojilist" => handle_set_sticker_emoji_list(state, token, &params),
+        "setstickerkeywords" => handle_set_sticker_keywords(state, token, &params),
+        "setstickermaskposition" => handle_set_sticker_mask_position(state, token, &params),
+        "setstickersettitle" => handle_set_sticker_set_title(state, token, &params),
+        "setstickersetthumbnail" => handle_set_sticker_set_thumbnail(state, token, &params),
+        "setcustomemojistickersetthumbnail" => handle_set_custom_emoji_sticker_set_thumbnail(state, token, &params),
+        "deletestickerset" => handle_delete_sticker_set(state, token, &params),
         _ => Err(ApiError::not_found(format!("method {} not found", method))),
     }
 }
@@ -1058,6 +1150,856 @@ fn handle_send_voice(state: &Data<AppState>, token: &str, params: &HashMap<Strin
     )
 }
 
+fn handle_send_contact(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: SendContactRequest = parse_request(params)?;
+    if request.phone_number.trim().is_empty() {
+        return Err(ApiError::bad_request("phone_number is empty"));
+    }
+    if request.first_name.trim().is_empty() {
+        return Err(ApiError::bad_request("first_name is empty"));
+    }
+
+    let contact = Contact {
+        phone_number: request.phone_number,
+        first_name: request.first_name,
+        last_name: request.last_name,
+        user_id: None,
+        vcard: request.vcard,
+    };
+
+    send_payload_message(
+        state,
+        token,
+        &request.chat_id,
+        None,
+        None,
+        request.reply_markup,
+        "contact",
+        serde_json::to_value(contact).map_err(ApiError::internal)?,
+    )
+}
+
+fn handle_send_location(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: SendLocationRequest = parse_request(params)?;
+
+    let location = Location {
+        latitude: request.latitude,
+        longitude: request.longitude,
+        horizontal_accuracy: request.horizontal_accuracy,
+        live_period: request.live_period,
+        heading: request.heading,
+        proximity_alert_radius: request.proximity_alert_radius,
+    };
+
+    send_payload_message(
+        state,
+        token,
+        &request.chat_id,
+        None,
+        None,
+        request.reply_markup,
+        "location",
+        serde_json::to_value(location).map_err(ApiError::internal)?,
+    )
+}
+
+fn handle_send_venue(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: SendVenueRequest = parse_request(params)?;
+    if request.title.trim().is_empty() {
+        return Err(ApiError::bad_request("title is empty"));
+    }
+    if request.address.trim().is_empty() {
+        return Err(ApiError::bad_request("address is empty"));
+    }
+
+    let venue = Venue {
+        location: Location {
+            latitude: request.latitude,
+            longitude: request.longitude,
+            horizontal_accuracy: None,
+            live_period: None,
+            heading: None,
+            proximity_alert_radius: None,
+        },
+        title: request.title,
+        address: request.address,
+        foursquare_id: request.foursquare_id,
+        foursquare_type: request.foursquare_type,
+        google_place_id: request.google_place_id,
+        google_place_type: request.google_place_type,
+    };
+
+    send_payload_message(
+        state,
+        token,
+        &request.chat_id,
+        None,
+        None,
+        request.reply_markup,
+        "venue",
+        serde_json::to_value(venue).map_err(ApiError::internal)?,
+    )
+}
+
+fn handle_send_dice(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: SendDiceRequest = parse_request(params)?;
+    let emoji = request.emoji.unwrap_or_else(|| "🎲".to_string());
+
+    let max_value = match emoji.as_str() {
+        "🎯" | "🎲" | "🏀" | "🎳" => 6,
+        "⚽" | "🏐" => 5,
+        "🎰" => 64,
+        _ => return Err(ApiError::bad_request("unsupported dice emoji")),
+    };
+    let now_nanos = Utc::now().timestamp_nanos_opt().unwrap_or_default().unsigned_abs();
+    let value = (now_nanos % (max_value as u64)) as i64 + 1;
+
+    let dice = Dice { emoji, value };
+    send_payload_message(
+        state,
+        token,
+        &request.chat_id,
+        None,
+        None,
+        request.reply_markup,
+        "dice",
+        serde_json::to_value(dice).map_err(ApiError::internal)?,
+    )
+}
+
+fn handle_send_game(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: SendGameRequest = parse_request(params)?;
+    if request.game_short_name.trim().is_empty() {
+        return Err(ApiError::bad_request("game_short_name is empty"));
+    }
+
+    let game = Game {
+        title: request.game_short_name.clone(),
+        description: format!("Game {}", request.game_short_name),
+        photo: vec![PhotoSize {
+            file_id: generate_telegram_file_id("game_photo"),
+            file_unique_id: generate_telegram_file_unique_id(),
+            width: 512,
+            height: 512,
+            file_size: None,
+        }],
+        text: None,
+        text_entities: None,
+        animation: None,
+    };
+
+    let message_value = send_payload_message(
+        state,
+        token,
+        &Value::from(request.chat_id),
+        None,
+        None,
+        request.reply_markup.as_ref().and_then(|m| serde_json::to_value(m).ok()),
+        "game",
+        serde_json::to_value(&game).map_err(ApiError::internal)?,
+    )?;
+
+    let message_id = message_value
+        .get("message_id")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| ApiError::internal("missing message_id in sendGame result"))?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let chat_key = request.chat_id.to_string();
+    let now = Utc::now().timestamp();
+
+    conn.execute(
+        "INSERT INTO games (bot_id, chat_key, message_id, game_short_name, title, description, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            bot.id,
+            chat_key,
+            message_id,
+            request.game_short_name,
+            game.title,
+            game.description,
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(message_value)
+}
+
+fn handle_send_animation(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: SendAnimationRequest = parse_request(params)?;
+    let explicit_caption_entities = request
+        .caption_entities
+        .as_ref()
+        .and_then(|v| serde_json::to_value(v).ok());
+    let (caption, caption_entities) = parse_optional_formatted_text(
+        request.caption.as_deref(),
+        request.parse_mode.as_deref(),
+        explicit_caption_entities,
+    );
+    let animation_input = parse_input_file_value(&request.animation, "animation")?;
+    let file = resolve_media_file(state, token, &animation_input, "animation")?;
+
+    let animation = serde_json::to_value(Animation {
+        file_id: file.file_id,
+        file_unique_id: file.file_unique_id,
+        width: request.width.unwrap_or(512),
+        height: request.height.unwrap_or(512),
+        duration: request.duration.unwrap_or(0),
+        thumbnail: None,
+        file_name: Some(file.file_path.split('/').last().unwrap_or("animation.mp4").to_string()),
+        mime_type: file.mime_type,
+        file_size: file.file_size,
+    })
+    .map_err(ApiError::internal)?;
+
+    send_media_message(
+        state,
+        token,
+        &request.chat_id,
+        caption,
+        caption_entities,
+        request.reply_markup,
+        "animation",
+        animation,
+    )
+}
+
+fn handle_send_video_note(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: SendVideoNoteRequest = parse_request(params)?;
+    let video_note_input = parse_input_file_value(&request.video_note, "video_note")?;
+    let file = resolve_media_file(state, token, &video_note_input, "video_note")?;
+
+    let length = request.length.unwrap_or(384).max(1);
+    let video_note = serde_json::to_value(VideoNote {
+        file_id: file.file_id,
+        file_unique_id: file.file_unique_id,
+        length,
+        duration: request.duration.unwrap_or(0),
+        thumbnail: None,
+        file_size: file.file_size,
+    })
+    .map_err(ApiError::internal)?;
+
+    send_media_message(
+        state,
+        token,
+        &request.chat_id,
+        None,
+        None,
+        request.reply_markup,
+        "video_note",
+        video_note,
+    )
+}
+
+fn handle_send_sticker(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: SendStickerRequest = parse_request(params)?;
+    let sticker_input = parse_input_file_value(&request.sticker, "sticker")?;
+    let file = resolve_media_file(state, token, &sticker_input, "sticker")?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let sticker_meta = load_sticker_meta(&mut conn, bot.id, &file.file_id)?;
+    drop(conn);
+
+    let format = sticker_meta
+        .as_ref()
+        .map(|m| m.format.as_str())
+        .or_else(|| infer_sticker_format_from_file(&file))
+        .unwrap_or("static");
+    let is_animated = format == "animated";
+    let is_video = format == "video";
+
+    let sticker = Sticker {
+        file_id: file.file_id,
+        file_unique_id: file.file_unique_id,
+        r#type: sticker_meta
+            .as_ref()
+            .map(|m| m.sticker_type.clone())
+            .unwrap_or_else(|| "regular".to_string()),
+        width: 512,
+        height: 512,
+        is_animated,
+        is_video,
+        thumbnail: None,
+        emoji: request.emoji.or_else(|| sticker_meta.as_ref().and_then(|m| m.emoji.clone())),
+        set_name: sticker_meta.as_ref().and_then(|m| m.set_name.clone()),
+        premium_animation: None,
+        mask_position: sticker_meta
+            .as_ref()
+            .and_then(|m| m.mask_position_json.as_ref())
+            .and_then(|raw| serde_json::from_str::<MaskPosition>(raw).ok()),
+        custom_emoji_id: sticker_meta.as_ref().and_then(|m| m.custom_emoji_id.clone()),
+        needs_repainting: sticker_meta.as_ref().map(|m| m.needs_repainting),
+        file_size: file.file_size,
+    };
+
+    send_media_message(
+        state,
+        token,
+        &request.chat_id,
+        None,
+        None,
+        request.reply_markup,
+        "sticker",
+        serde_json::to_value(sticker).map_err(ApiError::internal)?,
+    )
+}
+
+fn handle_get_sticker_set(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: GetStickerSetRequest = parse_request(params)?;
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let set_row: Option<(String, String, i64)> = conn
+        .query_row(
+            "SELECT title, sticker_type, COALESCE(needs_repainting, 0)
+             FROM sticker_sets WHERE bot_id = ?1 AND name = ?2",
+            params![bot.id, request.name],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    let Some((title, sticker_type, _needs_repainting)) = set_row else {
+        return Err(ApiError::not_found("sticker set not found"));
+    };
+
+    let stickers = load_set_stickers(&mut conn, bot.id, &request.name)?;
+    let result = StickerSet {
+        name: request.name,
+        title,
+        sticker_type,
+        stickers,
+        thumbnail: None,
+    };
+
+    Ok(serde_json::to_value(result).map_err(ApiError::internal)?)
+}
+
+fn handle_get_custom_emoji_stickers(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: GetCustomEmojiStickersRequest = parse_request(params)?;
+    if request.custom_emoji_ids.is_empty() {
+        return Ok(json!([]));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let placeholders = std::iter::repeat("?")
+        .take(request.custom_emoji_ids.len())
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT file_id, file_unique_id, set_name, sticker_type, format, emoji, mask_position_json, custom_emoji_id, needs_repainting
+         FROM stickers WHERE bot_id = ? AND custom_emoji_id IN ({})",
+        placeholders,
+    );
+
+    let mut bind_values = Vec::with_capacity(1 + request.custom_emoji_ids.len());
+    bind_values.push(Value::from(bot.id));
+    for item in &request.custom_emoji_ids {
+        bind_values.push(Value::from(item.clone()));
+    }
+
+    let mut stmt = conn.prepare(&sql).map_err(ApiError::internal)?;
+    let rows = stmt
+        .query_map(
+            rusqlite::params_from_iter(bind_values.iter().map(sql_value_to_rusqlite)),
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, Option<String>>(5)?,
+                    r.get::<_, Option<String>>(6)?,
+                    r.get::<_, Option<String>>(7)?,
+                    r.get::<_, i64>(8)?,
+                ))
+            },
+        )
+        .map_err(ApiError::internal)?;
+
+    let mut stickers = Vec::new();
+    for row in rows {
+        let (file_id, file_unique_id, set_name, sticker_type, format, emoji, mask_position_json, custom_emoji_id, needs_repainting) = row.map_err(ApiError::internal)?;
+        stickers.push(sticker_from_row(
+            file_id,
+            file_unique_id,
+            set_name,
+            sticker_type,
+            format,
+            emoji,
+            mask_position_json,
+            custom_emoji_id,
+            needs_repainting == 1,
+            None,
+        ));
+    }
+
+    Ok(serde_json::to_value(stickers).map_err(ApiError::internal)?)
+}
+
+fn handle_upload_sticker_file(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let user_id = params
+        .get("user_id")
+        .and_then(|value| value.as_i64().or_else(|| value.as_str().and_then(|raw| raw.parse::<i64>().ok())))
+        .ok_or_else(|| ApiError::bad_request("user_id is required"))?;
+    let sticker_format = params
+        .get("sticker_format")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| ApiError::bad_request("sticker_format is required"))?;
+    let requested_format = normalize_sticker_format(&sticker_format)?;
+    let sticker_raw = params
+        .get("sticker")
+        .ok_or_else(|| ApiError::bad_request("sticker is required"))?;
+    let sticker_input = parse_input_file_value(sticker_raw, "sticker")?;
+    let file = resolve_media_file(state, token, &sticker_input, "sticker")?;
+    let format = infer_sticker_format_from_file(&file).unwrap_or(requested_format);
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let now = Utc::now().timestamp();
+    let (is_animated, is_video) = sticker_format_flags(format);
+
+    conn.execute(
+        "INSERT INTO stickers
+         (bot_id, file_id, file_unique_id, set_name, sticker_type, format, width, height, is_animated, is_video,
+          emoji, emoji_list_json, keywords_json, mask_position_json, custom_emoji_id, needs_repainting, position, created_at, updated_at)
+         VALUES (?1, ?2, ?3, NULL, 'regular', ?4, 512, 512, ?5, ?6, NULL, NULL, NULL, NULL, NULL, 0, 0, ?7, ?7)
+         ON CONFLICT(bot_id, file_id) DO UPDATE SET
+            format = excluded.format,
+            is_animated = excluded.is_animated,
+            is_video = excluded.is_video,
+            updated_at = excluded.updated_at",
+        params![
+            bot.id,
+            file.file_id,
+            file.file_unique_id,
+            format,
+            if is_animated { 1 } else { 0 },
+            if is_video { 1 } else { 0 },
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    let _ = user_id;
+
+    let result = File {
+        file_id: file.file_id,
+        file_unique_id: file.file_unique_id,
+        file_size: file.file_size,
+        file_path: Some(file.file_path),
+    };
+
+    Ok(serde_json::to_value(result).map_err(ApiError::internal)?)
+}
+
+fn handle_create_new_sticker_set(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: CreateNewStickerSetRequest = parse_request(params)?;
+    if request.name.trim().is_empty() {
+        return Err(ApiError::bad_request("name is empty"));
+    }
+    if request.title.trim().is_empty() {
+        return Err(ApiError::bad_request("title is empty"));
+    }
+    if request.stickers.is_empty() {
+        return Err(ApiError::bad_request("stickers must include at least one item"));
+    }
+
+    let sticker_type = normalize_sticker_type(request.sticker_type.as_deref().unwrap_or("regular"))?;
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let exists: Option<String> = conn
+        .query_row(
+            "SELECT name FROM sticker_sets WHERE bot_id = ?1 AND name = ?2",
+            params![bot.id, request.name],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    if exists.is_some() {
+        return Err(ApiError::bad_request("sticker set already exists"));
+    }
+
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO sticker_sets
+         (bot_id, name, title, sticker_type, needs_repainting, owner_user_id, thumbnail_file_id, thumbnail_format, custom_emoji_id, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL, NULL, ?7, ?7)",
+        params![
+            bot.id,
+            request.name,
+            request.title,
+            sticker_type,
+            if request.needs_repainting.unwrap_or(false) { 1 } else { 0 },
+            request.user_id,
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    for (index, sticker_input) in request.stickers.iter().enumerate() {
+        upsert_set_sticker(
+            state,
+            &mut conn,
+            &bot,
+            &request.name,
+            sticker_type,
+            request.needs_repainting.unwrap_or(false),
+            sticker_input,
+            index as i64,
+        )?;
+    }
+
+    Ok(json!(true))
+}
+
+fn handle_add_sticker_to_set(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: AddStickerToSetRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let row: Option<(String, i64)> = conn
+        .query_row(
+            "SELECT sticker_type, COALESCE(needs_repainting, 0) FROM sticker_sets WHERE bot_id = ?1 AND name = ?2",
+            params![bot.id, request.name],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+    let Some((sticker_type, needs_repainting)) = row else {
+        return Err(ApiError::not_found("sticker set not found"));
+    };
+
+    let next_position: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(position), -1) + 1 FROM stickers WHERE bot_id = ?1 AND set_name = ?2",
+            params![bot.id, request.name],
+            |r| r.get(0),
+        )
+        .map_err(ApiError::internal)?;
+
+    upsert_set_sticker(
+        state,
+        &mut conn,
+        &bot,
+        &request.name,
+        &sticker_type,
+        needs_repainting == 1,
+        &request.sticker,
+        next_position,
+    )?;
+
+    Ok(json!(true))
+}
+
+fn handle_set_sticker_position_in_set(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: SetStickerPositionInSetRequest = parse_request(params)?;
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let set_name: Option<String> = conn
+        .query_row(
+            "SELECT set_name FROM stickers WHERE bot_id = ?1 AND file_id = ?2",
+            params![bot.id, request.sticker],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+    let Some(set_name) = set_name else {
+        return Err(ApiError::not_found("sticker not found in set"));
+    };
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT file_id FROM stickers WHERE bot_id = ?1 AND set_name = ?2 ORDER BY position ASC, created_at ASC",
+        )
+        .map_err(ApiError::internal)?;
+    let rows = stmt
+        .query_map(params![bot.id, set_name], |r| r.get::<_, String>(0))
+        .map_err(ApiError::internal)?;
+    let mut ids = Vec::new();
+    for row in rows {
+        ids.push(row.map_err(ApiError::internal)?);
+    }
+
+    let current_index = ids.iter().position(|id| id == &request.sticker)
+        .ok_or_else(|| ApiError::not_found("sticker not found in set"))?;
+    let target = request.position.clamp(0, (ids.len().saturating_sub(1)) as i64) as usize;
+
+    let moved = ids.remove(current_index);
+    ids.insert(target, moved);
+
+    let now = Utc::now().timestamp();
+    for (idx, file_id) in ids.iter().enumerate() {
+        conn.execute(
+            "UPDATE stickers SET position = ?1, updated_at = ?2 WHERE bot_id = ?3 AND file_id = ?4",
+            params![idx as i64, now, bot.id, file_id],
+        )
+        .map_err(ApiError::internal)?;
+    }
+
+    Ok(json!(true))
+}
+
+fn handle_delete_sticker_from_set(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: DeleteStickerFromSetRequest = parse_request(params)?;
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let set_name: Option<String> = conn
+        .query_row(
+            "SELECT set_name FROM stickers WHERE bot_id = ?1 AND file_id = ?2",
+            params![bot.id, request.sticker],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+    let Some(set_name) = set_name else {
+        return Err(ApiError::not_found("sticker not found"));
+    };
+
+    let deleted = conn
+        .execute(
+            "DELETE FROM stickers WHERE bot_id = ?1 AND file_id = ?2",
+            params![bot.id, request.sticker],
+        )
+        .map_err(ApiError::internal)?;
+    if deleted == 0 {
+        return Err(ApiError::not_found("sticker not found"));
+    }
+
+    compact_sticker_positions(&mut conn, bot.id, &set_name)?;
+    Ok(json!(true))
+}
+
+fn handle_replace_sticker_in_set(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: ReplaceStickerInSetRequest = parse_request(params)?;
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let old_row: Option<(i64, String, i64)> = conn
+        .query_row(
+            "SELECT position, set_name, COALESCE(needs_repainting, 0)
+             FROM stickers WHERE bot_id = ?1 AND file_id = ?2",
+            params![bot.id, request.old_sticker],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+    let Some((position, set_name, needs_repainting)) = old_row else {
+        return Err(ApiError::not_found("old_sticker not found"));
+    };
+
+    let set_type: String = conn
+        .query_row(
+            "SELECT sticker_type FROM sticker_sets WHERE bot_id = ?1 AND name = ?2",
+            params![bot.id, request.name],
+            |r| r.get(0),
+        )
+        .map_err(ApiError::internal)?;
+
+    conn.execute(
+        "DELETE FROM stickers WHERE bot_id = ?1 AND file_id = ?2",
+        params![bot.id, request.old_sticker],
+    )
+    .map_err(ApiError::internal)?;
+
+    upsert_set_sticker(
+        state,
+        &mut conn,
+        &bot,
+        &set_name,
+        &set_type,
+        needs_repainting == 1,
+        &request.sticker,
+        position,
+    )?;
+
+    compact_sticker_positions(&mut conn, bot.id, &set_name)?;
+    Ok(json!(true))
+}
+
+fn handle_set_sticker_emoji_list(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: SetStickerEmojiListRequest = parse_request(params)?;
+    if request.emoji_list.is_empty() {
+        return Err(ApiError::bad_request("emoji_list must not be empty"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let now = Utc::now().timestamp();
+    let updated = conn
+        .execute(
+            "UPDATE stickers
+             SET emoji = ?1, emoji_list_json = ?2, updated_at = ?3
+             WHERE bot_id = ?4 AND file_id = ?5",
+            params![
+                request.emoji_list[0].clone(),
+                serde_json::to_string(&request.emoji_list).map_err(ApiError::internal)?,
+                now,
+                bot.id,
+                request.sticker,
+            ],
+        )
+        .map_err(ApiError::internal)?;
+    if updated == 0 {
+        return Err(ApiError::not_found("sticker not found"));
+    }
+
+    Ok(json!(true))
+}
+
+fn handle_set_sticker_keywords(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: SetStickerKeywordsRequest = parse_request(params)?;
+    let keywords_json = request
+        .keywords
+        .as_ref()
+        .map(|k| serde_json::to_string(k).map_err(ApiError::internal))
+        .transpose()?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let now = Utc::now().timestamp();
+    let updated = conn
+        .execute(
+            "UPDATE stickers SET keywords_json = ?1, updated_at = ?2 WHERE bot_id = ?3 AND file_id = ?4",
+            params![keywords_json, now, bot.id, request.sticker],
+        )
+        .map_err(ApiError::internal)?;
+    if updated == 0 {
+        return Err(ApiError::not_found("sticker not found"));
+    }
+
+    Ok(json!(true))
+}
+
+fn handle_set_sticker_mask_position(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: SetStickerMaskPositionRequest = parse_request(params)?;
+    let mask_json = request
+        .mask_position
+        .as_ref()
+        .map(|m| serde_json::to_string(m).map_err(ApiError::internal))
+        .transpose()?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let now = Utc::now().timestamp();
+    let updated = conn
+        .execute(
+            "UPDATE stickers SET mask_position_json = ?1, updated_at = ?2 WHERE bot_id = ?3 AND file_id = ?4",
+            params![mask_json, now, bot.id, request.sticker],
+        )
+        .map_err(ApiError::internal)?;
+    if updated == 0 {
+        return Err(ApiError::not_found("sticker not found"));
+    }
+
+    Ok(json!(true))
+}
+
+fn handle_set_sticker_set_title(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: SetStickerSetTitleRequest = parse_request(params)?;
+    if request.title.trim().is_empty() {
+        return Err(ApiError::bad_request("title is empty"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let now = Utc::now().timestamp();
+    let updated = conn
+        .execute(
+            "UPDATE sticker_sets SET title = ?1, updated_at = ?2 WHERE bot_id = ?3 AND name = ?4",
+            params![request.title, now, bot.id, request.name],
+        )
+        .map_err(ApiError::internal)?;
+    if updated == 0 {
+        return Err(ApiError::not_found("sticker set not found"));
+    }
+
+    Ok(json!(true))
+}
+
+fn handle_set_sticker_set_thumbnail(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: SetStickerSetThumbnailRequest = parse_request(params)?;
+    let format = normalize_sticker_format(&request.format)?;
+    let thumbnail_file_id = if let Some(value) = request.thumbnail {
+        let normalized = parse_input_file_value(&value, "thumbnail")?;
+        Some(resolve_media_file(state, token, &normalized, "thumbnail")?.file_id)
+    } else {
+        None
+    };
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let now = Utc::now().timestamp();
+    let updated = conn
+        .execute(
+            "UPDATE sticker_sets
+             SET thumbnail_file_id = ?1, thumbnail_format = ?2, updated_at = ?3
+             WHERE bot_id = ?4 AND name = ?5",
+            params![thumbnail_file_id, format, now, bot.id, request.name],
+        )
+        .map_err(ApiError::internal)?;
+    if updated == 0 {
+        return Err(ApiError::not_found("sticker set not found"));
+    }
+
+    Ok(json!(true))
+}
+
+fn handle_set_custom_emoji_sticker_set_thumbnail(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: SetCustomEmojiStickerSetThumbnailRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let now = Utc::now().timestamp();
+    let updated = conn
+        .execute(
+            "UPDATE sticker_sets SET custom_emoji_id = ?1, updated_at = ?2 WHERE bot_id = ?3 AND name = ?4",
+            params![request.custom_emoji_id, now, bot.id, request.name],
+        )
+        .map_err(ApiError::internal)?;
+    if updated == 0 {
+        return Err(ApiError::not_found("sticker set not found"));
+    }
+
+    Ok(json!(true))
+}
+
+fn handle_delete_sticker_set(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: DeleteStickerSetRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let deleted = conn
+        .execute(
+            "DELETE FROM sticker_sets WHERE bot_id = ?1 AND name = ?2",
+            params![bot.id, request.name],
+        )
+        .map_err(ApiError::internal)?;
+    if deleted == 0 {
+        return Err(ApiError::not_found("sticker set not found"));
+    }
+
+    conn.execute(
+        "DELETE FROM stickers WHERE bot_id = ?1 AND set_name = ?2",
+        params![bot.id, request.name],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
 fn handle_send_invoice(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: SendInvoiceRequest = parse_request(params)?;
     let normalized_currency = request.currency.trim().to_ascii_uppercase();
@@ -1752,6 +2694,197 @@ fn handle_send_media_group(
     }
 
     Ok(Value::Array(result))
+}
+
+fn resolve_game_target_message(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    request_chat_id: Option<i64>,
+    request_message_id: Option<i64>,
+    inline_message_id: Option<&str>,
+) -> Result<(String, i64), ApiError> {
+    if let Some(inline_id) = inline_message_id {
+        let row: Option<(String, i64)> = conn
+            .query_row(
+                "SELECT chat_key, message_id FROM inline_messages WHERE inline_message_id = ?1 AND bot_id = ?2",
+                params![inline_id, bot_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(ApiError::internal)?;
+        return row.ok_or_else(|| ApiError::not_found("inline message not found"));
+    }
+
+    let chat_id = request_chat_id.ok_or_else(|| ApiError::bad_request("chat_id is required"))?;
+    let message_id = request_message_id.ok_or_else(|| ApiError::bad_request("message_id is required"))?;
+    Ok((chat_id.to_string(), message_id))
+}
+
+fn handle_set_game_score(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: SetGameScoreRequest = parse_request(params)?;
+    if request.score < 0 {
+        return Err(ApiError::bad_request("score must be non-negative"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let (chat_key, message_id) = resolve_game_target_message(
+        &mut conn,
+        bot.id,
+        request.chat_id,
+        request.message_id,
+        request.inline_message_id.as_deref(),
+    )?;
+
+    let mut target_message = load_message_value(&mut conn, &bot, message_id)?;
+    if target_message.get("game").is_none() {
+        return Err(ApiError::bad_request("target message is not a game message"));
+    }
+
+    ensure_user(&mut conn, Some(request.user_id), None, None)?;
+
+    let existing_score: Option<i64> = conn
+        .query_row(
+            "SELECT score FROM game_scores WHERE bot_id = ?1 AND chat_key = ?2 AND message_id = ?3 AND user_id = ?4",
+            params![bot.id, chat_key, message_id, request.user_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    let can_override = request.force.unwrap_or(false);
+    if let Some(current) = existing_score {
+        if request.score < current && !can_override {
+            return Err(ApiError::bad_request("new score must be greater than or equal to current score unless force is true"));
+        }
+    }
+
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO game_scores (bot_id, chat_key, message_id, user_id, score, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(bot_id, chat_key, message_id, user_id)
+         DO UPDATE SET score = excluded.score, updated_at = excluded.updated_at",
+        params![bot.id, chat_key, message_id, request.user_id, request.score, now],
+    )
+    .map_err(ApiError::internal)?;
+
+    if request.inline_message_id.is_some() {
+      return Ok(json!(true));
+    }
+
+    if request.disable_edit_message.unwrap_or(false) {
+        return Ok(json!(true));
+    }
+
+    target_message["edit_date"] = json!(now);
+    let update_value = serde_json::to_value(Update {
+        update_id: 0,
+        message: None,
+        edited_message: serde_json::from_value(target_message.clone()).ok(),
+        channel_post: None,
+        edited_channel_post: None,
+        business_connection: None,
+        business_message: None,
+        edited_business_message: None,
+        deleted_business_messages: None,
+        message_reaction: None,
+        message_reaction_count: None,
+        inline_query: None,
+        chosen_inline_result: None,
+        callback_query: None,
+        shipping_query: None,
+        pre_checkout_query: None,
+        purchased_paid_media: None,
+        poll: None,
+        poll_answer: None,
+        my_chat_member: None,
+        chat_member: None,
+        chat_join_request: None,
+        chat_boost: None,
+        removed_chat_boost: None,
+    })
+    .map_err(ApiError::internal)?;
+
+    persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
+    Ok(target_message)
+}
+
+fn handle_get_game_high_scores(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: GetGameHighScoresRequest = parse_request(params)?;
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let (chat_key, message_id) = resolve_game_target_message(
+        &mut conn,
+        bot.id,
+        request.chat_id,
+        request.message_id,
+        request.inline_message_id.as_deref(),
+    )?;
+
+    let target_message = load_message_value(&mut conn, &bot, message_id)?;
+    if target_message.get("game").is_none() {
+        return Err(ApiError::bad_request("target message is not a game message"));
+    }
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT gs.user_id, gs.score, u.first_name, u.username
+             FROM game_scores gs
+             LEFT JOIN users u ON u.id = gs.user_id
+             WHERE gs.bot_id = ?1 AND gs.chat_key = ?2 AND gs.message_id = ?3
+             ORDER BY gs.score DESC, gs.updated_at ASC, gs.user_id ASC",
+        )
+        .map_err(ApiError::internal)?;
+
+    let rows = stmt
+        .query_map(params![bot.id, chat_key, message_id], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, Option<String>>(3)?,
+            ))
+        })
+        .map_err(ApiError::internal)?;
+
+    let mut scores: Vec<GameHighScore> = Vec::new();
+    for (idx, row) in rows.enumerate() {
+        let (user_id, score, first_name, username) = row.map_err(ApiError::internal)?;
+        scores.push(GameHighScore {
+            position: idx as i64 + 1,
+            user: User {
+                id: user_id,
+                is_bot: false,
+                first_name: first_name.unwrap_or_else(|| format!("User {}", user_id)),
+                last_name: None,
+                username,
+                language_code: None,
+                is_premium: None,
+                added_to_attachment_menu: None,
+                can_join_groups: None,
+                can_read_all_group_messages: None,
+                supports_inline_queries: None,
+                can_connect_to_business: None,
+                has_main_web_app: None,
+                has_topics_enabled: None,
+                allows_users_to_create_topics: None,
+            },
+            score,
+        });
+    }
+
+    Ok(serde_json::to_value(scores).map_err(ApiError::internal)?)
 }
 
 fn handle_get_file(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
@@ -2606,6 +3739,119 @@ fn send_media_message(
     )
 }
 
+fn send_payload_message(
+    state: &Data<AppState>,
+    token: &str,
+    chat_id_value: &Value,
+    text: Option<String>,
+    entities: Option<Value>,
+    reply_markup: Option<Value>,
+    payload_field: &str,
+    payload_value: Value,
+) -> ApiResult {
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let chat_key = value_to_chat_key(chat_id_value)?;
+    ensure_chat(&mut conn, &chat_key)?;
+
+    let resolved_reply_markup = handle_reply_markup_state(
+        &mut conn,
+        bot.id,
+        &chat_key,
+        reply_markup.as_ref(),
+    )?;
+
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO messages (bot_id, chat_key, from_user_id, text, date) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![bot.id, chat_key, bot.id, text.clone().unwrap_or_default(), now],
+    )
+    .map_err(ApiError::internal)?;
+
+    let message_id = conn.last_insert_rowid();
+    let chat_id = chat_id_as_i64(chat_id_value, &chat_key);
+
+    let mut base = json!({
+        "message_id": message_id,
+        "date": now,
+        "chat": {
+            "id": chat_id,
+            "type": "private"
+        },
+        "from": {
+            "id": bot.id,
+            "is_bot": true,
+            "first_name": bot.first_name,
+            "username": bot.username
+        }
+    });
+
+    base[payload_field] = payload_value;
+    if let Some(t) = text {
+        base["text"] = Value::String(t);
+    }
+    if let Some(e) = entities {
+        base["entities"] = e;
+    }
+
+    let message: Message = serde_json::from_value(base).map_err(ApiError::internal)?;
+    let mut message_value = serde_json::to_value(&message).map_err(ApiError::internal)?;
+    if let Some(markup) = resolved_reply_markup {
+        message_value["reply_markup"] = markup;
+    }
+
+    let update_stub = Update {
+        update_id: 0,
+        message: Some(message),
+        edited_message: None,
+        channel_post: None,
+        edited_channel_post: None,
+        business_connection: None,
+        business_message: None,
+        edited_business_message: None,
+        deleted_business_messages: None,
+        message_reaction: None,
+        message_reaction_count: None,
+        inline_query: None,
+        chosen_inline_result: None,
+        callback_query: None,
+        shipping_query: None,
+        pre_checkout_query: None,
+        purchased_paid_media: None,
+        poll: None,
+        poll_answer: None,
+        my_chat_member: None,
+        chat_member: None,
+        chat_join_request: None,
+        chat_boost: None,
+        removed_chat_boost: None,
+    };
+
+    conn.execute(
+        "INSERT INTO updates (bot_id, update_json) VALUES (?1, ?2)",
+        params![bot.id, serde_json::to_string(&update_stub).map_err(ApiError::internal)?],
+    )
+    .map_err(ApiError::internal)?;
+
+    let update_id = conn.last_insert_rowid();
+    let mut update_value = serde_json::to_value(update_stub).map_err(ApiError::internal)?;
+    update_value["update_id"] = json!(update_id);
+    update_value["message"] = message_value.clone();
+
+    conn.execute(
+        "UPDATE updates SET update_json = ?1 WHERE update_id = ?2",
+        params![update_value.to_string(), update_id],
+    )
+    .map_err(ApiError::internal)?;
+
+    let clean_update = strip_nulls(update_value);
+    state.ws_hub.publish_json(token, &clean_update);
+    dispatch_webhook_if_configured(&mut conn, bot.id, clean_update);
+
+    Ok(message_value)
+}
+
 fn send_media_message_with_group(
     state: &Data<AppState>,
     token: &str,
@@ -2732,9 +3978,301 @@ struct StoredFile {
     file_size: Option<i64>,
 }
 
+#[derive(Debug, Clone)]
+struct StickerMeta {
+    set_name: Option<String>,
+    sticker_type: String,
+    format: String,
+    emoji: Option<String>,
+    mask_position_json: Option<String>,
+    custom_emoji_id: Option<String>,
+    needs_repainting: bool,
+}
+
+fn normalize_sticker_format(value: &str) -> Result<&'static str, ApiError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "static" => Ok("static"),
+        "animated" => Ok("animated"),
+        "video" => Ok("video"),
+        _ => Err(ApiError::bad_request("sticker format must be static, animated, or video")),
+    }
+}
+
+fn normalize_sticker_type(value: &str) -> Result<&'static str, ApiError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "regular" => Ok("regular"),
+        "mask" => Ok("mask"),
+        "custom_emoji" => Ok("custom_emoji"),
+        _ => Err(ApiError::bad_request("sticker_type must be regular, mask, or custom_emoji")),
+    }
+}
+
+fn sticker_format_flags(format: &str) -> (bool, bool) {
+    match format {
+        "animated" => (true, false),
+        "video" => (false, true),
+        _ => (false, false),
+    }
+}
+
+fn infer_sticker_format_from_file(file: &StoredFile) -> Option<&'static str> {
+    let mime = file
+        .mime_type
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let path = file.file_path.to_ascii_lowercase();
+
+    if mime.contains("webm") || path.ends_with(".webm") {
+        return Some("video");
+    }
+    if mime.contains("x-tgsticker") || path.ends_with(".tgs") {
+        return Some("animated");
+    }
+    if mime.contains("webp") || path.ends_with(".webp") {
+        return Some("static");
+    }
+
+    None
+}
+
+fn load_sticker_meta(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    file_id: &str,
+) -> Result<Option<StickerMeta>, ApiError> {
+    conn.query_row(
+        "SELECT set_name, sticker_type, format, emoji, mask_position_json, custom_emoji_id, COALESCE(needs_repainting, 0)
+         FROM stickers WHERE bot_id = ?1 AND file_id = ?2",
+        params![bot_id, file_id],
+        |r| {
+            Ok(StickerMeta {
+                set_name: r.get(0)?,
+                sticker_type: r.get(1)?,
+                format: r.get(2)?,
+                emoji: r.get(3)?,
+                mask_position_json: r.get(4)?,
+                custom_emoji_id: r.get(5)?,
+                needs_repainting: r.get::<_, i64>(6)? == 1,
+            })
+        },
+    )
+    .optional()
+    .map_err(ApiError::internal)
+}
+
+fn sticker_from_row(
+    file_id: String,
+    file_unique_id: String,
+    set_name: Option<String>,
+    sticker_type: String,
+    format: String,
+    emoji: Option<String>,
+    mask_position_json: Option<String>,
+    custom_emoji_id: Option<String>,
+    needs_repainting: bool,
+    file_size: Option<i64>,
+) -> Sticker {
+    let (is_animated, is_video) = sticker_format_flags(&format);
+    Sticker {
+        file_id,
+        file_unique_id,
+        r#type: sticker_type,
+        width: 512,
+        height: 512,
+        is_animated,
+        is_video,
+        thumbnail: None,
+        emoji,
+        set_name,
+        premium_animation: None,
+        mask_position: mask_position_json.and_then(|raw| serde_json::from_str::<MaskPosition>(&raw).ok()),
+        custom_emoji_id,
+        needs_repainting: Some(needs_repainting),
+        file_size,
+    }
+}
+
+fn load_set_stickers(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    set_name: &str,
+) -> Result<Vec<Sticker>, ApiError> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT s.file_id, s.file_unique_id, s.set_name, s.sticker_type, s.format, s.emoji, s.mask_position_json,
+                    s.custom_emoji_id, COALESCE(s.needs_repainting, 0), f.file_size
+             FROM stickers s
+             LEFT JOIN files f ON f.bot_id = s.bot_id AND f.file_id = s.file_id
+             WHERE s.bot_id = ?1 AND s.set_name = ?2
+             ORDER BY s.position ASC, s.created_at ASC",
+        )
+        .map_err(ApiError::internal)?;
+    let rows = stmt
+        .query_map(params![bot_id, set_name], |r| {
+            Ok(sticker_from_row(
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+                r.get(6)?,
+                r.get(7)?,
+                r.get::<_, i64>(8)? == 1,
+                r.get(9)?,
+            ))
+        })
+        .map_err(ApiError::internal)?;
+
+    let mut stickers = Vec::new();
+    for row in rows {
+        stickers.push(row.map_err(ApiError::internal)?);
+    }
+    Ok(stickers)
+}
+
+fn upsert_set_sticker(
+    state: &Data<AppState>,
+    conn: &mut rusqlite::Connection,
+    bot: &crate::database::BotInfoRecord,
+    set_name: &str,
+    sticker_type: &str,
+    needs_repainting: bool,
+    input: &InputSticker,
+    position: i64,
+) -> Result<(), ApiError> {
+    if input.emoji_list.is_empty() {
+        return Err(ApiError::bad_request("input sticker must include at least one emoji"));
+    }
+
+    let requested_format = normalize_sticker_format(&input.format)?;
+    let file = resolve_media_file_with_conn(conn, bot.id, &Value::String(input.sticker.clone()), "sticker")?;
+    let format = infer_sticker_format_from_file(&file).unwrap_or(requested_format);
+    let now = Utc::now().timestamp();
+    let (is_animated, is_video) = sticker_format_flags(format);
+
+    let mask_json = input
+        .mask_position
+        .as_ref()
+        .map(|m| serde_json::to_string(m).map_err(ApiError::internal))
+        .transpose()?;
+    let keywords_json = input
+        .keywords
+        .as_ref()
+        .map(|k| serde_json::to_string(k).map_err(ApiError::internal))
+        .transpose()?;
+    let emoji_json = serde_json::to_string(&input.emoji_list).map_err(ApiError::internal)?;
+
+    conn.execute(
+        "INSERT INTO stickers
+         (bot_id, file_id, file_unique_id, set_name, sticker_type, format, width, height, is_animated, is_video,
+          emoji, emoji_list_json, keywords_json, mask_position_json, custom_emoji_id, needs_repainting, position, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 512, 512, ?7, ?8, ?9, ?10, ?11, ?12, NULL, ?13, ?14, ?15, ?15)
+         ON CONFLICT(bot_id, file_id) DO UPDATE SET
+             set_name = excluded.set_name,
+             sticker_type = excluded.sticker_type,
+             format = excluded.format,
+             is_animated = excluded.is_animated,
+             is_video = excluded.is_video,
+             emoji = excluded.emoji,
+             emoji_list_json = excluded.emoji_list_json,
+             keywords_json = excluded.keywords_json,
+             mask_position_json = excluded.mask_position_json,
+             needs_repainting = excluded.needs_repainting,
+             position = excluded.position,
+             updated_at = excluded.updated_at",
+        params![
+            bot.id,
+            file.file_id,
+            file.file_unique_id,
+            set_name,
+            sticker_type,
+            format,
+            if is_animated { 1 } else { 0 },
+            if is_video { 1 } else { 0 },
+            input.emoji_list[0].clone(),
+            emoji_json,
+            keywords_json,
+            mask_json,
+            if needs_repainting { 1 } else { 0 },
+            position,
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(())
+}
+
+fn compact_sticker_positions(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    set_name: &str,
+) -> Result<(), ApiError> {
+    let mut stmt = conn
+        .prepare("SELECT file_id FROM stickers WHERE bot_id = ?1 AND set_name = ?2 ORDER BY position ASC, created_at ASC")
+        .map_err(ApiError::internal)?;
+    let rows = stmt
+        .query_map(params![bot_id, set_name], |r| r.get::<_, String>(0))
+        .map_err(ApiError::internal)?;
+
+    let mut ids = Vec::new();
+    for row in rows {
+        ids.push(row.map_err(ApiError::internal)?);
+    }
+
+    let now = Utc::now().timestamp();
+    for (idx, file_id) in ids.iter().enumerate() {
+        conn.execute(
+            "UPDATE stickers SET position = ?1, updated_at = ?2 WHERE bot_id = ?3 AND file_id = ?4",
+            params![idx as i64, now, bot_id, file_id],
+        )
+        .map_err(ApiError::internal)?;
+    }
+
+    Ok(())
+}
+
 fn resolve_media_file(
     state: &Data<AppState>,
     token: &str,
+    input: &Value,
+    media_kind: &str,
+) -> Result<StoredFile, ApiError> {
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    resolve_media_file_with_conn(&mut conn, bot.id, input, media_kind)
+}
+
+fn parse_input_file_value(input: &Value, field: &str) -> Result<Value, ApiError> {
+    match input {
+        Value::String(_) => Ok(input.clone()),
+        Value::Object(obj) => {
+            if let Some(extra) = obj.get("extra") {
+                return match extra {
+                    Value::String(_) => Ok(extra.clone()),
+                    _ => Err(ApiError::bad_request(format!("{field} extra must be string"))),
+                };
+            }
+
+            if let Some(media) = obj.get("media") {
+                return match media {
+                    Value::String(_) => Ok(media.clone()),
+                    _ => Err(ApiError::bad_request(format!("{field} media must be string"))),
+                };
+            }
+
+            Err(ApiError::bad_request(format!("{field} must be a string or InputFile object")))
+        }
+        _ => Err(ApiError::bad_request(format!("{field} must be a string or InputFile object"))),
+    }
+}
+
+fn resolve_media_file_with_conn(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
     input: &Value,
     media_kind: &str,
 ) -> Result<StoredFile, ApiError> {
@@ -2744,12 +4282,9 @@ fn resolve_media_file(
         .filter(|s| !s.is_empty())
         .ok_or_else(|| ApiError::bad_request(format!("{} is invalid", media_kind)))?;
 
-    let mut conn = lock_db(state)?;
-    let bot = ensure_bot(&mut conn, token)?;
-
     if input_text.starts_with("http://") || input_text.starts_with("https://") {
         let (bytes, mime) = download_remote_file(&input_text)?;
-        return store_binary_file(&mut conn, bot.id, &bytes, mime.as_deref(), Some(input_text));
+        return store_binary_file(conn, bot_id, &bytes, mime.as_deref(), Some(input_text));
     }
 
     let local_candidate = if let Some(path) = input_text.strip_prefix("file://") {
@@ -2764,8 +4299,8 @@ fn resolve_media_file(
             return Err(ApiError::bad_request("uploaded file is empty"));
         }
         return store_binary_file(
-            &mut conn,
-            bot.id,
+            conn,
+            bot_id,
             &bytes,
             None,
             Some(local_candidate),
@@ -2776,7 +4311,7 @@ fn resolve_media_file(
         .query_row(
             "SELECT file_id, file_unique_id, file_path, mime_type, file_size
              FROM files WHERE bot_id = ?1 AND file_id = ?2",
-            params![bot.id, input_text],
+            params![bot_id, input_text],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
         )
         .optional()
@@ -2795,12 +4330,12 @@ fn resolve_media_file(
     let now = Utc::now().timestamp();
     let file_id = input_text.clone();
     let file_unique_id = uuid::Uuid::new_v4().simple().to_string();
-    let file_path = format!("virtual/{}/{}", bot.id, file_id.replace('/', "_"));
+    let file_path = format!("virtual/{}/{}", bot_id, file_id.replace('/', "_"));
 
     conn.execute(
         "INSERT INTO files (bot_id, file_id, file_unique_id, file_path, local_path, mime_type, file_size, source, created_at)
          VALUES (?1, ?2, ?3, ?4, NULL, NULL, NULL, ?5, ?6)",
-        params![bot.id, file_id, file_unique_id, file_path, input_text, now],
+        params![bot_id, file_id, file_unique_id, file_path, input_text, now],
     )
     .map_err(ApiError::internal)?;
 
@@ -3088,7 +4623,7 @@ pub fn handle_sim_send_user_media(
     let body: SimSendUserMediaRequest = parse_request(&params)?;
 
     let media_kind = body.media_kind.to_ascii_lowercase();
-    if !["photo", "video", "audio", "voice", "document"].contains(&media_kind.as_str()) {
+    if !["photo", "video", "audio", "voice", "document", "sticker", "animation", "video_note"].contains(&media_kind.as_str()) {
         return Err(ApiError::bad_request("unsupported media_kind"));
     }
 
@@ -3098,53 +4633,133 @@ pub fn handle_sim_send_user_media(
         None,
     );
 
-    let file = resolve_media_file(state, token, &body.media, &media_kind)?;
-
-    let media_value = match media_kind.as_str() {
-        "photo" => json!([
-            {
-                "file_id": file.file_id,
-                "file_unique_id": file.file_unique_id,
-                "width": 1280,
-                "height": 720,
-                "file_size": file.file_size,
-            }
-        ]),
-        "video" => json!({
-            "file_id": file.file_id,
-            "file_unique_id": file.file_unique_id,
-            "width": 1280,
-            "height": 720,
-            "duration": 0,
-            "mime_type": file.mime_type,
-            "file_size": file.file_size,
-        }),
-        "audio" => json!({
-            "file_id": file.file_id,
-            "file_unique_id": file.file_unique_id,
-            "duration": 0,
-            "mime_type": file.mime_type,
-            "file_size": file.file_size,
-        }),
-        "voice" => json!({
-            "file_id": file.file_id,
-            "file_unique_id": file.file_unique_id,
-            "duration": 0,
-            "mime_type": file.mime_type,
-            "file_size": file.file_size,
-        }),
-        "document" => json!({
-            "file_id": file.file_id,
-            "file_unique_id": file.file_unique_id,
-            "file_name": file.file_path.split('/').last().unwrap_or("document.bin"),
-            "mime_type": file.mime_type,
-            "file_size": file.file_size,
-        }),
-        _ => return Err(ApiError::bad_request("unsupported media_kind")),
+    let media_input = if ["sticker", "animation", "video_note"].contains(&media_kind.as_str()) {
+        parse_input_file_value(&body.media, &media_kind)?
+    } else {
+        body.media.clone()
     };
+
+    let file = resolve_media_file(state, token, &media_input, &media_kind)?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
+    let sticker_meta = if media_kind == "sticker" {
+        load_sticker_meta(&mut conn, bot.id, &file.file_id)?
+    } else {
+        None
+    };
+
+    let media_value = match media_kind.as_str() {
+        "photo" => serde_json::to_value(vec![PhotoSize {
+            file_id: file.file_id.clone(),
+            file_unique_id: file.file_unique_id.clone(),
+            width: 1280,
+            height: 720,
+            file_size: file.file_size,
+        }])
+        .map_err(ApiError::internal)?,
+        "video" => serde_json::to_value(Video {
+            file_id: file.file_id.clone(),
+            file_unique_id: file.file_unique_id.clone(),
+            width: 1280,
+            height: 720,
+            duration: 0,
+            thumbnail: None,
+            cover: None,
+            start_timestamp: None,
+            qualities: None,
+            file_name: None,
+            mime_type: file.mime_type.clone(),
+            file_size: file.file_size,
+        })
+        .map_err(ApiError::internal)?,
+        "audio" => serde_json::to_value(Audio {
+            file_id: file.file_id.clone(),
+            file_unique_id: file.file_unique_id.clone(),
+            duration: 0,
+            performer: None,
+            title: None,
+            file_name: None,
+            mime_type: file.mime_type.clone(),
+            file_size: file.file_size,
+            thumbnail: None,
+        })
+        .map_err(ApiError::internal)?,
+        "voice" => serde_json::to_value(Voice {
+            file_id: file.file_id.clone(),
+            file_unique_id: file.file_unique_id.clone(),
+            duration: 0,
+            mime_type: file.mime_type.clone(),
+            file_size: file.file_size,
+        })
+        .map_err(ApiError::internal)?,
+        "document" => serde_json::to_value(Document {
+            file_id: file.file_id.clone(),
+            file_unique_id: file.file_unique_id.clone(),
+            thumbnail: None,
+            file_name: Some(file.file_path.split('/').last().unwrap_or("document.bin").to_string()),
+            mime_type: file.mime_type.clone(),
+            file_size: file.file_size,
+        })
+        .map_err(ApiError::internal)?,
+        "animation" => serde_json::to_value(Animation {
+            file_id: file.file_id.clone(),
+            file_unique_id: file.file_unique_id.clone(),
+            width: 512,
+            height: 512,
+            duration: 0,
+            thumbnail: None,
+            file_name: Some(file.file_path.split('/').last().unwrap_or("animation.mp4").to_string()),
+            mime_type: file.mime_type.clone(),
+            file_size: file.file_size,
+        })
+        .map_err(ApiError::internal)?,
+        "video_note" => serde_json::to_value(VideoNote {
+            file_id: file.file_id.clone(),
+            file_unique_id: file.file_unique_id.clone(),
+            length: 384,
+            duration: 0,
+            thumbnail: None,
+            file_size: file.file_size,
+        })
+        .map_err(ApiError::internal)?,
+        "sticker" => {
+            let format = sticker_meta
+                .as_ref()
+                .map(|m| m.format.as_str())
+                .or_else(|| infer_sticker_format_from_file(&file))
+                .unwrap_or("static");
+            let is_animated = format == "animated";
+            let is_video = format == "video";
+
+            serde_json::to_value(Sticker {
+                file_id: file.file_id.clone(),
+                file_unique_id: file.file_unique_id.clone(),
+                r#type: sticker_meta
+                    .as_ref()
+                    .map(|m| m.sticker_type.clone())
+                    .unwrap_or_else(|| "regular".to_string()),
+                width: 512,
+                height: 512,
+                is_animated,
+                is_video,
+                thumbnail: None,
+                emoji: sticker_meta.as_ref().and_then(|m| m.emoji.clone()),
+                set_name: sticker_meta.as_ref().and_then(|m| m.set_name.clone()),
+                premium_animation: None,
+                mask_position: sticker_meta
+                    .as_ref()
+                    .and_then(|m| m.mask_position_json.as_ref())
+                    .and_then(|raw| serde_json::from_str::<MaskPosition>(raw).ok()),
+                custom_emoji_id: sticker_meta.as_ref().and_then(|m| m.custom_emoji_id.clone()),
+                needs_repainting: sticker_meta.as_ref().map(|m| m.needs_repainting),
+                file_size: file.file_size,
+            })
+            .map_err(ApiError::internal)?
+        }
+        _ => return Err(ApiError::bad_request("unsupported media_kind")),
+    };
+
     let user = ensure_user(&mut conn, body.user_id, body.first_name, body.username)?;
 
     let chat_id = body.chat_id.unwrap_or(user.id);
@@ -3271,7 +4886,7 @@ pub fn handle_sim_edit_user_message_media(
     let body: SimEditUserMediaRequest = parse_request(&params)?;
 
     let media_kind = body.media_kind.to_ascii_lowercase();
-    if !["photo", "video", "audio", "voice", "document"].contains(&media_kind.as_str()) {
+    if !["photo", "video", "audio", "voice", "document", "sticker", "animation", "video_note"].contains(&media_kind.as_str()) {
         return Err(ApiError::bad_request("unsupported media_kind"));
     }
 
@@ -3282,53 +4897,132 @@ pub fn handle_sim_edit_user_message_media(
         None,
     );
 
-    let file = resolve_media_file(state, token, &body.media, &media_kind)?;
-
-    let media_value = match media_kind.as_str() {
-        "photo" => json!([
-            {
-                "file_id": file.file_id,
-                "file_unique_id": file.file_unique_id,
-                "width": 1280,
-                "height": 720,
-                "file_size": file.file_size,
-            }
-        ]),
-        "video" => json!({
-            "file_id": file.file_id,
-            "file_unique_id": file.file_unique_id,
-            "width": 1280,
-            "height": 720,
-            "duration": 0,
-            "mime_type": file.mime_type,
-            "file_size": file.file_size,
-        }),
-        "audio" => json!({
-            "file_id": file.file_id,
-            "file_unique_id": file.file_unique_id,
-            "duration": 0,
-            "mime_type": file.mime_type,
-            "file_size": file.file_size,
-        }),
-        "voice" => json!({
-            "file_id": file.file_id,
-            "file_unique_id": file.file_unique_id,
-            "duration": 0,
-            "mime_type": file.mime_type,
-            "file_size": file.file_size,
-        }),
-        "document" => json!({
-            "file_id": file.file_id,
-            "file_unique_id": file.file_unique_id,
-            "file_name": file.file_path.split('/').last().unwrap_or("document.bin"),
-            "mime_type": file.mime_type,
-            "file_size": file.file_size,
-        }),
-        _ => return Err(ApiError::bad_request("unsupported media_kind")),
+    let media_input = if ["sticker", "animation", "video_note"].contains(&media_kind.as_str()) {
+        parse_input_file_value(&body.media, &media_kind)?
+    } else {
+        body.media.clone()
     };
+    let file = resolve_media_file(state, token, &media_input, &media_kind)?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
+    let sticker_meta = if media_kind == "sticker" {
+        load_sticker_meta(&mut conn, bot.id, &file.file_id)?
+    } else {
+        None
+    };
+
+    let media_value = match media_kind.as_str() {
+        "photo" => serde_json::to_value(vec![PhotoSize {
+            file_id: file.file_id.clone(),
+            file_unique_id: file.file_unique_id.clone(),
+            width: 1280,
+            height: 720,
+            file_size: file.file_size,
+        }])
+        .map_err(ApiError::internal)?,
+        "video" => serde_json::to_value(Video {
+            file_id: file.file_id.clone(),
+            file_unique_id: file.file_unique_id.clone(),
+            width: 1280,
+            height: 720,
+            duration: 0,
+            thumbnail: None,
+            cover: None,
+            start_timestamp: None,
+            qualities: None,
+            file_name: None,
+            mime_type: file.mime_type.clone(),
+            file_size: file.file_size,
+        })
+        .map_err(ApiError::internal)?,
+        "audio" => serde_json::to_value(Audio {
+            file_id: file.file_id.clone(),
+            file_unique_id: file.file_unique_id.clone(),
+            duration: 0,
+            performer: None,
+            title: None,
+            file_name: None,
+            mime_type: file.mime_type.clone(),
+            file_size: file.file_size,
+            thumbnail: None,
+        })
+        .map_err(ApiError::internal)?,
+        "voice" => serde_json::to_value(Voice {
+            file_id: file.file_id.clone(),
+            file_unique_id: file.file_unique_id.clone(),
+            duration: 0,
+            mime_type: file.mime_type.clone(),
+            file_size: file.file_size,
+        })
+        .map_err(ApiError::internal)?,
+        "document" => serde_json::to_value(Document {
+            file_id: file.file_id.clone(),
+            file_unique_id: file.file_unique_id.clone(),
+            thumbnail: None,
+            file_name: Some(file.file_path.split('/').last().unwrap_or("document.bin").to_string()),
+            mime_type: file.mime_type.clone(),
+            file_size: file.file_size,
+        })
+        .map_err(ApiError::internal)?,
+        "animation" => serde_json::to_value(Animation {
+            file_id: file.file_id.clone(),
+            file_unique_id: file.file_unique_id.clone(),
+            width: 512,
+            height: 512,
+            duration: 0,
+            thumbnail: None,
+            file_name: Some(file.file_path.split('/').last().unwrap_or("animation.mp4").to_string()),
+            mime_type: file.mime_type.clone(),
+            file_size: file.file_size,
+        })
+        .map_err(ApiError::internal)?,
+        "video_note" => serde_json::to_value(VideoNote {
+            file_id: file.file_id.clone(),
+            file_unique_id: file.file_unique_id.clone(),
+            length: 384,
+            duration: 0,
+            thumbnail: None,
+            file_size: file.file_size,
+        })
+        .map_err(ApiError::internal)?,
+        "sticker" => {
+            let format = sticker_meta
+                .as_ref()
+                .map(|m| m.format.as_str())
+                .or_else(|| infer_sticker_format_from_file(&file))
+                .unwrap_or("static");
+            let is_animated = format == "animated";
+            let is_video = format == "video";
+
+            serde_json::to_value(Sticker {
+                file_id: file.file_id.clone(),
+                file_unique_id: file.file_unique_id.clone(),
+                r#type: sticker_meta
+                    .as_ref()
+                    .map(|m| m.sticker_type.clone())
+                    .unwrap_or_else(|| "regular".to_string()),
+                width: 512,
+                height: 512,
+                is_animated,
+                is_video,
+                thumbnail: None,
+                emoji: sticker_meta.as_ref().and_then(|m| m.emoji.clone()),
+                set_name: sticker_meta.as_ref().and_then(|m| m.set_name.clone()),
+                premium_animation: None,
+                mask_position: sticker_meta
+                    .as_ref()
+                    .and_then(|m| m.mask_position_json.as_ref())
+                    .and_then(|raw| serde_json::from_str::<MaskPosition>(raw).ok()),
+                custom_emoji_id: sticker_meta.as_ref().and_then(|m| m.custom_emoji_id.clone()),
+                needs_repainting: sticker_meta.as_ref().map(|m| m.needs_repainting),
+                file_size: file.file_size,
+            })
+            .map_err(ApiError::internal)?
+        }
+        _ => return Err(ApiError::bad_request("unsupported media_kind")),
+    };
+
     let chat_key = body.chat_id.to_string();
 
     let exists: Option<i64> = conn
@@ -3346,7 +5040,7 @@ pub fn handle_sim_edit_user_message_media(
 
     let mut edited_message = load_message_value(&mut conn, &bot, body.message_id)?;
 
-    for key in ["photo", "video", "audio", "voice", "document", "animation", "video_note"] {
+    for key in ["photo", "video", "audio", "voice", "document", "animation", "video_note", "sticker"] {
         edited_message.as_object_mut().map(|obj| obj.remove(key));
     }
 
@@ -4615,6 +6309,452 @@ fn handle_edit_message_media(
     }
 }
 
+fn handle_edit_message_live_location(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: EditMessageLiveLocationRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let (chat_key, message_id, via_inline_message) = resolve_edit_target(
+        &mut conn,
+        bot.id,
+        request.chat_id.clone(),
+        request.message_id,
+        request.inline_message_id.clone(),
+        "editMessageLiveLocation",
+    )?;
+
+    let exists: Option<i64> = conn
+        .query_row(
+            "SELECT message_id FROM messages WHERE bot_id = ?1 AND chat_key = ?2 AND message_id = ?3",
+            params![bot.id, chat_key, message_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    if exists.is_none() {
+        return Err(ApiError::not_found("message to edit was not found"));
+    }
+
+    let mut edited_message = load_message_value(&mut conn, &bot, message_id)?;
+
+    if edited_message.get("location").is_none() && edited_message.get("venue").is_none() {
+        return Err(ApiError::bad_request("message has no live location to edit"));
+    }
+
+    let updated_location = Location {
+        latitude: request.latitude,
+        longitude: request.longitude,
+        horizontal_accuracy: request.horizontal_accuracy,
+        live_period: request.live_period,
+        heading: request.heading,
+        proximity_alert_radius: request.proximity_alert_radius,
+    };
+
+    if edited_message.get("venue").is_some() {
+        if let Some(venue_obj) = edited_message.get_mut("venue").and_then(Value::as_object_mut) {
+            venue_obj.insert("location".to_string(), serde_json::to_value(updated_location).map_err(ApiError::internal)?);
+        }
+    } else {
+        edited_message["location"] = serde_json::to_value(updated_location).map_err(ApiError::internal)?;
+    }
+
+    apply_inline_reply_markup(&mut edited_message, request.reply_markup);
+    publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
+
+    if via_inline_message {
+        Ok(json!(true))
+    } else {
+        Ok(edited_message)
+    }
+}
+
+fn handle_stop_message_live_location(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: StopMessageLiveLocationRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let (chat_key, message_id, via_inline_message) = resolve_edit_target(
+        &mut conn,
+        bot.id,
+        request.chat_id.clone(),
+        request.message_id,
+        request.inline_message_id.clone(),
+        "stopMessageLiveLocation",
+    )?;
+
+    let exists: Option<i64> = conn
+        .query_row(
+            "SELECT message_id FROM messages WHERE bot_id = ?1 AND chat_key = ?2 AND message_id = ?3",
+            params![bot.id, chat_key, message_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    if exists.is_none() {
+        return Err(ApiError::not_found("message to edit was not found"));
+    }
+
+    let mut edited_message = load_message_value(&mut conn, &bot, message_id)?;
+    if let Some(location_obj) = edited_message.get_mut("location").and_then(Value::as_object_mut) {
+        location_obj.remove("live_period");
+        location_obj.remove("heading");
+        location_obj.remove("proximity_alert_radius");
+    }
+    if let Some(venue_obj) = edited_message.get_mut("venue").and_then(Value::as_object_mut) {
+        if let Some(location_obj) = venue_obj.get_mut("location").and_then(Value::as_object_mut) {
+            location_obj.remove("live_period");
+            location_obj.remove("heading");
+            location_obj.remove("proximity_alert_radius");
+        }
+    }
+
+    apply_inline_reply_markup(&mut edited_message, request.reply_markup);
+    publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
+
+    if via_inline_message {
+        Ok(json!(true))
+    } else {
+        Ok(edited_message)
+    }
+}
+
+fn send_sim_user_payload_message(
+    state: &Data<AppState>,
+    token: &str,
+    chat_id: Option<i64>,
+    user_id: Option<i64>,
+    first_name: Option<String>,
+    username: Option<String>,
+    payload: SimUserPayload,
+    text: Option<String>,
+    entities: Option<Value>,
+    reply_to_message_id: Option<i64>,
+) -> ApiResult {
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let user = ensure_user(&mut conn, user_id, first_name, username)?;
+
+    let resolved_chat_id = chat_id.unwrap_or(user.id);
+    let chat_key = resolved_chat_id.to_string();
+    ensure_chat(&mut conn, &chat_key)?;
+
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO messages (bot_id, chat_key, from_user_id, text, date) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![bot.id, chat_key, user.id, text.clone().unwrap_or_default(), now],
+    )
+    .map_err(ApiError::internal)?;
+
+    let message_id = conn.last_insert_rowid();
+
+    let from = User {
+        id: user.id,
+        is_bot: false,
+        first_name: user.first_name.clone(),
+        last_name: None,
+        username: user.username.clone(),
+        language_code: None,
+        is_premium: None,
+        added_to_attachment_menu: None,
+        can_join_groups: None,
+        can_read_all_group_messages: None,
+        supports_inline_queries: None,
+        can_connect_to_business: None,
+        has_main_web_app: None,
+        has_topics_enabled: None,
+        allows_users_to_create_topics: None,
+    };
+
+    let chat = Chat {
+        id: resolved_chat_id,
+        r#type: "private".to_string(),
+        title: None,
+        username: user.username.clone(),
+        first_name: Some(user.first_name.clone()),
+        last_name: None,
+        is_forum: None,
+        is_direct_messages: None,
+    };
+
+    let mut message_json = json!({
+        "message_id": message_id,
+        "date": now,
+        "chat": chat,
+        "from": from,
+    });
+
+    match payload {
+        SimUserPayload::Dice(dice) => {
+            message_json["dice"] = serde_json::to_value(dice).map_err(ApiError::internal)?;
+        }
+        SimUserPayload::Game(game) => {
+            message_json["game"] = serde_json::to_value(game).map_err(ApiError::internal)?;
+        }
+        SimUserPayload::Contact(contact) => {
+            message_json["contact"] = serde_json::to_value(contact).map_err(ApiError::internal)?;
+        }
+        SimUserPayload::Location(location) => {
+            message_json["location"] = serde_json::to_value(location).map_err(ApiError::internal)?;
+        }
+        SimUserPayload::Venue(venue) => {
+            message_json["venue"] = serde_json::to_value(venue).map_err(ApiError::internal)?;
+        }
+    }
+    if let Some(t) = text {
+        message_json["text"] = Value::String(t);
+    }
+    if let Some(e) = entities {
+        message_json["entities"] = e;
+    }
+    if let Some(reply_id) = reply_to_message_id {
+        let reply_value = load_message_value(&mut conn, &bot, reply_id)?;
+        message_json["reply_to_message"] = reply_value;
+    }
+
+    let message: Message = serde_json::from_value(message_json).map_err(ApiError::internal)?;
+    let update_stub = Update {
+        update_id: 0,
+        message: Some(message.clone()),
+        edited_message: None,
+        channel_post: None,
+        edited_channel_post: None,
+        business_connection: None,
+        business_message: None,
+        edited_business_message: None,
+        deleted_business_messages: None,
+        message_reaction: None,
+        message_reaction_count: None,
+        inline_query: None,
+        chosen_inline_result: None,
+        callback_query: None,
+        shipping_query: None,
+        pre_checkout_query: None,
+        purchased_paid_media: None,
+        poll: None,
+        poll_answer: None,
+        my_chat_member: None,
+        chat_member: None,
+        chat_join_request: None,
+        chat_boost: None,
+        removed_chat_boost: None,
+    };
+
+    conn.execute(
+        "INSERT INTO updates (bot_id, update_json) VALUES (?1, ?2)",
+        params![bot.id, serde_json::to_string(&update_stub).map_err(ApiError::internal)?],
+    )
+    .map_err(ApiError::internal)?;
+
+    let update_id = conn.last_insert_rowid();
+    let mut update_value = serde_json::to_value(update_stub).map_err(ApiError::internal)?;
+    update_value["update_id"] = json!(update_id);
+
+    let message_value = serde_json::to_value(&message).map_err(ApiError::internal)?;
+    update_value["message"] = message_value.clone();
+
+    conn.execute(
+        "UPDATE updates SET update_json = ?1 WHERE update_id = ?2",
+        params![update_value.to_string(), update_id],
+    )
+    .map_err(ApiError::internal)?;
+
+    let clean_update = strip_nulls(update_value);
+    state.ws_hub.publish_json(token, &clean_update);
+    dispatch_webhook_if_configured(&mut conn, bot.id, clean_update);
+
+    Ok(message_value)
+}
+
+pub fn handle_sim_send_user_dice(
+    state: &Data<AppState>,
+    token: &str,
+    body: SimSendUserDiceRequest,
+) -> ApiResult {
+    let emoji = body.emoji.unwrap_or_else(|| "🎲".to_string());
+    let max_value = match emoji.as_str() {
+        "🎯" | "🎲" | "🏀" | "🎳" => 6,
+        "⚽" | "🏐" => 5,
+        "🎰" => 64,
+        _ => return Err(ApiError::bad_request("unsupported dice emoji")),
+    };
+    let now_nanos = Utc::now().timestamp_nanos_opt().unwrap_or_default().unsigned_abs();
+    let value = (now_nanos % (max_value as u64)) as i64 + 1;
+
+    send_sim_user_payload_message(
+        state,
+        token,
+        body.chat_id,
+        body.user_id,
+        body.first_name,
+        body.username,
+        SimUserPayload::Dice(Dice { emoji, value }),
+        None,
+        None,
+        body.reply_to_message_id,
+    )
+}
+
+pub fn handle_sim_send_user_game(
+    state: &Data<AppState>,
+    token: &str,
+    body: SimSendUserGameRequest,
+) -> ApiResult {
+    if body.game_short_name.trim().is_empty() {
+        return Err(ApiError::bad_request("game_short_name is empty"));
+    }
+
+    let game = Game {
+        title: body.game_short_name.clone(),
+        description: format!("Game {}", body.game_short_name),
+        photo: vec![PhotoSize {
+            file_id: generate_telegram_file_id("game_photo"),
+            file_unique_id: generate_telegram_file_unique_id(),
+            width: 512,
+            height: 512,
+            file_size: None,
+        }],
+        text: None,
+        text_entities: None,
+        animation: None,
+    };
+
+    send_sim_user_payload_message(
+        state,
+        token,
+        body.chat_id,
+        body.user_id,
+        body.first_name,
+        body.username,
+        SimUserPayload::Game(game),
+        None,
+        None,
+        body.reply_to_message_id,
+    )
+}
+
+pub fn handle_sim_send_user_contact(
+    state: &Data<AppState>,
+    token: &str,
+    body: SimSendUserContactRequest,
+) -> ApiResult {
+    if body.phone_number.trim().is_empty() {
+        return Err(ApiError::bad_request("phone_number is empty"));
+    }
+    if body.contact_first_name.trim().is_empty() {
+        return Err(ApiError::bad_request("contact_first_name is empty"));
+    }
+
+    let contact = Contact {
+        phone_number: body.phone_number,
+        first_name: body.contact_first_name,
+        last_name: body.contact_last_name,
+        user_id: None,
+        vcard: body.vcard,
+    };
+
+    send_sim_user_payload_message(
+        state,
+        token,
+        body.chat_id,
+        body.user_id,
+        body.first_name,
+        body.username,
+        SimUserPayload::Contact(contact),
+        None,
+        None,
+        body.reply_to_message_id,
+    )
+}
+
+pub fn handle_sim_send_user_location(
+    state: &Data<AppState>,
+    token: &str,
+    body: SimSendUserLocationRequest,
+) -> ApiResult {
+    let location = Location {
+        latitude: body.latitude,
+        longitude: body.longitude,
+        horizontal_accuracy: body.horizontal_accuracy,
+        live_period: body.live_period,
+        heading: body.heading,
+        proximity_alert_radius: body.proximity_alert_radius,
+    };
+
+    send_sim_user_payload_message(
+        state,
+        token,
+        body.chat_id,
+        body.user_id,
+        body.first_name,
+        body.username,
+        SimUserPayload::Location(location),
+        None,
+        None,
+        body.reply_to_message_id,
+    )
+}
+
+pub fn handle_sim_send_user_venue(
+    state: &Data<AppState>,
+    token: &str,
+    body: SimSendUserVenueRequest,
+) -> ApiResult {
+    if body.title.trim().is_empty() {
+        return Err(ApiError::bad_request("title is empty"));
+    }
+    if body.address.trim().is_empty() {
+        return Err(ApiError::bad_request("address is empty"));
+    }
+
+    let venue = Venue {
+        location: Location {
+            latitude: body.latitude,
+            longitude: body.longitude,
+            horizontal_accuracy: None,
+            live_period: None,
+            heading: None,
+            proximity_alert_radius: None,
+        },
+        title: body.title,
+        address: body.address,
+        foursquare_id: body.foursquare_id,
+        foursquare_type: body.foursquare_type,
+        google_place_id: body.google_place_id,
+        google_place_type: body.google_place_type,
+    };
+
+    send_sim_user_payload_message(
+        state,
+        token,
+        body.chat_id,
+        body.user_id,
+        body.first_name,
+        body.username,
+        SimUserPayload::Venue(venue),
+        None,
+        None,
+        body.reply_to_message_id,
+    )
+}
+
+enum SimUserPayload {
+    Dice(Dice),
+    Game(Game),
+    Contact(Contact),
+    Location(Location),
+    Venue(Venue),
+}
+
 fn handle_edit_message_caption(
     state: &Data<AppState>,
     token: &str,
@@ -4913,7 +7053,15 @@ fn handle_delete_webhook(state: &Data<AppState>, token: &str, params: &HashMap<S
 
 fn parse_request<T: DeserializeOwned>(params: &HashMap<String, Value>) -> Result<T, ApiError> {
     let object = Map::from_iter(params.iter().map(|(k, v)| (k.clone(), v.clone())));
-    serde_json::from_value(Value::Object(object)).map_err(|err| ApiError::bad_request(err.to_string()))
+    serde_json::from_value(Value::Object(object))
+        .map_err(|err| ApiError::bad_request(normalize_request_decode_error(&err.to_string())))
+}
+
+fn normalize_request_decode_error(message: &str) -> String {
+    if message.contains("expected struct InputFile") {
+        return "can't parse InputFile JSON object".to_string();
+    }
+    message.to_string()
 }
 
 fn value_to_optional_bool_loose(value: &Value) -> Option<bool> {
