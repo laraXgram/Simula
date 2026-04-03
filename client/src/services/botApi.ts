@@ -3,19 +3,41 @@ import { SimBootstrapResponse } from '../types/app';
 import type {
   AddStickerToSetRequest,
   AnswerCallbackQueryRequest,
+  BanChatMemberRequest,
+  BanChatSenderChatRequest,
+  ApproveChatJoinRequestRequest,
+  CreateChatInviteLinkRequest,
+  CreateChatSubscriptionInviteLinkRequest,
   CreateNewStickerSetRequest,
+  DeclineChatJoinRequestRequest,
+  DeleteChatPhotoRequest,
+  DeleteChatStickerSetRequest,
   DeleteStickerFromSetRequest,
   DeleteStickerSetRequest,
+  EditChatInviteLinkRequest,
+  EditChatSubscriptionInviteLinkRequest,
   EditMessageCaptionRequest,
   EditMessageLiveLocationRequest,
   EditMessageMediaRequest,
+  ExportChatInviteLinkRequest,
+  GetChatAdministratorsRequest,
+  GetChatMenuButtonRequest,
+  GetChatMemberCountRequest,
+  GetChatMemberRequest,
+  GetChatRequest,
   StopMessageLiveLocationRequest,
   EditMessageTextRequest,
   GetGameHighScoresRequest,
   GetCustomEmojiStickersRequest,
   GetStickerSetRequest,
+  LeaveChatRequest,
+  PinChatMessageRequest,
+  PromoteChatMemberRequest,
   ReplaceStickerInSetRequest,
+  RevokeChatInviteLinkRequest,
+  RestrictChatMemberRequest,
   SendAnimationRequest,
+  SendChatActionRequest,
   SendContactRequest,
   SendDiceRequest,
   SendGameRequest,
@@ -25,6 +47,13 @@ import type {
   SendStickerRequest,
   SendVenueRequest,
   SendVideoNoteRequest,
+  SetChatAdministratorCustomTitleRequest,
+  SetChatDescriptionRequest,
+  SetChatMemberTagRequest,
+  SetChatMenuButtonRequest,
+  SetChatPermissionsRequest,
+  SetChatStickerSetRequest,
+  SetChatTitleRequest,
   SetGameScoreRequest,
   SetCustomEmojiStickerSetThumbnailRequest,
   SetMessageReactionRequest,
@@ -35,9 +64,13 @@ import type {
   SetStickerSetThumbnailRequest,
   SetStickerSetTitleRequest,
   StopPollRequest,
+  UnbanChatMemberRequest,
+  UnbanChatSenderChatRequest,
+  UnpinAllChatMessagesRequest,
+  UnpinChatMessageRequest,
   UploadStickerFileRequest,
 } from '../types/generated/methods';
-import type { Chat as GeneratedChat, ChatInviteLink, ChatPermissions, File as TgFile, GameHighScore, InlineQueryResult, InlineQueryResultsButton, Message, Sticker, StickerSet, User as GeneratedUser } from '../types/generated/types';
+import type { Chat as GeneratedChat, ChatFullInfo, ChatInviteLink, ChatMember, ChatPermissions, File as TgFile, GameHighScore, InlineQueryResult, InlineQueryResultsButton, MenuButton, Message, Sticker, StickerSet, User as GeneratedUser } from '../types/generated/types';
 
 export interface SimCreateGroupResult {
   chat: GeneratedChat;
@@ -95,16 +128,27 @@ export interface SimPayInvoiceResult {
   payment_method: string;
 }
 
+interface BotMethodCallOptions {
+  actorUserId?: number;
+}
+
 export async function callBotMethod<T>(
   token: string,
   method: string,
   params: object = {},
+  options: BotMethodCallOptions = {},
 ): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  if (typeof options.actorUserId === 'number' && Number.isFinite(options.actorUserId)) {
+    headers['X-LaraGram-Actor-User-Id'] = String(Math.trunc(options.actorUserId));
+  }
+
   const response = await fetch(`${API_BASE_URL}/bot${token}/${method}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(params),
   });
 
@@ -267,6 +311,208 @@ export async function setSimulationBotGroupMembership(token: string, payload: {
   }
 
   return data.result as { changed: boolean; chat_id: number; status: string };
+}
+
+export async function banChatMember(token: string, payload: BanChatMemberRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'banChatMember', payload, { actorUserId });
+}
+
+export async function unbanChatMember(token: string, payload: UnbanChatMemberRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'unbanChatMember', payload, { actorUserId });
+}
+
+export async function restrictChatMember(token: string, payload: RestrictChatMemberRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'restrictChatMember', payload, { actorUserId });
+}
+
+export async function promoteChatMember(token: string, payload: PromoteChatMemberRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'promoteChatMember', payload, { actorUserId });
+}
+
+export async function setChatAdministratorCustomTitle(
+  token: string,
+  payload: SetChatAdministratorCustomTitleRequest,
+  actorUserId?: number,
+): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'setChatAdministratorCustomTitle', payload, { actorUserId });
+}
+
+export async function setChatMemberTag(token: string, payload: SetChatMemberTagRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'setChatMemberTag', payload, { actorUserId });
+}
+
+export async function banChatSenderChat(token: string, payload: BanChatSenderChatRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'banChatSenderChat', payload, { actorUserId });
+}
+
+export async function unbanChatSenderChat(token: string, payload: UnbanChatSenderChatRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'unbanChatSenderChat', payload, { actorUserId });
+}
+
+export async function setChatTitle(token: string, payload: SetChatTitleRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'setChatTitle', payload, { actorUserId });
+}
+
+export async function setChatDescription(token: string, payload: SetChatDescriptionRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'setChatDescription', payload, { actorUserId });
+}
+
+export async function setChatPermissions(token: string, payload: SetChatPermissionsRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'setChatPermissions', payload, { actorUserId });
+}
+
+export async function setChatPhoto(token: string, payload: {
+  chat_id: number | string;
+  photo: globalThis.File | string;
+}, actorUserId?: number): Promise<boolean> {
+  const formData = new FormData();
+  formData.append('chat_id', String(payload.chat_id));
+  if (payload.photo instanceof window.File) {
+    formData.append('photo', payload.photo, payload.photo.name);
+  } else {
+    formData.append('photo', payload.photo);
+  }
+
+  const headers: Record<string, string> = {};
+  if (typeof actorUserId === 'number' && Number.isFinite(actorUserId)) {
+    headers['X-LaraGram-Actor-User-Id'] = String(Math.trunc(actorUserId));
+  }
+
+  const response = await fetch(`${API_BASE_URL}/bot${token}/setChatPhoto`, {
+    method: 'POST',
+    headers: Object.keys(headers).length > 0 ? headers : undefined,
+    body: formData,
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to set chat photo');
+  }
+  return Boolean(data.result);
+}
+
+export async function deleteChatPhoto(token: string, payload: DeleteChatPhotoRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'deleteChatPhoto', payload, { actorUserId });
+}
+
+export async function setChatStickerSet(token: string, payload: SetChatStickerSetRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'setChatStickerSet', payload, { actorUserId });
+}
+
+export async function deleteChatStickerSet(token: string, payload: DeleteChatStickerSetRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'deleteChatStickerSet', payload, { actorUserId });
+}
+
+export async function pinChatMessage(token: string, payload: PinChatMessageRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'pinChatMessage', payload, { actorUserId });
+}
+
+export async function unpinChatMessage(token: string, payload: UnpinChatMessageRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'unpinChatMessage', payload, { actorUserId });
+}
+
+export async function unpinAllChatMessages(token: string, payload: UnpinAllChatMessagesRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'unpinAllChatMessages', payload, { actorUserId });
+}
+
+export async function leaveChat(token: string, payload: LeaveChatRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'leaveChat', payload);
+}
+
+export async function getChat(token: string, payload: GetChatRequest, actorUserId?: number): Promise<ChatFullInfo> {
+  return callBotMethod<ChatFullInfo>(token, 'getChat', payload, { actorUserId });
+}
+
+export async function getChatAdministrators(token: string, payload: GetChatAdministratorsRequest, actorUserId?: number): Promise<ChatMember[]> {
+  return callBotMethod<ChatMember[]>(token, 'getChatAdministrators', payload, { actorUserId });
+}
+
+export async function getChatMemberCount(token: string, payload: GetChatMemberCountRequest, actorUserId?: number): Promise<number> {
+  return callBotMethod<number>(token, 'getChatMemberCount', payload, { actorUserId });
+}
+
+export async function getChatMember(token: string, payload: GetChatMemberRequest, actorUserId?: number): Promise<ChatMember> {
+  return callBotMethod<ChatMember>(token, 'getChatMember', payload, { actorUserId });
+}
+
+export async function exportChatInviteLink(token: string, payload: ExportChatInviteLinkRequest, actorUserId?: number): Promise<string> {
+  return callBotMethod<string>(token, 'exportChatInviteLink', payload, { actorUserId });
+}
+
+export async function createChatInviteLink(token: string, payload: CreateChatInviteLinkRequest, actorUserId?: number): Promise<ChatInviteLink> {
+  return callBotMethod<ChatInviteLink>(token, 'createChatInviteLink', payload, { actorUserId });
+}
+
+export async function editChatInviteLink(token: string, payload: EditChatInviteLinkRequest, actorUserId?: number): Promise<ChatInviteLink> {
+  return callBotMethod<ChatInviteLink>(token, 'editChatInviteLink', payload, { actorUserId });
+}
+
+export async function revokeChatInviteLink(token: string, payload: RevokeChatInviteLinkRequest, actorUserId?: number): Promise<ChatInviteLink> {
+  return callBotMethod<ChatInviteLink>(token, 'revokeChatInviteLink', payload, { actorUserId });
+}
+
+export async function createChatSubscriptionInviteLink(
+  token: string,
+  payload: CreateChatSubscriptionInviteLinkRequest,
+  actorUserId?: number,
+): Promise<ChatInviteLink> {
+  return callBotMethod<ChatInviteLink>(token, 'createChatSubscriptionInviteLink', payload, { actorUserId });
+}
+
+export async function editChatSubscriptionInviteLink(
+  token: string,
+  payload: EditChatSubscriptionInviteLinkRequest,
+  actorUserId?: number,
+): Promise<ChatInviteLink> {
+  return callBotMethod<ChatInviteLink>(token, 'editChatSubscriptionInviteLink', payload, { actorUserId });
+}
+
+export async function approveChatJoinRequest(token: string, payload: ApproveChatJoinRequestRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'approveChatJoinRequest', payload, { actorUserId });
+}
+
+export async function declineChatJoinRequest(token: string, payload: DeclineChatJoinRequestRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'declineChatJoinRequest', payload, { actorUserId });
+}
+
+export async function sendChatAction(token: string, payload: SendChatActionRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'sendChatAction', payload, { actorUserId });
+}
+
+export async function setChatMenuButton(token: string, payload: SetChatMenuButtonRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'setChatMenuButton', payload, { actorUserId });
+}
+
+export async function getChatMenuButton(token: string, payload: GetChatMenuButtonRequest, actorUserId?: number): Promise<MenuButton> {
+  return callBotMethod<MenuButton>(token, 'getChatMenuButton', payload, { actorUserId });
+}
+
+export async function getSimBotPrivacyMode(token: string): Promise<{ enabled: boolean }> {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/privacy-mode`);
+  const data = await response.json();
+
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to load bot privacy mode');
+  }
+
+  return data.result as { enabled: boolean };
+}
+
+export async function setSimBotPrivacyMode(token: string, enabled: boolean): Promise<{ enabled: boolean }> {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/privacy-mode`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ enabled }),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to update bot privacy mode');
+  }
+
+  return data.result as { enabled: boolean };
 }
 
 export async function deleteSimulationGroup(token: string, payload: {
@@ -972,12 +1218,12 @@ export async function clearSimHistory(token: string, chatId: number) {
   return data.result as { deleted_count: number };
 }
 
-export async function editBotMessageText(token: string, payload: EditMessageTextRequest) {
-  return callBotMethod(token, 'editMessageText', payload);
+export async function editBotMessageText(token: string, payload: EditMessageTextRequest, actorUserId?: number) {
+  return callBotMethod(token, 'editMessageText', payload, { actorUserId });
 }
 
-export async function editBotMessageCaption(token: string, payload: EditMessageCaptionRequest) {
-  return callBotMethod(token, 'editMessageCaption', payload);
+export async function editBotMessageCaption(token: string, payload: EditMessageCaptionRequest, actorUserId?: number) {
+  return callBotMethod(token, 'editMessageCaption', payload, { actorUserId });
 }
 
 export async function editBotMessageMedia(token: string, payload: {
@@ -987,7 +1233,7 @@ export async function editBotMessageMedia(token: string, payload: {
   file: globalThis.File;
   caption?: string;
   parseMode?: 'HTML' | 'Markdown' | 'MarkdownV2';
-}) {
+}, actorUserId?: number) {
   const formData = new FormData();
   formData.append('chat_id', String(payload.chat_id));
   formData.append('message_id', String(payload.message_id));
@@ -1010,8 +1256,14 @@ export async function editBotMessageMedia(token: string, payload: {
 
   formData.append('media', JSON.stringify(media));
 
+  const headers: Record<string, string> = {};
+  if (typeof actorUserId === 'number' && Number.isFinite(actorUserId)) {
+    headers['X-LaraGram-Actor-User-Id'] = String(Math.trunc(actorUserId));
+  }
+
   const response = await fetch(`${API_BASE_URL}/bot${token}/editMessageMedia`, {
     method: 'POST',
+    headers,
     body: formData,
   });
 
@@ -1038,7 +1290,7 @@ export async function editUserMessageMedia(token: string, payload: {
   file: globalThis.File;
   caption?: string;
   parseMode?: 'HTML' | 'Markdown' | 'MarkdownV2';
-}) {
+}, actorUserId?: number) {
   const formData = new FormData();
   formData.append('chat_id', String(payload.chatId));
   formData.append('message_id', String(payload.messageId));
@@ -1053,8 +1305,14 @@ export async function editUserMessageMedia(token: string, payload: {
     formData.append('parse_mode', payload.parseMode);
   }
 
+  const headers: Record<string, string> = {};
+  if (typeof actorUserId === 'number' && Number.isFinite(actorUserId)) {
+    headers['X-LaraGram-Actor-User-Id'] = String(Math.trunc(actorUserId));
+  }
+
   const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/editUserMessageMedia`, {
     method: 'POST',
+    headers,
     body: formData,
   });
 

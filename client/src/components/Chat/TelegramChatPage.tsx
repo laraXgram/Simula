@@ -1,6 +1,9 @@
 import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowLeft,
+  ChevronLeft,
   ChevronDown,
+  ChevronRight,
   Clapperboard,
   Contact,
   Dice5,
@@ -32,9 +35,43 @@ import {
 import {
   chooseInlineResult,
   clearSimHistory,
-  createSimulationGroupInviteLink,
   createSimBot,
   createSimulationGroup,
+  approveChatJoinRequest,
+  banChatMember,
+  unbanChatMember,
+  restrictChatMember,
+  promoteChatMember,
+  setChatAdministratorCustomTitle,
+  setChatMemberTag,
+  banChatSenderChat,
+  unbanChatSenderChat,
+  setChatTitle,
+  setChatDescription,
+  setChatPermissions,
+  setChatPhoto,
+  deleteChatPhoto,
+  setChatStickerSet,
+  deleteChatStickerSet,
+  pinChatMessage,
+  unpinChatMessage,
+  unpinAllChatMessages,
+  leaveChat,
+  getChat,
+  getChatAdministrators,
+  getChatMemberCount,
+  getChatMember,
+  getChatMenuButton,
+  getSimBotPrivacyMode,
+  exportChatInviteLink,
+  createChatInviteLink,
+  editChatInviteLink,
+  revokeChatInviteLink,
+  createChatSubscriptionInviteLink,
+  editChatSubscriptionInviteLink,
+  declineChatJoinRequest,
+  setSimBotPrivacyMode,
+  setChatMenuButton,
   createNewStickerSet,
   addStickerToSet,
   deleteStickerFromSet,
@@ -74,7 +111,6 @@ import {
   getInlineQueryAnswer,
   setGameScore,
   getSimulationBootstrap,
-  declineSimulationGroupJoinRequest,
   deleteSimulationGroup,
   joinSimulationGroup,
   joinSimulationGroupByInviteLink,
@@ -85,13 +121,20 @@ import {
   sendUserMessage,
   setUserMessageReaction,
   setSimulationBotGroupMembership,
-  approveSimulationGroupJoinRequest,
   updateSimulationGroup,
   updateSimBot,
   upsertSimUser,
 } from '../../services/botApi';
 import { API_BASE_URL, DEFAULT_BOT_TOKEN } from '../../services/config';
 import { useBotUpdates } from '../../hooks/useBotUpdates';
+import type { GetChatMenuButtonRequest, SendChatActionRequest, SetChatMenuButtonRequest } from '../../types/generated/methods';
+import type {
+  ChatMember as GeneratedChatMember,
+  MenuButton as GeneratedMenuButton,
+  MenuButtonCommands as GeneratedMenuButtonCommands,
+  MenuButtonDefault as GeneratedMenuButtonDefault,
+  MenuButtonWebApp as GeneratedMenuButtonWebApp,
+} from '../../types/generated/types';
 import {
   BotReplyMarkup,
   BotUpdate,
@@ -123,10 +166,12 @@ const GROUP_MEMBERSHIP_KEY = 'laragram-group-memberships';
 const SELECTED_GROUP_BY_BOT_KEY = 'laragram-selected-group-by-bot';
 const GROUP_INVITE_LINKS_KEY = 'laragram-group-invite-links';
 const GROUP_JOIN_REQUESTS_KEY = 'laragram-group-join-requests';
+const GROUP_PINNED_MESSAGES_KEY = 'laragram-group-pinned-messages';
 type SidebarTab = 'chats' | 'bots' | 'users';
 type ChatScopeTab = 'private' | 'group' | 'channel';
 type BotModalMode = 'create' | 'edit';
 type UserModalMode = 'create' | 'edit';
+type GroupSettingsPage = 'home' | 'bot-membership' | 'discovery' | 'members' | 'sender-chat' | 'danger-zone';
 type ComposerParseMode = 'none' | 'MarkdownV2' | 'Markdown' | 'HTML';
 type PaymentMethod = 'wallet' | 'card' | 'stars';
 type CheckoutStep = 1 | 2 | 3;
@@ -253,6 +298,94 @@ interface PendingGroupJoinRequest {
   inviteLink?: string;
 }
 
+interface GroupMemberRestrictionDraft {
+  canSendMessages: boolean;
+  canSendAudios: boolean;
+  canSendDocuments: boolean;
+  canSendPhotos: boolean;
+  canSendVideos: boolean;
+  canSendVideoNotes: boolean;
+  canSendVoiceNotes: boolean;
+  canSendPolls: boolean;
+  canSendOtherMessages: boolean;
+  canAddWebPagePreviews: boolean;
+  canInviteUsers: boolean;
+  canChangeInfo: boolean;
+  canPinMessages: boolean;
+  canManageTopics: boolean;
+  untilHours: string;
+}
+
+interface GroupMemberMeta {
+  customTitle?: string;
+  tag?: string;
+}
+
+interface GroupMenuButtonDraft {
+  scope: 'default' | 'private-chat';
+  targetChatId: string;
+  type: 'default' | 'commands' | 'web_app';
+  text: string;
+  webAppUrl: string;
+}
+
+interface ActiveChatActionState {
+  action: SendChatActionRequest['action'];
+  actorName: string;
+  expiresAt: number;
+}
+
+function formatChatActionLabel(action: string): string {
+  switch (action) {
+    case 'typing':
+      return 'typing';
+    case 'upload_photo':
+      return 'uploading a photo';
+    case 'record_video':
+      return 'recording a video';
+    case 'upload_video':
+      return 'uploading a video';
+    case 'record_voice':
+      return 'recording a voice message';
+    case 'upload_voice':
+      return 'uploading a voice message';
+    case 'upload_document':
+      return 'uploading a file';
+    case 'choose_sticker':
+      return 'choosing a sticker';
+    case 'find_location':
+      return 'sharing location';
+    case 'record_video_note':
+      return 'recording a video note';
+    case 'upload_video_note':
+      return 'uploading a video note';
+    default:
+      return action;
+  }
+}
+
+function extractBotCommandTargetUsername(text?: string, entities?: MessageEntity[]): string | null {
+  if (!text || !text.trim()) {
+    return null;
+  }
+
+  const commandEntities = [...(entities || [])]
+    .filter((entity) => entity.type === 'bot_command' && entity.length > 0)
+    .sort((a, b) => a.offset - b.offset);
+
+  for (let index = 0; index < commandEntities.length; index += 1) {
+    const entity = commandEntities[index];
+    const chunk = text.slice(entity.offset, entity.offset + entity.length).trim();
+    const targetedMatch = chunk.match(/^\/[A-Za-z][A-Za-z0-9_]{0,31}@([A-Za-z0-9_]{5,32})$/);
+    if (targetedMatch?.[1]) {
+      return targetedMatch[1];
+    }
+  }
+
+  const fallbackMatch = text.match(/(?:^|\s)\/[A-Za-z][A-Za-z0-9_]{0,31}@([A-Za-z0-9_]{5,32})(?=\s|$)/);
+  return fallbackMatch?.[1] || null;
+}
+
 function extractChatMemberStatus(member?: Record<string, unknown>): string | undefined {
   const raw = member?.status;
   return typeof raw === 'string' ? raw : undefined;
@@ -276,7 +409,7 @@ function isJoinedMembershipStatus(status?: string): boolean {
   if (!status) {
     return false;
   }
-  return ['joined', 'member', 'admin', 'owner', 'administrator', 'creator'].includes(status);
+  return ['joined', 'member', 'restricted', 'admin', 'owner', 'administrator', 'creator'].includes(status);
 }
 
 function canEditGroupByStatus(status?: string): boolean {
@@ -402,6 +535,115 @@ function mapSnapshotToServerPermissions(snapshot: GroupSettingsSnapshot): Record
   };
 }
 
+function fullMemberPermissions(): Record<string, boolean> {
+  return {
+    can_send_messages: true,
+    can_send_audios: true,
+    can_send_documents: true,
+    can_send_photos: true,
+    can_send_videos: true,
+    can_send_video_notes: true,
+    can_send_voice_notes: true,
+    can_send_polls: true,
+    can_send_other_messages: true,
+    can_add_web_page_previews: true,
+    can_change_info: true,
+    can_invite_users: true,
+    can_pin_messages: true,
+    can_manage_topics: true,
+    can_edit_tag: true,
+  };
+}
+
+function defaultGroupMemberRestrictionDraft(): GroupMemberRestrictionDraft {
+  return {
+    canSendMessages: true,
+    canSendAudios: true,
+    canSendDocuments: true,
+    canSendPhotos: true,
+    canSendVideos: true,
+    canSendVideoNotes: true,
+    canSendVoiceNotes: true,
+    canSendPolls: true,
+    canSendOtherMessages: true,
+    canAddWebPagePreviews: true,
+    canInviteUsers: true,
+    canChangeInfo: true,
+    canPinMessages: true,
+    canManageTopics: true,
+    untilHours: '168',
+  };
+}
+
+function mapRestrictionDraftToPermissions(draft: GroupMemberRestrictionDraft): Record<string, boolean> {
+  return {
+    can_send_messages: draft.canSendMessages,
+    can_send_audios: draft.canSendAudios,
+    can_send_documents: draft.canSendDocuments,
+    can_send_photos: draft.canSendPhotos,
+    can_send_videos: draft.canSendVideos,
+    can_send_video_notes: draft.canSendVideoNotes,
+    can_send_voice_notes: draft.canSendVoiceNotes,
+    can_send_polls: draft.canSendPolls,
+    can_send_other_messages: draft.canSendOtherMessages,
+    can_add_web_page_previews: draft.canAddWebPagePreviews,
+    can_change_info: draft.canChangeInfo,
+    can_invite_users: draft.canInviteUsers,
+    can_pin_messages: draft.canPinMessages,
+    can_manage_topics: draft.canManageTopics,
+    can_edit_tag: false,
+  };
+}
+
+function parseGroupMemberMeta(member: GeneratedChatMember): GroupMemberMeta {
+  const raw = member as Record<string, unknown>;
+  return {
+    customTitle: typeof raw.custom_title === 'string' ? raw.custom_title : undefined,
+    tag: typeof raw.tag === 'string' ? raw.tag : undefined,
+  };
+}
+
+function parseMenuButtonSummary(menuButton: GeneratedMenuButton): { type: string; text?: string; url?: string } {
+  const raw = menuButton as Record<string, unknown>;
+  const webApp = raw.web_app;
+  const webAppUrl = webApp && typeof webApp === 'object' && typeof (webApp as Record<string, unknown>).url === 'string'
+    ? ((webApp as Record<string, unknown>).url as string)
+    : undefined;
+
+  return {
+    type: typeof raw.type === 'string' ? raw.type : 'default',
+    text: typeof raw.text === 'string' ? raw.text : undefined,
+    url: webAppUrl,
+  };
+}
+
+function buildMenuButtonFromDraft(draft: GroupMenuButtonDraft): GeneratedMenuButton {
+  if (draft.type === 'commands') {
+    const menuButton: GeneratedMenuButtonCommands = {
+      type: 'commands',
+    };
+    return menuButton as unknown as GeneratedMenuButton;
+  }
+
+  if (draft.type === 'web_app') {
+    const normalizedText = draft.text.trim() || 'Menu';
+    const normalizedUrl = draft.webAppUrl.trim() || 'https://example.com';
+    const menuButton: GeneratedMenuButtonWebApp = {
+      type: 'web_app',
+      text: normalizedText,
+      web_app: {
+        url: normalizedUrl,
+      },
+    };
+    return menuButton as unknown as GeneratedMenuButton;
+  }
+
+  const menuButton: GeneratedMenuButtonDefault = {
+    type: 'default',
+  };
+  return menuButton as unknown as GeneratedMenuButton;
+}
+
 export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatPageProps) {
   const [activeTab, setActiveTab] = useState<SidebarTab>(initialTab);
   const [chatScopeTab, setChatScopeTab] = useState<ChatScopeTab>(() => {
@@ -470,6 +712,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     description: '',
     isForum: false,
   });
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [groupMembershipByUser, setGroupMembershipByUser] = useState<Record<string, string>>(() => {
     try {
       const raw = localStorage.getItem(GROUP_MEMBERSHIP_KEY);
@@ -496,6 +739,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
   });
   const [showGroupActionsModal, setShowGroupActionsModal] = useState(false);
+  const [groupSettingsPage, setGroupSettingsPage] = useState<GroupSettingsPage>('home');
   const [showGroupProfileModal, setShowGroupProfileModal] = useState(false);
   const [groupProfileDraft, setGroupProfileDraft] = useState({
     title: '',
@@ -520,6 +764,48 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     allowChangeInfo: false,
     allowManageTopics: false,
   });
+  const [groupMembersFilter, setGroupMembersFilter] = useState('');
+  const [expandedGroupMemberId, setExpandedGroupMemberId] = useState<number | null>(null);
+  const [groupMemberRestrictionDraftByUserId, setGroupMemberRestrictionDraftByUserId] = useState<Record<number, GroupMemberRestrictionDraft>>({});
+  const [groupMemberAdminTitleByUserId, setGroupMemberAdminTitleByUserId] = useState<Record<number, string>>({});
+  const [groupMemberTagByUserId, setGroupMemberTagByUserId] = useState<Record<number, string>>({});
+  const [groupMemberMetaByUserId, setGroupMemberMetaByUserId] = useState<Record<number, GroupMemberMeta>>({});
+  const [groupSenderChatModerationDraft, setGroupSenderChatModerationDraft] = useState('');
+  const [groupInspectorOutput, setGroupInspectorOutput] = useState('');
+  const [chatActionByChatKey, setChatActionByChatKey] = useState<Record<string, ActiveChatActionState>>({});
+  const [groupMenuButtonDraft, setGroupMenuButtonDraft] = useState<GroupMenuButtonDraft>({
+    scope: 'default',
+    targetChatId: '',
+    type: 'default',
+    text: '',
+    webAppUrl: '',
+  });
+  const [groupMenuButtonSummary, setGroupMenuButtonSummary] = useState<{ type: string; text?: string; url?: string } | null>(null);
+  const [groupPrivacyModeEnabled, setGroupPrivacyModeEnabled] = useState(true);
+  const [isGroupPrivacyModeLoading, setIsGroupPrivacyModeLoading] = useState(false);
+  const [groupInviteEditorDraft, setGroupInviteEditorDraft] = useState({
+    inviteLink: '',
+    name: '',
+    expireDate: '',
+    memberLimit: '',
+    createsJoinRequest: false,
+    subscriptionPeriod: '2592000',
+    subscriptionPrice: '100',
+  });
+  const [groupStickerSetDraft, setGroupStickerSetDraft] = useState('');
+  const [removeGroupStickerSetDraft, setRemoveGroupStickerSetDraft] = useState(false);
+  const [groupPhotoDraftFile, setGroupPhotoDraftFile] = useState<File | null>(null);
+  const [removeGroupPhotoDraft, setRemoveGroupPhotoDraft] = useState(false);
+  const [isGroupActionRunning, setIsGroupActionRunning] = useState(false);
+  const [pinnedMessageByChatKey, setPinnedMessageByChatKey] = useState<Record<string, number[]>>(() => {
+    try {
+      const raw = localStorage.getItem(GROUP_PINNED_MESSAGES_KEY);
+      return raw ? (JSON.parse(raw) as Record<string, number[]>) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [pinnedPreviewIndex, setPinnedPreviewIndex] = useState(0);
   const [composerText, setComposerText] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     try {
@@ -748,6 +1034,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     : null;
   const groupMembershipStatus = groupMembershipKey ? groupMembershipByUser[groupMembershipKey] : undefined;
   const groupMembership = isJoinedMembershipStatus(groupMembershipStatus) ? 'joined' : 'left';
+  const canLeaveSelectedGroup = groupMembership === 'joined' && normalizeMembershipStatus(groupMembershipStatus) !== 'owner';
   const canEditSelectedGroup = canEditGroupByStatus(groupMembershipStatus);
   const canDeleteSelectedGroup = canDeleteGroupByStatus(groupMembershipStatus);
   const selectedBotMembershipKey = selectedGroup && selectedBot
@@ -762,6 +1049,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const canSetSelectedBotAsAdmin = normalizedSelectedBotMembershipStatus !== 'admin' && normalizedSelectedBotMembershipStatus !== 'owner';
   const selectedGroupInviteLink = selectedGroupStateKey ? groupInviteLinksByChat[selectedGroupStateKey] : undefined;
   const selectedGroupJoinRequests = selectedGroupStateKey ? (pendingJoinRequestsByChat[selectedGroupStateKey] || []) : [];
+  const selectedPinnedMessageIds = selectedGroupStateKey ? (pinnedMessageByChatKey[selectedGroupStateKey] || []) : [];
 
   const selectedChatId = chatScopeTab === 'group'
     ? (selectedGroup?.id ?? 0)
@@ -770,6 +1058,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const hasStarted = chatScopeTab === 'private'
     ? Boolean(startedChats[chatKey])
     : groupMembership === 'joined';
+  const activeChatAction = chatActionByChatKey[chatKey] && chatActionByChatKey[chatKey].expiresAt > Date.now()
+    ? chatActionByChatKey[chatKey]
+    : null;
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLElement | null>(null);
   const messageRefs = useRef<Record<number, HTMLDivElement | null>>({});
@@ -792,6 +1083,131 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       }),
     [messages, selectedBotToken, selectedChatId],
   );
+
+  const selectedPinnedMessages = useMemo(() => {
+    if (selectedPinnedMessageIds.length === 0) {
+      return [] as ChatMessage[];
+    }
+
+    const byId = new Map<number, ChatMessage>();
+    visibleMessages.forEach((message) => {
+      byId.set(message.id, message);
+    });
+
+    return [...selectedPinnedMessageIds]
+      .reverse()
+      .map((messageId) => byId.get(messageId))
+      .filter((message): message is ChatMessage => Boolean(message));
+  }, [selectedPinnedMessageIds, visibleMessages]);
+
+  const isMessagePinned = (messageId: number) => selectedPinnedMessageIds.includes(messageId);
+
+  const activePinnedMessage = selectedPinnedMessages[pinnedPreviewIndex] || selectedPinnedMessages[0] || null;
+
+  const selectedGroupMembers = useMemo(() => {
+    if (!selectedGroup) {
+      return [] as Array<{
+        userId: number;
+        firstName: string;
+        username?: string;
+        status: string;
+        isBot: boolean;
+        customTitle?: string;
+        tag?: string;
+      }>;
+    }
+
+    const membershipPrefix = `${selectedBotToken}:${selectedGroup.id}:`;
+    const statusPriority: Record<string, number> = {
+      owner: 0,
+      admin: 1,
+      member: 2,
+      restricted: 3,
+      left: 4,
+      banned: 5,
+    };
+
+    const rows = Object.entries(groupMembershipByUser)
+      .filter(([key]) => key.startsWith(membershipPrefix))
+      .map(([key, status]) => {
+        const userId = Number(key.slice(membershipPrefix.length));
+        const simUser = availableUsers.find((user) => user.id === userId);
+        const botAsUser = selectedBot && selectedBot.id === userId
+          ? { first_name: selectedBot.first_name, username: selectedBot.username }
+          : null;
+        const memberMeta = groupMemberMetaByUserId[userId] || {};
+
+        return {
+          userId,
+          firstName: simUser?.first_name || botAsUser?.first_name || `User ${userId}`,
+          username: simUser?.username || botAsUser?.username,
+          status: normalizeMembershipStatus(status),
+          isBot: Boolean(selectedBot && selectedBot.id === userId),
+          customTitle: memberMeta.customTitle,
+          tag: memberMeta.tag,
+        };
+      })
+      .filter((member) => Number.isFinite(member.userId) && member.userId > 0)
+      .sort((a, b) => {
+        const rankDiff = (statusPriority[a.status] ?? 99) - (statusPriority[b.status] ?? 99);
+        if (rankDiff !== 0) {
+          return rankDiff;
+        }
+        return a.firstName.localeCompare(b.firstName);
+      });
+
+    const keyword = groupMembersFilter.trim().toLowerCase();
+    if (!keyword) {
+      return rows;
+    }
+
+    return rows.filter((member) => (
+      member.firstName.toLowerCase().includes(keyword)
+      || (member.username || '').toLowerCase().includes(keyword)
+      || String(member.userId).includes(keyword)
+    ));
+  }, [availableUsers, groupMemberMetaByUserId, groupMembershipByUser, groupMembersFilter, selectedBot, selectedBotToken, selectedGroup]);
+
+  const resolveGroupSenderBadges = (fromUserId: number): { customTitle?: string; tag?: string } => {
+    if (!selectedGroup) {
+      return {};
+    }
+
+    const membershipKey = `${selectedBotToken}:${selectedGroup.id}:${fromUserId}`;
+    const status = normalizeMembershipStatus(groupMembershipByUser[membershipKey]);
+    const meta = groupMemberMetaByUserId[fromUserId] || {};
+
+    return {
+      customTitle: (status === 'admin' || status === 'owner') ? meta.customTitle : undefined,
+      tag: meta.tag,
+    };
+  };
+
+  const canPinInSelectedGroup = useMemo(() => {
+    if (!selectedGroup || groupMembership !== 'joined') {
+      return false;
+    }
+    if (canEditSelectedGroup) {
+      return true;
+    }
+    return Boolean(selectedGroup.settings?.allowPinMessages);
+  }, [canEditSelectedGroup, groupMembership, selectedGroup]);
+
+  const groupSettingsTitle = groupSettingsPage === 'home'
+    ? 'Group settings'
+    : groupSettingsPage === 'bot-membership'
+      ? 'Bot membership'
+      : groupSettingsPage === 'discovery'
+        ? 'Discovery & invite links'
+        : groupSettingsPage === 'members'
+          ? 'Members management'
+          : groupSettingsPage === 'sender-chat'
+            ? 'Sender chat moderation'
+            : 'Danger zone';
+
+  useEffect(() => {
+    setPinnedPreviewIndex(0);
+  }, [selectedGroupStateKey, selectedPinnedMessages.length]);
 
   const isMessageOutgoingForSelected = (message: ChatMessage) => message.fromUserId === selectedUser.id;
 
@@ -977,6 +1393,51 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   }, [selectedBotToken, lastUpdateByBot]);
 
   useEffect(() => {
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      setChatActionByChatKey((prev) => {
+        const entries = Object.entries(prev).filter(([, value]) => value.expiresAt > now);
+        if (entries.length === Object.keys(prev).length) {
+          return prev;
+        }
+        return Object.fromEntries(entries);
+      });
+    }, 500);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadPrivacyMode = async () => {
+      setIsGroupPrivacyModeLoading(true);
+      try {
+        const result = await getSimBotPrivacyMode(selectedBotToken);
+        if (!cancelled) {
+          setGroupPrivacyModeEnabled(result.enabled);
+        }
+      } catch {
+        if (!cancelled) {
+          setGroupPrivacyModeEnabled(true);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsGroupPrivacyModeLoading(false);
+        }
+      }
+    };
+
+    void loadPrivacyMode();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedBotToken]);
+
+  useEffect(() => {
     localStorage.setItem(SELECTED_USER_KEY, String(selectedUserId));
   }, [selectedUserId]);
 
@@ -999,6 +1460,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   useEffect(() => {
     localStorage.setItem(GROUP_JOIN_REQUESTS_KEY, JSON.stringify(pendingJoinRequestsByChat));
   }, [pendingJoinRequestsByChat]);
+
+  useEffect(() => {
+    localStorage.setItem(GROUP_PINNED_MESSAGES_KEY, JSON.stringify(pinnedMessageByChatKey));
+  }, [pinnedMessageByChatKey]);
 
   useEffect(() => {
     localStorage.setItem(SELECTED_GROUP_BY_BOT_KEY, JSON.stringify(selectedGroupByBot));
@@ -1159,6 +1624,32 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         }));
       }
 
+      if (update.chat_action && typeof update.chat_action.action === 'string') {
+        const normalizedAction = update.chat_action.action.trim();
+        const chatId = update.chat_action.chat?.id
+          ?? (Number.isFinite(update.chat_action.chat_id) ? update.chat_action.chat_id : undefined);
+
+        if (normalizedAction && Number.isFinite(chatId)) {
+          const actor = update.chat_action.actor;
+          const actorName = actor?.first_name?.trim()
+            || update.chat_action.from_name?.trim()
+            || (actor?.username ? `@${actor.username}` : '')
+            || (Number.isFinite(actor?.id) ? `user_${actor?.id}` : '')
+            || (Number.isFinite(update.chat_action.from_user_id) ? `user_${update.chat_action.from_user_id}` : '')
+            || selectedBot?.first_name
+            || 'Bot';
+          const actionKey = `${selectedBotToken}:${chatId}`;
+          setChatActionByChatKey((prev) => ({
+            ...prev,
+            [actionKey]: {
+              action: normalizedAction,
+              actorName,
+              expiresAt: Date.now() + 5000,
+            },
+          }));
+        }
+      }
+
       const payload = update.edited_message || update.message;
       if (update.poll) {
         setMessages((prev) => prev.map((message) => {
@@ -1303,6 +1794,17 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           };
         }
 
+        if (payload.pinned_message) {
+          const pinnedMessageId = payload.pinned_message.message_id;
+          return {
+            text: payload.text || `${actorName} pinned a message`,
+            service: {
+              kind: 'system' as const,
+              targetName: Number.isFinite(pinnedMessageId) ? `#${pinnedMessageId}` : undefined,
+            },
+          };
+        }
+
         if (payload.new_chat_title) {
           return {
             text: payload.text || `${actorName} changed the group name to "${payload.new_chat_title}"`,
@@ -1426,6 +1928,20 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         return [...prev, mapped];
       });
 
+      const pinnedMessageIdFromPayload = payload.pinned_message?.message_id;
+      if (Number.isFinite(pinnedMessageIdFromPayload) && payload.chat?.id) {
+        const stateKey = `${selectedBotToken}:${payload.chat.id}`;
+        const normalizedPinnedId = Number(pinnedMessageIdFromPayload);
+        setPinnedMessageByChatKey((prev) => {
+          const current = prev[stateKey] || [];
+          const next = [...current.filter((id) => id !== normalizedPinnedId), normalizedPinnedId];
+          return {
+            ...prev,
+            [stateKey]: next,
+          };
+        });
+      }
+
       setLastUpdateId((current) => Math.max(current, update.update_id));
       setLastUpdateByBot((prev) => {
         const current = prev[selectedBotToken] || 0;
@@ -1510,6 +2026,26 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           (bootstrap.memberships || []).forEach((membership) => {
             const key = `${selectedBotToken}:${membership.chat_id}:${membership.user_id}`;
             next[key] = normalizeMembershipStatus(membership.status);
+          });
+
+          return next;
+        });
+
+        setGroupMemberMetaByUserId((prev) => {
+          const next = { ...prev };
+          (bootstrap.memberships || []).forEach((membership) => {
+            const hasCustomTitle = typeof membership.custom_title === 'string';
+            const hasTag = typeof membership.tag === 'string';
+            if (!hasCustomTitle && !hasTag) {
+              return;
+            }
+
+            const userId = membership.user_id;
+            const existing = next[userId] || {};
+            next[userId] = {
+              customTitle: hasCustomTitle ? (membership.custom_title || undefined) : existing.customTitle,
+              tag: hasTag ? (membership.tag || undefined) : existing.tag,
+            };
           });
 
           return next;
@@ -1727,6 +2263,17 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         return;
       }
 
+      const ownerIsActiveUser = composerEditTarget.fromUserId === selectedUser.id;
+
+      if (!ownerIsActiveUser) {
+        setErrorText('Only message owner can edit this message.');
+        setComposerEditTarget(null);
+        setSelectedUploads([]);
+        return;
+      }
+
+      const actorUserId = selectedUser.id;
+
       try {
         if (composerEditTarget.media) {
           if (selectedUploads.length > 0) {
@@ -1745,14 +2292,14 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               file: selectedUploads[0],
               caption: text,
               parseMode: composerParseMode === 'none' ? undefined : composerParseMode,
-            });
+            }, actorUserId);
           } else {
             await editBotMessageCaption(selectedBotToken, {
               chat_id: selectedChatId,
               message_id: composerEditTarget.id,
               caption: text,
               parse_mode: composerParseMode === 'none' ? undefined : composerParseMode,
-            });
+            }, actorUserId);
           }
         } else {
           await editBotMessageText(selectedBotToken, {
@@ -1760,7 +2307,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             message_id: composerEditTarget.id,
             text,
             parse_mode: composerParseMode === 'none' ? undefined : composerParseMode,
-          });
+          }, actorUserId);
         }
         setComposerEditTarget(null);
         setComposerText('');
@@ -2620,11 +3167,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
   const onCreateGroup = async () => {
     const title = groupDraft.title.trim();
-    if (!title || !selectedBotToken) {
+    if (!title || !selectedBotToken || isCreatingGroup) {
       return;
     }
 
-    setIsBootstrapping(true);
+    setIsCreatingGroup(true);
     setErrorText('');
     try {
       const created = await createSimulationGroup(selectedBotToken, {
@@ -2655,7 +3202,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         [...prev, mapped].forEach((group) => byId.set(group.id, group));
         return Array.from(byId.values()).sort((a, b) => a.title.localeCompare(b.title));
       });
-      setSelectedGroupChatId(mapped.id);
+      setSelectedGroupChatId((current) => current ?? mapped.id);
       setGroupMembershipByUser((prev) => {
         const next = {
           ...prev,
@@ -2666,18 +3213,18 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         }
         return next;
       });
-      setShowCreateGroupForm(false);
       setGroupDraft({
         title: '',
-        type: 'supergroup',
+        type: groupDraft.type,
         username: '',
         description: '',
-        isForum: false,
+        isForum: groupDraft.isForum,
       });
+      setErrorText(`Group created: ${mapped.title}`);
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'Failed to create group');
     } finally {
-      setIsBootstrapping(false);
+      setIsCreatingGroup(false);
     }
   };
 
@@ -2784,13 +3331,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     setIsBootstrapping(true);
     setErrorText('');
     try {
-      const invite = await createSimulationGroupInviteLink(selectedBotToken, {
+      const invite = await createChatInviteLink(selectedBotToken, {
         chat_id: selectedGroup.id,
-        user_id: selectedUser.id,
-        actor_first_name: selectedUser.first_name,
-        actor_username: selectedUser.username,
         creates_join_request: createsJoinRequest,
-      });
+      }, selectedUser.id);
 
       const key = `${selectedBotToken}:${selectedGroup.id}`;
       setGroupInviteLinksByChat((prev) => ({
@@ -2798,6 +3342,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         [key]: invite.invite_link,
       }));
       setGroupInviteLinkInput(invite.invite_link);
+      setGroupInviteEditorDraft((prev) => ({ ...prev, inviteLink: invite.invite_link }));
 
       try {
         await navigator.clipboard.writeText(invite.invite_link);
@@ -2810,6 +3355,255 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       setErrorText(error instanceof Error ? error.message : 'Failed to create invite link');
     } finally {
       setIsBootstrapping(false);
+    }
+  };
+
+  const onExportPrimaryInviteLink = async () => {
+    if (!selectedGroup || !canEditSelectedGroup) {
+      return;
+    }
+
+    await runGroupAction(async () => {
+      const inviteLink = await exportChatInviteLink(selectedBotToken, {
+        chat_id: selectedGroup.id,
+      }, selectedUser.id);
+      const key = `${selectedBotToken}:${selectedGroup.id}`;
+      setGroupInviteLinksByChat((prev) => ({
+        ...prev,
+        [key]: inviteLink,
+      }));
+      setGroupInviteLinkInput(inviteLink);
+      setGroupInviteEditorDraft((prev) => ({ ...prev, inviteLink }));
+      setErrorText('Primary invite link exported via official API.');
+    });
+  };
+
+  const onEditInviteLinkByDraft = async () => {
+    if (!selectedGroup || !canEditSelectedGroup) {
+      return;
+    }
+
+    const inviteLink = groupInviteEditorDraft.inviteLink.trim();
+    if (!inviteLink) {
+      setErrorText('Invite link is required for editing.');
+      return;
+    }
+
+    await runGroupAction(async () => {
+      const edited = await editChatInviteLink(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        invite_link: inviteLink,
+        name: groupInviteEditorDraft.name.trim() || undefined,
+        expire_date: groupInviteEditorDraft.expireDate.trim()
+          ? Math.max(0, Math.floor(Number(groupInviteEditorDraft.expireDate) || 0))
+          : undefined,
+        member_limit: groupInviteEditorDraft.memberLimit.trim()
+          ? Math.max(0, Math.floor(Number(groupInviteEditorDraft.memberLimit) || 0))
+          : undefined,
+        creates_join_request: groupInviteEditorDraft.createsJoinRequest,
+      }, selectedUser.id);
+
+      const key = `${selectedBotToken}:${selectedGroup.id}`;
+      setGroupInviteLinksByChat((prev) => ({
+        ...prev,
+        [key]: edited.invite_link,
+      }));
+      setGroupInviteLinkInput(edited.invite_link);
+      setErrorText('Invite link updated via official API.');
+    });
+  };
+
+  const onRevokeInviteLinkByDraft = async () => {
+    if (!selectedGroup || !canEditSelectedGroup) {
+      return;
+    }
+
+    const inviteLink = groupInviteEditorDraft.inviteLink.trim();
+    if (!inviteLink) {
+      setErrorText('Invite link is required for revoke.');
+      return;
+    }
+
+    await runGroupAction(async () => {
+      const revoked = await revokeChatInviteLink(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        invite_link: inviteLink,
+      }, selectedUser.id);
+      setGroupInviteEditorDraft((prev) => ({ ...prev, inviteLink: revoked.invite_link }));
+      setErrorText('Invite link revoked via official API.');
+    });
+  };
+
+  const onCreateSubscriptionInviteLinkByDraft = async () => {
+    if (!selectedGroup || !canEditSelectedGroup) {
+      return;
+    }
+
+    await runGroupAction(async () => {
+      const created = await createChatSubscriptionInviteLink(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        name: groupInviteEditorDraft.name.trim() || undefined,
+        subscription_period: Math.max(1, Math.floor(Number(groupInviteEditorDraft.subscriptionPeriod) || 1)),
+        subscription_price: Math.max(1, Math.floor(Number(groupInviteEditorDraft.subscriptionPrice) || 1)),
+      }, selectedUser.id);
+      setGroupInviteEditorDraft((prev) => ({ ...prev, inviteLink: created.invite_link }));
+      setErrorText('Subscription invite link created via official API.');
+    });
+  };
+
+  const onEditSubscriptionInviteLinkByDraft = async () => {
+    if (!selectedGroup || !canEditSelectedGroup) {
+      return;
+    }
+
+    const inviteLink = groupInviteEditorDraft.inviteLink.trim();
+    if (!inviteLink) {
+      setErrorText('Subscription invite link is required for editing.');
+      return;
+    }
+
+    await runGroupAction(async () => {
+      const edited = await editChatSubscriptionInviteLink(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        invite_link: inviteLink,
+        name: groupInviteEditorDraft.name.trim() || undefined,
+      }, selectedUser.id);
+      setGroupInviteEditorDraft((prev) => ({ ...prev, inviteLink: edited.invite_link }));
+      setErrorText('Subscription invite link updated via official API.');
+    });
+  };
+
+  const renderInspector = (label: string, value: unknown) => {
+    setGroupInspectorOutput(`${label}\n${JSON.stringify(value, null, 2)}`);
+  };
+
+  const applyGroupMemberMetaState = (targetUserId: number, member: GeneratedChatMember) => {
+    const parsed = parseGroupMemberMeta(member);
+    setGroupMemberMetaByUserId((prev) => ({
+      ...prev,
+      [targetUserId]: parsed,
+    }));
+    if (parsed.customTitle !== undefined) {
+      setGroupMemberAdminTitleByUserId((prev) => ({
+        ...prev,
+        [targetUserId]: parsed.customTitle || '',
+      }));
+    }
+    if (parsed.tag !== undefined) {
+      setGroupMemberTagByUserId((prev) => ({
+        ...prev,
+        [targetUserId]: parsed.tag || '',
+      }));
+    }
+  };
+
+  const onInspectSelectedGroupChat = async () => {
+    if (!selectedGroup || !canEditSelectedGroup) {
+      return;
+    }
+
+    await runGroupAction(async () => {
+      const details = await getChat(selectedBotToken, {
+        chat_id: selectedGroup.id,
+      }, selectedUser.id);
+      renderInspector('getChat', details);
+      if (details.invite_link) {
+        setGroupInviteEditorDraft((prev) => ({ ...prev, inviteLink: details.invite_link || prev.inviteLink }));
+      }
+      setErrorText('getChat completed.');
+    });
+  };
+
+  const onInspectSelectedGroupAdmins = async () => {
+    if (!selectedGroup || !canEditSelectedGroup) {
+      return;
+    }
+
+    await runGroupAction(async () => {
+      const admins = await getChatAdministrators(selectedBotToken, {
+        chat_id: selectedGroup.id,
+      }, selectedUser.id);
+      renderInspector('getChatAdministrators', admins);
+      setErrorText('getChatAdministrators completed.');
+    });
+  };
+
+  const onInspectSelectedGroupMemberCount = async () => {
+    if (!selectedGroup || !canEditSelectedGroup) {
+      return;
+    }
+
+    await runGroupAction(async () => {
+      const count = await getChatMemberCount(selectedBotToken, {
+        chat_id: selectedGroup.id,
+      }, selectedUser.id);
+      renderInspector('getChatMemberCount', { count });
+      setErrorText('getChatMemberCount completed.');
+    });
+  };
+
+  const onInspectSelectedGroupMember = async (targetUserId: number) => {
+    if (!selectedGroup || !canEditSelectedGroup) {
+      return;
+    }
+
+    await runGroupAction(async () => {
+      const member = await getChatMember(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        user_id: targetUserId,
+      }, selectedUser.id);
+      applyGroupMemberMetaState(targetUserId, member);
+      renderInspector(`getChatMember(${targetUserId})`, member);
+      setErrorText(`Fetched member ${targetUserId} via official API.`);
+    });
+  };
+
+  const resolveMenuButtonTargetChatId = () => {
+    if (groupMenuButtonDraft.scope === 'default') {
+      return undefined;
+    }
+    const parsed = Math.floor(Number(groupMenuButtonDraft.targetChatId.trim()));
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+    return selectedUser.id;
+  };
+
+  const onSetGroupMenuButtonFromDraft = async () => {
+    await runGroupAction(async () => {
+      const payload: SetChatMenuButtonRequest = {
+        chat_id: resolveMenuButtonTargetChatId(),
+        menu_button: buildMenuButtonFromDraft(groupMenuButtonDraft),
+      };
+      await setChatMenuButton(selectedBotToken, payload, selectedUser.id);
+      setGroupMenuButtonSummary(parseMenuButtonSummary(payload.menu_button as GeneratedMenuButton));
+      setErrorText('setChatMenuButton completed.');
+    });
+  };
+
+  const onGetGroupMenuButtonFromDraft = async () => {
+    await runGroupAction(async () => {
+      const payload: GetChatMenuButtonRequest = {
+        chat_id: resolveMenuButtonTargetChatId(),
+      };
+      const menuButton = await getChatMenuButton(selectedBotToken, payload, selectedUser.id);
+      setGroupMenuButtonSummary(parseMenuButtonSummary(menuButton));
+      setErrorText('getChatMenuButton completed.');
+    });
+  };
+
+  const onToggleGroupPrivacyMode = async () => {
+    setIsGroupPrivacyModeLoading(true);
+    setErrorText('');
+    try {
+      const next = !groupPrivacyModeEnabled;
+      const updated = await setSimBotPrivacyMode(selectedBotToken, next);
+      setGroupPrivacyModeEnabled(updated.enabled);
+      setErrorText(`Bot privacy mode ${updated.enabled ? 'enabled' : 'disabled'}.`);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Privacy mode update failed');
+    } finally {
+      setIsGroupPrivacyModeLoading(false);
     }
   };
 
@@ -2920,6 +3714,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         delete next[groupStateKey];
         return next;
       });
+      setPinnedMessageByChatKey((prev) => {
+        const next = { ...prev };
+        delete next[groupStateKey];
+        return next;
+      });
       setShowGroupActionsModal(false);
       setShowGroupProfileModal(false);
       setErrorText('Group deleted.');
@@ -2936,20 +3735,17 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     setIsBootstrapping(true);
     setErrorText('');
     try {
-      const result = await approveSimulationGroupJoinRequest(selectedBotToken, {
+      const approved = await approveChatJoinRequest(selectedBotToken, {
         chat_id: selectedGroup.id,
         user_id: request.userId,
-        actor_user_id: selectedUser.id,
-        actor_first_name: selectedUser.first_name,
-        actor_username: selectedUser.username,
-      });
+      }, selectedUser.id);
 
       const key = `${selectedBotToken}:${selectedGroup.id}`;
       setPendingJoinRequestsByChat((prev) => ({
         ...prev,
         [key]: (prev[key] || []).filter((item) => item.userId !== request.userId),
       }));
-      if (result.joined) {
+      if (approved) {
         setGroupMembershipByUser((prev) => ({
           ...prev,
           [`${selectedBotToken}:${selectedGroup.id}:${request.userId}`]: 'member',
@@ -2970,13 +3766,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     setIsBootstrapping(true);
     setErrorText('');
     try {
-      await declineSimulationGroupJoinRequest(selectedBotToken, {
+      await declineChatJoinRequest(selectedBotToken, {
         chat_id: selectedGroup.id,
         user_id: request.userId,
-        actor_user_id: selectedUser.id,
-        actor_first_name: selectedUser.first_name,
-        actor_username: selectedUser.username,
-      });
+      }, selectedUser.id);
 
       const key = `${selectedBotToken}:${selectedGroup.id}`;
       setPendingJoinRequestsByChat((prev) => ({
@@ -3023,9 +3816,346 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       allowChangeInfo: currentSettings.allowChangeInfo ?? false,
       allowManageTopics: currentSettings.allowManageTopics ?? false,
     });
+    setGroupPhotoDraftFile(null);
+    setRemoveGroupPhotoDraft(false);
+    setGroupStickerSetDraft('');
+    setRemoveGroupStickerSetDraft(false);
     setShowGroupProfileModal(true);
     setShowGroupActionsModal(false);
     setChatMenuOpen(false);
+  };
+
+  const onBackFromGroupProfile = () => {
+    setShowGroupProfileModal(false);
+    setGroupSettingsPage('home');
+    setExpandedGroupMemberId(null);
+    setShowGroupActionsModal(true);
+  };
+
+  const runGroupAction = async (action: () => Promise<void>) => {
+    setIsGroupActionRunning(true);
+    setErrorText('');
+    try {
+      await action();
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Group action failed');
+    } finally {
+      setIsGroupActionRunning(false);
+    }
+  };
+
+  const onBanGroupMember = async (targetUserId: number) => {
+    if (!selectedGroup || !canEditSelectedGroup) {
+      return;
+    }
+    await runGroupAction(async () => {
+      await banChatMember(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        user_id: targetUserId,
+      }, selectedUser.id);
+      setGroupMembershipByUser((prev) => ({
+        ...prev,
+        [`${selectedBotToken}:${selectedGroup.id}:${targetUserId}`]: 'banned',
+      }));
+      setErrorText(`User ${targetUserId} banned.`);
+    });
+  };
+
+  const onUnbanGroupMember = async (targetUserId: number) => {
+    if (!selectedGroup || !canEditSelectedGroup) {
+      return;
+    }
+    await runGroupAction(async () => {
+      await unbanChatMember(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        user_id: targetUserId,
+      }, selectedUser.id);
+      setGroupMembershipByUser((prev) => ({
+        ...prev,
+        [`${selectedBotToken}:${selectedGroup.id}:${targetUserId}`]: 'left',
+      }));
+      setErrorText(`User ${targetUserId} unbanned.`);
+    });
+  };
+
+  const hydrateGroupMemberMeta = async (targetUserId: number) => {
+    if (!selectedGroup || !canEditSelectedGroup) {
+      return;
+    }
+    if (groupMemberMetaByUserId[targetUserId]) {
+      return;
+    }
+
+    try {
+      const member = await getChatMember(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        user_id: targetUserId,
+      }, selectedUser.id);
+      applyGroupMemberMetaState(targetUserId, member);
+    } catch {
+      // Keep UI responsive even if metadata fetch fails.
+    }
+  };
+
+  const onToggleGroupMemberExpanded = (targetUserId: number) => {
+    setExpandedGroupMemberId((current) => {
+      const next = current === targetUserId ? null : targetUserId;
+      if (next === targetUserId) {
+        void hydrateGroupMemberMeta(targetUserId);
+      }
+      return next;
+    });
+    setGroupMemberRestrictionDraftByUserId((prev) => {
+      if (prev[targetUserId]) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [targetUserId]: defaultGroupMemberRestrictionDraft(),
+      };
+    });
+  };
+
+  const onUpdateGroupMemberRestrictionDraft = (
+    targetUserId: number,
+    patch: Partial<GroupMemberRestrictionDraft>,
+  ) => {
+    setGroupMemberRestrictionDraftByUserId((prev) => ({
+      ...prev,
+      [targetUserId]: {
+        ...(prev[targetUserId] || defaultGroupMemberRestrictionDraft()),
+        ...patch,
+      },
+    }));
+  };
+
+  const onApplyGroupMemberRestriction = async (targetUserId: number) => {
+    if (!selectedGroup || !canEditSelectedGroup) {
+      return;
+    }
+
+    const draft = groupMemberRestrictionDraftByUserId[targetUserId] || defaultGroupMemberRestrictionDraft();
+    const untilHours = Math.max(1, Math.floor(Number(draft.untilHours) || 1));
+    const untilDate = Math.floor(Date.now() / 1000) + (untilHours * 60 * 60);
+
+    await runGroupAction(async () => {
+      await restrictChatMember(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        user_id: targetUserId,
+        permissions: mapRestrictionDraftToPermissions(draft),
+        until_date: untilDate,
+      }, selectedUser.id);
+
+      setGroupMembershipByUser((prev) => ({
+        ...prev,
+        [`${selectedBotToken}:${selectedGroup.id}:${targetUserId}`]: 'restricted',
+      }));
+      setErrorText(`Restrictions applied to user ${targetUserId}.`);
+    });
+  };
+
+  const onLiftGroupMemberRestriction = async (targetUserId: number) => {
+    if (!selectedGroup || !canEditSelectedGroup) {
+      return;
+    }
+
+    await runGroupAction(async () => {
+      await restrictChatMember(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        user_id: targetUserId,
+        permissions: fullMemberPermissions(),
+        until_date: undefined,
+      }, selectedUser.id);
+
+      setGroupMembershipByUser((prev) => ({
+        ...prev,
+        [`${selectedBotToken}:${selectedGroup.id}:${targetUserId}`]: 'member',
+      }));
+      setErrorText(`Restrictions lifted for user ${targetUserId}.`);
+    });
+  };
+
+  const onPromoteGroupMember = async (targetUserId: number, promote: boolean) => {
+    if (!selectedGroup || !canEditSelectedGroup) {
+      return;
+    }
+    await runGroupAction(async () => {
+      await promoteChatMember(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        user_id: targetUserId,
+        can_manage_chat: promote,
+        can_delete_messages: promote,
+        can_manage_video_chats: promote,
+        can_restrict_members: promote,
+        can_promote_members: false,
+        can_change_info: promote,
+        can_invite_users: promote,
+        can_post_stories: promote,
+        can_edit_stories: promote,
+        can_delete_stories: promote,
+        can_pin_messages: promote,
+        can_manage_topics: promote,
+      }, selectedUser.id);
+      setGroupMembershipByUser((prev) => ({
+        ...prev,
+        [`${selectedBotToken}:${selectedGroup.id}:${targetUserId}`]: promote ? 'admin' : 'member',
+      }));
+      setErrorText(promote
+        ? `User ${targetUserId} promoted to admin.`
+        : `User ${targetUserId} demoted to member.`);
+    });
+  };
+
+  const onSetGroupAdminTitle = async (targetUserId: number, customTitle: string) => {
+    if (!selectedGroup || !canEditSelectedGroup) {
+      return;
+    }
+    const normalizedTitle = customTitle.trim();
+    if (!normalizedTitle) {
+      setErrorText('Admin custom title is empty.');
+      return;
+    }
+    await runGroupAction(async () => {
+      await setChatAdministratorCustomTitle(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        user_id: targetUserId,
+        custom_title: normalizedTitle,
+      }, selectedUser.id);
+      setGroupMemberMetaByUserId((prev) => ({
+        ...prev,
+        [targetUserId]: {
+          ...(prev[targetUserId] || {}),
+          customTitle: normalizedTitle,
+        },
+      }));
+      setErrorText(`Admin title set for user ${targetUserId}.`);
+    });
+  };
+
+  const onSetGroupMemberTag = async (targetUserId: number, tag?: string) => {
+    if (!selectedGroup || !canEditSelectedGroup) {
+      return;
+    }
+    await runGroupAction(async () => {
+      const normalizedTag = tag?.trim() || undefined;
+      await setChatMemberTag(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        user_id: targetUserId,
+        tag: normalizedTag,
+      }, selectedUser.id);
+      setGroupMemberMetaByUserId((prev) => ({
+        ...prev,
+        [targetUserId]: {
+          ...(prev[targetUserId] || {}),
+          tag: normalizedTag,
+        },
+      }));
+      setErrorText(`Tag updated for user ${targetUserId}.`);
+    });
+  };
+
+  const onBanSenderChat = async (ban: boolean, senderChatId: number) => {
+    if (!selectedGroup || !canEditSelectedGroup) {
+      return;
+    }
+    if (!Number.isFinite(senderChatId) || senderChatId <= 0) {
+      setErrorText('Sender chat id is invalid.');
+      return;
+    }
+    await runGroupAction(async () => {
+      if (ban) {
+        await banChatSenderChat(selectedBotToken, {
+          chat_id: selectedGroup.id,
+          sender_chat_id: senderChatId,
+        }, selectedUser.id);
+      } else {
+        await unbanChatSenderChat(selectedBotToken, {
+          chat_id: selectedGroup.id,
+          sender_chat_id: senderChatId,
+        }, selectedUser.id);
+      }
+      setErrorText(ban
+        ? `Sender chat ${senderChatId} banned.`
+        : `Sender chat ${senderChatId} unbanned.`);
+    });
+  };
+
+  const onPinMessageById = async (messageId: number) => {
+    if (!selectedGroup || !selectedGroupStateKey || !canPinInSelectedGroup) {
+      return;
+    }
+    await runGroupAction(async () => {
+      await pinChatMessage(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        message_id: messageId,
+        disable_notification: true,
+      }, selectedUser.id);
+      setPinnedMessageByChatKey((prev) => {
+        const current = prev[selectedGroupStateKey] || [];
+        const next = [...current.filter((id) => id !== messageId), messageId];
+        return {
+          ...prev,
+          [selectedGroupStateKey]: next,
+        };
+      });
+      setErrorText(`Pinned message ${messageId}.`);
+    });
+  };
+
+  const onUnpinMessageById = async (messageId?: number) => {
+    if (!selectedGroup || !selectedGroupStateKey || !canPinInSelectedGroup) {
+      return;
+    }
+
+    await runGroupAction(async () => {
+      if (messageId) {
+        await unpinChatMessage(selectedBotToken, {
+          chat_id: selectedGroup.id,
+          message_id: messageId,
+        }, selectedUser.id);
+      } else {
+        await unpinAllChatMessages(selectedBotToken, {
+          chat_id: selectedGroup.id,
+        }, selectedUser.id);
+      }
+
+      setPinnedMessageByChatKey((prev) => {
+        if (!messageId) {
+          const next = { ...prev };
+          delete next[selectedGroupStateKey];
+          return next;
+        }
+
+        const current = prev[selectedGroupStateKey] || [];
+        const nextList = current.filter((id) => id !== messageId);
+        if (nextList.length === 0) {
+          const next = { ...prev };
+          delete next[selectedGroupStateKey];
+          return next;
+        }
+        return {
+          ...prev,
+          [selectedGroupStateKey]: nextList,
+        };
+      });
+      setErrorText(messageId ? 'Pinned message removed.' : 'All pinned messages cleared.');
+    });
+  };
+
+  const onBotLeaveByApi = async () => {
+    if (!selectedGroup || !selectedBot || !canEditSelectedGroup) {
+      return;
+    }
+    await runGroupAction(async () => {
+      await leaveChat(selectedBotToken, {
+        chat_id: selectedGroup.id,
+      });
+      setGroupMembershipByUser((prev) => ({
+        ...prev,
+        [`${selectedBotToken}:${selectedGroup.id}:${selectedBot.id}`]: 'left',
+      }));
+      setErrorText('Bot left the group via leaveChat.');
+    });
   };
 
   const onSaveGroupProfile = async () => {
@@ -3037,7 +4167,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       return;
     }
 
-    setIsBootstrapping(true);
+    setIsGroupActionRunning(true);
     setErrorText('');
     try {
       const normalizedSlowModeDelay = Math.max(0, Math.floor(Number(groupProfileDraft.slowModeDelay) || 0));
@@ -3060,18 +4190,56 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         allowChangeInfo: groupProfileDraft.allowChangeInfo,
         allowManageTopics: groupProfileDraft.allowManageTopics,
       };
+
+      await setChatTitle(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        title: groupProfileDraft.title.trim(),
+      }, selectedUser.id);
+
+      await setChatDescription(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        description: groupProfileDraft.description.trim() || undefined,
+      }, selectedUser.id);
+
+      await setChatPermissions(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        permissions: mapSnapshotToServerPermissions(draftSettings),
+      }, selectedUser.id);
+
+      if (groupPhotoDraftFile) {
+        await setChatPhoto(selectedBotToken, {
+          chat_id: selectedGroup.id,
+          photo: groupPhotoDraftFile,
+        }, selectedUser.id);
+      } else if (removeGroupPhotoDraft) {
+        await deleteChatPhoto(selectedBotToken, {
+          chat_id: selectedGroup.id,
+        }, selectedUser.id);
+      }
+
+      const stickerSetName = groupStickerSetDraft.trim();
+      if (selectedGroup.type === 'supergroup') {
+        if (stickerSetName) {
+          await setChatStickerSet(selectedBotToken, {
+            chat_id: selectedGroup.id,
+            sticker_set_name: stickerSetName,
+          }, selectedUser.id);
+        } else if (removeGroupStickerSetDraft) {
+          await deleteChatStickerSet(selectedBotToken, {
+            chat_id: selectedGroup.id,
+          }, selectedUser.id);
+        }
+      }
+
       const result = await updateSimulationGroup(selectedBotToken, {
         chat_id: selectedGroup.id,
         user_id: selectedUser.id,
         actor_first_name: selectedUser.first_name,
         actor_username: selectedUser.username,
-        title: groupProfileDraft.title.trim() || undefined,
         username: groupProfileDraft.username.trim() || undefined,
-        description: groupProfileDraft.description.trim() || undefined,
         is_forum: selectedGroup.type === 'supergroup' ? groupProfileDraft.isForum : undefined,
         message_history_visible: draftSettings.messageHistoryVisible,
         slow_mode_delay: draftSettings.slowModeDelay,
-        permissions: mapSnapshotToServerPermissions(draftSettings),
       });
 
       const updatedSettings = result.settings
@@ -3096,7 +4264,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'Failed to update group profile');
     } finally {
-      setIsBootstrapping(false);
+      setIsGroupActionRunning(false);
     }
   };
 
@@ -3246,8 +4414,20 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
   };
 
+  const canEditMessageByActiveActor = (message: ChatMessage) => {
+    if (!selectedBot) {
+      return false;
+    }
+    if (message.isInlineOrigin || message.viaBotUsername || message.service) {
+      return false;
+    }
+
+    const ownerIsActiveUser = message.fromUserId === selectedUser.id;
+    return ownerIsActiveUser;
+  };
+
   const onEditMessage = (message: ChatMessage) => {
-    if (message.isOutgoing || message.isInlineOrigin || message.viaBotUsername) {
+    if (!canEditMessageByActiveActor(message)) {
       setMessageMenu(null);
       return;
     }
@@ -3594,6 +4774,17 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       setMessages((prev) => prev.filter((item) => !(
         item.botToken === selectedBotToken && item.chatId === selectedChatId && item.id === message.id
       )));
+
+      setPinnedMessageByChatKey((prev) => {
+        const next: Record<string, number[]> = {};
+        Object.entries(prev).forEach(([key, ids]) => {
+          const filtered = ids.filter((id) => id !== message.id);
+          if (filtered.length > 0) {
+            next[key] = filtered;
+          }
+        });
+        return next;
+      });
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'Message delete failed');
     }
@@ -3617,6 +4808,18 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         item.chatId === selectedChatId &&
         selectedMessageIds.includes(item.id)
       )));
+
+      setPinnedMessageByChatKey((prev) => {
+        const selectedSet = new Set(selectedMessageIds);
+        const next: Record<string, number[]> = {};
+        Object.entries(prev).forEach(([key, ids]) => {
+          const filtered = ids.filter((id) => !selectedSet.has(id));
+          if (filtered.length > 0) {
+            next[key] = filtered;
+          }
+        });
+        return next;
+      });
 
       setSelectedMessageIds([]);
       setSelectionMode(false);
@@ -5375,10 +6578,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     <button
                       type="button"
                       onClick={() => void onCreateGroup()}
-                      disabled={isBootstrapping || !groupDraft.title.trim()}
+                      disabled={isCreatingGroup || !groupDraft.title.trim()}
                       className="w-full rounded-lg bg-[#2b5278] px-3 py-2 text-white disabled:opacity-50"
                     >
-                      Create Group
+                      {isCreatingGroup ? 'Creating...' : 'Create Group'}
                     </button>
                   </div>
                 ) : null}
@@ -5606,6 +6809,12 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     <button
                       type="button"
                       onClick={() => {
+                        setGroupInviteEditorDraft((prev) => ({
+                          ...prev,
+                          inviteLink: selectedGroupInviteLink || prev.inviteLink,
+                        }));
+                        setGroupSettingsPage('home');
+                        setExpandedGroupMemberId(null);
                         setShowGroupActionsModal(true);
                         setChatMenuOpen(false);
                       }}
@@ -5613,6 +6822,19 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       className="w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10 disabled:opacity-40"
                     >
                       Open group controls
+                    </button>
+                  ) : null}
+                  {chatScopeTab === 'group' ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void onLeaveSelectedGroup();
+                        setChatMenuOpen(false);
+                      }}
+                      disabled={!selectedGroup || !canLeaveSelectedGroup}
+                      className="w-full rounded-lg px-3 py-2 text-left text-sm text-orange-200 hover:bg-white/10 disabled:opacity-40"
+                    >
+                      Leave group
                     </button>
                   ) : null}
                   <button
@@ -5681,6 +6903,94 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             </div>
           ) : null}
 
+          {chatScopeTab === 'group' && selectedGroup && selectedPinnedMessages.length > 0 ? (
+            <div className="shrink-0 border-b border-white/10 bg-[#0f2231]/90 px-3 py-2 backdrop-blur sm:px-4 lg:px-6">
+              <div className="mx-auto w-full max-w-3xl rounded-2xl border border-[#4d7390]/45 bg-[#112a3e]/90 p-2 shadow-lg">
+                <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#7db9de]/45 bg-[#143a55]/70">
+                    <MapPinned className="h-4 w-4 text-[#9ed8ff]" />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (activePinnedMessage) {
+                        scrollToMessage(activePinnedMessage.id);
+                      }
+                    }}
+                    className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-left hover:bg-black/30"
+                  >
+                    <p className="truncate text-[10px] font-semibold uppercase tracking-wide text-[#9fd8ff]">
+                      Pinned {Math.min(pinnedPreviewIndex + 1, selectedPinnedMessages.length)} / {selectedPinnedMessages.length}
+                      {activePinnedMessage ? ` · #${activePinnedMessage.id}` : ''}
+                    </p>
+                    <p className="truncate text-sm text-[#def1ff]">
+                      {activePinnedMessage
+                        ? (activePinnedMessage.text || (activePinnedMessage.media ? `[${activePinnedMessage.media.type}]` : 'Pinned message'))
+                        : 'Pinned message'}
+                    </p>
+                  </button>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPinnedPreviewIndex((prev) => {
+                          if (selectedPinnedMessages.length === 0) {
+                            return 0;
+                          }
+                          return (prev - 1 + selectedPinnedMessages.length) % selectedPinnedMessages.length;
+                        });
+                      }}
+                      disabled={selectedPinnedMessages.length <= 1}
+                      className="rounded-lg border border-white/20 bg-black/20 p-1.5 text-[#cbe7fa] hover:bg-white/10 disabled:opacity-40"
+                      title="Previous pinned"
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPinnedPreviewIndex((prev) => {
+                          if (selectedPinnedMessages.length === 0) {
+                            return 0;
+                          }
+                          return (prev + 1) % selectedPinnedMessages.length;
+                        });
+                      }}
+                      disabled={selectedPinnedMessages.length <= 1}
+                      className="rounded-lg border border-white/20 bg-black/20 p-1.5 text-[#cbe7fa] hover:bg-white/10 disabled:opacity-40"
+                      title="Next pinned"
+                    >
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+
+                  {canPinInSelectedGroup ? (
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => void onUnpinMessageById(activePinnedMessage?.id)}
+                        disabled={isGroupActionRunning || !activePinnedMessage}
+                        className="rounded-lg border border-white/20 bg-black/20 px-2 py-1 text-[11px] text-white hover:bg-white/10 disabled:opacity-40"
+                      >
+                        Unpin
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void onUnpinMessageById()}
+                        disabled={isGroupActionRunning}
+                        className="rounded-lg border border-red-300/35 bg-red-900/20 px-2 py-1 text-[11px] text-red-100 hover:bg-red-900/30 disabled:opacity-40"
+                      >
+                        Unpin all
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           <main
             ref={messagesContainerRef}
             onScroll={onMessagesScroll}
@@ -5711,6 +7021,12 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   if (block.kind === 'single') {
                     const message = block.message;
                     const isOutgoingForSelected = isMessageOutgoingForSelected(message);
+                    const senderBadges = chatScopeTab === 'group'
+                      ? resolveGroupSenderBadges(message.fromUserId)
+                      : {};
+                    const commandTargetBotUsername = chatScopeTab === 'group'
+                      ? extractBotCommandTargetUsername(message.text, message.entities || message.captionEntities)
+                      : null;
                     const isMediaOnly = Boolean(
                       message.media
                       && !message.text
@@ -5734,9 +7050,27 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                           message.service ? '' : (isOutgoingForSelected ? 'ml-auto rounded-br-md bg-[#2b5278]' : 'mr-auto rounded-bl-md bg-[#182533]'),
                         ].join(' ')}
                       >
-                        {chatScopeTab === 'group' && !message.service && !isOutgoingForSelected ? (
-                          <div className="mb-2 text-[11px] font-medium text-[#9dd4ff]">
-                            {message.fromName}
+                        {chatScopeTab === 'group' && !message.service && (!isOutgoingForSelected || commandTargetBotUsername) ? (
+                          <div className={[
+                            'mb-2 flex flex-wrap items-center gap-1.5 text-[11px] font-medium',
+                            isOutgoingForSelected ? 'justify-end text-[#c6e5fb]' : 'text-[#9dd4ff]',
+                          ].join(' ')}>
+                            {!isOutgoingForSelected ? <span>{message.fromName}</span> : null}
+                            {!isOutgoingForSelected && senderBadges.customTitle ? (
+                              <span className="rounded border border-amber-300/35 bg-amber-900/25 px-1.5 py-0.5 text-[10px] text-amber-100">
+                                {senderBadges.customTitle}
+                              </span>
+                            ) : null}
+                            {!isOutgoingForSelected && senderBadges.tag ? (
+                              <span className="rounded border border-sky-300/35 bg-sky-900/25 px-1.5 py-0.5 text-[10px] text-sky-100">
+                                {senderBadges.tag}
+                              </span>
+                            ) : null}
+                            {commandTargetBotUsername ? (
+                              <span className="rounded border border-emerald-300/35 bg-emerald-900/25 px-1.5 py-0.5 text-[10px] text-emerald-100">
+                                to @{commandTargetBotUsername}
+                              </span>
+                            ) : null}
                           </div>
                         ) : null}
                         {message.replyTo ? (
@@ -5782,6 +7116,12 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
                   const lead = block.messages[0];
                   const leadIsOutgoingForSelected = isMessageOutgoingForSelected(lead);
+                  const leadSenderBadges = chatScopeTab === 'group'
+                    ? resolveGroupSenderBadges(lead.fromUserId)
+                    : {};
+                  const leadCommandTargetBotUsername = chatScopeTab === 'group'
+                    ? extractBotCommandTargetUsername(lead.text, lead.entities || lead.captionEntities)
+                    : null;
                   return (
                     <div
                       key={`album-${block.mediaGroupId}-${lead.id}`}
@@ -5796,8 +7136,28 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         leadIsOutgoingForSelected ? 'ml-auto rounded-br-md bg-[#2b5278]' : 'mr-auto rounded-bl-md bg-[#182533]',
                       ].join(' ')}
                     >
-                      {chatScopeTab === 'group' && !leadIsOutgoingForSelected ? (
-                        <div className="mb-2 text-[11px] font-medium text-[#9dd4ff]">{lead.fromName}</div>
+                      {chatScopeTab === 'group' && (!leadIsOutgoingForSelected || leadCommandTargetBotUsername) ? (
+                        <div className={[
+                          'mb-2 flex flex-wrap items-center gap-1.5 text-[11px] font-medium',
+                          leadIsOutgoingForSelected ? 'justify-end text-[#c6e5fb]' : 'text-[#9dd4ff]',
+                        ].join(' ')}>
+                          {!leadIsOutgoingForSelected ? <span>{lead.fromName}</span> : null}
+                          {!leadIsOutgoingForSelected && leadSenderBadges.customTitle ? (
+                            <span className="rounded border border-amber-300/35 bg-amber-900/25 px-1.5 py-0.5 text-[10px] text-amber-100">
+                              {leadSenderBadges.customTitle}
+                            </span>
+                          ) : null}
+                          {!leadIsOutgoingForSelected && leadSenderBadges.tag ? (
+                            <span className="rounded border border-sky-300/35 bg-sky-900/25 px-1.5 py-0.5 text-[10px] text-sky-100">
+                              {leadSenderBadges.tag}
+                            </span>
+                          ) : null}
+                          {leadCommandTargetBotUsername ? (
+                            <span className="rounded border border-emerald-300/35 bg-emerald-900/25 px-1.5 py-0.5 text-[10px] text-emerald-100">
+                              to @{leadCommandTargetBotUsername}
+                            </span>
+                          ) : null}
+                        </div>
                       ) : null}
                       {lead.replyTo ? (
                         <button
@@ -5883,6 +7243,14 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               </button>
             ) : (
               <div className="space-y-2">
+                {activeChatAction ? (
+                  <div className="flex items-center justify-between rounded-xl border border-[#79b7de]/35 bg-[#123149]/70 px-3 py-2 text-xs text-[#d2ebff]">
+                    <span className="truncate pr-2">
+                      {activeChatAction.actorName} is {formatChatActionLabel(activeChatAction.action)}...
+                    </span>
+                    <span className="text-[10px] text-[#a9d2ed]">chat action</span>
+                  </div>
+                ) : null}
                 {replyTarget ? (
                   <div className="flex items-center justify-between rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-xs text-telegram-textSecondary">
                     <span className="truncate pr-3">
@@ -7154,7 +8522,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               event.preventDefault();
               void commitBotModal();
             }}
-            className="w-full max-w-md rounded-2xl border border-white/10 bg-[#152434] p-4 shadow-2xl"
+            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-white/10 bg-[#152434] p-4 shadow-2xl"
           >
             <div className="mb-3 flex items-center justify-between">
               <h3 className="flex items-center gap-2 text-lg font-semibold">
@@ -7207,7 +8575,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               event.preventDefault();
               void commitUserModal();
             }}
-            className="w-full max-w-md rounded-2xl border border-white/10 bg-[#152434] p-4 shadow-2xl"
+            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-white/10 bg-[#152434] p-4 shadow-2xl"
           >
             <div className="mb-3 flex items-center justify-between">
               <h3 className="flex items-center gap-2 text-lg font-semibold">
@@ -7262,57 +8630,130 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
       {showGroupActionsModal && chatScopeTab === 'group' && selectedGroup ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#152434] p-4 shadow-2xl">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Group Controls</h3>
-              <button type="button" onClick={() => setShowGroupActionsModal(false)} className="rounded-full p-1 hover:bg-white/10">
+          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-white/10 bg-[#152434] p-4 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                {groupSettingsPage !== 'home' ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGroupSettingsPage('home');
+                      setExpandedGroupMemberId(null);
+                    }}
+                    className="rounded-full p-1.5 text-white hover:bg-white/10"
+                    title="Back"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </button>
+                ) : null}
+                <div className="min-w-0">
+                  <h3 className="truncate text-lg font-semibold text-white">{groupSettingsTitle}</h3>
+                  <p className="truncate text-xs text-[#99bfd9]">{selectedGroup.title} · {selectedGroup.id}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowGroupActionsModal(false);
+                  setGroupSettingsPage('home');
+                  setExpandedGroupMemberId(null);
+                }}
+                className="rounded-full p-1 hover:bg-white/10"
+              >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             <div className="mb-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-telegram-textSecondary">
-              <p>group: {selectedGroup.title}</p>
-              <p>id: {selectedGroup.id}</p>
               <p>your membership: {groupMembershipStatus || 'left'}</p>
               <p>bot status: {normalizedSelectedBotMembershipStatus || 'left'}</p>
+              <p>pinned messages: {selectedPinnedMessageIds.length}</p>
             </div>
 
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={onOpenGroupProfile}
-                disabled={!canEditSelectedGroup}
-                className="w-full rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-left text-sm text-white hover:bg-white/10 disabled:opacity-40"
-              >
-                Group info / edit
-              </button>
+            {groupSettingsPage === 'home' ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => void onJoinSelectedGroup()}
+                    disabled={isGroupActionRunning || groupMembership === 'joined'}
+                    className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                  >
+                    Join as {selectedUser.first_name}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void onLeaveSelectedGroup()}
+                    disabled={isGroupActionRunning || !canLeaveSelectedGroup}
+                    className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-orange-200 hover:bg-white/10 disabled:opacity-40"
+                  >
+                    Leave group
+                  </button>
+                </div>
 
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <button
                   type="button"
-                  onClick={() => void onJoinSelectedGroup()}
-                  disabled={groupMembership === 'joined'}
-                  className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                  onClick={onOpenGroupProfile}
+                  disabled={!canEditSelectedGroup}
+                  className="flex w-full items-center justify-between rounded-xl border border-white/15 bg-black/20 px-3 py-3 text-left text-sm text-white hover:bg-white/10 disabled:opacity-40"
                 >
-                  Join as {selectedUser.first_name}
+                  <span>Group info / edit</span>
+                  <ChevronRight className="h-3.5 w-3.5 text-[#9ec5de]" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setGroupSettingsPage('bot-membership')}
+                  className="flex w-full items-center justify-between rounded-xl border border-white/15 bg-black/20 px-3 py-3 text-left text-sm text-white hover:bg-white/10"
+                >
+                  <span>Bot membership</span>
+                  <ChevronRight className="h-4 w-4 text-[#9ec5de]" />
                 </button>
                 <button
                   type="button"
-                  onClick={() => void onLeaveSelectedGroup()}
-                  disabled={groupMembership !== 'joined'}
-                  className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-orange-200 hover:bg-white/10 disabled:opacity-40"
+                  onClick={() => setGroupSettingsPage('members')}
+                  disabled={!canEditSelectedGroup}
+                  className="flex w-full items-center justify-between rounded-xl border border-white/15 bg-black/20 px-3 py-3 text-left text-sm text-white hover:bg-white/10 disabled:opacity-40"
                 >
-                  Leave group
+                  <span>Members management</span>
+                  <ChevronRight className="h-4 w-4 text-[#9ec5de]" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGroupSettingsPage('discovery')}
+                  disabled={!canEditSelectedGroup}
+                  className="flex w-full items-center justify-between rounded-xl border border-white/15 bg-black/20 px-3 py-3 text-left text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                >
+                  <span>Discovery & invite links</span>
+                  <ChevronRight className="h-4 w-4 text-[#9ec5de]" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGroupSettingsPage('sender-chat')}
+                  disabled={!canEditSelectedGroup}
+                  className="flex w-full items-center justify-between rounded-xl border border-white/15 bg-black/20 px-3 py-3 text-left text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                >
+                  <span>Sender chat moderation</span>
+                  <ChevronRight className="h-4 w-4 text-[#9ec5de]" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGroupSettingsPage('danger-zone')}
+                  className="flex w-full items-center justify-between rounded-xl border border-red-400/35 bg-red-900/20 px-3 py-3 text-left text-sm text-red-100 hover:bg-red-900/30"
+                >
+                  <span>Danger zone</span>
+                  <ChevronRight className="h-4 w-4 text-red-200" />
                 </button>
               </div>
+            ) : null}
 
-              <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-                <p className="mb-2 text-xs uppercase tracking-wide text-[#8fb7d6]">Bot membership</p>
+            {groupSettingsPage === 'bot-membership' ? (
+              <div className="space-y-3">
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                   <button
                     type="button"
                     onClick={() => void onSetSelectedBotMembership('member')}
-                    disabled={!canEditSelectedGroup || !canSetSelectedBotAsMember}
+                    disabled={isGroupActionRunning || !canEditSelectedGroup || !canSetSelectedBotAsMember}
                     className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
                   >
                     Set member
@@ -7320,7 +8761,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   <button
                     type="button"
                     onClick={() => void onSetSelectedBotMembership('admin')}
-                    disabled={!canEditSelectedGroup || !canSetSelectedBotAsAdmin}
+                    disabled={isGroupActionRunning || !canEditSelectedGroup || !canSetSelectedBotAsAdmin}
                     className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
                   >
                     Set admin
@@ -7328,69 +8769,582 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   <button
                     type="button"
                     onClick={() => void onSetSelectedBotMembership('left')}
-                    disabled={!canEditSelectedGroup || !isSelectedBotInGroup}
+                    disabled={isGroupActionRunning || !canEditSelectedGroup || !isSelectedBotInGroup}
                     className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-orange-200 hover:bg-white/10 disabled:opacity-40"
                   >
                     Remove bot
                   </button>
                 </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <button
                   type="button"
-                  onClick={() => void onCreateGroupInviteLink(false)}
-                  disabled={!canEditSelectedGroup}
-                  className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                  onClick={() => void onBotLeaveByApi()}
+                  disabled={isGroupActionRunning || !canEditSelectedGroup || !isSelectedBotInGroup}
+                  className="w-full rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-orange-100 hover:bg-white/10 disabled:opacity-40"
                 >
-                  Create invite link
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void onCreateGroupInviteLink(true)}
-                  disabled={!canEditSelectedGroup}
-                  className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
-                >
-                  Create join-request link
+                  Bot leaveChat
                 </button>
               </div>
+            ) : null}
 
-              {selectedGroupInviteLink ? (
+            {groupSettingsPage === 'discovery' ? (
+              <div className="space-y-3">
+                <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                  <p className="mb-2 text-xs uppercase tracking-wide text-[#8fb7d6]">Chat inspector</p>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <button
+                      type="button"
+                      onClick={() => void onInspectSelectedGroupChat()}
+                      disabled={isGroupActionRunning || !canEditSelectedGroup}
+                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                    >
+                      getChat
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onInspectSelectedGroupAdmins()}
+                      disabled={isGroupActionRunning || !canEditSelectedGroup}
+                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                    >
+                      getChatAdministrators
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onInspectSelectedGroupMemberCount()}
+                      disabled={isGroupActionRunning || !canEditSelectedGroup}
+                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                    >
+                      getChatMemberCount
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                  <p className="mb-2 text-xs uppercase tracking-wide text-[#8fb7d6]">Privacy mode & menu button</p>
+
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <div className="rounded-lg border border-white/10 bg-[#0f1c28] px-3 py-2 text-xs text-telegram-textSecondary sm:col-span-2">
+                      Privacy mode: {groupPrivacyModeEnabled ? 'enabled (commands/mentions/replies only)' : 'disabled (all group messages)'}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void onToggleGroupPrivacyMode()}
+                      disabled={isGroupPrivacyModeLoading}
+                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                    >
+                      {isGroupPrivacyModeLoading
+                        ? 'Updating...'
+                        : (groupPrivacyModeEnabled ? 'Disable privacy mode' : 'Enable privacy mode')}
+                    </button>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <select
+                      value={groupMenuButtonDraft.scope}
+                      onChange={(event) => {
+                        const scope = event.target.value === 'private-chat' ? 'private-chat' : 'default';
+                        setGroupMenuButtonDraft((prev) => ({ ...prev, scope }));
+                      }}
+                      className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                    >
+                      <option value="default">default scope (all private chats)</option>
+                      <option value="private-chat">specific private chat</option>
+                    </select>
+                    <input
+                      value={groupMenuButtonDraft.targetChatId}
+                      onChange={(event) => setGroupMenuButtonDraft((prev) => ({ ...prev, targetChatId: event.target.value }))}
+                      disabled={groupMenuButtonDraft.scope === 'default'}
+                      className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none disabled:opacity-40"
+                      placeholder={`chat_id (default ${selectedUser.id})`}
+                    />
+                    <select
+                      value={groupMenuButtonDraft.type}
+                      onChange={(event) => {
+                        const rawType = event.target.value;
+                        const type = rawType === 'default' || rawType === 'web_app' || rawType === 'commands'
+                          ? rawType
+                          : 'commands';
+                        setGroupMenuButtonDraft((prev) => ({ ...prev, type }));
+                      }}
+                      className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                    >
+                      <option value="commands">commands</option>
+                      <option value="web_app">web_app</option>
+                      <option value="default">default</option>
+                    </select>
+                    <div className="rounded-lg border border-white/10 bg-[#0f1c28] px-3 py-2 text-xs text-telegram-textSecondary">
+                      Current summary: {groupMenuButtonSummary
+                        ? `${groupMenuButtonSummary.type}${groupMenuButtonSummary.text ? ` · ${groupMenuButtonSummary.text}` : ''}${groupMenuButtonSummary.url ? ` · ${groupMenuButtonSummary.url}` : ''}`
+                        : 'not loaded yet'}
+                    </div>
+                  </div>
+
+                  {groupMenuButtonDraft.type === 'web_app' ? (
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <input
+                        value={groupMenuButtonDraft.text}
+                        onChange={(event) => setGroupMenuButtonDraft((prev) => ({ ...prev, text: event.target.value }))}
+                        className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                        placeholder="web_app text"
+                      />
+                      <input
+                        value={groupMenuButtonDraft.webAppUrl}
+                        onChange={(event) => setGroupMenuButtonDraft((prev) => ({ ...prev, webAppUrl: event.target.value }))}
+                        className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                        placeholder="https://example.com"
+                      />
+                    </div>
+                  ) : null}
+
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => void onSetGroupMenuButtonFromDraft()}
+                      disabled={isGroupActionRunning}
+                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                    >
+                      setChatMenuButton
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onGetGroupMenuButtonFromDraft()}
+                      disabled={isGroupActionRunning}
+                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                    >
+                      getChatMenuButton
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                  <p className="mb-2 text-xs uppercase tracking-wide text-[#8fb7d6]">Invite links</p>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <button
+                      type="button"
+                      onClick={() => void onExportPrimaryInviteLink()}
+                      disabled={isGroupActionRunning || !canEditSelectedGroup}
+                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                    >
+                      exportChatInviteLink
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onCreateGroupInviteLink(false)}
+                      disabled={isGroupActionRunning || !canEditSelectedGroup}
+                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                    >
+                      createChatInviteLink
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onCreateGroupInviteLink(true)}
+                      disabled={isGroupActionRunning || !canEditSelectedGroup}
+                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                    >
+                      createJoinRequestLink
+                    </button>
+                  </div>
+
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <input
+                      value={groupInviteEditorDraft.inviteLink}
+                      onChange={(event) => setGroupInviteEditorDraft((prev) => ({ ...prev, inviteLink: event.target.value }))}
+                      className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                      placeholder="invite_link"
+                    />
+                    <input
+                      value={groupInviteEditorDraft.name}
+                      onChange={(event) => setGroupInviteEditorDraft((prev) => ({ ...prev, name: event.target.value }))}
+                      className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                      placeholder="name"
+                    />
+                    <input
+                      value={groupInviteEditorDraft.expireDate}
+                      onChange={(event) => setGroupInviteEditorDraft((prev) => ({ ...prev, expireDate: event.target.value }))}
+                      className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                      placeholder="expire_date (unix)"
+                    />
+                    <input
+                      value={groupInviteEditorDraft.memberLimit}
+                      onChange={(event) => setGroupInviteEditorDraft((prev) => ({ ...prev, memberLimit: event.target.value }))}
+                      className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                      placeholder="member_limit"
+                    />
+                    <label className="flex items-center gap-2 rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-xs text-telegram-textSecondary sm:col-span-2">
+                      <input
+                        type="checkbox"
+                        checked={groupInviteEditorDraft.createsJoinRequest}
+                        onChange={(event) => setGroupInviteEditorDraft((prev) => ({ ...prev, createsJoinRequest: event.target.checked }))}
+                      />
+                      creates_join_request
+                    </label>
+                  </div>
+
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => void onEditInviteLinkByDraft()}
+                      disabled={isGroupActionRunning || !canEditSelectedGroup}
+                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                    >
+                      editChatInviteLink
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onRevokeInviteLinkByDraft()}
+                      disabled={isGroupActionRunning || !canEditSelectedGroup}
+                      className="rounded-lg border border-red-400/35 bg-red-900/25 px-3 py-2 text-sm text-red-100 hover:bg-red-900/35 disabled:opacity-40"
+                    >
+                      revokeChatInviteLink
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                  <p className="mb-2 text-xs uppercase tracking-wide text-[#8fb7d6]">Subscription invite links</p>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <input
+                      value={groupInviteEditorDraft.subscriptionPeriod}
+                      onChange={(event) => setGroupInviteEditorDraft((prev) => ({ ...prev, subscriptionPeriod: event.target.value }))}
+                      className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                      placeholder="subscription_period"
+                    />
+                    <input
+                      value={groupInviteEditorDraft.subscriptionPrice}
+                      onChange={(event) => setGroupInviteEditorDraft((prev) => ({ ...prev, subscriptionPrice: event.target.value }))}
+                      className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                      placeholder="subscription_price"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void onCreateSubscriptionInviteLinkByDraft()}
+                      disabled={isGroupActionRunning || !canEditSelectedGroup}
+                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                    >
+                      createChatSubscriptionInviteLink
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onEditSubscriptionInviteLinkByDraft()}
+                      disabled={isGroupActionRunning || !canEditSelectedGroup}
+                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                    >
+                      editChatSubscriptionInviteLink
+                    </button>
+                  </div>
+                </div>
+
+                {selectedGroupInviteLink ? (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(selectedGroupInviteLink);
+                        setErrorText('Invite link copied.');
+                      } catch {
+                        setErrorText('Invite link copy failed.');
+                      }
+                    }}
+                    className="w-full truncate rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-left text-[11px] text-[#bfe4ff] hover:bg-[#14283a]"
+                    title={selectedGroupInviteLink}
+                  >
+                    Latest invite: {selectedGroupInviteLink}
+                  </button>
+                ) : null}
+
+                {groupInspectorOutput ? (
+                  <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <p className="text-xs uppercase tracking-wide text-[#8fb7d6]">Inspector output</p>
+                      <button
+                        type="button"
+                        onClick={() => setGroupInspectorOutput('')}
+                        className="rounded-full p-1 text-[#8fb7d6] hover:bg-white/10 hover:text-white"
+                        title="Close inspector output"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-md border border-white/10 bg-[#0f1a26] p-2 text-[11px] text-[#c5e5fb]">
+                      {groupInspectorOutput}
+                    </pre>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {groupSettingsPage === 'members' ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <input
+                    value={groupMembersFilter}
+                    onChange={(event) => setGroupMembersFilter(event.target.value)}
+                    className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                    placeholder="Search member by name / username / id"
+                  />
+                  <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-telegram-textSecondary">
+                    {selectedGroupMembers.length} member record(s)
+                  </div>
+                </div>
+
+                <div className="max-h-[56vh] space-y-2 overflow-auto pr-1">
+                  {selectedGroupMembers.map((member) => {
+                    const statusColor = member.status === 'owner'
+                      ? 'text-amber-200'
+                      : member.status === 'admin'
+                        ? 'text-sky-200'
+                        : member.status === 'banned'
+                          ? 'text-red-200'
+                          : member.status === 'restricted'
+                            ? 'text-orange-200'
+                            : 'text-emerald-200';
+                    const isExpanded = expandedGroupMemberId === member.userId;
+                    const restrictionDraft = groupMemberRestrictionDraftByUserId[member.userId] || defaultGroupMemberRestrictionDraft();
+
+                    return (
+                      <div key={`group-member-${member.userId}`} className="rounded-xl border border-white/10 bg-black/20 p-3">
+                        <button
+                          type="button"
+                          onClick={() => onToggleGroupMemberExpanded(member.userId)}
+                          className="flex w-full items-center justify-between text-left"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-white">
+                              {member.firstName}
+                              {member.isBot ? ' (bot)' : ''}
+                            </p>
+                            <p className="truncate text-xs text-telegram-textSecondary">
+                              @{member.username || `user_${member.userId}`} · id {member.userId}
+                            </p>
+                            {member.customTitle || member.tag ? (
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                {member.customTitle ? (
+                                  <span className="rounded border border-amber-300/35 bg-amber-900/25 px-1.5 py-0.5 text-[10px] text-amber-100">
+                                    admin: {member.customTitle}
+                                  </span>
+                                ) : null}
+                                {member.tag ? (
+                                  <span className="rounded border border-sky-300/35 bg-sky-900/25 px-1.5 py-0.5 text-[10px] text-sky-100">
+                                    tag: {member.tag}
+                                  </span>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                          <div className="ml-2 flex items-center gap-2">
+                            <span className={`rounded-full border border-white/15 px-2 py-1 text-[11px] ${statusColor}`}>
+                              {member.status}
+                            </span>
+                            <ChevronDown className={`h-4 w-4 text-[#9cc4de] transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                          </div>
+                        </button>
+
+                        {isExpanded ? (
+                          <div className="mt-3 space-y-3 border-t border-white/10 pt-3">
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                              <button
+                                type="button"
+                                onClick={() => void onBanGroupMember(member.userId)}
+                                disabled={isGroupActionRunning || !canEditSelectedGroup || member.status === 'owner' || member.status === 'banned'}
+                                className="rounded-lg border border-red-400/35 bg-red-900/25 px-3 py-2 text-sm text-red-100 hover:bg-red-900/35 disabled:opacity-40"
+                              >
+                                Ban
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void onUnbanGroupMember(member.userId)}
+                                disabled={isGroupActionRunning || !canEditSelectedGroup || member.status !== 'banned'}
+                                className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                              >
+                                Unban
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void onPromoteGroupMember(member.userId, member.status !== 'admin')}
+                                disabled={isGroupActionRunning || !canEditSelectedGroup || member.status === 'owner' || member.status === 'banned'}
+                                className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                              >
+                                {member.status === 'admin' ? 'Demote' : 'Promote'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void onInspectSelectedGroupMember(member.userId)}
+                                disabled={isGroupActionRunning || !canEditSelectedGroup}
+                                className="rounded-lg border border-[#7cbfe9]/35 bg-[#153349] px-3 py-2 text-sm text-[#d2eeff] hover:bg-[#1b425d] disabled:opacity-40 sm:col-span-3"
+                              >
+                                getChatMember
+                              </button>
+                            </div>
+
+                            <div className="rounded-lg border border-amber-400/30 bg-amber-900/20 p-3">
+                              <p className="mb-2 text-xs uppercase tracking-wide text-amber-100">Restriction controls</p>
+                              <div className="grid grid-cols-1 gap-2 text-xs text-[#d7e8f5] sm:grid-cols-2">
+                                <label className="flex items-center gap-2"><input type="checkbox" checked={restrictionDraft.canSendMessages} onChange={(event) => onUpdateGroupMemberRestrictionDraft(member.userId, { canSendMessages: event.target.checked })} />can_send_messages</label>
+                                <label className="flex items-center gap-2"><input type="checkbox" checked={restrictionDraft.canSendAudios} onChange={(event) => onUpdateGroupMemberRestrictionDraft(member.userId, { canSendAudios: event.target.checked })} />can_send_audios</label>
+                                <label className="flex items-center gap-2"><input type="checkbox" checked={restrictionDraft.canSendDocuments} onChange={(event) => onUpdateGroupMemberRestrictionDraft(member.userId, { canSendDocuments: event.target.checked })} />can_send_documents</label>
+                                <label className="flex items-center gap-2"><input type="checkbox" checked={restrictionDraft.canSendPhotos} onChange={(event) => onUpdateGroupMemberRestrictionDraft(member.userId, { canSendPhotos: event.target.checked })} />can_send_photos</label>
+                                <label className="flex items-center gap-2"><input type="checkbox" checked={restrictionDraft.canSendVideos} onChange={(event) => onUpdateGroupMemberRestrictionDraft(member.userId, { canSendVideos: event.target.checked })} />can_send_videos</label>
+                                <label className="flex items-center gap-2"><input type="checkbox" checked={restrictionDraft.canSendVideoNotes} onChange={(event) => onUpdateGroupMemberRestrictionDraft(member.userId, { canSendVideoNotes: event.target.checked })} />can_send_video_notes</label>
+                                <label className="flex items-center gap-2"><input type="checkbox" checked={restrictionDraft.canSendVoiceNotes} onChange={(event) => onUpdateGroupMemberRestrictionDraft(member.userId, { canSendVoiceNotes: event.target.checked })} />can_send_voice_notes</label>
+                                <label className="flex items-center gap-2"><input type="checkbox" checked={restrictionDraft.canSendPolls} onChange={(event) => onUpdateGroupMemberRestrictionDraft(member.userId, { canSendPolls: event.target.checked })} />can_send_polls</label>
+                                <label className="flex items-center gap-2"><input type="checkbox" checked={restrictionDraft.canSendOtherMessages} onChange={(event) => onUpdateGroupMemberRestrictionDraft(member.userId, { canSendOtherMessages: event.target.checked })} />can_send_other_messages</label>
+                                <label className="flex items-center gap-2"><input type="checkbox" checked={restrictionDraft.canAddWebPagePreviews} onChange={(event) => onUpdateGroupMemberRestrictionDraft(member.userId, { canAddWebPagePreviews: event.target.checked })} />can_add_web_page_previews</label>
+                                <label className="flex items-center gap-2"><input type="checkbox" checked={restrictionDraft.canInviteUsers} onChange={(event) => onUpdateGroupMemberRestrictionDraft(member.userId, { canInviteUsers: event.target.checked })} />can_invite_users</label>
+                                <label className="flex items-center gap-2"><input type="checkbox" checked={restrictionDraft.canChangeInfo} onChange={(event) => onUpdateGroupMemberRestrictionDraft(member.userId, { canChangeInfo: event.target.checked })} />can_change_info</label>
+                                <label className="flex items-center gap-2"><input type="checkbox" checked={restrictionDraft.canPinMessages} onChange={(event) => onUpdateGroupMemberRestrictionDraft(member.userId, { canPinMessages: event.target.checked })} />can_pin_messages</label>
+                                <label className="flex items-center gap-2"><input type="checkbox" checked={restrictionDraft.canManageTopics} onChange={(event) => onUpdateGroupMemberRestrictionDraft(member.userId, { canManageTopics: event.target.checked })} />can_manage_topics</label>
+                              </div>
+                              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                <input
+                                  value={restrictionDraft.untilHours}
+                                  onChange={(event) => onUpdateGroupMemberRestrictionDraft(member.userId, { untilHours: event.target.value })}
+                                  className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none sm:col-span-1"
+                                  placeholder="until hours"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => void onApplyGroupMemberRestriction(member.userId)}
+                                  disabled={isGroupActionRunning || !canEditSelectedGroup || member.status === 'owner' || member.status === 'banned'}
+                                  className="rounded-lg border border-amber-400/35 bg-amber-900/25 px-3 py-2 text-sm text-amber-100 hover:bg-amber-900/35 disabled:opacity-40"
+                                >
+                                  Apply restriction
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void onLiftGroupMemberRestriction(member.userId)}
+                                  disabled={isGroupActionRunning || !canEditSelectedGroup || member.status === 'owner' || member.status === 'banned'}
+                                  className="rounded-lg border border-emerald-400/35 bg-emerald-900/25 px-3 py-2 text-sm text-emerald-100 hover:bg-emerald-900/35 disabled:opacity-40"
+                                >
+                                  Lift restriction
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              <input
+                                value={groupMemberAdminTitleByUserId[member.userId] || ''}
+                                onChange={(event) => setGroupMemberAdminTitleByUserId((prev) => ({
+                                  ...prev,
+                                  [member.userId]: event.target.value,
+                                }))}
+                                className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                                placeholder="admin custom title"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => void onSetGroupAdminTitle(member.userId, groupMemberAdminTitleByUserId[member.userId] || '')}
+                                disabled={isGroupActionRunning || !canEditSelectedGroup || member.status !== 'admin'}
+                                className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                              >
+                                setChatAdministratorCustomTitle
+                              </button>
+                              <input
+                                value={groupMemberTagByUserId[member.userId] || ''}
+                                onChange={(event) => setGroupMemberTagByUserId((prev) => ({
+                                  ...prev,
+                                  [member.userId]: event.target.value,
+                                }))}
+                                className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                                placeholder="member tag"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => void onSetGroupMemberTag(member.userId, groupMemberTagByUserId[member.userId])}
+                                disabled={isGroupActionRunning || !canEditSelectedGroup || (member.status !== 'member' && member.status !== 'restricted')}
+                                className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                              >
+                                setChatMemberTag
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {groupInspectorOutput ? (
+                  <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <p className="text-xs uppercase tracking-wide text-[#8fb7d6]">Inspector output</p>
+                      <button
+                        type="button"
+                        onClick={() => setGroupInspectorOutput('')}
+                        className="rounded-full p-1 text-[#8fb7d6] hover:bg-white/10 hover:text-white"
+                        title="Close inspector output"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-md border border-white/10 bg-[#0f1a26] p-2 text-[11px] text-[#c5e5fb]">
+                      {groupInspectorOutput}
+                    </pre>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {groupSettingsPage === 'sender-chat' ? (
+              <div className="space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
+                <p className="text-xs uppercase tracking-wide text-[#8fb7d6]">Sender chat moderation</p>
+                <input
+                  value={groupSenderChatModerationDraft}
+                  onChange={(event) => setGroupSenderChatModerationDraft(event.target.value)}
+                  className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                  placeholder="sender_chat_id"
+                />
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => void onBanSenderChat(true, Number(groupSenderChatModerationDraft.trim()))}
+                    disabled={isGroupActionRunning || !canEditSelectedGroup}
+                    className="rounded-lg border border-red-400/35 bg-red-900/25 px-3 py-2 text-sm text-red-100 hover:bg-red-900/35 disabled:opacity-40"
+                  >
+                    banChatSenderChat
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void onBanSenderChat(false, Number(groupSenderChatModerationDraft.trim()))}
+                    disabled={isGroupActionRunning || !canEditSelectedGroup}
+                    className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                  >
+                    unbanChatSenderChat
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {groupSettingsPage === 'danger-zone' ? (
+              <div className="space-y-3 rounded-xl border border-red-400/35 bg-red-900/20 p-3">
+                <p className="text-sm text-red-100">Danger actions for this group.</p>
                 <button
                   type="button"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(selectedGroupInviteLink);
-                      setErrorText('Invite link copied.');
-                    } catch {
-                      setErrorText('Invite link copy failed.');
-                    }
-                  }}
-                  className="w-full truncate rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-left text-[11px] text-[#bfe4ff] hover:bg-[#14283a]"
-                  title={selectedGroupInviteLink}
+                  onClick={() => void onDeleteSelectedGroup()}
+                  disabled={isGroupActionRunning || !canDeleteSelectedGroup}
+                  className="w-full rounded-lg border border-red-400/35 bg-red-900/25 px-3 py-2 text-left text-sm text-red-200 hover:bg-red-900/35 disabled:opacity-40"
                 >
-                  Latest invite: {selectedGroupInviteLink}
+                  Delete group (owner)
                 </button>
-              ) : null}
-
-              <button
-                type="button"
-                onClick={() => void onDeleteSelectedGroup()}
-                disabled={!canDeleteSelectedGroup}
-                className="w-full rounded-lg border border-red-400/35 bg-red-900/25 px-3 py-2 text-left text-sm text-red-200 hover:bg-red-900/35 disabled:opacity-40"
-              >
-                Delete group (owner)
-              </button>
-            </div>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
 
       {showGroupProfileModal && selectedGroup ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#152434] p-4 shadow-2xl">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/10 bg-[#152434] p-4 shadow-2xl">
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Group Info & Edit</h3>
+              <div className="flex min-w-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onBackFromGroupProfile}
+                  className="rounded-full p-1 hover:bg-white/10"
+                  title="Back to group settings"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </button>
+                <h3 className="truncate text-lg font-semibold">Group Info & Edit</h3>
+              </div>
               <button type="button" onClick={() => setShowGroupProfileModal(false)} className="rounded-full p-1 hover:bg-white/10">
                 <X className="h-4 w-4" />
               </button>
@@ -7686,6 +9640,73 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   </label>
                 </div>
               </div>
+
+                <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3">
+                  <p className="mb-2 text-xs uppercase tracking-wide text-[#8fb7d6]">Profile media</p>
+                  <label className="mb-2 block text-xs text-telegram-textSecondary">Group photo</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0] ?? null;
+                      setGroupPhotoDraftFile(file);
+                      if (file) {
+                        setRemoveGroupPhotoDraft(false);
+                      }
+                    }}
+                    className="w-full rounded-lg border border-white/15 bg-[#0f1a26] px-2 py-1.5 text-xs text-white outline-none file:mr-3 file:rounded-md file:border-0 file:bg-[#2b5278] file:px-2 file:py-1 file:text-xs file:text-white"
+                  />
+                  {groupPhotoDraftFile ? (
+                    <p className="mt-1 text-[11px] text-[#9fc7e1]">Selected: {groupPhotoDraftFile.name}</p>
+                  ) : null}
+                  <label className="mt-2 flex items-center gap-2 text-xs text-telegram-textSecondary">
+                    <input
+                      type="checkbox"
+                      checked={removeGroupPhotoDraft}
+                      onChange={(event) => {
+                        const checked = event.target.checked;
+                        setRemoveGroupPhotoDraft(checked);
+                        if (checked) {
+                          setGroupPhotoDraftFile(null);
+                        }
+                      }}
+                    />
+                    deleteChatPhoto on save
+                  </label>
+                </div>
+
+                {selectedGroup.type === 'supergroup' ? (
+                  <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                    <p className="mb-2 text-xs uppercase tracking-wide text-[#8fb7d6]">Sticker set</p>
+                    <input
+                      value={groupStickerSetDraft}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setGroupStickerSetDraft(value);
+                        if (value.trim()) {
+                          setRemoveGroupStickerSetDraft(false);
+                        }
+                      }}
+                      className="w-full rounded-lg border border-white/15 bg-[#0f1a26] px-2 py-1.5 text-white outline-none"
+                      placeholder="sticker_set_name"
+                    />
+                    <label className="mt-2 flex items-center gap-2 text-xs text-telegram-textSecondary">
+                      <input
+                        type="checkbox"
+                        checked={removeGroupStickerSetDraft}
+                        onChange={(event) => {
+                          const checked = event.target.checked;
+                          setRemoveGroupStickerSetDraft(checked);
+                          if (checked) {
+                            setGroupStickerSetDraft('');
+                          }
+                        }}
+                      />
+                      deleteChatStickerSet on save
+                    </label>
+                  </div>
+                ) : null}
+              
               {selectedGroup.type === 'supergroup' ? (
                 <label className="flex items-center gap-2 text-sm text-telegram-textSecondary">
                   <input
@@ -7701,18 +9722,18 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             <div className="mt-3 flex items-center justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setShowGroupProfileModal(false)}
+                onClick={onBackFromGroupProfile}
                 className="rounded-lg border border-white/15 px-3 py-2 text-sm text-white hover:bg-white/10"
               >
-                Cancel
+                Back
               </button>
               <button
                 type="button"
                 onClick={() => void onSaveGroupProfile()}
-                disabled={isBootstrapping || !groupProfileDraft.title.trim() || !canEditSelectedGroup}
+                disabled={isGroupActionRunning || !groupProfileDraft.title.trim() || !canEditSelectedGroup}
                 className="rounded-lg bg-[#2b5278] px-3 py-2 text-sm font-medium text-white hover:bg-[#366892] disabled:opacity-50"
               >
-                Save group
+                {isGroupActionRunning ? 'Saving...' : 'Save group'}
               </button>
             </div>
           </div>
@@ -7763,13 +9784,29 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   <Reply className="h-4 w-4" />
                   Reply
                 </button>
-                {!target.isOutgoing && !target.isInlineOrigin && !target.viaBotUsername ? (
+                {canEditMessageByActiveActor(target) ? (
                   <button
                     type="button"
                     onClick={() => onEditMessage(target)}
                     className="w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10"
                   >
                     {target.media ? 'Edit caption/media' : 'Edit text'}
+                  </button>
+                ) : null}
+                {chatScopeTab === 'group' && canPinInSelectedGroup && !target.service ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isMessagePinned(target.id)) {
+                        void onUnpinMessageById(target.id);
+                      } else {
+                        void onPinMessageById(target.id);
+                      }
+                    }}
+                    disabled={isGroupActionRunning}
+                    className="w-full rounded-lg px-3 py-2 text-left text-sm text-[#d7efff] hover:bg-white/10 disabled:opacity-40"
+                  >
+                    {isMessagePinned(target.id) ? 'Unpin message' : 'Pin message'}
                   </button>
                 ) : null}
                 <button

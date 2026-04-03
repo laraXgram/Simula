@@ -15,7 +15,9 @@ use crate::routes::{
     bot_api_get, bot_api_post, file_download, health, sim_bootstrap, sim_clear_history, sim_create_bot,
     sim_create_group, sim_create_group_invite_link,
     sim_delete_group,
+    sim_get_privacy_mode,
     sim_set_bot_group_membership,
+    sim_set_privacy_mode,
     sim_join_group, sim_join_group_by_invite_link, sim_leave_group,
     sim_approve_join_request, sim_decline_join_request,
     sim_update_group,
@@ -67,6 +69,8 @@ async fn main() -> std::io::Result<()> {
             .service(bot_api_post)
             .service(file_download)
             .service(sim_bootstrap)
+            .service(sim_get_privacy_mode)
+            .service(sim_set_privacy_mode)
             .service(sim_send_user_message)
             .service(sim_send_user_media)
             .service(sim_send_user_dice)

@@ -32,13 +32,17 @@ use crate::handlers::{
     handle_sim_send_user_contact, handle_sim_send_user_dice, handle_sim_send_user_game, handle_sim_send_user_location, handle_sim_send_user_venue,
     handle_sim_send_inline_query,
     handle_sim_press_inline_button,
+    handle_sim_get_privacy_mode,
     handle_sim_set_user_reaction,
+    handle_sim_set_privacy_mode,
     handle_sim_vote_poll,
     handle_sim_update_bot,
     handle_sim_upsert_user,
     handle_download_file,
+    with_request_actor_user_id,
     SimChooseInlineResultRequest, SimClearHistoryRequest, SimCreateBotRequest, SimCreateGroupInviteLinkRequest, SimCreateGroupRequest, SimDeleteGroupRequest, SimJoinGroupByInviteLinkRequest, SimJoinGroupRequest, SimLeaveGroupRequest, SimPayInvoiceRequest, SimPressInlineButtonRequest, SimResolveJoinRequestRequest, SimSendInlineQueryRequest, SimSendUserMessageRequest, SimSetBotGroupMembershipRequest, SimSetUserReactionRequest, SimUpdateBotRequest, SimUpdateGroupRequest,
     SimSendUserContactRequest, SimSendUserDiceRequest, SimSendUserGameRequest, SimSendUserLocationRequest, SimSendUserVenueRequest,
+    SimSetPrivacyModeRequest,
     SimVotePollRequest,
     SimUpsertUserRequest,
 };
@@ -53,11 +57,16 @@ pub async fn health() -> impl Responder {
 pub async fn bot_api_get(
     state: Data<AppState>,
     path: web::Path<(String, String)>,
+    req: HttpRequest,
     query: Query<HashMap<String, String>>,
 ) -> impl Responder {
     let (token, method) = path.into_inner();
     let params = query_to_json_map(&query.into_inner());
-    into_telegram_response(dispatch_method(&state, &token, &method, params))
+    let actor_user_id = extract_request_actor_user_id(req.headers());
+    let result = with_request_actor_user_id(actor_user_id, || {
+        dispatch_method(&state, &token, &method, params)
+    });
+    into_telegram_response(result)
 }
 
 #[post("/bot{token}/{method}")]
@@ -119,13 +128,33 @@ pub async fn bot_api_post(
         }
     }
 
-    into_telegram_response(dispatch_method(&state, &token, &method, params))
+    let actor_user_id = extract_request_actor_user_id(req.headers());
+    let result = with_request_actor_user_id(actor_user_id, || {
+        dispatch_method(&state, &token, &method, params)
+    });
+    into_telegram_response(result)
 }
 
 #[get("/client-api/bot{token}/bootstrap")]
 pub async fn sim_bootstrap(state: Data<AppState>, path: web::Path<String>) -> impl Responder {
     let token = path.into_inner();
     into_telegram_response(handle_sim_bootstrap(&state, &token))
+}
+
+#[get("/client-api/bot{token}/privacy-mode")]
+pub async fn sim_get_privacy_mode(state: Data<AppState>, path: web::Path<String>) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_get_privacy_mode(&state, &token))
+}
+
+#[post("/client-api/bot{token}/privacy-mode")]
+pub async fn sim_set_privacy_mode(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimSetPrivacyModeRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_set_privacy_mode(&state, &token, payload.into_inner()))
 }
 
 #[post("/client-api/bot{token}/sendUserMessage")]
@@ -305,7 +334,11 @@ pub async fn sim_edit_user_message_media(
         }
     }
 
-    into_telegram_response(handle_sim_edit_user_message_media(&state, &token, params))
+    let actor_user_id = extract_request_actor_user_id(req.headers());
+    let result = with_request_actor_user_id(actor_user_id, || {
+        handle_sim_edit_user_message_media(&state, &token, params)
+    });
+    into_telegram_response(result)
 }
 
 #[post("/client-api/bot{token}/setUserReaction")]
@@ -576,6 +609,14 @@ fn query_to_json_map(query: &HashMap<String, String>) -> HashMap<String, Value> 
         .iter()
         .map(|(k, v)| (k.clone(), guess_json_value(v)))
         .collect()
+}
+
+fn extract_request_actor_user_id(headers: &actix_web::http::header::HeaderMap) -> Option<i64> {
+    headers
+        .get("x-laragram-actor-user-id")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .filter(|value| *value > 0)
 }
 
 fn guess_json_value(raw: &str) -> Value {

@@ -49,6 +49,8 @@ export interface SimChatMembership {
   user_id: number;
   status: string;
   role: string;
+  custom_title?: string;
+  tag?: string;
 }
 
 export interface SimChatJoinRequest {
@@ -179,4 +181,19 @@ export type BotUpdate = Omit<GeneratedUpdate,
   chosen_inline_result?: GeneratedChosenInlineResult;
   message_reaction?: GeneratedMessageReactionUpdated;
   message_reaction_count?: GeneratedMessageReactionCountUpdated;
+  chat_action?: {
+    chat?: {
+      id: number;
+    };
+    chat_id?: number;
+    action: string;
+    actor?: {
+      id?: number;
+      is_bot?: boolean;
+      first_name?: string;
+      username?: string;
+    };
+    from_user_id?: number;
+    from_name?: string;
+  };
 };

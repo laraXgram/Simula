@@ -85,6 +85,22 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
             created_at  INTEGER NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS sim_bot_runtime_settings (
+            bot_id                INTEGER PRIMARY KEY,
+            privacy_mode_enabled  INTEGER NOT NULL DEFAULT 1,
+            updated_at            INTEGER NOT NULL,
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS bot_chat_menu_buttons (
+            bot_id           INTEGER NOT NULL,
+            scope_key        TEXT NOT NULL,
+            menu_button_json TEXT NOT NULL,
+            updated_at       INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, scope_key),
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );
+
         CREATE TABLE IF NOT EXISTS users (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             username    TEXT,
@@ -111,6 +127,8 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
             message_history_visible INTEGER NOT NULL DEFAULT 1,
             slow_mode_delay         INTEGER NOT NULL DEFAULT 0,
             permissions_json        TEXT,
+            sticker_set_name        TEXT,
+            pinned_message_id       INTEGER,
             owner_user_id           INTEGER,
             created_at              INTEGER NOT NULL,
             updated_at              INTEGER NOT NULL,
@@ -119,15 +137,43 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
             FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
         );
 
+        CREATE TABLE IF NOT EXISTS sim_chat_pinned_messages (
+            bot_id      INTEGER NOT NULL,
+            chat_key    TEXT NOT NULL,
+            message_id  INTEGER NOT NULL,
+            pinned_at   INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, chat_key, message_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_sim_chat_pins_recent
+            ON sim_chat_pinned_messages (bot_id, chat_key, pinned_at DESC, message_id DESC);
+
         CREATE TABLE IF NOT EXISTS sim_chat_members (
             bot_id      INTEGER NOT NULL,
             chat_key    TEXT NOT NULL,
             user_id     INTEGER NOT NULL,
             status      TEXT NOT NULL,
             role        TEXT NOT NULL,
+            permissions_json TEXT,
+            until_date  INTEGER,
+            custom_title TEXT,
+            tag         TEXT,
             joined_at   INTEGER,
             updated_at  INTEGER NOT NULL,
             PRIMARY KEY (bot_id, chat_key, user_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS sim_banned_sender_chats (
+            bot_id          INTEGER NOT NULL,
+            chat_key        TEXT NOT NULL,
+            sender_chat_id  INTEGER NOT NULL,
+            created_at      INTEGER NOT NULL,
+            updated_at      INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, chat_key, sender_chat_id),
             FOREIGN KEY(bot_id) REFERENCES bots(id),
             FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
         );
@@ -138,10 +184,13 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
             invite_link          TEXT NOT NULL,
             creator_user_id      INTEGER NOT NULL,
             creates_join_request INTEGER NOT NULL DEFAULT 0,
+            is_primary           INTEGER NOT NULL DEFAULT 0,
             is_revoked           INTEGER NOT NULL DEFAULT 0,
             name                 TEXT,
             expire_date          INTEGER,
             member_limit         INTEGER,
+            subscription_period  INTEGER,
+            subscription_price   INTEGER,
             created_at           INTEGER NOT NULL,
             updated_at           INTEGER NOT NULL,
             PRIMARY KEY (bot_id, invite_link),
@@ -480,6 +529,16 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
     ensure_column_exists(conn, "polls", "correct_option_ids_json", "TEXT")?;
     ensure_column_exists(conn, "polls", "description", "TEXT")?;
     ensure_column_exists(conn, "poll_metadata", "description_entities_json", "TEXT")?;
+    ensure_column_exists(conn, "sim_chats", "sticker_set_name", "TEXT")?;
+    ensure_column_exists(conn, "sim_chats", "pinned_message_id", "INTEGER")?;
+    ensure_column_exists(conn, "sim_chat_members", "permissions_json", "TEXT")?;
+    ensure_column_exists(conn, "sim_chat_members", "until_date", "INTEGER")?;
+    ensure_column_exists(conn, "sim_chat_members", "custom_title", "TEXT")?;
+    ensure_column_exists(conn, "sim_chat_members", "tag", "TEXT")?;
+    ensure_column_exists(conn, "sim_chat_invite_links", "is_primary", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column_exists(conn, "sim_chat_invite_links", "subscription_period", "INTEGER")?;
+    ensure_column_exists(conn, "sim_chat_invite_links", "subscription_price", "INTEGER")?;
+    ensure_column_exists(conn, "updates", "bot_visible", "INTEGER NOT NULL DEFAULT 1")?;
 
     Ok(())
 }
