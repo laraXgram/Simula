@@ -453,15 +453,15 @@ def main():
     print("=" * 50)
 
     generator = CodeGenerator(
-        types_file='output/types.json',
-        methods_file='output/methods.json'
+        types_file='../output/types.json',
+        methods_file='../output/methods.json'
     )
 
     generator.load_data()
 
     generator.generate_all(
-        rust_output_dir='../api-server/src/generated',
-        ts_output_dir='../client/src/types/generated'
+        rust_output_dir='../../api-server/src/generated',
+        ts_output_dir='../../client/src/types/generated'
     )
 
     print("\n✅ Code generation completed!")
