@@ -192,6 +192,20 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
             FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
         );
 
+        CREATE TABLE IF NOT EXISTS inline_query_cache (
+            bot_id        INTEGER NOT NULL,
+            query         TEXT NOT NULL,
+            offset        TEXT NOT NULL DEFAULT '',
+            from_user_id  INTEGER NOT NULL DEFAULT -1,
+            answer_json   TEXT NOT NULL,
+            cache_time    INTEGER NOT NULL,
+            expires_at    INTEGER NOT NULL,
+            is_personal   INTEGER NOT NULL DEFAULT 0,
+            created_at    INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, query, offset, from_user_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );
+
         CREATE TABLE IF NOT EXISTS shipping_queries (
             id            TEXT PRIMARY KEY,
             bot_id        INTEGER NOT NULL,

@@ -2,7 +2,6 @@ import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from 'rea
 import {
   ChevronDown,
   Bot,
-  CircleUserRound,
   Copy,
   MoreVertical,
   Reply,
@@ -70,6 +69,7 @@ const START_KEY = 'laragram-started-chats';
 const BOTS_KEY = 'laragram-sim-bots';
 const USERS_KEY = 'laragram-sim-users';
 const MESSAGES_KEY = 'laragram-sim-messages';
+const LAST_UPDATES_KEY = 'laragram-last-update-ids';
 const SELECTED_BOT_KEY = 'laragram-selected-bot-token';
 const SELECTED_USER_KEY = 'laragram-selected-user-id';
 type SidebarTab = 'chats' | 'bots' | 'users';
@@ -78,6 +78,15 @@ type BotModalMode = 'create' | 'edit';
 type UserModalMode = 'create' | 'edit';
 type ComposerParseMode = 'none' | 'MarkdownV2' | 'Markdown' | 'HTML';
 type PaymentMethod = 'wallet' | 'card' | 'stars';
+type CheckoutStep = 1 | 2 | 3;
+
+interface CheckoutFlowState {
+  messageId: number;
+  step: CheckoutStep;
+  method: PaymentMethod;
+  outcome: 'success' | 'failed';
+  tip: string;
+}
 
 const TELEGRAM_REACTION_EMOJIS = [
   '👍', '👎', '❤', '🔥', '🎉', '😁', '🤔', '😢', '😱', '👏', '🤩', '🙏', '👌', '🤣', '💯', '⚡',
@@ -162,7 +171,24 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       return [];
     }
   });
-  const [lastUpdateId, setLastUpdateId] = useState<number>(0);
+  const [lastUpdateByBot, setLastUpdateByBot] = useState<Record<string, number>>(() => {
+    try {
+      const raw = localStorage.getItem(LAST_UPDATES_KEY);
+      return raw ? (JSON.parse(raw) as Record<string, number>) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [lastUpdateId, setLastUpdateId] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem(LAST_UPDATES_KEY);
+      const parsed = raw ? (JSON.parse(raw) as Record<string, number>) : {};
+      const saved = parsed[selectedBotToken];
+      return Number.isFinite(saved) && saved > 0 ? saved : 0;
+    } catch {
+      return 0;
+    }
+  });
   const [isSending, setIsSending] = useState(false);
   const [isBootstrapping, setIsBootstrapping] = useState(false);
   const [errorText, setErrorText] = useState('');
@@ -242,6 +268,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   });
   const [paymentMethodByInvoice, setPaymentMethodByInvoice] = useState<Record<number, PaymentMethod>>({});
   const [paymentTipByInvoice, setPaymentTipByInvoice] = useState<Record<number, string>>({});
+  const [checkoutFlow, setCheckoutFlow] = useState<CheckoutFlowState | null>(null);
   const [walletState, setWalletState] = useState({
     fiat: 50000,
     stars: 2500,
@@ -298,7 +325,14 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const inlineRequestSeqRef = useRef(0);
 
   const visibleMessages = useMemo(
-    () => messages.filter((message) => message.chatId === selectedChatId && message.botToken === selectedBotToken),
+    () => messages
+      .filter((message) => message.chatId === selectedChatId && message.botToken === selectedBotToken)
+      .sort((a, b) => {
+        if (a.date === b.date) {
+          return a.id - b.id;
+        }
+        return a.date - b.date;
+      }),
     [messages, selectedBotToken, selectedChatId],
   );
 
@@ -404,8 +438,19 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   }, [messages]);
 
   useEffect(() => {
+    localStorage.setItem(LAST_UPDATES_KEY, JSON.stringify(lastUpdateByBot));
+  }, [lastUpdateByBot]);
+
+  useEffect(() => {
     localStorage.setItem(SELECTED_BOT_KEY, selectedBotToken);
   }, [selectedBotToken]);
+
+  useEffect(() => {
+    setLastUpdateId(() => {
+      const saved = lastUpdateByBot[selectedBotToken] || 0;
+      return saved > 0 ? saved : 0;
+    });
+  }, [selectedBotToken, lastUpdateByBot]);
 
   useEffect(() => {
     localStorage.setItem(SELECTED_USER_KEY, String(selectedUserId));
@@ -498,6 +543,17 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
       if (!payload) {
         setLastUpdateId((current) => Math.max(current, update.update_id));
+        setLastUpdateByBot((prev) => {
+          const current = prev[selectedBotToken] || 0;
+          const next = Math.max(current, update.update_id);
+          if (next === current) {
+            return prev;
+          }
+          return {
+            ...prev,
+            [selectedBotToken]: next,
+          };
+        });
         return;
       }
 
@@ -535,6 +591,26 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           mimeType: payload.document.mime_type,
           fileName: payload.document.file_name,
         };
+      } else if (payload.sticker) {
+        media = {
+          type: 'sticker',
+          fileId: payload.sticker.file_id,
+          mimeType: payload.sticker.is_animated ? 'application/x-tgsticker' : (payload.sticker.is_video ? 'video/webm' : 'image/webp'),
+          fileName: payload.sticker.set_name ? `${payload.sticker.set_name}.webp` : 'sticker.webp',
+        };
+      } else if (payload.animation) {
+        media = {
+          type: 'animation',
+          fileId: payload.animation.file_id,
+          mimeType: payload.animation.mime_type,
+          fileName: payload.animation.file_name,
+        };
+      } else if (payload.video_note) {
+        media = {
+          type: 'video_note',
+          fileId: payload.video_note.file_id,
+          fileName: 'video_note.mp4',
+        };
       }
 
       const mapped: ChatMessage = {
@@ -550,6 +626,32 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         viaBotUsername: payload.via_bot?.username,
         poll: payload.poll,
         invoice: payload.invoice,
+        invoiceMeta: (() => {
+          const raw = (payload as unknown as Record<string, unknown>).invoice_meta;
+          if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+            return undefined;
+          }
+
+          const meta = raw as Record<string, unknown>;
+          const suggested = Array.isArray(meta.suggested_tip_amounts)
+            ? meta.suggested_tip_amounts
+              .map((item) => Number(item))
+              .filter((item) => Number.isFinite(item) && item > 0)
+            : undefined;
+
+          return {
+            photoUrl: typeof meta.photo_url === 'string' ? meta.photo_url : undefined,
+            maxTipAmount: Number.isFinite(Number(meta.max_tip_amount)) ? Number(meta.max_tip_amount) : undefined,
+            suggestedTipAmounts: suggested,
+            needName: typeof meta.need_name === 'boolean' ? meta.need_name : undefined,
+            needPhoneNumber: typeof meta.need_phone_number === 'boolean' ? meta.need_phone_number : undefined,
+            needEmail: typeof meta.need_email === 'boolean' ? meta.need_email : undefined,
+            needShippingAddress: typeof meta.need_shipping_address === 'boolean' ? meta.need_shipping_address : undefined,
+            isFlexible: typeof meta.is_flexible === 'boolean' ? meta.is_flexible : undefined,
+            sendPhoneNumberToProvider: typeof meta.send_phone_number_to_provider === 'boolean' ? meta.send_phone_number_to_provider : undefined,
+            sendEmailToProvider: typeof meta.send_email_to_provider === 'boolean' ? meta.send_email_to_provider : undefined,
+          };
+        })(),
         successfulPayment: payload.successful_payment,
         media,
         mediaGroupId: payload.media_group_id,
@@ -603,6 +705,17 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       });
 
       setLastUpdateId((current) => Math.max(current, update.update_id));
+      setLastUpdateByBot((prev) => {
+        const current = prev[selectedBotToken] || 0;
+        const next = Math.max(current, update.update_id);
+        if (next === current) {
+          return prev;
+        }
+        return {
+          ...prev,
+          [selectedBotToken]: next,
+        };
+      });
     },
   });
 
@@ -766,9 +879,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         currency: parts[3] || prev.currency || 'USD',
         payload: parts[4] || prev.payload,
       }));
+      setShowPollBuilder(false);
       setShowInvoiceBuilder(true);
       setShowPaymentLab(true);
-      setShowFormattingTools(true);
+      setShowFormattingTools(false);
       setComposerText('');
       return;
     }
@@ -1102,6 +1216,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     message: ChatMessage,
     outcome: 'success' | 'failed' = 'success',
     methodOverride?: PaymentMethod,
+    tipOverride?: number,
   ) => {
     if (!message.invoice) {
       return;
@@ -1112,7 +1227,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     const selectedMethod = methodOverride || paymentMethodByInvoice[message.id] || (isStarsCurrency ? 'stars' : 'wallet');
     const tipAmount = isStarsCurrency
       ? 0
-      : Math.max(Math.floor(Number(paymentTipByInvoice[message.id] || '0') || 0), 0);
+      : Math.max(Math.floor(
+        typeof tipOverride === 'number'
+          ? tipOverride
+          : (Number(paymentTipByInvoice[message.id] || '0') || 0),
+      ), 0);
     const totalDebit = amount + tipAmount;
 
     if (isStarsCurrency && selectedMethod !== 'stars') {
@@ -1169,6 +1288,50 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'Invoice payment failed');
     }
+  };
+
+  const openCheckoutFlow = (message: ChatMessage) => {
+    if (!message.invoice) {
+      return;
+    }
+
+    const isStarsCurrency = message.invoice.currency.toUpperCase() === 'XTR';
+    setCheckoutFlow({
+      messageId: message.id,
+      step: 1,
+      method: paymentMethodByInvoice[message.id] || (isStarsCurrency ? 'stars' : 'wallet'),
+      outcome: 'success',
+      tip: paymentTipByInvoice[message.id] || '',
+    });
+  };
+
+  const checkoutMessage = useMemo(
+    () => (checkoutFlow
+      ? visibleMessages.find((message) => message.id === checkoutFlow.messageId && Boolean(message.invoice)) || null
+      : null),
+    [checkoutFlow, visibleMessages],
+  );
+
+  const commitCheckoutFlow = async () => {
+    if (!checkoutFlow || !checkoutMessage?.invoice) {
+      return;
+    }
+
+    const tipValue = checkoutMessage.invoice.currency.toUpperCase() === 'XTR'
+      ? 0
+      : Math.max(Math.floor(Number(checkoutFlow.tip || '0') || 0), 0);
+
+    setPaymentMethodByInvoice((prev) => ({
+      ...prev,
+      [checkoutMessage.id]: checkoutFlow.method,
+    }));
+    setPaymentTipByInvoice((prev) => ({
+      ...prev,
+      [checkoutMessage.id]: String(tipValue),
+    }));
+
+    await onPayInvoice(checkoutMessage, checkoutFlow.outcome, checkoutFlow.method, tipValue);
+    setCheckoutFlow(null);
   };
 
   const onSubmitComposer = async (event: FormEvent) => {
@@ -1276,7 +1439,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         )));
       }
 
-      setLastUpdateId(0);
       setShowBotModal(false);
       setBotDraft({ first_name: '', username: '' });
       setActiveTab('bots');
@@ -1387,8 +1549,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       outgoingText = `📍 ${selectedUser.first_name} shared location`;
     } else if (button.request_poll) {
       const isQuiz = button.request_poll.type === 'quiz';
+      setShowInvoiceBuilder(false);
       setShowPollBuilder(true);
-      setShowFormattingTools(true);
+      setShowFormattingTools(false);
       setPollBuilder({
         type: isQuiz ? 'quiz' : 'regular',
         question: isQuiz ? `${selectedUser.first_name}'s Quiz` : `${selectedUser.first_name}'s Poll`,
@@ -1711,7 +1874,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     setAvailableBots(next);
     if (selectedBotToken === token) {
       setSelectedBotToken(next[0].token);
-      setLastUpdateId(0);
     }
   };
 
@@ -2476,16 +2638,35 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
 
     const isStars = message.invoice.currency.toUpperCase() === 'XTR';
-    const selectedMethod = paymentMethodByInvoice[message.id] || (isStars ? 'stars' : 'wallet');
-    const tipValue = paymentTipByInvoice[message.id] || '';
+    const invoiceImage = message.invoiceMeta?.photoUrl;
+    const suggestedTips = message.invoiceMeta?.suggestedTipAmounts || [];
 
     return (
       <div className="mb-2 rounded-xl border border-[#2f4e66]/55 bg-[#102638]/80 p-3">
+        {invoiceImage ? (
+          <img
+            src={invoiceImage}
+            alt="invoice"
+            className="mb-2 max-h-48 w-full rounded-lg object-cover"
+            onError={(event) => {
+              event.currentTarget.style.display = 'none';
+            }}
+          />
+        ) : null}
         <div className="text-sm font-semibold text-white">{message.invoice.title}</div>
         <div className="mt-1 text-xs text-[#d1e7f7]">{message.invoice.description}</div>
         <div className="mt-2 text-xs text-[#9fc6df]">
           {message.invoice.total_amount} {message.invoice.currency}
         </div>
+        {suggestedTips.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {suggestedTips.map((tip) => (
+              <span key={`invoice-tip-${message.id}-${tip}`} className="rounded border border-white/20 bg-white/10 px-1.5 py-0.5 text-[10px] text-[#d7ecfb]">
+                Tip {tip}
+              </span>
+            ))}
+          </div>
+        ) : null}
         {message.isOutgoing ? (
           <div className="mt-2 space-y-2">
             <div className="flex items-center justify-between gap-2">
@@ -2500,61 +2681,28 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               ) : null}
             </div>
 
-            <div className="grid grid-cols-3 gap-1.5">
-              <button
-                type="button"
-                onClick={() => setPaymentMethodByInvoice((prev) => ({ ...prev, [message.id]: 'wallet' }))}
-                disabled={isStars}
-                className={`rounded-md border px-2 py-1 text-[11px] transition ${selectedMethod === 'wallet' ? 'border-[#7ec8fb]/60 bg-[#2b5278] text-white' : 'border-white/20 bg-white/10 text-[#d7ecfb]'} disabled:cursor-not-allowed disabled:opacity-40`}
-              >
-                Wallet
-              </button>
-              <button
-                type="button"
-                onClick={() => setPaymentMethodByInvoice((prev) => ({ ...prev, [message.id]: 'card' }))}
-                disabled={isStars}
-                className={`rounded-md border px-2 py-1 text-[11px] transition ${selectedMethod === 'card' ? 'border-[#7ec8fb]/60 bg-[#2b5278] text-white' : 'border-white/20 bg-white/10 text-[#d7ecfb]'} disabled:cursor-not-allowed disabled:opacity-40`}
-              >
-                Card
-              </button>
-              <button
-                type="button"
-                onClick={() => setPaymentMethodByInvoice((prev) => ({ ...prev, [message.id]: 'stars' }))}
-                disabled={!isStars}
-                className={`rounded-md border px-2 py-1 text-[11px] transition ${selectedMethod === 'stars' ? 'border-[#7ec8fb]/60 bg-[#2b5278] text-white' : 'border-white/20 bg-white/10 text-[#d7ecfb]'} disabled:cursor-not-allowed disabled:opacity-40`}
-              >
-                Stars
-              </button>
-            </div>
-
-            {!isStars ? (
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-[#8fb8d4]">Tip</span>
-                <input
-                  type="number"
-                  min={0}
-                  value={tipValue}
-                  onChange={(event) => setPaymentTipByInvoice((prev) => ({ ...prev, [message.id]: event.target.value }))}
-                  placeholder="0"
-                  className="w-28 rounded border border-white/20 bg-white/10 px-2 py-1 text-[11px] text-white outline-none"
-                />
-              </div>
-            ) : null}
+            <button
+              type="button"
+              onClick={() => openCheckoutFlow(message)}
+              className="w-full rounded-md border border-[#6ab8ef]/50 bg-[#1f5379] px-2 py-1 text-[11px] text-white transition hover:bg-[#2b6a98]"
+            >
+              Open Checkout
+            </button>
 
             <div className="grid grid-cols-2 gap-1.5">
               <button
                 type="button"
-                onClick={() => void onPayInvoice(message, 'success')}
+                onClick={() => void onPayInvoice(message, 'success', isStars ? 'stars' : 'wallet', 0)}
                 className="rounded-md border border-emerald-300/50 bg-emerald-700/35 px-2 py-1 text-[11px] text-emerald-100 transition hover:bg-emerald-700/45"
               >
-                Successful Payment
+                Quick Success
               </button>
               <button
                 type="button"
                 onClick={() => void onPayInvoice(message, 'failed')}
                 className="rounded-md border border-red-300/40 bg-red-700/30 px-2 py-1 text-[11px] text-red-100 transition hover:bg-red-700/40"
               >
-                Failed Payment
+                Quick Fail
               </button>
             </div>
           </div>
@@ -2607,11 +2755,27 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
 
     if (message.media.type === 'photo') {
-      return <img src={mediaUrl} alt="photo" className={compact ? 'h-40 w-full rounded-xl object-cover' : 'max-h-80 w-auto rounded-xl'} />;
+      return <img src={mediaUrl} alt="photo" className={compact ? 'h-40 w-full rounded-xl object-cover' : 'max-h-80 w-full rounded-xl object-contain sm:w-auto'} />;
     }
 
     if (message.media.type === 'video') {
-      return <video src={mediaUrl} controls className={compact ? 'h-40 w-full rounded-xl object-cover' : 'max-h-80 w-auto rounded-xl'} />;
+      return <video src={mediaUrl} controls className={compact ? 'h-40 w-full rounded-xl object-cover' : 'max-h-80 w-full rounded-xl object-contain sm:w-auto'} />;
+    }
+
+    if (message.media.type === 'animation') {
+      return <video src={mediaUrl} controls loop className={compact ? 'h-40 w-full rounded-xl object-cover' : 'max-h-80 w-full rounded-xl object-contain sm:w-auto'} />;
+    }
+
+    if (message.media.type === 'video_note') {
+      return <video src={mediaUrl} controls className={compact ? 'h-36 w-36 rounded-full object-cover' : 'h-44 w-44 rounded-full object-cover'} />;
+    }
+
+    if (message.media.type === 'sticker') {
+      const isVideoSticker = (message.media.mimeType || '').toLowerCase().includes('video');
+      if (isVideoSticker) {
+        return <video src={mediaUrl} controls loop className={compact ? 'h-28 w-28 rounded-xl object-contain' : 'h-36 w-36 rounded-xl object-contain'} />;
+      }
+      return <img src={mediaUrl} alt="sticker" className={compact ? 'h-28 w-28 rounded-xl object-contain' : 'h-36 w-36 rounded-xl object-contain'} />;
     }
 
     if (message.media.type === 'audio' || message.media.type === 'voice') {
@@ -2625,9 +2789,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           download={message.media.fileName || 'document'}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex items-center rounded-lg border border-white/20 bg-black/25 px-3 py-2 text-xs text-white hover:bg-white/10"
+          className="inline-flex max-w-full items-center gap-2 rounded-lg border border-white/20 bg-black/25 px-3 py-2 text-xs text-white hover:bg-white/10"
         >
-          Download {message.media.fileName || 'file'}
+          <span className="shrink-0">Download</span>
+          <span className="min-w-0 break-all">{message.media.fileName || message.media.fileId || 'file'}</span>
         </a>
       );
     }
@@ -2756,7 +2921,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
     if (!availableBots.some((bot) => bot.token === selectedBotToken)) {
       setSelectedBotToken(availableBots[0].token);
-      setLastUpdateId(0);
     }
   }, [availableBots, selectedBotToken]);
 
@@ -2925,9 +3089,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   }, [callbackToast]);
 
   return (
-    <div className="h-screen bg-app-pattern text-telegram-text">
-      <div className="mx-auto flex h-full max-w-[1500px] border-x border-white/10 backdrop-blur-md">
-        <aside className="w-[360px] border-r border-white/10 bg-[#152434]/95">
+    <div className="h-screen overflow-hidden bg-app-pattern text-telegram-text">
+      <div className="mx-auto flex h-full w-full min-w-0 max-w-[1500px] border-x border-white/10 backdrop-blur-md">
+        <aside className="w-[260px] shrink-0 overflow-y-auto border-r border-white/10 bg-[#152434]/95 sm:w-[280px] lg:w-[300px]">
           <div className="border-b border-white/10 px-4 py-3">
             <div className="mb-2 flex items-center justify-between">
               <h1 className="text-xl font-semibold tracking-wide">LaraGram Studio</h1>
@@ -3065,7 +3229,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                           type="button"
                           onClick={() => {
                             setSelectedBotToken(bot.token);
-                            setLastUpdateId(0);
                           }}
                           className="min-w-0 flex-1 text-left"
                         >
@@ -3140,34 +3303,20 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           </div>
         </aside>
 
-        <section className="flex flex-1 flex-col bg-[#0f1e2d]/70">
-          <header className="flex items-center justify-between border-b border-white/10 bg-[#1a2a3b]/70 px-5 py-3">
-            <div className="flex items-center gap-3">
+        <section className="flex min-w-0 flex-1 flex-col bg-[#0f1e2d]/70">
+          <header className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-[#1a2a3b]/70 px-3 py-3 sm:px-4 lg:px-5">
+            <div className="flex min-w-0 items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#2b5278]">
                 <Bot className="h-5 w-5" />
               </div>
-              <div>
-                <h2 className="font-semibold">{selectedBot?.first_name || 'Bot'}</h2>
-                <p className="text-xs text-telegram-textSecondary">
+              <div className="min-w-0">
+                <h2 className="truncate font-semibold">{selectedBot?.first_name || 'Bot'}</h2>
+                <p className="truncate text-xs text-telegram-textSecondary">
                   @{selectedBot?.username || 'unknown'} | user #{selectedUser.id}
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 rounded-full bg-black/20 px-2 py-1.5 text-xs text-telegram-textSecondary">
-              <CircleUserRound className="h-4 w-4" />
-              <select
-                value={selectedUserId}
-                onChange={(event) => setSelectedUserId(Number(event.target.value))}
-                className="max-w-[220px] bg-transparent pr-1 text-xs text-white outline-none"
-              >
-                {availableUsers.map((user) => (
-                  <option key={user.id} value={user.id} className="bg-[#152434] text-white">
-                    {user.first_name} ({user.id})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               {selectionMode ? (
                 <button
                   type="button"
@@ -3230,21 +3379,21 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           </header>
 
           {showPaymentLab ? (
-            <div className="border-b border-white/10 bg-[#122536]/95 px-5 py-3">
+            <div className="border-b border-white/10 bg-[#122536]/95 px-3 py-3 sm:px-4 lg:px-5">
               <div className="rounded-xl border border-[#355a76]/60 bg-black/20 px-3 py-2 text-xs text-[#d7ecfb]">
                 <div className="mb-2 inline-flex items-center gap-1 text-[11px] text-[#9fc6df]"><Wallet className="h-3.5 w-3.5" /> Wallet</div>
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="w-20 text-[11px] text-[#9fc6df]">Fiat</span>
+                    <span className="min-w-[80px] text-[11px] text-[#9fc6df]">Fiat</span>
                     <span className="rounded border border-white/20 bg-white/5 px-2 py-1">{walletState.fiat}</span>
-                    <button type="button" onClick={() => setWalletState((prev) => ({ ...prev, fiat: Math.max(prev.fiat - 1000, 0) }))} className="w-[72px] rounded border border-white/20 bg-white/10 px-2 py-1 text-center text-[11px]">-1000</button>
-                    <button type="button" onClick={() => setWalletState((prev) => ({ ...prev, fiat: prev.fiat + 1000 }))} className="w-[72px] rounded border border-white/20 bg-white/10 px-2 py-1 text-center text-[11px]">+1000</button>
+                    <button type="button" onClick={() => setWalletState((prev) => ({ ...prev, fiat: Math.max(prev.fiat - 1000, 0) }))} className="min-w-[78px] rounded border border-white/20 bg-white/10 px-2 py-1 text-center text-[11px]">-1000</button>
+                    <button type="button" onClick={() => setWalletState((prev) => ({ ...prev, fiat: prev.fiat + 1000 }))} className="min-w-[78px] rounded border border-white/20 bg-white/10 px-2 py-1 text-center text-[11px]">+1000</button>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="w-20 text-[11px] text-[#9fc6df]">Stars</span>
+                    <span className="min-w-[80px] text-[11px] text-[#9fc6df]">Stars</span>
                     <span className="rounded border border-white/20 bg-white/5 px-2 py-1">{walletState.stars}</span>
-                    <button type="button" onClick={() => setWalletState((prev) => ({ ...prev, stars: Math.max(prev.stars - 200, 0) }))} className="w-[72px] rounded border border-white/20 bg-white/10 px-2 py-1 text-center text-[11px]">-200⭐</button>
-                    <button type="button" onClick={() => setWalletState((prev) => ({ ...prev, stars: prev.stars + 200 }))} className="w-[72px] rounded border border-white/20 bg-white/10 px-2 py-1 text-center text-[11px]">+200⭐</button>
+                    <button type="button" onClick={() => setWalletState((prev) => ({ ...prev, stars: Math.max(prev.stars - 200, 0) }))} className="min-w-[78px] rounded border border-white/20 bg-white/10 px-2 py-1 text-center text-[11px]">-200⭐</button>
+                    <button type="button" onClick={() => setWalletState((prev) => ({ ...prev, stars: prev.stars + 200 }))} className="min-w-[78px] rounded border border-white/20 bg-white/10 px-2 py-1 text-center text-[11px]">+200⭐</button>
                   </div>
                 </div>
               </div>
@@ -3254,7 +3403,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           <main
             ref={messagesContainerRef}
             onScroll={onMessagesScroll}
-            className="relative flex-1 overflow-y-auto bg-[url('/telegram-bg.svg')] bg-cover bg-center px-6 py-5"
+            className="relative min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-[url('/telegram-bg.svg')] bg-cover bg-center px-3 py-4 sm:px-4 sm:py-5 lg:px-6"
           >
             {chatScopeTab !== 'private' ? (
               <div className="mx-auto mt-16 max-w-md rounded-2xl border border-dashed border-white/20 bg-black/20 p-6 text-center shadow-2xl">
@@ -3286,7 +3435,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         onClick={() => onMessageClick(message.id)}
                         onDoubleClick={() => onMessageDoubleClick(message.id)}
                         className={[
-                          'relative max-w-[72%] rounded-2xl px-4 py-3 shadow-lg',
+                          'relative min-w-0 max-w-[92%] overflow-hidden rounded-2xl px-3 py-3 shadow-lg sm:max-w-[84%] sm:px-4 lg:max-w-[72%]',
                           selectionMode && selectedMessageIds.includes(message.id) ? 'ring-2 ring-[#87cbff]' : '',
                           highlightedMessageId === message.id ? 'ring-2 ring-[#f9e07f] shadow-[0_0_0_2px_rgba(249,224,127,0.35)]' : '',
                           message.isOutgoing ? 'mr-auto rounded-bl-md bg-[#182533]' : 'ml-auto rounded-br-md bg-[#2b5278]',
@@ -3301,7 +3450,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                             }}
                             className="mb-2 block w-full rounded-lg border-l-2 border-[#8ecbff] bg-black/20 px-2 py-1 text-left text-xs text-[#c7deee] hover:bg-black/30"
                           >
-                            <div className="font-medium text-[#9fd8ff]">Reply to {message.replyTo.fromName} #{message.replyTo.messageId}</div>
+                            <div className="break-all font-medium text-[#9fd8ff]">Reply to {message.replyTo.fromName} #{message.replyTo.messageId}</div>
                             <div className="truncate">
                               {message.replyTo.text || (message.replyTo.hasMedia ? `[{message.replyTo.mediaType || 'media'}]` : 'message')}
                             </div>
@@ -3315,7 +3464,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         {renderSuccessfulPaymentCard(message)}
                         {renderPollCard(message)}
                         {message.text ? (
-                          <div className="text-sm leading-6 break-words whitespace-pre-wrap">{renderEntityText(message.text, message.entities || message.captionEntities)}</div>
+                          <div className="text-sm leading-6 break-words whitespace-pre-wrap [overflow-wrap:anywhere]">{renderEntityText(message.text, message.entities || message.captionEntities)}</div>
                         ) : null}
                         {renderInlineKeyboard(message)}
                         {renderReactionChips(message)}
@@ -3337,7 +3486,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       onClick={() => onMessageClick(lead.id)}
                       onDoubleClick={() => onMessageDoubleClick(lead.id)}
                       className={[
-                        'relative max-w-[72%] rounded-2xl px-3 py-3 shadow-lg',
+                        'relative min-w-0 max-w-[92%] overflow-hidden rounded-2xl px-3 py-3 shadow-lg sm:max-w-[84%] lg:max-w-[72%]',
                         selectionMode && selectedMessageIds.includes(lead.id) ? 'ring-2 ring-[#87cbff]' : '',
                         highlightedMessageId === lead.id ? 'ring-2 ring-[#f9e07f] shadow-[0_0_0_2px_rgba(249,224,127,0.35)]' : '',
                         lead.isOutgoing ? 'mr-auto rounded-bl-md bg-[#182533]' : 'ml-auto rounded-br-md bg-[#2b5278]',
@@ -3352,7 +3501,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                           }}
                           className="mb-2 block w-full rounded-lg border-l-2 border-[#8ecbff] bg-black/20 px-2 py-1 text-left text-xs text-[#c7deee] hover:bg-black/30"
                         >
-                          <div className="font-medium text-[#9fd8ff]">Reply to {lead.replyTo.fromName} #{lead.replyTo.messageId}</div>
+                          <div className="break-all font-medium text-[#9fd8ff]">Reply to {lead.replyTo.fromName} #{lead.replyTo.messageId}</div>
                           <div className="truncate">
                             {lead.replyTo.text || (lead.replyTo.hasMedia ? `[{lead.replyTo.mediaType || 'media'}]` : 'message')}
                           </div>
@@ -3370,7 +3519,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       </div>
 
                       {lead.text ? (
-                        <div className="text-sm leading-6 break-words whitespace-pre-wrap">{renderEntityText(lead.text, lead.captionEntities)}</div>
+                        <div className="text-sm leading-6 break-words whitespace-pre-wrap [overflow-wrap:anywhere]">{renderEntityText(lead.text, lead.captionEntities)}</div>
                       ) : null}
                       {renderInvoiceCard(lead)}
                       {renderSuccessfulPaymentCard(lead)}
@@ -3401,7 +3550,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             ) : null}
           </main>
 
-          <footer className="border-t border-white/10 px-5 py-4">
+          <footer className="border-t border-white/10 px-3 py-4 sm:px-4 lg:px-5">
             {chatScopeTab !== 'private' ? (
               <div className="rounded-xl border border-dashed border-white/20 bg-black/20 px-4 py-3 text-center text-xs text-telegram-textSecondary">
                 Message composer for {chatScopeTab} will be enabled in the next phase.
@@ -3458,24 +3607,51 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     </button>
                   </div>
                 ) : null}
-                <div className="flex items-center justify-end gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-2">
                   <button
                     type="button"
-                    onClick={() => setShowFormattingTools((prev) => !prev)}
+                    onClick={() => {
+                      setShowFormattingTools((prev) => {
+                        const next = !prev;
+                        if (next) {
+                          setShowPollBuilder(false);
+                          setShowInvoiceBuilder(false);
+                        }
+                        return next;
+                      });
+                    }}
                     className="rounded-md border border-[#2f4e66]/60 bg-[#163041]/70 px-3 py-1 text-[11px] text-[#cfe7f8] hover:bg-[#1f3f56]"
                   >
                     {showFormattingTools ? 'Hide formatting' : 'Show formatting'}
                   </button>
                   <button
                     type="button"
-                    onClick={() => setShowPollBuilder((prev) => !prev)}
+                    onClick={() => {
+                      setShowPollBuilder((prev) => {
+                        const next = !prev;
+                        if (next) {
+                          setShowInvoiceBuilder(false);
+                          setShowFormattingTools(false);
+                        }
+                        return next;
+                      });
+                    }}
                     className="rounded-md border border-[#2f4e66]/60 bg-[#163041]/70 px-3 py-1 text-[11px] text-[#cfe7f8] hover:bg-[#1f3f56]"
                   >
                     {showPollBuilder ? 'Hide Poll Builder' : 'Open Poll Builder'}
                   </button>
                   <button
                     type="button"
-                    onClick={() => setShowInvoiceBuilder((prev) => !prev)}
+                    onClick={() => {
+                      setShowInvoiceBuilder((prev) => {
+                        const next = !prev;
+                        if (next) {
+                          setShowPollBuilder(false);
+                          setShowFormattingTools(false);
+                        }
+                        return next;
+                      });
+                    }}
                     className="rounded-md border border-[#2f4e66]/60 bg-[#163041]/70 px-3 py-1 text-[11px] text-[#cfe7f8] hover:bg-[#1f3f56]"
                   >
                     {showInvoiceBuilder ? 'Hide Invoice Builder' : 'Open Invoice Builder'}
@@ -3507,12 +3683,12 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                 ) : null}
                 {inlineTrigger ? (
                   <div className="rounded-xl border border-[#4f7ea6]/55 bg-[#102235]/90 px-3 py-2">
-                    <div className="mb-2 flex items-center justify-between">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                       <p className="text-[11px] text-[#a9d9ff]">
                         Inline mode @{selectedBot?.username || 'bot'}
                         {inlineTrigger.query ? `: ${inlineTrigger.query}` : ''}
                       </p>
-                      <div className="text-[10px] text-[#9ad8ff]">
+                      <div className="max-w-full break-all text-[10px] text-[#9ad8ff]">
                         {isInlineModeSending ? 'loading...' : (activeInlineQueryId ? `query id: ${activeInlineQueryId}` : 'awaiting query')}
                       </div>
                     </div>
@@ -3558,7 +3734,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         placeholder="Poll title/question"
                         className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
                       />
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                         <select
                           value={pollBuilder.type}
                           onChange={(event) => setPollBuilder((prev) => ({
@@ -3580,7 +3756,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                           <option value="anonymous">Anonymous</option>
                         </select>
                       </div>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                         <select
                           value={pollBuilder.questionParseMode}
                           onChange={(event) => setPollBuilder((prev) => ({ ...prev, questionParseMode: event.target.value as ComposerParseMode }))}
@@ -3847,11 +4023,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         />
                         Send email to provider
                       </label>
-                      {invoiceBuilder.currency.trim().toUpperCase() !== 'XTR' ? (
-                        <span className="rounded border border-white/20 bg-white/5 px-2 py-1 text-[10px] text-[#cbe9ff]">
-                          Need shipping: sends ShippingQuery. Flexible shipping: requires shipping options before checkout.
-                        </span>
-                      ) : null}
                     </div>
                     <div className="flex items-center justify-end">
                       <button
@@ -3865,7 +4036,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     </div>
                   </div>
                 ) : null}
-                <form onSubmit={onSubmitComposer} className="flex items-center gap-3">
+                <form onSubmit={onSubmitComposer} className="flex items-end gap-2 sm:gap-3">
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -3884,7 +4055,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
                     disabled={!hasStarted || (!!composerEditTarget && !composerEditTarget?.media)}
-                    className="rounded-full border border-white/10 bg-black/25 p-3 text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="shrink-0 rounded-full border border-white/10 bg-black/25 p-3 text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
                     title="Attach media"
                   >
                     <Paperclip className="h-5 w-5" />
@@ -3901,7 +4072,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     }}
                     disabled={!hasStarted}
                     rows={2}
-                    className="min-h-[52px] max-h-[180px] flex-1 resize-none rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm leading-6 outline-none transition focus:border-telegram-lightBlue disabled:cursor-not-allowed disabled:opacity-60"
+                    className="min-h-[52px] max-h-[180px] min-w-0 flex-1 resize-none rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm leading-6 outline-none transition focus:border-telegram-lightBlue disabled:cursor-not-allowed disabled:opacity-60"
                     placeholder={composerEditTarget
                       ? 'Edit message...'
                       : (activeReplyKeyboard?.markup.kind === 'reply'
@@ -3911,14 +4082,14 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   <button
                     type="submit"
                     disabled={!hasStarted || isSending}
-                    className="rounded-full bg-telegram-blue p-3 text-white transition hover:bg-telegram-darkBlue disabled:cursor-not-allowed disabled:opacity-60"
+                    className="shrink-0 rounded-full bg-telegram-blue p-3 text-white transition hover:bg-telegram-darkBlue disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <SendHorizonal className="h-5 w-5" />
                   </button>
                 </form>
                 {activeReplyKeyboard && activeReplyKeyboard.markup.kind === 'reply' ? (
                   <div className={`rounded-2xl border border-white/15 bg-black/20 p-2 ${activeReplyKeyboard.markup.resize_keyboard ? '' : 'pb-3'}`}>
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 overflow-x-hidden">
                       {activeReplyKeyboard.markup.keyboard.map((row, rowIndex) => (
                         <div
                           key={`rk-row-${activeReplyKeyboard.sourceMessageId}-${rowIndex}`}
@@ -3939,7 +4110,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                     {premiumEmojiGlyph(button.icon_custom_emoji_id)}
                                   </span>
                                 ) : null}
-                                <span className="line-clamp-1">{button.text}</span>
+                                <span className="line-clamp-1 min-w-0 break-all">{button.text}</span>
                                 {button.request_contact ? <span className="text-[11px] opacity-80">📱</span> : null}
                                 {button.request_location ? <span className="text-[11px] opacity-80">📍</span> : null}
                                 {button.request_poll ? <span className="text-[11px] opacity-80">📊</span> : null}
@@ -4083,7 +4254,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
       {messageMenu ? (
         <div
-          className="fixed z-50 w-60 rounded-2xl border border-white/15 bg-[#132130] p-2 shadow-2xl"
+          className="fixed z-50 w-60 max-w-[90vw] rounded-2xl border border-white/15 bg-[#132130] p-2 shadow-2xl"
           style={{ left: messageMenu.x, top: messageMenu.y }}
           onClick={(event) => event.stopPropagation()}
         >
@@ -4160,6 +4331,139 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               >
                 OK
               </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {checkoutFlow && checkoutMessage?.invoice ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 px-4 pb-6 sm:items-center sm:pb-0">
+          <div className="w-full max-w-lg rounded-2xl border border-white/20 bg-[#182b3c] p-4 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-white">Checkout</h3>
+              <button
+                type="button"
+                onClick={() => setCheckoutFlow(null)}
+                className="rounded-full p-1 text-white hover:bg-white/10"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mb-3 grid grid-cols-3 gap-2 text-[11px]">
+              {[1, 2, 3].map((step) => (
+                <div
+                  key={`checkout-step-${step}`}
+                  className={`rounded-md border px-2 py-1 text-center ${checkoutFlow.step >= step ? 'border-[#6ab8ef]/60 bg-[#224d6f] text-white' : 'border-white/20 bg-black/20 text-[#aacbe0]'}`}
+                >
+                  {step === 1 ? 'Method' : step === 2 ? 'Review' : 'Confirm'}
+                </div>
+              ))}
+            </div>
+
+            {checkoutFlow.step === 1 ? (
+              <div className="space-y-2">
+                <div className="text-xs text-[#d8ecfb]">Choose payment method for {checkoutMessage.invoice.total_amount} {checkoutMessage.invoice.currency}</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['wallet', 'card', 'stars'] as PaymentMethod[]).map((method) => {
+                    const isStarsInvoice = checkoutMessage.invoice!.currency.toUpperCase() === 'XTR';
+                    const disabled = (isStarsInvoice && method !== 'stars') || (!isStarsInvoice && method === 'stars');
+                    return (
+                      <button
+                        key={`checkout-method-${method}`}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => setCheckoutFlow((prev) => (prev ? { ...prev, method } : prev))}
+                        className={`rounded-md border px-2 py-2 text-xs transition ${checkoutFlow.method === method ? 'border-[#7ec8fb]/60 bg-[#2b5278] text-white' : 'border-white/20 bg-white/10 text-[#d7ecfb]'} disabled:cursor-not-allowed disabled:opacity-40`}
+                      >
+                        {method.toUpperCase()}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            {checkoutFlow.step === 2 ? (
+              <div className="space-y-2 text-xs text-[#d8ecfb]">
+                <div className="rounded-lg border border-white/20 bg-black/20 px-3 py-2">
+                  <div>Invoice: {checkoutMessage.invoice.title}</div>
+                  <div>Amount: {checkoutMessage.invoice.total_amount} {checkoutMessage.invoice.currency}</div>
+                  <div>Method: {checkoutFlow.method}</div>
+                </div>
+                {checkoutMessage.invoice.currency.toUpperCase() !== 'XTR' ? (
+                  <div className="flex items-center gap-2">
+                    <span>Tip</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={checkoutFlow.tip}
+                      onChange={(event) => setCheckoutFlow((prev) => (prev ? { ...prev, tip: event.target.value } : prev))}
+                      className="w-32 rounded border border-white/20 bg-white/10 px-2 py-1 text-xs text-white outline-none"
+                      placeholder="0"
+                    />
+                  </div>
+                ) : null}
+                <div>
+                  Total debit: {
+                    checkoutMessage.invoice.total_amount + (
+                      checkoutMessage.invoice.currency.toUpperCase() === 'XTR'
+                        ? 0
+                        : Math.max(Math.floor(Number(checkoutFlow.tip || '0') || 0), 0)
+                    )
+                  } {checkoutMessage.invoice.currency}
+                </div>
+              </div>
+            ) : null}
+
+            {checkoutFlow.step === 3 ? (
+              <div className="space-y-2 text-xs text-[#d8ecfb]">
+                <div className="text-[11px] text-[#9fc6df]">Select payment outcome</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCheckoutFlow((prev) => (prev ? { ...prev, outcome: 'success' } : prev))}
+                    className={`rounded-md border px-2 py-1 text-xs ${checkoutFlow.outcome === 'success' ? 'border-emerald-300/50 bg-emerald-700/35 text-emerald-100' : 'border-white/20 bg-white/10 text-[#d7ecfb]'}`}
+                  >
+                    Successful Payment
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCheckoutFlow((prev) => (prev ? { ...prev, outcome: 'failed' } : prev))}
+                    className={`rounded-md border px-2 py-1 text-xs ${checkoutFlow.outcome === 'failed' ? 'border-red-300/40 bg-red-700/30 text-red-100' : 'border-white/20 bg-white/10 text-[#d7ecfb]'}`}
+                  >
+                    Failed Payment
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="mt-4 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setCheckoutFlow((prev) => (prev && prev.step > 1 ? { ...prev, step: (prev.step - 1) as CheckoutStep } : prev))}
+                disabled={checkoutFlow.step === 1}
+                className="rounded-md border border-white/20 bg-white/10 px-3 py-1.5 text-xs text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Back
+              </button>
+              {checkoutFlow.step < 3 ? (
+                <button
+                  type="button"
+                  onClick={() => setCheckoutFlow((prev) => (prev ? { ...prev, step: (prev.step + 1) as CheckoutStep } : prev))}
+                  className="rounded-md border border-[#6ab8ef]/50 bg-[#1f5379] px-3 py-1.5 text-xs text-white hover:bg-[#2b6a98]"
+                >
+                  Next
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void commitCheckoutFlow()}
+                  className="rounded-md border border-[#6ab8ef]/50 bg-[#1f5379] px-3 py-1.5 text-xs text-white hover:bg-[#2b6a98]"
+                >
+                  Pay Now
+                </button>
+              )}
             </div>
           </div>
         </div>

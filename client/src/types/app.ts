@@ -55,9 +55,21 @@ export interface ChatMessage {
   viaBotUsername?: string;
   poll?: GeneratedPoll;
   invoice?: GeneratedInvoice;
+  invoiceMeta?: {
+    photoUrl?: string;
+    maxTipAmount?: number;
+    suggestedTipAmounts?: number[];
+    needName?: boolean;
+    needPhoneNumber?: boolean;
+    needEmail?: boolean;
+    needShippingAddress?: boolean;
+    isFlexible?: boolean;
+    sendPhoneNumberToProvider?: boolean;
+    sendEmailToProvider?: boolean;
+  };
   successfulPayment?: GeneratedSuccessfulPayment;
   media?: {
-    type: 'photo' | 'video' | 'audio' | 'voice' | 'document';
+    type: 'photo' | 'video' | 'audio' | 'voice' | 'document' | 'sticker' | 'animation' | 'video_note';
     fileId: string;
     mimeType?: string;
     fileName?: string;
@@ -68,7 +80,7 @@ export interface ChatMessage {
     fromName: string;
     text?: string;
     hasMedia?: boolean;
-    mediaType?: 'photo' | 'video' | 'audio' | 'voice' | 'document';
+    mediaType?: 'photo' | 'video' | 'audio' | 'voice' | 'document' | 'sticker' | 'animation' | 'video_note';
   };
   entities?: MessageEntity[];
   captionEntities?: MessageEntity[];

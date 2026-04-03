@@ -570,18 +570,18 @@ fn handle_answer_inline_query(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
 
-    let exists: Option<String> = conn
+    let query_row: Option<(String, i64)> = conn
         .query_row(
-            "SELECT id FROM inline_queries WHERE id = ?1 AND bot_id = ?2",
+            "SELECT query, from_user_id FROM inline_queries WHERE id = ?1 AND bot_id = ?2",
             params![request.inline_query_id, bot.id],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()
         .map_err(ApiError::internal)?;
 
-    if exists.is_none() {
+    let Some((query_text, from_user_id)) = query_row else {
         return Err(ApiError::not_found("inline query not found"));
-    }
+    };
 
     let now = Utc::now().timestamp();
     let answer_payload = serde_json::to_value(&request).map_err(ApiError::internal)?;
@@ -591,6 +591,44 @@ fn handle_answer_inline_query(
         params![now, answer_payload.to_string(), request.inline_query_id, bot.id],
     )
     .map_err(ApiError::internal)?;
+
+    let cache_time = request.cache_time.unwrap_or(300).max(0);
+    let is_personal = request.is_personal.unwrap_or(false);
+    let query_offset: String = conn
+        .query_row(
+            "SELECT offset FROM inline_queries WHERE id = ?1 AND bot_id = ?2",
+            params![request.inline_query_id, bot.id],
+            |r| r.get(0),
+        )
+        .map_err(ApiError::internal)?;
+
+    if cache_time > 0 {
+        let expires_at = now + cache_time;
+        let cache_user_id = if is_personal { from_user_id } else { -1 };
+        conn.execute(
+            "INSERT INTO inline_query_cache
+             (bot_id, query, offset, from_user_id, answer_json, cache_time, expires_at, is_personal, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             ON CONFLICT(bot_id, query, offset, from_user_id)
+             DO UPDATE SET answer_json = excluded.answer_json,
+                           cache_time = excluded.cache_time,
+                           expires_at = excluded.expires_at,
+                           is_personal = excluded.is_personal,
+                           created_at = excluded.created_at",
+            params![
+                bot.id,
+                query_text,
+                query_offset,
+                cache_user_id,
+                answer_payload.to_string(),
+                cache_time,
+                expires_at,
+                if is_personal { 1 } else { 0 },
+                now,
+            ],
+        )
+        .map_err(ApiError::internal)?;
+    }
 
     Ok(json!(true))
 }
@@ -1178,6 +1216,18 @@ fn handle_send_invoice(state: &Data<AppState>, token: &str, params: &HashMap<Str
     };
 
     message_value["invoice"] = serde_json::to_value(invoice).map_err(ApiError::internal)?;
+    message_value["invoice_meta"] = json!({
+        "photo_url": request.photo_url,
+        "max_tip_amount": max_tip_amount,
+        "suggested_tip_amounts": if suggested_tip_amounts.is_empty() { Value::Null } else { json!(suggested_tip_amounts) },
+        "need_name": request.need_name.unwrap_or(false),
+        "need_phone_number": request.need_phone_number.unwrap_or(false),
+        "need_email": request.need_email.unwrap_or(false),
+        "need_shipping_address": request.need_shipping_address.unwrap_or(false),
+        "is_flexible": request.is_flexible.unwrap_or(false),
+        "send_phone_number_to_provider": request.send_phone_number_to_provider.unwrap_or(false),
+        "send_email_to_provider": request.send_email_to_provider.unwrap_or(false)
+    });
 
     conn.execute(
         "INSERT OR REPLACE INTO invoices
@@ -1254,33 +1304,10 @@ fn handle_send_invoice(state: &Data<AppState>, token: &str, params: &HashMap<Str
         }
     }
 
-    let update_value = serde_json::to_value(Update {
-        update_id: 0,
-        message: Some(serde_json::from_value(message_value.clone()).map_err(ApiError::internal)?),
-        edited_message: None,
-        channel_post: None,
-        edited_channel_post: None,
-        business_connection: None,
-        business_message: None,
-        edited_business_message: None,
-        deleted_business_messages: None,
-        message_reaction: None,
-        message_reaction_count: None,
-        inline_query: None,
-        chosen_inline_result: None,
-        callback_query: None,
-        shipping_query: None,
-        pre_checkout_query: None,
-        purchased_paid_media: None,
-        poll: None,
-        poll_answer: None,
-        my_chat_member: None,
-        chat_member: None,
-        chat_join_request: None,
-        chat_boost: None,
-        removed_chat_boost: None,
-    })
-    .map_err(ApiError::internal)?;
+    let update_value = json!({
+        "update_id": 0,
+        "message": message_value.clone(),
+    });
 
     persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
     Ok(message_value)
@@ -3505,6 +3532,19 @@ pub fn handle_sim_clear_history(
         )
         .map_err(ApiError::internal)?;
 
+    let chat_fragment = format!("\"chat\":{{\"id\":{}", body.chat_id);
+    conn.execute(
+        "DELETE FROM updates WHERE bot_id = ?1 AND update_json LIKE ?2",
+        params![bot.id, format!("%{}%", chat_fragment)],
+    )
+    .map_err(ApiError::internal)?;
+
+    conn.execute(
+        "DELETE FROM invoices WHERE bot_id = ?1 AND chat_key = ?2",
+        params![bot.id, body.chat_id.to_string()],
+    )
+    .map_err(ApiError::internal)?;
+
     Ok(json!({"deleted_count": deleted}))
 }
 
@@ -3758,6 +3798,46 @@ pub fn handle_sim_send_inline_query(
     let query_text = body.query;
     let offset = body.offset.unwrap_or_default();
 
+    let cached_answer_row: Option<(String, i64)> = conn
+        .query_row(
+            "SELECT answer_json, expires_at
+             FROM inline_query_cache
+             WHERE bot_id = ?1 AND query = ?2 AND offset = ?3
+                             AND (from_user_id = -1 OR from_user_id = ?4)
+                         ORDER BY CASE WHEN from_user_id = ?4 THEN 0 ELSE 1 END
+             LIMIT 1",
+            params![bot.id, query_text, offset, user.id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    if let Some((cached_answer_json, expires_at)) = cached_answer_row {
+        if expires_at >= now {
+            conn.execute(
+                "INSERT INTO inline_queries (id, bot_id, chat_key, from_user_id, query, offset, created_at, answered_at, answer_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    inline_query_id,
+                    bot.id,
+                    chat_key,
+                    user.id,
+                    query_text,
+                    offset,
+                    now,
+                    now,
+                    cached_answer_json,
+                ],
+            )
+            .map_err(ApiError::internal)?;
+
+            return Ok(json!({
+                "inline_query_id": inline_query_id,
+                "cached": true,
+            }));
+        }
+    }
+
     let inline_from = User {
         id: user.id,
         is_bot: false,
@@ -3832,6 +3912,7 @@ pub fn handle_sim_send_inline_query(
 
     Ok(json!({
         "inline_query_id": inline_query_id,
+        "cached": false,
     }))
 }
 
@@ -4142,7 +4223,7 @@ fn handle_get_updates(state: &Data<AppState>, token: &str, params: &HashMap<Stri
 
     let mut stmt = conn
         .prepare(
-            "SELECT update_json FROM updates
+            "SELECT update_id, update_json FROM updates
              WHERE bot_id = ?1 AND update_id >= ?2
              ORDER BY update_id ASC
              LIMIT ?3",
@@ -4150,17 +4231,105 @@ fn handle_get_updates(state: &Data<AppState>, token: &str, params: &HashMap<Stri
         .map_err(ApiError::internal)?;
 
     let rows = stmt
-        .query_map(params![bot.id, offset.max(1), limit], |row| row.get::<_, String>(0))
+        .query_map(params![bot.id, offset.max(1), limit], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
         .map_err(ApiError::internal)?;
 
+    let fetched_rows: Vec<(i64, String)> = rows
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(ApiError::internal)?;
+    drop(stmt);
+
     let mut updates = Vec::new();
-    for row in rows {
-        let raw = row.map_err(ApiError::internal)?;
+    let mut stale_update_ids = Vec::new();
+    for (update_id, raw) in fetched_rows {
         let parsed: Value = serde_json::from_str(&raw).map_err(ApiError::internal)?;
+
+        if update_targets_deleted_message(&mut conn, bot.id, &parsed)? {
+            stale_update_ids.push(update_id);
+            continue;
+        }
+
         updates.push(parsed);
     }
 
+    if !stale_update_ids.is_empty() {
+        let placeholders = std::iter::repeat("?")
+            .take(stale_update_ids.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "DELETE FROM updates WHERE bot_id = ? AND update_id IN ({})",
+            placeholders
+        );
+
+        let mut bind_values = Vec::with_capacity(1 + stale_update_ids.len());
+        bind_values.push(Value::from(bot.id));
+        for id in stale_update_ids {
+            bind_values.push(Value::from(id));
+        }
+
+        let mut delete_stmt = conn.prepare(&sql).map_err(ApiError::internal)?;
+        delete_stmt
+            .execute(rusqlite::params_from_iter(bind_values.iter().map(sql_value_to_rusqlite)))
+            .map_err(ApiError::internal)?;
+    }
+
     Ok(Value::Array(updates))
+}
+
+fn update_targets_deleted_message(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    update: &Value,
+) -> Result<bool, ApiError> {
+    const MESSAGE_FIELDS: [&str; 6] = [
+        "message",
+        "edited_message",
+        "channel_post",
+        "edited_channel_post",
+        "business_message",
+        "edited_business_message",
+    ];
+
+    for field in MESSAGE_FIELDS {
+        let Some(message_value) = update.get(field) else {
+            continue;
+        };
+
+        let Some(message_obj) = message_value.as_object() else {
+            continue;
+        };
+
+        let Some(chat_value) = message_obj
+            .get("chat")
+            .and_then(Value::as_object)
+            .and_then(|chat_obj| chat_obj.get("id"))
+        else {
+            continue;
+        };
+
+        let Some(message_id) = message_obj.get("message_id").and_then(Value::as_i64) else {
+            continue;
+        };
+
+        let chat_key = value_to_chat_key(chat_value)?;
+        let exists: Option<i64> = conn
+            .query_row(
+                "SELECT 1 FROM messages WHERE bot_id = ?1 AND chat_key = ?2 AND message_id = ?3",
+                params![bot_id, chat_key, message_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(ApiError::internal)?;
+
+        if exists.is_none() {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
 }
 
 fn resolve_edit_target(
@@ -4592,6 +4761,26 @@ fn handle_delete_message(
         )
         .map_err(ApiError::internal)?;
 
+    if deleted > 0 {
+        let chat_id_fragment = format!("\"chat\":{{\"id\":{}", chat_key);
+        let message_id_fragment = format!("\"message_id\":{}", request.message_id);
+        conn.execute(
+            "DELETE FROM updates WHERE bot_id = ?1 AND update_json LIKE ?2 AND update_json LIKE ?3",
+            params![
+                bot.id,
+                format!("%{}%", chat_id_fragment),
+                format!("%{}%", message_id_fragment),
+            ],
+        )
+        .map_err(ApiError::internal)?;
+
+        conn.execute(
+            "DELETE FROM invoices WHERE bot_id = ?1 AND chat_key = ?2 AND message_id = ?3",
+            params![bot.id, chat_key, request.message_id],
+        )
+        .map_err(ApiError::internal)?;
+    }
+
     Ok(Value::Bool(deleted > 0))
 }
 
@@ -4601,8 +4790,9 @@ fn handle_delete_messages(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: DeleteMessagesRequest = parse_request(params)?;
+    let message_ids = request.message_ids.clone();
 
-    if request.message_ids.is_empty() {
+    if message_ids.is_empty() {
         return Ok(Value::Bool(true));
     }
 
@@ -4611,7 +4801,7 @@ fn handle_delete_messages(
     let chat_key = value_to_chat_key(&request.chat_id)?;
 
     let placeholders = std::iter::repeat("?")
-        .take(request.message_ids.len())
+        .take(message_ids.len())
         .collect::<Vec<_>>()
         .join(",");
     let sql = format!(
@@ -4619,17 +4809,53 @@ fn handle_delete_messages(
         placeholders
     );
 
-    let mut bind_values = Vec::with_capacity(2 + request.message_ids.len());
+    let mut bind_values = Vec::with_capacity(2 + message_ids.len());
     bind_values.push(Value::from(bot.id));
-    bind_values.push(Value::from(chat_key));
-    for id in request.message_ids {
-        bind_values.push(Value::from(id));
+    bind_values.push(Value::from(chat_key.clone()));
+    for id in &message_ids {
+        bind_values.push(Value::from(*id));
     }
 
     let mut stmt = conn.prepare(&sql).map_err(ApiError::internal)?;
     let deleted = stmt
         .execute(rusqlite::params_from_iter(bind_values.iter().map(sql_value_to_rusqlite)))
         .map_err(ApiError::internal)?;
+
+    if deleted > 0 {
+        for message_id in &message_ids {
+            let chat_id_fragment = format!("\"chat\":{{\"id\":{}", chat_key);
+            let message_id_fragment = format!("\"message_id\":{}", message_id);
+            conn.execute(
+                "DELETE FROM updates WHERE bot_id = ?1 AND update_json LIKE ?2 AND update_json LIKE ?3",
+                params![
+                    bot.id,
+                    format!("%{}%", chat_id_fragment),
+                    format!("%{}%", message_id_fragment),
+                ],
+            )
+            .map_err(ApiError::internal)?;
+        }
+
+        let placeholders = std::iter::repeat("?")
+            .take(message_ids.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let invoices_sql = format!(
+            "DELETE FROM invoices WHERE bot_id = ? AND chat_key = ? AND message_id IN ({})",
+            placeholders,
+        );
+        let mut invoice_bind_values = Vec::with_capacity(2 + message_ids.len());
+        invoice_bind_values.push(Value::from(bot.id));
+        invoice_bind_values.push(Value::from(chat_key));
+        for id in &message_ids {
+            invoice_bind_values.push(Value::from(*id));
+        }
+
+        let mut invoice_stmt = conn.prepare(&invoices_sql).map_err(ApiError::internal)?;
+        invoice_stmt
+            .execute(rusqlite::params_from_iter(invoice_bind_values.iter().map(sql_value_to_rusqlite)))
+            .map_err(ApiError::internal)?;
+    }
 
     Ok(Value::Bool(deleted > 0))
 }
