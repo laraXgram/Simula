@@ -13,6 +13,16 @@ use std::path::Path;
 use crate::database::AppState;
 use crate::handlers::{
     dispatch_method, handle_sim_bootstrap, handle_sim_clear_history, handle_sim_create_bot,
+    handle_sim_create_group,
+    handle_sim_create_group_invite_link,
+    handle_sim_decline_join_request,
+    handle_sim_delete_group,
+    handle_sim_set_bot_group_membership,
+    handle_sim_join_group,
+    handle_sim_join_group_by_invite_link,
+    handle_sim_leave_group,
+    handle_sim_approve_join_request,
+    handle_sim_update_group,
     handle_sim_choose_inline_result,
     handle_sim_get_callback_query_answer,
     handle_sim_get_inline_query_answer,
@@ -27,7 +37,7 @@ use crate::handlers::{
     handle_sim_update_bot,
     handle_sim_upsert_user,
     handle_download_file,
-    SimChooseInlineResultRequest, SimClearHistoryRequest, SimCreateBotRequest, SimPayInvoiceRequest, SimPressInlineButtonRequest, SimSendInlineQueryRequest, SimSendUserMessageRequest, SimSetUserReactionRequest, SimUpdateBotRequest,
+    SimChooseInlineResultRequest, SimClearHistoryRequest, SimCreateBotRequest, SimCreateGroupInviteLinkRequest, SimCreateGroupRequest, SimDeleteGroupRequest, SimJoinGroupByInviteLinkRequest, SimJoinGroupRequest, SimLeaveGroupRequest, SimPayInvoiceRequest, SimPressInlineButtonRequest, SimResolveJoinRequestRequest, SimSendInlineQueryRequest, SimSendUserMessageRequest, SimSetBotGroupMembershipRequest, SimSetUserReactionRequest, SimUpdateBotRequest, SimUpdateGroupRequest,
     SimSendUserContactRequest, SimSendUserDiceRequest, SimSendUserGameRequest, SimSendUserLocationRequest, SimSendUserVenueRequest,
     SimVotePollRequest,
     SimUpsertUserRequest,
@@ -411,6 +421,106 @@ pub async fn sim_create_bot(
     payload: web::Json<SimCreateBotRequest>,
 ) -> impl Responder {
     into_telegram_response(handle_sim_create_bot(&state, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/groups/create")]
+pub async fn sim_create_group(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimCreateGroupRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_create_group(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/groups/join")]
+pub async fn sim_join_group(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimJoinGroupRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_join_group(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/groups/leave")]
+pub async fn sim_leave_group(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimLeaveGroupRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_leave_group(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/groups/update")]
+pub async fn sim_update_group(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimUpdateGroupRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_update_group(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/groups/delete")]
+pub async fn sim_delete_group(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimDeleteGroupRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_delete_group(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/groups/bot-membership")]
+pub async fn sim_set_bot_group_membership(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimSetBotGroupMembershipRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_set_bot_group_membership(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/groups/invite/create")]
+pub async fn sim_create_group_invite_link(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimCreateGroupInviteLinkRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_create_group_invite_link(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/groups/invite/join")]
+pub async fn sim_join_group_by_invite_link(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimJoinGroupByInviteLinkRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_join_group_by_invite_link(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/groups/join-requests/approve")]
+pub async fn sim_approve_join_request(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimResolveJoinRequestRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_approve_join_request(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/groups/join-requests/decline")]
+pub async fn sim_decline_join_request(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimResolveJoinRequestRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_decline_join_request(&state, &token, payload.into_inner()))
 }
 
 #[post("/client-api/bot{token}/update")]

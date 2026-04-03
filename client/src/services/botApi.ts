@@ -37,7 +37,18 @@ import type {
   StopPollRequest,
   UploadStickerFileRequest,
 } from '../types/generated/methods';
-import type { File as TgFile, GameHighScore, InlineQueryResult, InlineQueryResultsButton, Message, Sticker, StickerSet } from '../types/generated/types';
+import type { Chat as GeneratedChat, ChatInviteLink, ChatPermissions, File as TgFile, GameHighScore, InlineQueryResult, InlineQueryResultsButton, Message, Sticker, StickerSet, User as GeneratedUser } from '../types/generated/types';
+
+export interface SimCreateGroupResult {
+  chat: GeneratedChat;
+  owner: GeneratedUser;
+  members: GeneratedUser[];
+  settings: {
+    message_history_visible: boolean;
+    slow_mode_delay: number;
+    permissions: ChatPermissions;
+  };
+}
 
 interface InlineQueryAnswerResult {
   inline_query_id: string;
@@ -115,6 +126,263 @@ export async function getSimulationBootstrap(token: string): Promise<SimBootstra
   }
 
   return data.result as SimBootstrapResponse;
+}
+
+export async function createSimulationGroup(token: string, payload: {
+  title: string;
+  chat_type?: 'group' | 'supergroup';
+  owner_user_id?: number;
+  owner_first_name?: string;
+  owner_username?: string;
+  initial_member_ids?: number[];
+  username?: string;
+  description?: string;
+  is_forum?: boolean;
+  message_history_visible?: boolean;
+  slow_mode_delay?: number;
+}): Promise<SimCreateGroupResult> {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/groups/create`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to create simulation group');
+  }
+
+  return data.result as SimCreateGroupResult;
+}
+
+export async function joinSimulationGroup(token: string, payload: {
+  chat_id: number;
+  user_id?: number;
+  first_name?: string;
+  username?: string;
+}): Promise<{ joined: boolean; reason?: string; chat_id: number; user_id: number }> {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/groups/join`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to join simulation group');
+  }
+
+  return data.result as { joined: boolean; reason?: string; chat_id: number; user_id: number };
+}
+
+export async function leaveSimulationGroup(token: string, payload: {
+  chat_id: number;
+  user_id?: number;
+  first_name?: string;
+  username?: string;
+}): Promise<{ left: boolean; reason?: string; chat_id: number; user_id: number }> {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/groups/leave`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to leave simulation group');
+  }
+
+  return data.result as { left: boolean; reason?: string; chat_id: number; user_id: number };
+}
+
+export async function updateSimulationGroup(token: string, payload: {
+  chat_id: number;
+  user_id?: number;
+  actor_first_name?: string;
+  actor_username?: string;
+  title?: string;
+  username?: string;
+  description?: string;
+  is_forum?: boolean;
+  message_history_visible?: boolean;
+  slow_mode_delay?: number;
+  permissions?: ChatPermissions;
+}): Promise<{
+  chat: GeneratedChat;
+  settings?: {
+    description?: string;
+    message_history_visible: boolean;
+    slow_mode_delay: number;
+    permissions: ChatPermissions;
+  };
+}> {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/groups/update`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to update simulation group');
+  }
+
+  return data.result as {
+    chat: GeneratedChat;
+    settings?: {
+      description?: string;
+      message_history_visible: boolean;
+      slow_mode_delay: number;
+      permissions: ChatPermissions;
+    };
+  };
+}
+
+export async function setSimulationBotGroupMembership(token: string, payload: {
+  chat_id: number;
+  actor_user_id?: number;
+  actor_first_name?: string;
+  actor_username?: string;
+  status: 'member' | 'admin' | 'administrator' | 'left' | 'remove';
+}): Promise<{ changed: boolean; chat_id: number; status: string }> {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/groups/bot-membership`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to update bot group membership');
+  }
+
+  return data.result as { changed: boolean; chat_id: number; status: string };
+}
+
+export async function deleteSimulationGroup(token: string, payload: {
+  chat_id: number;
+  user_id: number;
+  actor_first_name?: string;
+  actor_username?: string;
+}): Promise<{ deleted: boolean; chat_id: number }> {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/groups/delete`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to delete simulation group');
+  }
+
+  return data.result as { deleted: boolean; chat_id: number };
+}
+
+export async function createSimulationGroupInviteLink(token: string, payload: {
+  chat_id: number;
+  user_id?: number;
+  actor_first_name?: string;
+  actor_username?: string;
+  creates_join_request?: boolean;
+  name?: string;
+  expire_date?: number;
+  member_limit?: number;
+}): Promise<ChatInviteLink> {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/groups/invite/create`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to create group invite link');
+  }
+
+  return data.result as ChatInviteLink;
+}
+
+export async function joinSimulationGroupByInviteLink(token: string, payload: {
+  invite_link: string;
+  user_id?: number;
+  first_name?: string;
+  username?: string;
+}): Promise<{ joined: boolean; pending?: boolean; reason?: string; chat_id: number; user_id: number }> {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/groups/invite/join`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to join group by invite link');
+  }
+
+  return data.result as { joined: boolean; pending?: boolean; reason?: string; chat_id: number; user_id: number };
+}
+
+export async function approveSimulationGroupJoinRequest(token: string, payload: {
+  chat_id: number;
+  user_id: number;
+  actor_user_id?: number;
+  actor_first_name?: string;
+  actor_username?: string;
+}): Promise<{ approved: boolean; joined?: boolean; reason?: string; chat_id: number; user_id: number }> {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/groups/join-requests/approve`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to approve join request');
+  }
+
+  return data.result as { approved: boolean; joined?: boolean; reason?: string; chat_id: number; user_id: number };
+}
+
+export async function declineSimulationGroupJoinRequest(token: string, payload: {
+  chat_id: number;
+  user_id: number;
+  actor_user_id?: number;
+  actor_first_name?: string;
+  actor_username?: string;
+}): Promise<{ declined: boolean; reason?: string; chat_id: number; user_id: number }> {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/groups/join-requests/decline`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to decline join request');
+  }
+
+  return data.result as { declined: boolean; reason?: string; chat_id: number; user_id: number };
 }
 
 export async function sendUserMessage(token: string, payload: {

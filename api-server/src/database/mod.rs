@@ -98,6 +98,70 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
             title       TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS sim_chats (
+            bot_id                  INTEGER NOT NULL,
+            chat_key                TEXT NOT NULL,
+            chat_id                 INTEGER NOT NULL,
+            chat_type               TEXT NOT NULL,
+            title                   TEXT,
+            username                TEXT,
+            description             TEXT,
+            photo_file_id           TEXT,
+            is_forum                INTEGER NOT NULL DEFAULT 0,
+            message_history_visible INTEGER NOT NULL DEFAULT 1,
+            slow_mode_delay         INTEGER NOT NULL DEFAULT 0,
+            permissions_json        TEXT,
+            owner_user_id           INTEGER,
+            created_at              INTEGER NOT NULL,
+            updated_at              INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, chat_key),
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS sim_chat_members (
+            bot_id      INTEGER NOT NULL,
+            chat_key    TEXT NOT NULL,
+            user_id     INTEGER NOT NULL,
+            status      TEXT NOT NULL,
+            role        TEXT NOT NULL,
+            joined_at   INTEGER,
+            updated_at  INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, chat_key, user_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS sim_chat_invite_links (
+            bot_id               INTEGER NOT NULL,
+            chat_key             TEXT NOT NULL,
+            invite_link          TEXT NOT NULL,
+            creator_user_id      INTEGER NOT NULL,
+            creates_join_request INTEGER NOT NULL DEFAULT 0,
+            is_revoked           INTEGER NOT NULL DEFAULT 0,
+            name                 TEXT,
+            expire_date          INTEGER,
+            member_limit         INTEGER,
+            created_at           INTEGER NOT NULL,
+            updated_at           INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, invite_link),
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS sim_chat_join_requests (
+            bot_id       INTEGER NOT NULL,
+            chat_key     TEXT NOT NULL,
+            user_id      INTEGER NOT NULL,
+            invite_link  TEXT,
+            status       TEXT NOT NULL,
+            created_at   INTEGER NOT NULL,
+            updated_at   INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, chat_key, user_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
+
         CREATE TABLE IF NOT EXISTS messages (
             message_id    INTEGER PRIMARY KEY AUTOINCREMENT,
             bot_id        INTEGER NOT NULL,
@@ -298,8 +362,11 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
             is_anonymous             INTEGER NOT NULL DEFAULT 1,
             poll_type                TEXT NOT NULL DEFAULT 'regular',
             allows_multiple_answers  INTEGER NOT NULL DEFAULT 0,
+            allows_revoting          INTEGER NOT NULL DEFAULT 0,
             correct_option_id        INTEGER,
+            correct_option_ids_json  TEXT,
             explanation              TEXT,
+            description              TEXT,
             open_period              INTEGER,
             close_date               INTEGER,
             created_at               INTEGER NOT NULL,
@@ -320,6 +387,7 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
             poll_id                   TEXT PRIMARY KEY,
             question_entities_json    TEXT,
             explanation_entities_json TEXT,
+            description_entities_json TEXT,
             FOREIGN KEY(poll_id) REFERENCES polls(id)
         );
 
@@ -408,6 +476,10 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
     ensure_column_exists(conn, "invoices", "need_email", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column_exists(conn, "invoices", "send_phone_number_to_provider", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column_exists(conn, "invoices", "send_email_to_provider", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column_exists(conn, "polls", "allows_revoting", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column_exists(conn, "polls", "correct_option_ids_json", "TEXT")?;
+    ensure_column_exists(conn, "polls", "description", "TEXT")?;
+    ensure_column_exists(conn, "poll_metadata", "description_entities_json", "TEXT")?;
 
     Ok(())
 }

@@ -16,6 +16,8 @@ import type {
   Game as GeneratedGame,
   SuccessfulPayment as GeneratedSuccessfulPayment,
   Poll as GeneratedPoll,
+  Chat as GeneratedChat,
+  ChatPermissions as GeneratedChatPermissions,
   MessageReactionCountUpdated as GeneratedMessageReactionCountUpdated,
   MessageReactionUpdated as GeneratedMessageReactionUpdated,
   ReplyKeyboardMarkup as GeneratedReplyKeyboardMarkup,
@@ -42,9 +44,38 @@ export interface SimUser {
   first_name: string;
 }
 
+export interface SimChatMembership {
+  chat_id: number;
+  user_id: number;
+  status: string;
+  role: string;
+}
+
+export interface SimChatJoinRequest {
+  chat_id: number;
+  user_id: number;
+  invite_link?: string;
+  status: string;
+  date: number;
+  first_name?: string;
+  username?: string;
+}
+
+export interface SimChatSettings {
+  chat_id: number;
+  description?: string;
+  message_history_visible: boolean;
+  slow_mode_delay: number;
+  permissions: GeneratedChatPermissions;
+}
+
 export interface SimBootstrapResponse {
   bot: SimBot;
   users: SimUser[];
+  chats?: GeneratedChat[];
+  chat_settings?: SimChatSettings[];
+  memberships?: SimChatMembership[];
+  join_requests?: SimChatJoinRequest[];
 }
 
 export interface ChatMessage {
@@ -102,6 +133,12 @@ export interface ChatMessage {
     count: number;
   }>;
   actorReactions?: Record<string, string[]>;
+  service?: {
+    kind: 'join' | 'leave' | 'member_update' | 'system';
+    targetName?: string;
+    oldStatus?: string;
+    newStatus?: string;
+  };
 }
 
 export type ReplyKeyboardButton = GeneratedKeyboardButton;

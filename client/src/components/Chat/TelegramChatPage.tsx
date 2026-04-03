@@ -32,7 +32,9 @@ import {
 import {
   chooseInlineResult,
   clearSimHistory,
+  createSimulationGroupInviteLink,
   createSimBot,
+  createSimulationGroup,
   createNewStickerSet,
   addStickerToSet,
   deleteStickerFromSet,
@@ -72,11 +74,19 @@ import {
   getInlineQueryAnswer,
   setGameScore,
   getSimulationBootstrap,
+  declineSimulationGroupJoinRequest,
+  deleteSimulationGroup,
+  joinSimulationGroup,
+  joinSimulationGroupByInviteLink,
+  leaveSimulationGroup,
   sendUserMedia,
   sendUserMediaByReference,
   uploadStickerFile,
   sendUserMessage,
   setUserMessageReaction,
+  setSimulationBotGroupMembership,
+  approveSimulationGroupJoinRequest,
+  updateSimulationGroup,
   updateSimBot,
   upsertSimUser,
 } from '../../services/botApi';
@@ -107,6 +117,12 @@ const MESSAGES_KEY = 'laragram-sim-messages';
 const LAST_UPDATES_KEY = 'laragram-last-update-ids';
 const SELECTED_BOT_KEY = 'laragram-selected-bot-token';
 const SELECTED_USER_KEY = 'laragram-selected-user-id';
+const CHAT_SCOPE_KEY = 'laragram-chat-scope';
+const GROUP_CHATS_KEY = 'laragram-group-chats';
+const GROUP_MEMBERSHIP_KEY = 'laragram-group-memberships';
+const SELECTED_GROUP_BY_BOT_KEY = 'laragram-selected-group-by-bot';
+const GROUP_INVITE_LINKS_KEY = 'laragram-group-invite-links';
+const GROUP_JOIN_REQUESTS_KEY = 'laragram-group-join-requests';
 type SidebarTab = 'chats' | 'bots' | 'users';
 type ChatScopeTab = 'private' | 'group' | 'channel';
 type BotModalMode = 'create' | 'edit';
@@ -198,9 +214,203 @@ interface TelegramChatPageProps {
   initialTab?: SidebarTab;
 }
 
+interface GroupChatItem {
+  id: number;
+  type: 'group' | 'supergroup';
+  title: string;
+  username?: string;
+  description?: string;
+  isForum?: boolean;
+  settings?: GroupSettingsSnapshot;
+}
+
+interface GroupSettingsSnapshot {
+  messageHistoryVisible: boolean;
+  slowModeDelay: number;
+  allowSendMessages: boolean;
+  allowSendMedia: boolean;
+  allowSendAudios: boolean;
+  allowSendDocuments: boolean;
+  allowSendPhotos: boolean;
+  allowSendVideos: boolean;
+  allowSendVideoNotes: boolean;
+  allowSendVoiceNotes: boolean;
+  allowSendOtherMessages: boolean;
+  allowAddWebPagePreviews: boolean;
+  allowPolls: boolean;
+  allowInviteUsers: boolean;
+  allowPinMessages: boolean;
+  allowChangeInfo: boolean;
+  allowManageTopics: boolean;
+}
+
+interface PendingGroupJoinRequest {
+  chatId: number;
+  userId: number;
+  firstName: string;
+  username?: string;
+  date: number;
+  inviteLink?: string;
+}
+
+function extractChatMemberStatus(member?: Record<string, unknown>): string | undefined {
+  const raw = member?.status;
+  return typeof raw === 'string' ? raw : undefined;
+}
+
+function extractChatMemberUser(member?: Record<string, unknown>): { id: number; firstName?: string } | null {
+  const rawUser = member?.user;
+  if (!rawUser || typeof rawUser !== 'object') {
+    return null;
+  }
+  const user = rawUser as Record<string, unknown>;
+  const id = typeof user.id === 'number' ? user.id : Number(user.id);
+  if (!Number.isFinite(id)) {
+    return null;
+  }
+  const firstName = typeof user.first_name === 'string' ? user.first_name : undefined;
+  return { id, firstName };
+}
+
+function isJoinedMembershipStatus(status?: string): boolean {
+  if (!status) {
+    return false;
+  }
+  return ['joined', 'member', 'admin', 'owner', 'administrator', 'creator'].includes(status);
+}
+
+function canEditGroupByStatus(status?: string): boolean {
+  if (!status) {
+    return false;
+  }
+  return ['owner', 'admin', 'creator', 'administrator'].includes(status);
+}
+
+function canDeleteGroupByStatus(status?: string): boolean {
+  if (!status) {
+    return false;
+  }
+  return ['owner', 'creator'].includes(status);
+}
+
+function normalizeMembershipStatus(status?: string): string {
+  if (!status) {
+    return 'left';
+  }
+  if (status === 'creator') {
+    return 'owner';
+  }
+  if (status === 'administrator') {
+    return 'admin';
+  }
+  if (status === 'member') {
+    return 'member';
+  }
+  if (status === 'kicked') {
+    return 'banned';
+  }
+  return status;
+}
+
+function defaultGroupSettings(): GroupSettingsSnapshot {
+  return {
+    messageHistoryVisible: true,
+    slowModeDelay: 0,
+    allowSendMessages: true,
+    allowSendMedia: true,
+    allowSendAudios: true,
+    allowSendDocuments: true,
+    allowSendPhotos: true,
+    allowSendVideos: true,
+    allowSendVideoNotes: true,
+    allowSendVoiceNotes: true,
+    allowSendOtherMessages: true,
+    allowAddWebPagePreviews: true,
+    allowPolls: true,
+    allowInviteUsers: true,
+    allowPinMessages: false,
+    allowChangeInfo: false,
+    allowManageTopics: false,
+  };
+}
+
+function mapServerSettingsToSnapshot(raw?: {
+  message_history_visible?: boolean;
+  slow_mode_delay?: number;
+  permissions?: unknown;
+}): GroupSettingsSnapshot {
+  const defaults = defaultGroupSettings();
+  const permissions = raw?.permissions && typeof raw.permissions === 'object'
+    ? (raw.permissions as Record<string, unknown>)
+    : {};
+
+  const allowSendAudios = permissions['can_send_audios'] !== false;
+  const allowSendDocuments = permissions['can_send_documents'] !== false;
+  const allowSendPhotos = permissions['can_send_photos'] !== false;
+  const allowSendVideos = permissions['can_send_videos'] !== false;
+  const allowSendVideoNotes = permissions['can_send_video_notes'] !== false;
+  const allowSendVoiceNotes = permissions['can_send_voice_notes'] !== false;
+  const allowSendOtherMessages = permissions['can_send_other_messages'] !== false;
+  const allowAddWebPagePreviews = permissions['can_add_web_page_previews'] !== false;
+  const mediaAllowed = allowSendAudios
+    && allowSendDocuments
+    && allowSendPhotos
+    && allowSendVideos
+    && allowSendVideoNotes
+    && allowSendVoiceNotes
+    && allowSendOtherMessages
+    && allowAddWebPagePreviews;
+
+  return {
+    messageHistoryVisible: raw?.message_history_visible ?? defaults.messageHistoryVisible,
+    slowModeDelay: Math.max(0, Math.floor(Number(raw?.slow_mode_delay ?? defaults.slowModeDelay) || 0)),
+    allowSendMessages: permissions['can_send_messages'] !== false,
+    allowSendMedia: mediaAllowed,
+    allowSendAudios,
+    allowSendDocuments,
+    allowSendPhotos,
+    allowSendVideos,
+    allowSendVideoNotes,
+    allowSendVoiceNotes,
+    allowSendOtherMessages,
+    allowAddWebPagePreviews,
+    allowPolls: permissions['can_send_polls'] !== false,
+    allowInviteUsers: permissions['can_invite_users'] !== false,
+    allowPinMessages: permissions['can_pin_messages'] === true,
+    allowChangeInfo: permissions['can_change_info'] === true,
+    allowManageTopics: permissions['can_manage_topics'] === true,
+  };
+}
+
+function mapSnapshotToServerPermissions(snapshot: GroupSettingsSnapshot): Record<string, boolean> {
+  return {
+    can_send_messages: snapshot.allowSendMessages,
+    can_send_audios: snapshot.allowSendAudios,
+    can_send_documents: snapshot.allowSendDocuments,
+    can_send_photos: snapshot.allowSendPhotos,
+    can_send_videos: snapshot.allowSendVideos,
+    can_send_video_notes: snapshot.allowSendVideoNotes,
+    can_send_voice_notes: snapshot.allowSendVoiceNotes,
+    can_send_polls: snapshot.allowPolls,
+    can_send_other_messages: snapshot.allowSendOtherMessages,
+    can_add_web_page_previews: snapshot.allowAddWebPagePreviews,
+    can_change_info: snapshot.allowChangeInfo,
+    can_invite_users: snapshot.allowInviteUsers,
+    can_pin_messages: snapshot.allowPinMessages,
+    can_manage_topics: snapshot.allowManageTopics,
+    can_edit_tag: false,
+  };
+}
+
 export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatPageProps) {
   const [activeTab, setActiveTab] = useState<SidebarTab>(initialTab);
-  const [chatScopeTab, setChatScopeTab] = useState<ChatScopeTab>('private');
+  const [chatScopeTab, setChatScopeTab] = useState<ChatScopeTab>(() => {
+    const raw = localStorage.getItem(CHAT_SCOPE_KEY);
+    if (raw === 'group' || raw === 'channel' || raw === 'private') {
+      return raw;
+    }
+    return 'private';
+  });
   const [availableBots, setAvailableBots] = useState<SimBot[]>(() => {
     try {
       const raw = localStorage.getItem(BOTS_KEY);
@@ -225,6 +435,91 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_USER.id;
   });
   const [chatSearch, setChatSearch] = useState('');
+  const [groupChats, setGroupChats] = useState<GroupChatItem[]>(() => {
+    try {
+      const raw = localStorage.getItem(GROUP_CHATS_KEY);
+      return raw ? (JSON.parse(raw) as GroupChatItem[]) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [selectedGroupByBot, setSelectedGroupByBot] = useState<Record<string, number>>(() => {
+    try {
+      const raw = localStorage.getItem(SELECTED_GROUP_BY_BOT_KEY);
+      return raw ? (JSON.parse(raw) as Record<string, number>) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [selectedGroupChatId, setSelectedGroupChatId] = useState<number | null>(() => {
+    try {
+      const token = localStorage.getItem(SELECTED_BOT_KEY) || DEFAULT_BOT_TOKEN;
+      const raw = localStorage.getItem(SELECTED_GROUP_BY_BOT_KEY);
+      const parsed = raw ? (JSON.parse(raw) as Record<string, number>) : {};
+      const value = Number(parsed[token]);
+      return Number.isFinite(value) ? value : null;
+    } catch {
+      return null;
+    }
+  });
+  const [showCreateGroupForm, setShowCreateGroupForm] = useState(false);
+  const [groupDraft, setGroupDraft] = useState({
+    title: '',
+    type: 'supergroup' as 'group' | 'supergroup',
+    username: '',
+    description: '',
+    isForum: false,
+  });
+  const [groupMembershipByUser, setGroupMembershipByUser] = useState<Record<string, string>>(() => {
+    try {
+      const raw = localStorage.getItem(GROUP_MEMBERSHIP_KEY);
+      return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [groupInviteLinkInput, setGroupInviteLinkInput] = useState('');
+  const [groupInviteLinksByChat, setGroupInviteLinksByChat] = useState<Record<string, string>>(() => {
+    try {
+      const raw = localStorage.getItem(GROUP_INVITE_LINKS_KEY);
+      return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [pendingJoinRequestsByChat, setPendingJoinRequestsByChat] = useState<Record<string, PendingGroupJoinRequest[]>>(() => {
+    try {
+      const raw = localStorage.getItem(GROUP_JOIN_REQUESTS_KEY);
+      return raw ? (JSON.parse(raw) as Record<string, PendingGroupJoinRequest[]>) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [showGroupActionsModal, setShowGroupActionsModal] = useState(false);
+  const [showGroupProfileModal, setShowGroupProfileModal] = useState(false);
+  const [groupProfileDraft, setGroupProfileDraft] = useState({
+    title: '',
+    username: '',
+    description: '',
+    isForum: false,
+    messageHistoryVisible: true,
+    slowModeDelay: 0,
+    allowSendMessages: true,
+    allowSendMedia: true,
+    allowSendAudios: true,
+    allowSendDocuments: true,
+    allowSendPhotos: true,
+    allowSendVideos: true,
+    allowSendVideoNotes: true,
+    allowSendVoiceNotes: true,
+    allowSendOtherMessages: true,
+    allowAddWebPagePreviews: true,
+    allowPolls: true,
+    allowInviteUsers: true,
+    allowPinMessages: false,
+    allowChangeInfo: false,
+    allowManageTopics: false,
+  });
   const [composerText, setComposerText] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     try {
@@ -313,11 +608,14 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     options: ['', ''],
     optionsParseMode: 'none' as ComposerParseMode,
     isAnonymous: false,
+    allowsRevoting: true,
     allowsMultipleAnswers: false,
-    correctOptionId: 0,
+    correctOptionIds: [0],
     explanation: '',
     questionParseMode: 'none' as ComposerParseMode,
     explanationParseMode: 'none' as ComposerParseMode,
+    description: '',
+    descriptionParseMode: 'none' as ComposerParseMode,
     openPeriod: '',
     closeDate: '',
     isClosed: false,
@@ -423,9 +721,55 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     };
   }, [composerText, selectedBot?.username]);
 
-  const selectedChatId = selectedUser.id;
+  const filteredGroups = useMemo(() => {
+    const keyword = chatSearch.trim().toLowerCase();
+    if (!keyword) {
+      return groupChats;
+    }
+
+    return groupChats.filter((group) => {
+      const title = group.title.toLowerCase();
+      const username = (group.username || '').toLowerCase();
+      const idText = String(group.id);
+      return title.includes(keyword) || username.includes(keyword) || idText.includes(keyword);
+    });
+  }, [groupChats, chatSearch]);
+
+  const selectedGroup = useMemo(
+    () => groupChats.find((group) => group.id === selectedGroupChatId) || null,
+    [groupChats, selectedGroupChatId],
+  );
+
+  const groupMembershipKey = selectedGroup
+    ? `${selectedBotToken}:${selectedGroup.id}:${selectedUser.id}`
+    : null;
+  const selectedGroupStateKey = selectedGroup
+    ? `${selectedBotToken}:${selectedGroup.id}`
+    : null;
+  const groupMembershipStatus = groupMembershipKey ? groupMembershipByUser[groupMembershipKey] : undefined;
+  const groupMembership = isJoinedMembershipStatus(groupMembershipStatus) ? 'joined' : 'left';
+  const canEditSelectedGroup = canEditGroupByStatus(groupMembershipStatus);
+  const canDeleteSelectedGroup = canDeleteGroupByStatus(groupMembershipStatus);
+  const selectedBotMembershipKey = selectedGroup && selectedBot
+    ? `${selectedBotToken}:${selectedGroup.id}:${selectedBot.id}`
+    : null;
+  const selectedBotMembershipStatus = selectedBotMembershipKey
+    ? groupMembershipByUser[selectedBotMembershipKey]
+    : undefined;
+  const normalizedSelectedBotMembershipStatus = normalizeMembershipStatus(selectedBotMembershipStatus);
+  const isSelectedBotInGroup = isJoinedMembershipStatus(selectedBotMembershipStatus);
+  const canSetSelectedBotAsMember = normalizedSelectedBotMembershipStatus !== 'member';
+  const canSetSelectedBotAsAdmin = normalizedSelectedBotMembershipStatus !== 'admin' && normalizedSelectedBotMembershipStatus !== 'owner';
+  const selectedGroupInviteLink = selectedGroupStateKey ? groupInviteLinksByChat[selectedGroupStateKey] : undefined;
+  const selectedGroupJoinRequests = selectedGroupStateKey ? (pendingJoinRequestsByChat[selectedGroupStateKey] || []) : [];
+
+  const selectedChatId = chatScopeTab === 'group'
+    ? (selectedGroup?.id ?? 0)
+    : selectedUser.id;
   const chatKey = `${selectedBotToken}:${selectedChatId}`;
-  const hasStarted = Boolean(startedChats[chatKey]);
+  const hasStarted = chatScopeTab === 'private'
+    ? Boolean(startedChats[chatKey])
+    : groupMembership === 'joined';
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLElement | null>(null);
   const messageRefs = useRef<Record<number, HTMLDivElement | null>>({});
@@ -449,6 +793,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     [messages, selectedBotToken, selectedChatId],
   );
 
+  const isMessageOutgoingForSelected = (message: ChatMessage) => message.fromUserId === selectedUser.id;
+
   const renderedMessageBlocks = useMemo(() => {
     const blocks: Array<
       | { kind: 'single'; message: ChatMessage }
@@ -469,7 +815,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         if (
           next.mediaGroupId === current.mediaGroupId
           && next.media
-          && next.isOutgoing === current.isOutgoing
+          && isMessageOutgoingForSelected(next) === isMessageOutgoingForSelected(current)
         ) {
           group.push(next);
           cursor += 1;
@@ -487,7 +833,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
 
     return blocks;
-  }, [visibleMessages]);
+  }, [visibleMessages, selectedUser.id]);
 
   const activeReplyKeyboard = useMemo(() => {
     let active: { sourceMessageId: number; markup: BotReplyMarkup } | null = null;
@@ -634,10 +980,127 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     localStorage.setItem(SELECTED_USER_KEY, String(selectedUserId));
   }, [selectedUserId]);
 
+  useEffect(() => {
+    localStorage.setItem(CHAT_SCOPE_KEY, chatScopeTab);
+  }, [chatScopeTab]);
+
+  useEffect(() => {
+    localStorage.setItem(GROUP_CHATS_KEY, JSON.stringify(groupChats));
+  }, [groupChats]);
+
+  useEffect(() => {
+    localStorage.setItem(GROUP_MEMBERSHIP_KEY, JSON.stringify(groupMembershipByUser));
+  }, [groupMembershipByUser]);
+
+  useEffect(() => {
+    localStorage.setItem(GROUP_INVITE_LINKS_KEY, JSON.stringify(groupInviteLinksByChat));
+  }, [groupInviteLinksByChat]);
+
+  useEffect(() => {
+    localStorage.setItem(GROUP_JOIN_REQUESTS_KEY, JSON.stringify(pendingJoinRequestsByChat));
+  }, [pendingJoinRequestsByChat]);
+
+  useEffect(() => {
+    localStorage.setItem(SELECTED_GROUP_BY_BOT_KEY, JSON.stringify(selectedGroupByBot));
+  }, [selectedGroupByBot]);
+
+  useEffect(() => {
+    const saved = selectedGroupByBot[selectedBotToken];
+    const hasSaved = Number.isFinite(saved) && groupChats.some((group) => group.id === saved);
+    setSelectedGroupChatId((current) => {
+      if (hasSaved) {
+        return current === saved ? current : saved;
+      }
+      if (current !== null && groupChats.some((group) => group.id === current)) {
+        return current;
+      }
+      return null;
+    });
+  }, [selectedBotToken, selectedGroupByBot, groupChats]);
+
+  useEffect(() => {
+    setSelectedGroupByBot((prev) => {
+      const current = prev[selectedBotToken];
+      const selectedIsValid = selectedGroupChatId !== null
+        && groupChats.some((group) => group.id === selectedGroupChatId);
+      if (!selectedIsValid) {
+        if (current === undefined) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[selectedBotToken];
+        return next;
+      }
+      const normalizedSelectedChatId = selectedGroupChatId as number;
+      if (current === normalizedSelectedChatId) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [selectedBotToken]: normalizedSelectedChatId,
+      };
+    });
+  }, [selectedBotToken, selectedGroupChatId, groupChats]);
+
   useBotUpdates({
     token: selectedBotToken,
     lastUpdateId,
     onUpdate: (update: BotUpdate) => {
+      const membershipUpdate = update.chat_member || update.my_chat_member;
+      if (membershipUpdate) {
+        const oldMember = membershipUpdate.old_chat_member as Record<string, unknown> | undefined;
+        const newMember = membershipUpdate.new_chat_member as Record<string, unknown> | undefined;
+        const oldStatus = extractChatMemberStatus(oldMember);
+        const newStatus = extractChatMemberStatus(newMember);
+        const targetUser = extractChatMemberUser(newMember) || extractChatMemberUser(oldMember);
+
+        if (targetUser) {
+          const key = `${selectedBotToken}:${membershipUpdate.chat.id}:${targetUser.id}`;
+          const normalizedStatus = normalizeMembershipStatus(newStatus || oldStatus);
+          setGroupMembershipByUser((prev) => ({
+            ...prev,
+            [key]: normalizedStatus,
+          }));
+
+          if (['member', 'admin', 'owner'].includes(normalizedStatus)) {
+            const requestKey = `${selectedBotToken}:${membershipUpdate.chat.id}`;
+            setPendingJoinRequestsByChat((prev) => {
+              const list = prev[requestKey] || [];
+              const nextList = list.filter((item) => item.userId !== targetUser.id);
+              if (nextList.length === list.length) {
+                return prev;
+              }
+              return {
+                ...prev,
+                [requestKey]: nextList,
+              };
+            });
+          }
+        }
+      }
+
+      if (update.chat_join_request) {
+        const request = update.chat_join_request;
+        const requestKey = `${selectedBotToken}:${request.chat.id}`;
+        const mapped: PendingGroupJoinRequest = {
+          chatId: request.chat.id,
+          userId: request.from.id,
+          firstName: request.from.first_name || `user_${request.from.id}`,
+          username: request.from.username || undefined,
+          date: request.date,
+          inviteLink: request.invite_link?.invite_link,
+        };
+
+        setPendingJoinRequestsByChat((prev) => {
+          const current = prev[requestKey] || [];
+          const withoutUser = current.filter((item) => item.userId !== mapped.userId);
+          return {
+            ...prev,
+            [requestKey]: [...withoutUser, mapped].sort((a, b) => a.date - b.date),
+          };
+        });
+      }
+
       if (update.message_reaction) {
         const actor = update.message_reaction.user;
         const actorKey = actor ? `${actor.id}:${actor.is_bot ? 1 : 0}` : null;
@@ -792,15 +1255,90 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         };
       }
 
+      const serviceMessage = (() => {
+        const displayName = (member?: { id?: number; first_name?: string; username?: string } | null): string => {
+          if (!member) {
+            return 'Unknown';
+          }
+          if (member.first_name && member.first_name.trim()) {
+            return member.first_name;
+          }
+          if (member.username && member.username.trim()) {
+            return `@${member.username}`;
+          }
+          return `user_${member.id ?? 0}`;
+        };
+
+        const actorName = displayName(payload.from || null);
+
+        if (payload.new_chat_members && payload.new_chat_members.length > 0) {
+          const memberNames = payload.new_chat_members.map((member) => displayName(member));
+          const selfJoin = Boolean(
+            payload.from
+            && payload.new_chat_members.length === 1
+            && payload.new_chat_members[0].id === payload.from.id,
+          );
+          return {
+            text: payload.text || (selfJoin
+              ? `${actorName} joined the group`
+              : `${actorName} added ${memberNames.join(', ')}`),
+            service: {
+              kind: selfJoin ? 'join' as const : 'member_update' as const,
+              targetName: memberNames.join(', '),
+            },
+          };
+        }
+
+        if (payload.left_chat_member) {
+          const targetName = displayName(payload.left_chat_member);
+          const selfLeave = Boolean(payload.from && payload.left_chat_member.id === payload.from.id);
+          return {
+            text: payload.text || (selfLeave
+              ? `${targetName} left the group`
+              : `${actorName} removed ${targetName}`),
+            service: {
+              kind: selfLeave ? 'leave' as const : 'member_update' as const,
+              targetName,
+            },
+          };
+        }
+
+        if (payload.new_chat_title) {
+          return {
+            text: payload.text || `${actorName} changed the group name to "${payload.new_chat_title}"`,
+            service: {
+              kind: 'system' as const,
+            },
+          };
+        }
+
+        if (payload.group_chat_created || payload.supergroup_chat_created || payload.channel_chat_created) {
+          const chatType = payload.channel_chat_created
+            ? 'channel'
+            : payload.supergroup_chat_created
+              ? 'supergroup'
+              : 'group';
+          return {
+            text: payload.text || `${actorName} created the ${chatType}`,
+            service: {
+              kind: 'system' as const,
+            },
+          };
+        }
+
+        return null;
+      })();
+
       const mapped: ChatMessage = {
         id: payload.message_id,
         botToken: selectedBotToken,
         chatId: payload.chat.id,
-        text: payload.text || payload.caption || '',
+        text: serviceMessage?.text || payload.text || payload.caption || '',
         date: payload.date,
         isOutgoing: Boolean(payload.from?.is_bot),
-        fromName: payload.from?.first_name || 'Bot',
+        fromName: payload.from?.first_name || (payload.from?.username ? `@${payload.from.username}` : 'Bot'),
         fromUserId: payload.from?.id || 0,
+        service: serviceMessage?.service,
         isInlineOrigin: Boolean(payload.via_bot?.id),
         viaBotUsername: payload.via_bot?.username,
         contact: payload.contact,
@@ -938,6 +1476,91 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           });
           return Array.from(byId.values());
         });
+
+        const settingsByChatId = new Map<number, { description?: string; settings: GroupSettingsSnapshot }>();
+        (bootstrap.chat_settings || []).forEach((entry) => {
+          settingsByChatId.set(entry.chat_id, {
+            description: entry.description || undefined,
+            settings: mapServerSettingsToSnapshot(entry),
+          });
+        });
+
+        const incomingGroups: GroupChatItem[] = (bootstrap.chats || [])
+          .filter((chat) => chat.type === 'group' || chat.type === 'supergroup')
+          .map((chat) => ({
+            id: chat.id,
+            type: chat.type as 'group' | 'supergroup',
+            title: chat.title || `Group ${Math.abs(chat.id)}`,
+            username: chat.username || undefined,
+            description: settingsByChatId.get(chat.id)?.description,
+            isForum: chat.is_forum || false,
+            settings: settingsByChatId.get(chat.id)?.settings || defaultGroupSettings(),
+          }));
+
+        setGroupMembershipByUser((prev) => {
+          const prefix = `${selectedBotToken}:`;
+          const next: Record<string, string> = {};
+
+          Object.entries(prev).forEach(([key, value]) => {
+            if (!key.startsWith(prefix)) {
+              next[key] = value;
+            }
+          });
+
+          (bootstrap.memberships || []).forEach((membership) => {
+            const key = `${selectedBotToken}:${membership.chat_id}:${membership.user_id}`;
+            next[key] = normalizeMembershipStatus(membership.status);
+          });
+
+          return next;
+        });
+
+        setPendingJoinRequestsByChat((prev) => {
+          const prefix = `${selectedBotToken}:`;
+          const next: Record<string, PendingGroupJoinRequest[]> = {};
+
+          Object.entries(prev).forEach(([key, value]) => {
+            if (!key.startsWith(prefix)) {
+              next[key] = value;
+            }
+          });
+
+          (bootstrap.join_requests || [])
+            .filter((request) => request.status === 'pending')
+            .forEach((request) => {
+              const key = `${selectedBotToken}:${request.chat_id}`;
+              const mapped: PendingGroupJoinRequest = {
+                chatId: request.chat_id,
+                userId: request.user_id,
+                firstName: request.first_name || `user_${request.user_id}`,
+                username: request.username || undefined,
+                date: request.date,
+                inviteLink: request.invite_link,
+              };
+              next[key] = [...(next[key] || []).filter((item) => item.userId !== mapped.userId), mapped]
+                .sort((a, b) => a.date - b.date);
+            });
+
+          return next;
+        });
+
+        if (incomingGroups.length > 0) {
+          setGroupChats((prev) => {
+            const byId = new Map<number, GroupChatItem>();
+            [...prev, ...incomingGroups].forEach((group) => {
+              byId.set(group.id, group);
+            });
+            return Array.from(byId.values()).sort((a, b) => a.title.localeCompare(b.title));
+          });
+          setSelectedGroupChatId((current) => {
+            if (current && incomingGroups.some((group) => group.id === current)) {
+              return current;
+            }
+            return incomingGroups[0].id;
+          });
+        } else {
+          setSelectedGroupChatId(null);
+        }
       } catch (error) {
         if (mounted) {
           setErrorText(error instanceof Error ? error.message : 'Failed to load bot profile');
@@ -954,6 +1577,16 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       mounted = false;
     };
   }, [selectedBotToken]);
+
+  useEffect(() => {
+    if (chatScopeTab !== 'group') {
+      return;
+    }
+    if (selectedGroupChatId || groupChats.length === 0) {
+      return;
+    }
+    setSelectedGroupChatId(groupChats[0].id);
+  }, [chatScopeTab, groupChats, selectedGroupChatId]);
 
   const persistStarted = (next: Record<string, boolean>) => {
     setStartedChats(next);
@@ -1042,7 +1675,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           is_anonymous: false,
           allows_multiple_answers: false,
           type: pollTrigger.type,
-          correct_option_id: pollTrigger.type === 'quiz' ? pollTrigger.correctOptionId : undefined,
+          correct_option_ids: pollTrigger.type === 'quiz' ? [pollTrigger.correctOptionId] : undefined,
         });
         setComposerText('');
       } catch (error) {
@@ -1221,10 +1854,27 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       ? Math.floor(new Date(pollBuilder.closeDate).getTime() / 1000)
       : undefined;
     const openPeriodNum = pollBuilder.openPeriod ? Number(pollBuilder.openPeriod) : undefined;
+    const normalizedCorrectOptionIds = Array.from(new Set(pollBuilder.correctOptionIds))
+      .sort((a, b) => a - b);
 
-    if (pollBuilder.type === 'quiz' && (pollBuilder.correctOptionId < 0 || pollBuilder.correctOptionId >= options.length)) {
-      setErrorText('Quiz correct option is invalid.');
+    if (openPeriodNum !== undefined && (!Number.isFinite(openPeriodNum) || openPeriodNum < 5 || openPeriodNum > 2_628_000)) {
+      setErrorText('open_period must be between 5 and 2628000 seconds.');
       return;
+    }
+
+    if (pollBuilder.type === 'quiz') {
+      if (normalizedCorrectOptionIds.length === 0) {
+        setErrorText('Quiz requires at least one correct option.');
+        return;
+      }
+      if (normalizedCorrectOptionIds.some((id) => id < 0 || id >= options.length)) {
+        setErrorText('Quiz correct option is invalid.');
+        return;
+      }
+      if (!pollBuilder.allowsMultipleAnswers && normalizedCorrectOptionIds.length !== 1) {
+        setErrorText('Quiz with single-answer mode must have exactly one correct option.');
+        return;
+      }
     }
 
     try {
@@ -1238,10 +1888,13 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         })),
         is_anonymous: pollBuilder.isAnonymous,
         type: pollBuilder.type,
-        allows_multiple_answers: pollBuilder.type === 'quiz' ? false : pollBuilder.allowsMultipleAnswers,
-        correct_option_id: pollBuilder.type === 'quiz' ? pollBuilder.correctOptionId : undefined,
+        allows_revoting: pollBuilder.allowsRevoting,
+        allows_multiple_answers: pollBuilder.allowsMultipleAnswers,
+        correct_option_ids: pollBuilder.type === 'quiz' ? normalizedCorrectOptionIds : undefined,
         explanation: pollBuilder.type === 'quiz' ? (pollBuilder.explanation.trim() || undefined) : undefined,
         explanation_parse_mode: pollBuilder.type === 'quiz' ? parseOrUndefined(pollBuilder.explanationParseMode) : undefined,
+        description: pollBuilder.description.trim() || undefined,
+        description_parse_mode: parseOrUndefined(pollBuilder.descriptionParseMode),
         open_period: openPeriodNum,
         close_date: closeDateUnix,
         is_closed: pollBuilder.isClosed || undefined,
@@ -1253,11 +1906,14 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         options: ['', ''],
         optionsParseMode: 'none',
         isAnonymous: false,
+        allowsRevoting: true,
         allowsMultipleAnswers: false,
-        correctOptionId: 0,
+        correctOptionIds: [0],
         explanation: '',
         questionParseMode: 'none',
         explanationParseMode: 'none',
+        description: '',
+        descriptionParseMode: 'none',
         openPeriod: '',
         closeDate: '',
         isClosed: false,
@@ -1962,6 +2618,488 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     await sendAsUser('/start');
   };
 
+  const onCreateGroup = async () => {
+    const title = groupDraft.title.trim();
+    if (!title || !selectedBotToken) {
+      return;
+    }
+
+    setIsBootstrapping(true);
+    setErrorText('');
+    try {
+      const created = await createSimulationGroup(selectedBotToken, {
+        title,
+        chat_type: groupDraft.type,
+        owner_user_id: selectedUser.id,
+        owner_first_name: selectedUser.first_name,
+        owner_username: selectedUser.username,
+        username: groupDraft.username.trim() || undefined,
+        description: groupDraft.description.trim() || undefined,
+        is_forum: groupDraft.type === 'supergroup' ? groupDraft.isForum : false,
+      });
+
+      const chat = created.chat;
+      const settings = mapServerSettingsToSnapshot(created.settings);
+      const mapped: GroupChatItem = {
+        id: chat.id,
+        type: chat.type as 'group' | 'supergroup',
+        title: chat.title || title,
+        username: chat.username || undefined,
+        description: groupDraft.description.trim() || undefined,
+        isForum: chat.is_forum || false,
+        settings,
+      };
+
+      setGroupChats((prev) => {
+        const byId = new Map<number, GroupChatItem>();
+        [...prev, mapped].forEach((group) => byId.set(group.id, group));
+        return Array.from(byId.values()).sort((a, b) => a.title.localeCompare(b.title));
+      });
+      setSelectedGroupChatId(mapped.id);
+      setGroupMembershipByUser((prev) => {
+        const next = {
+          ...prev,
+          [`${selectedBotToken}:${mapped.id}:${selectedUser.id}`]: 'owner',
+        };
+        if (selectedBot?.id) {
+          next[`${selectedBotToken}:${mapped.id}:${selectedBot.id}`] = 'admin';
+        }
+        return next;
+      });
+      setShowCreateGroupForm(false);
+      setGroupDraft({
+        title: '',
+        type: 'supergroup',
+        username: '',
+        description: '',
+        isForum: false,
+      });
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Failed to create group');
+    } finally {
+      setIsBootstrapping(false);
+    }
+  };
+
+  const onJoinSelectedGroup = async () => {
+    if (!selectedGroup) {
+      return;
+    }
+    setIsBootstrapping(true);
+    setErrorText('');
+    try {
+      await joinSimulationGroup(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        user_id: selectedUser.id,
+        first_name: selectedUser.first_name,
+        username: selectedUser.username,
+      });
+      setGroupMembershipByUser((prev) => ({
+        ...prev,
+        [`${selectedBotToken}:${selectedGroup.id}:${selectedUser.id}`]: 'member',
+      }));
+      setShowGroupActionsModal(false);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Failed to join group');
+    } finally {
+      setIsBootstrapping(false);
+    }
+  };
+
+  const onLeaveSelectedGroup = async () => {
+    if (!selectedGroup) {
+      return;
+    }
+    setIsBootstrapping(true);
+    setErrorText('');
+    try {
+      await leaveSimulationGroup(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        user_id: selectedUser.id,
+        first_name: selectedUser.first_name,
+        username: selectedUser.username,
+      });
+      setGroupMembershipByUser((prev) => ({
+        ...prev,
+        [`${selectedBotToken}:${selectedGroup.id}:${selectedUser.id}`]: 'left',
+      }));
+      setShowGroupActionsModal(false);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Failed to leave group');
+    } finally {
+      setIsBootstrapping(false);
+    }
+  };
+
+  const onSetSelectedBotMembership = async (status: 'admin' | 'member' | 'left') => {
+    if (!selectedGroup || !selectedBot) {
+      return;
+    }
+    if (!canEditSelectedGroup) {
+      setErrorText('Only owner/admin can manage bot membership.');
+      return;
+    }
+
+    setIsBootstrapping(true);
+    setErrorText('');
+    try {
+      const result = await setSimulationBotGroupMembership(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        actor_user_id: selectedUser.id,
+        actor_first_name: selectedUser.first_name,
+        actor_username: selectedUser.username,
+        status,
+      });
+
+      const key = `${selectedBotToken}:${selectedGroup.id}:${selectedBot.id}`;
+      setGroupMembershipByUser((prev) => ({
+        ...prev,
+        [key]: normalizeMembershipStatus(result.status),
+      }));
+
+      if (status === 'left') {
+        setErrorText('Bot removed from group.');
+      } else if (status === 'admin') {
+        setErrorText('Bot is now group admin.');
+      } else {
+        setErrorText('Bot added as member.');
+      }
+      setShowGroupActionsModal(false);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Failed to update bot membership');
+    } finally {
+      setIsBootstrapping(false);
+    }
+  };
+
+  const onCreateGroupInviteLink = async (createsJoinRequest: boolean) => {
+    if (!selectedGroup) {
+      return;
+    }
+    if (!canEditSelectedGroup) {
+      setErrorText('Only owner/admin can create invite links.');
+      return;
+    }
+
+    setIsBootstrapping(true);
+    setErrorText('');
+    try {
+      const invite = await createSimulationGroupInviteLink(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        user_id: selectedUser.id,
+        actor_first_name: selectedUser.first_name,
+        actor_username: selectedUser.username,
+        creates_join_request: createsJoinRequest,
+      });
+
+      const key = `${selectedBotToken}:${selectedGroup.id}`;
+      setGroupInviteLinksByChat((prev) => ({
+        ...prev,
+        [key]: invite.invite_link,
+      }));
+      setGroupInviteLinkInput(invite.invite_link);
+
+      try {
+        await navigator.clipboard.writeText(invite.invite_link);
+        setErrorText(createsJoinRequest ? 'Join-request invite link created and copied.' : 'Invite link created and copied.');
+      } catch {
+        setErrorText(createsJoinRequest ? 'Join-request invite link created.' : 'Invite link created.');
+      }
+      setShowGroupActionsModal(false);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Failed to create invite link');
+    } finally {
+      setIsBootstrapping(false);
+    }
+  };
+
+  const onJoinGroupByInviteLink = async () => {
+    const inviteLink = groupInviteLinkInput.trim();
+    if (!inviteLink) {
+      setErrorText('Invite link is empty.');
+      return;
+    }
+
+    setIsBootstrapping(true);
+    setErrorText('');
+    try {
+      const result = await joinSimulationGroupByInviteLink(selectedBotToken, {
+        invite_link: inviteLink,
+        user_id: selectedUser.id,
+        first_name: selectedUser.first_name,
+        username: selectedUser.username,
+      });
+
+      setChatScopeTab('group');
+      setGroupChats((prev) => {
+        if (prev.some((group) => group.id === result.chat_id)) {
+          return prev;
+        }
+        return [
+          ...prev,
+          {
+            id: result.chat_id,
+            type: 'supergroup' as const,
+            title: `Group ${Math.abs(result.chat_id)}`,
+          },
+        ].sort((a, b) => a.title.localeCompare(b.title));
+      });
+      setSelectedGroupChatId(result.chat_id);
+
+      if (result.joined) {
+        setGroupMembershipByUser((prev) => ({
+          ...prev,
+          [`${selectedBotToken}:${result.chat_id}:${selectedUser.id}`]: 'member',
+        }));
+        setErrorText('Joined group by invite link.');
+      } else if (result.pending) {
+        setErrorText('Join request sent. Waiting for owner/admin approval.');
+      } else {
+        setErrorText(result.reason || 'Unable to join with invite link.');
+      }
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Failed to join by invite link');
+    } finally {
+      setIsBootstrapping(false);
+    }
+  };
+
+  const onDeleteSelectedGroup = async () => {
+    if (!selectedGroup) {
+      return;
+    }
+    if (!canDeleteSelectedGroup) {
+      setErrorText('Only group owner can delete this group.');
+      return;
+    }
+
+    setErrorText('');
+    try {
+      await deleteSimulationGroup(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        user_id: selectedUser.id,
+        actor_first_name: selectedUser.first_name,
+        actor_username: selectedUser.username,
+      });
+
+      const groupStateKey = `${selectedBotToken}:${selectedGroup.id}`;
+      const membershipPrefix = `${groupStateKey}:`;
+      const remainingGroups = groupChats
+        .filter((group) => group.id !== selectedGroup.id)
+        .sort((a, b) => a.title.localeCompare(b.title));
+      const fallbackGroupId = remainingGroups[0]?.id ?? null;
+
+      setGroupChats(remainingGroups);
+      setSelectedGroupChatId((current) => (current === selectedGroup.id ? fallbackGroupId : current));
+      setSelectedGroupByBot((prev) => {
+        const next = { ...prev };
+        if (fallbackGroupId === null) {
+          delete next[selectedBotToken];
+        } else {
+          next[selectedBotToken] = fallbackGroupId;
+        }
+        return next;
+      });
+      setMessages((prev) => prev.filter((message) => !(message.botToken === selectedBotToken && message.chatId === selectedGroup.id)));
+      setGroupMembershipByUser((prev) => {
+        const next: Record<string, string> = {};
+        Object.entries(prev).forEach(([key, value]) => {
+          if (!key.startsWith(membershipPrefix)) {
+            next[key] = value;
+          }
+        });
+        return next;
+      });
+      setGroupInviteLinksByChat((prev) => {
+        const next = { ...prev };
+        delete next[groupStateKey];
+        return next;
+      });
+      setPendingJoinRequestsByChat((prev) => {
+        const next = { ...prev };
+        delete next[groupStateKey];
+        return next;
+      });
+      setShowGroupActionsModal(false);
+      setShowGroupProfileModal(false);
+      setErrorText('Group deleted.');
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Failed to delete group');
+    }
+  };
+
+  const onApproveJoinRequest = async (request: PendingGroupJoinRequest) => {
+    if (!selectedGroup) {
+      return;
+    }
+
+    setIsBootstrapping(true);
+    setErrorText('');
+    try {
+      const result = await approveSimulationGroupJoinRequest(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        user_id: request.userId,
+        actor_user_id: selectedUser.id,
+        actor_first_name: selectedUser.first_name,
+        actor_username: selectedUser.username,
+      });
+
+      const key = `${selectedBotToken}:${selectedGroup.id}`;
+      setPendingJoinRequestsByChat((prev) => ({
+        ...prev,
+        [key]: (prev[key] || []).filter((item) => item.userId !== request.userId),
+      }));
+      if (result.joined) {
+        setGroupMembershipByUser((prev) => ({
+          ...prev,
+          [`${selectedBotToken}:${selectedGroup.id}:${request.userId}`]: 'member',
+        }));
+      }
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Failed to approve join request');
+    } finally {
+      setIsBootstrapping(false);
+    }
+  };
+
+  const onDeclineJoinRequest = async (request: PendingGroupJoinRequest) => {
+    if (!selectedGroup) {
+      return;
+    }
+
+    setIsBootstrapping(true);
+    setErrorText('');
+    try {
+      await declineSimulationGroupJoinRequest(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        user_id: request.userId,
+        actor_user_id: selectedUser.id,
+        actor_first_name: selectedUser.first_name,
+        actor_username: selectedUser.username,
+      });
+
+      const key = `${selectedBotToken}:${selectedGroup.id}`;
+      setPendingJoinRequestsByChat((prev) => ({
+        ...prev,
+        [key]: (prev[key] || []).filter((item) => item.userId !== request.userId),
+      }));
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Failed to decline join request');
+    } finally {
+      setIsBootstrapping(false);
+    }
+  };
+
+  const onOpenGroupProfile = () => {
+    if (!selectedGroup) {
+      return;
+    }
+    if (!canEditSelectedGroup) {
+      setErrorText('Only owner/admin can edit group profile.');
+      setChatMenuOpen(false);
+      return;
+    }
+    const currentSettings = selectedGroup.settings || defaultGroupSettings();
+    setGroupProfileDraft({
+      title: selectedGroup.title,
+      username: selectedGroup.username || '',
+      description: selectedGroup.description || '',
+      isForum: Boolean(selectedGroup.isForum),
+      messageHistoryVisible: currentSettings.messageHistoryVisible,
+      slowModeDelay: currentSettings.slowModeDelay,
+      allowSendMessages: currentSettings.allowSendMessages ?? true,
+      allowSendMedia: currentSettings.allowSendMedia ?? true,
+      allowSendAudios: currentSettings.allowSendAudios ?? true,
+      allowSendDocuments: currentSettings.allowSendDocuments ?? true,
+      allowSendPhotos: currentSettings.allowSendPhotos ?? true,
+      allowSendVideos: currentSettings.allowSendVideos ?? true,
+      allowSendVideoNotes: currentSettings.allowSendVideoNotes ?? true,
+      allowSendVoiceNotes: currentSettings.allowSendVoiceNotes ?? true,
+      allowSendOtherMessages: currentSettings.allowSendOtherMessages ?? true,
+      allowAddWebPagePreviews: currentSettings.allowAddWebPagePreviews ?? true,
+      allowPolls: currentSettings.allowPolls ?? true,
+      allowInviteUsers: currentSettings.allowInviteUsers ?? true,
+      allowPinMessages: currentSettings.allowPinMessages ?? false,
+      allowChangeInfo: currentSettings.allowChangeInfo ?? false,
+      allowManageTopics: currentSettings.allowManageTopics ?? false,
+    });
+    setShowGroupProfileModal(true);
+    setShowGroupActionsModal(false);
+    setChatMenuOpen(false);
+  };
+
+  const onSaveGroupProfile = async () => {
+    if (!selectedGroup) {
+      return;
+    }
+    if (!canEditSelectedGroup) {
+      setErrorText('Only owner/admin can edit group profile.');
+      return;
+    }
+
+    setIsBootstrapping(true);
+    setErrorText('');
+    try {
+      const normalizedSlowModeDelay = Math.max(0, Math.floor(Number(groupProfileDraft.slowModeDelay) || 0));
+      const draftSettings: GroupSettingsSnapshot = {
+        messageHistoryVisible: groupProfileDraft.messageHistoryVisible,
+        slowModeDelay: normalizedSlowModeDelay,
+        allowSendMessages: groupProfileDraft.allowSendMessages,
+        allowSendMedia: groupProfileDraft.allowSendMedia,
+        allowSendAudios: groupProfileDraft.allowSendAudios,
+        allowSendDocuments: groupProfileDraft.allowSendDocuments,
+        allowSendPhotos: groupProfileDraft.allowSendPhotos,
+        allowSendVideos: groupProfileDraft.allowSendVideos,
+        allowSendVideoNotes: groupProfileDraft.allowSendVideoNotes,
+        allowSendVoiceNotes: groupProfileDraft.allowSendVoiceNotes,
+        allowSendOtherMessages: groupProfileDraft.allowSendOtherMessages,
+        allowAddWebPagePreviews: groupProfileDraft.allowAddWebPagePreviews,
+        allowPolls: groupProfileDraft.allowPolls,
+        allowInviteUsers: groupProfileDraft.allowInviteUsers,
+        allowPinMessages: groupProfileDraft.allowPinMessages,
+        allowChangeInfo: groupProfileDraft.allowChangeInfo,
+        allowManageTopics: groupProfileDraft.allowManageTopics,
+      };
+      const result = await updateSimulationGroup(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        user_id: selectedUser.id,
+        actor_first_name: selectedUser.first_name,
+        actor_username: selectedUser.username,
+        title: groupProfileDraft.title.trim() || undefined,
+        username: groupProfileDraft.username.trim() || undefined,
+        description: groupProfileDraft.description.trim() || undefined,
+        is_forum: selectedGroup.type === 'supergroup' ? groupProfileDraft.isForum : undefined,
+        message_history_visible: draftSettings.messageHistoryVisible,
+        slow_mode_delay: draftSettings.slowModeDelay,
+        permissions: mapSnapshotToServerPermissions(draftSettings),
+      });
+
+      const updatedSettings = result.settings
+        ? mapServerSettingsToSnapshot(result.settings)
+        : draftSettings;
+      const updatedDescription = result.settings?.description
+        ?? (groupProfileDraft.description.trim() || undefined);
+
+      setGroupChats((prev) => prev.map((group) => (
+        group.id === selectedGroup.id
+          ? {
+            ...group,
+            title: result.chat.title || group.title,
+            username: result.chat.username || undefined,
+            description: updatedDescription,
+            isForum: result.chat.is_forum || false,
+            settings: updatedSettings,
+          }
+          : group
+      )));
+      setShowGroupProfileModal(false);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Failed to update group profile');
+    } finally {
+      setIsBootstrapping(false);
+    }
+  };
+
   const onCreateBot = () => {
     setBotModalMode('create');
     setBotDraft({
@@ -2211,11 +3349,14 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         options: isQuiz ? ['Correct option', 'Wrong option'] : ['Yes', 'No'],
         optionsParseMode: 'none',
         isAnonymous: false,
+        allowsRevoting: !isQuiz,
         allowsMultipleAnswers: false,
-        correctOptionId: 0,
+        correctOptionIds: [0],
         explanation: isQuiz ? 'Choose the correct answer.' : '',
         questionParseMode: 'none',
         explanationParseMode: 'none',
+        description: '',
+        descriptionParseMode: 'none',
         openPeriod: '',
         closeDate: '',
         isClosed: false,
@@ -3078,14 +4219,24 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
     const selectionKey = `${selectedUser.id}:${message.poll.id}`;
     const currentSelection = pollSelections[selectionKey] || [];
-    const quizLocked = message.poll.type === 'quiz' && currentSelection.length > 0;
-    if (quizLocked) {
+    const voteLocked = currentSelection.length > 0 && !message.poll.allows_revoting;
+    if (voteLocked) {
       return;
     }
 
     let nextSelection: number[] = [optionIndex];
     if (message.poll.type === 'quiz') {
-      nextSelection = [optionIndex];
+      if (message.poll.allows_multiple_answers) {
+        if (currentSelection.includes(optionIndex)) {
+          nextSelection = currentSelection.length > 1
+            ? currentSelection.filter((id) => id !== optionIndex)
+            : currentSelection;
+        } else {
+          nextSelection = [...currentSelection, optionIndex].sort((a, b) => a - b);
+        }
+      } else {
+        nextSelection = [optionIndex];
+      }
     } else if (message.poll.allows_multiple_answers) {
       if (currentSelection.includes(optionIndex)) {
         nextSelection = currentSelection.filter((id) => id !== optionIndex);
@@ -3150,7 +4301,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   };
 
   const onRetractPollVote = async (message: ChatMessage) => {
-    if (!message.poll || message.poll.is_closed || message.poll.type === 'quiz') {
+    if (!message.poll || message.poll.is_closed || message.poll.type === 'quiz' || !message.poll.allows_revoting) {
       return;
     }
 
@@ -3197,8 +4348,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     const selectionKey = `${selectedUser.id}:${message.poll.id}`;
     const currentSelection = pollSelections[selectionKey] || [];
     const hasVoted = currentSelection.length > 0;
-    const quizLocked = message.poll.type === 'quiz' && hasVoted;
-    const canRetract = !message.poll.is_closed && message.poll.type !== 'quiz' && hasVoted;
+    const voteLocked = hasVoted && !message.poll.allows_revoting;
+    const canRetract = !message.poll.is_closed && message.poll.type !== 'quiz' && hasVoted && message.poll.allows_revoting;
     const votersExpanded = Boolean(expandedPollVoters[message.poll.id]);
     const votersLoading = Boolean(pollVotersLoading[message.poll.id]);
     const isAnonymous = pollAnonymousByPollId[message.poll.id] ?? message.poll.is_anonymous;
@@ -3217,19 +4368,23 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             {message.poll.explanation}
           </div>
         ) : null}
+        {message.poll.description ? (
+          <div className="mb-2 text-[11px] text-[#c5dff2]">{message.poll.description}</div>
+        ) : null}
         <div className="space-y-1.5">
           {message.poll.options.map((option, index) => {
             const ratio = Math.round((option.voter_count / totalVotes) * 100);
             const isSelected = currentSelection.includes(index);
             const isQuiz = message.poll?.type === 'quiz';
             const showQuizResult = isQuiz && hasVoted;
-            const isCorrect = typeof message.poll?.correct_option_id === 'number' && message.poll.correct_option_id === index;
+            const isCorrect = Array.isArray(message.poll?.correct_option_ids)
+              && message.poll!.correct_option_ids!.includes(index);
             const isWrongSelected = showQuizResult && isSelected && !isCorrect;
             return (
               <button
                 key={`${message.id}-poll-${index}`}
                 type="button"
-                disabled={message.poll?.is_closed || (quizLocked && !isSelected)}
+                disabled={message.poll?.is_closed || voteLocked}
                 onClick={() => void onVotePoll(message, index)}
                 className={`relative w-full overflow-hidden rounded-lg border px-2 py-2 text-left text-xs text-[#dcefff] disabled:cursor-not-allowed disabled:opacity-70 ${
                   isWrongSelected
@@ -3259,7 +4414,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         </div>
         <div className="mt-2 flex items-center justify-between text-[11px] text-telegram-textSecondary">
           <span>{message.poll.total_voter_count} votes</span>
-          {message.poll.is_closed ? <span>closed</span> : null}
+          <span>
+            {message.poll.is_closed ? 'closed' : (!message.poll.allows_revoting && hasVoted ? 'final vote' : '')}
+          </span>
         </div>
         {!isAnonymous ? (
           <button
@@ -4074,6 +5231,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               </button>
               <button
                 type="button"
+                onClick={() => setChatScopeTab('group')}
                 className={`rounded-md px-2 py-1.5 ${chatScopeTab === 'group' ? 'bg-[#2b5278] text-white' : 'text-telegram-textSecondary'}`}
               >
                 Group
@@ -4087,10 +5245,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               </button>
             </div>
 
-            {chatScopeTab !== 'private' ? (
+            {chatScopeTab === 'channel' ? (
               <div className="mb-3 rounded-xl border border-dashed border-white/20 bg-black/20 px-3 py-3 text-xs text-telegram-textSecondary">
-                {chatScopeTab === 'group' ? 'Group chat simulator will be enabled in next phase.' : null}
-                {chatScopeTab === 'channel' ? 'Channel simulator will be enabled in next phase.' : null}
+                Channel simulator will be enabled in next phase.
               </div>
             ) : null}
 
@@ -4151,6 +5308,145 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       </button>
                     );
                   })}
+                </div>
+              </>
+            ) : null}
+
+            {activeTab === 'chats' && chatScopeTab === 'group' ? (
+              <>
+                <div className="mb-3 flex items-center gap-2 rounded-xl bg-white/5 px-3 py-2 text-sm text-telegram-textSecondary">
+                  <Search className="h-4 w-4" />
+                  <input
+                    value={chatSearch}
+                    onChange={(e) => setChatSearch(e.target.value)}
+                    className="w-full bg-transparent text-sm text-white outline-none placeholder:text-telegram-textSecondary"
+                    placeholder="Search groups"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowCreateGroupForm((prev) => !prev)}
+                  className="mb-2 w-full rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-left text-xs text-white hover:bg-black/30"
+                >
+                  {showCreateGroupForm ? 'Close group creator' : 'Create new group'}
+                </button>
+
+                {showCreateGroupForm ? (
+                  <div className="mb-3 space-y-2 rounded-xl border border-white/10 bg-black/20 p-3 text-xs">
+                    <input
+                      value={groupDraft.title}
+                      onChange={(e) => setGroupDraft((prev) => ({ ...prev, title: e.target.value }))}
+                      className="w-full rounded-lg border border-white/15 bg-[#0f1a26] px-2 py-1.5 text-white outline-none"
+                      placeholder="Group title"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <select
+                        value={groupDraft.type}
+                        onChange={(e) => setGroupDraft((prev) => ({ ...prev, type: e.target.value as 'group' | 'supergroup' }))}
+                        className="rounded-lg border border-white/15 bg-[#0f1a26] px-2 py-1.5 text-white outline-none"
+                      >
+                        <option value="group">group</option>
+                        <option value="supergroup">supergroup</option>
+                      </select>
+                      <input
+                        value={groupDraft.username}
+                        onChange={(e) => setGroupDraft((prev) => ({ ...prev, username: e.target.value }))}
+                        className="rounded-lg border border-white/15 bg-[#0f1a26] px-2 py-1.5 text-white outline-none"
+                        placeholder="public username"
+                      />
+                    </div>
+                    <input
+                      value={groupDraft.description}
+                      onChange={(e) => setGroupDraft((prev) => ({ ...prev, description: e.target.value }))}
+                      className="w-full rounded-lg border border-white/15 bg-[#0f1a26] px-2 py-1.5 text-white outline-none"
+                      placeholder="description"
+                    />
+                    {groupDraft.type === 'supergroup' ? (
+                      <label className="flex items-center gap-2 text-telegram-textSecondary">
+                        <input
+                          type="checkbox"
+                          checked={groupDraft.isForum}
+                          onChange={(e) => setGroupDraft((prev) => ({ ...prev, isForum: e.target.checked }))}
+                        />
+                        Enable forum topics
+                      </label>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => void onCreateGroup()}
+                      disabled={isBootstrapping || !groupDraft.title.trim()}
+                      className="w-full rounded-lg bg-[#2b5278] px-3 py-2 text-white disabled:opacity-50"
+                    >
+                      Create Group
+                    </button>
+                  </div>
+                ) : null}
+
+                <div className="mb-3 space-y-2 rounded-xl border border-white/10 bg-black/20 p-3 text-xs">
+                  <p className="text-[11px] text-telegram-textSecondary">Join group by invite link</p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={groupInviteLinkInput}
+                      onChange={(e) => setGroupInviteLinkInput(e.target.value)}
+                      className="min-w-0 flex-1 rounded-lg border border-white/15 bg-[#0f1a26] px-2 py-1.5 text-white outline-none"
+                      placeholder="https://t.me/+..."
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void onJoinGroupByInviteLink()}
+                      disabled={isBootstrapping || !groupInviteLinkInput.trim()}
+                      className="rounded-lg bg-[#2b5278] px-3 py-1.5 text-white disabled:opacity-50"
+                    >
+                      Join
+                    </button>
+                  </div>
+                  {selectedGroupInviteLink ? (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(selectedGroupInviteLink);
+                          setErrorText('Invite link copied.');
+                        } catch {
+                          setErrorText('Invite link copy failed.');
+                        }
+                      }}
+                      className="w-full truncate rounded-lg border border-white/15 bg-[#0f1a26] px-2 py-1.5 text-left text-[11px] text-[#bfe4ff] hover:bg-[#14283a]"
+                      title={selectedGroupInviteLink}
+                    >
+                      Latest invite: {selectedGroupInviteLink}
+                    </button>
+                  ) : null}
+                </div>
+
+                <div className="space-y-2">
+                  {filteredGroups.map((group) => {
+                    const isActive = group.id === selectedGroupChatId;
+                    const memberState = groupMembershipByUser[`${selectedBotToken}:${group.id}:${selectedUser.id}`] || 'unknown';
+                    return (
+                      <button
+                        key={group.id}
+                        type="button"
+                        onClick={() => setSelectedGroupChatId(group.id)}
+                        className={`w-full rounded-xl border px-3 py-2 text-left transition ${isActive ? 'border-[#5ca9df] bg-[#2b5278]/60' : 'border-white/10 bg-black/20 hover:bg-black/30'}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <p className="font-medium text-white truncate">{group.title}</p>
+                          <span className="text-[10px] text-[#b5cfdf]">{group.type}</span>
+                        </div>
+                        <p className="text-xs text-telegram-textSecondary truncate">
+                          {group.username ? `@${group.username}` : `id ${group.id}`}
+                        </p>
+                        <p className="text-[10px] text-telegram-textSecondary">membership: {memberState}</p>
+                      </button>
+                    );
+                  })}
+                  {filteredGroups.length === 0 ? (
+                    <p className="rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-xs text-telegram-textSecondary">
+                      No groups yet. Create your first group.
+                    </p>
+                  ) : null}
                 </div>
               </>
             ) : null}
@@ -4252,11 +5548,23 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               <div className="min-w-0">
                 <h2 className="truncate font-semibold">{selectedBot?.first_name || 'Bot'}</h2>
                 <p className="truncate text-xs text-telegram-textSecondary">
-                  @{selectedBot?.username || 'unknown'} | user #{selectedUser.id}
+                  @{selectedBot?.username || 'unknown'} | {chatScopeTab === 'group' ? selectedGroup?.title || 'Group' : 'Private'}
                 </p>
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
+              <select
+                value={selectedUserId}
+                onChange={(e) => setSelectedUserId(Number(e.target.value))}
+                className="max-w-[180px] rounded-lg border border-white/15 bg-black/20 px-2 py-1.5 text-xs text-white outline-none"
+                title="Quick user switch"
+              >
+                {availableUsers.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.first_name} ({user.id})
+                  </option>
+                ))}
+              </select>
               {selectionMode ? (
                 <button
                   type="button"
@@ -4283,7 +5591,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               </button>
               {chatMenuOpen ? (
                 <div
-                  className="absolute right-0 top-11 z-20 w-52 rounded-xl border border-white/15 bg-[#132130] p-1 shadow-2xl"
+                  className="absolute right-0 top-11 z-20 w-72 max-w-[85vw] rounded-xl border border-white/15 bg-[#132130] p-1 shadow-2xl"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <button
@@ -4294,6 +5602,19 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   >
                     Delete selected ({selectedMessageIds.length})
                   </button>
+                  {chatScopeTab === 'group' ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowGroupActionsModal(true);
+                        setChatMenuOpen(false);
+                      }}
+                      disabled={!selectedGroup}
+                      className="w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                    >
+                      Open group controls
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => void onClearHistory()}
@@ -4307,23 +5628,78 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             </div>
           </header>
 
+          {chatScopeTab === 'group' && selectedGroup && selectedGroupJoinRequests.length > 0 ? (
+            <div className="shrink-0 border-b border-white/10 bg-[#112738]/90 px-3 py-2 backdrop-blur sm:px-4 lg:px-6">
+              <div className="mx-auto w-full max-w-3xl rounded-2xl border border-[#4d6f89]/45 bg-[#112738]/85 p-3 shadow-lg">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[#9fd8ff]">
+                    Pending join requests ({selectedGroupJoinRequests.length})
+                  </p>
+                  {!canEditSelectedGroup ? (
+                    <span className="text-[11px] text-telegram-textSecondary">Visible to owner/admin for moderation</span>
+                  ) : null}
+                </div>
+                <div className="space-y-2">
+                  {selectedGroupJoinRequests.map((request) => (
+                    <div
+                      key={`join-request-inline-${request.userId}`}
+                      className="rounded-xl border border-white/10 bg-black/25 px-3 py-2"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm text-white">
+                            {request.firstName}{request.username ? ` (@${request.username})` : ''}
+                          </p>
+                          <p className="text-[11px] text-telegram-textSecondary">
+                            user id: {request.userId}
+                            {request.inviteLink ? ` | via ${request.inviteLink}` : ''}
+                          </p>
+                        </div>
+                        {canEditSelectedGroup ? (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => void onApproveJoinRequest(request)}
+                              className="rounded border border-emerald-300/45 bg-emerald-700/35 px-2.5 py-1 text-[11px] text-emerald-100 hover:bg-emerald-700/45"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void onDeclineJoinRequest(request)}
+                              className="rounded border border-red-300/45 bg-red-700/30 px-2.5 py-1 text-[11px] text-red-100 hover:bg-red-700/40"
+                            >
+                              Decline
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           <main
             ref={messagesContainerRef}
             onScroll={onMessagesScroll}
             className="relative min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-[url('/telegram-bg.svg')] bg-cover bg-center px-3 py-4 sm:px-4 sm:py-5 lg:px-6"
           >
-            {chatScopeTab !== 'private' ? (
+            {chatScopeTab === 'channel' ? (
               <div className="mx-auto mt-16 max-w-md rounded-2xl border border-dashed border-white/20 bg-black/20 p-6 text-center shadow-2xl">
-                <h3 className="mb-2 text-2xl font-semibold">{chatScopeTab === 'group' ? 'Groups' : 'Channels'} Coming Soon</h3>
+                <h3 className="mb-2 text-2xl font-semibold">Channels Coming Soon</h3>
                 <p className="mb-2 text-sm leading-6 text-telegram-textSecondary">
-                  Structure is ready. In next phase this area will show {chatScopeTab} list and dedicated message threads.
+                  Channel timeline and controls will be enabled in the next step.
                 </p>
               </div>
             ) : !hasStarted ? (
               <div className="mx-auto mt-16 max-w-md rounded-2xl border border-white/15 bg-black/20 p-6 text-center shadow-2xl">
                 <h3 className="mb-2 text-2xl font-semibold">No messages here yet</h3>
                 <p className="mb-2 text-sm leading-6 text-telegram-textSecondary">
-                  Tap Start in the bottom bar to begin this conversation exactly like Telegram private bot chat.
+                  {chatScopeTab === 'private'
+                    ? 'Tap Start in the bottom bar to begin this conversation exactly like Telegram private bot chat.'
+                    : 'Join this group as current user to send and receive messages.'}
                 </p>
               </div>
             ) : (
@@ -4334,6 +5710,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                 {renderedMessageBlocks.map((block) => {
                   if (block.kind === 'single') {
                     const message = block.message;
+                    const isOutgoingForSelected = isMessageOutgoingForSelected(message);
                     const isMediaOnly = Boolean(
                       message.media
                       && !message.text
@@ -4350,12 +5727,18 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         onDoubleClick={() => onMessageDoubleClick(message.id)}
                         className={[
                           'relative min-w-0 overflow-hidden rounded-2xl px-3 py-3 shadow-lg sm:px-4',
+                          message.service ? 'mx-auto max-w-[95%] sm:max-w-[70%] rounded-xl bg-black/30 text-center' : '',
                           isMediaOnly ? 'w-fit max-w-[90vw] sm:max-w-[340px]' : 'w-full max-w-[92%] sm:max-w-[84%] lg:max-w-[72%]',
                           selectionMode && selectedMessageIds.includes(message.id) ? 'ring-2 ring-[#87cbff]' : '',
                           highlightedMessageId === message.id ? 'ring-2 ring-[#f9e07f] shadow-[0_0_0_2px_rgba(249,224,127,0.35)]' : '',
-                          message.isOutgoing ? 'mr-auto rounded-bl-md bg-[#182533]' : 'ml-auto rounded-br-md bg-[#2b5278]',
+                          message.service ? '' : (isOutgoingForSelected ? 'ml-auto rounded-br-md bg-[#2b5278]' : 'mr-auto rounded-bl-md bg-[#182533]'),
                         ].join(' ')}
                       >
+                        {chatScopeTab === 'group' && !message.service && !isOutgoingForSelected ? (
+                          <div className="mb-2 text-[11px] font-medium text-[#9dd4ff]">
+                            {message.fromName}
+                          </div>
+                        ) : null}
                         {message.replyTo ? (
                           <button
                             type="button"
@@ -4398,6 +5781,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   }
 
                   const lead = block.messages[0];
+                  const leadIsOutgoingForSelected = isMessageOutgoingForSelected(lead);
                   return (
                     <div
                       key={`album-${block.mediaGroupId}-${lead.id}`}
@@ -4409,9 +5793,12 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         'relative min-w-0 max-w-[92%] overflow-hidden rounded-2xl px-3 py-3 shadow-lg sm:max-w-[84%] lg:max-w-[72%]',
                         selectionMode && selectedMessageIds.includes(lead.id) ? 'ring-2 ring-[#87cbff]' : '',
                         highlightedMessageId === lead.id ? 'ring-2 ring-[#f9e07f] shadow-[0_0_0_2px_rgba(249,224,127,0.35)]' : '',
-                        lead.isOutgoing ? 'mr-auto rounded-bl-md bg-[#182533]' : 'ml-auto rounded-br-md bg-[#2b5278]',
+                        leadIsOutgoingForSelected ? 'ml-auto rounded-br-md bg-[#2b5278]' : 'mr-auto rounded-bl-md bg-[#182533]',
                       ].join(' ')}
                     >
+                      {chatScopeTab === 'group' && !leadIsOutgoingForSelected ? (
+                        <div className="mb-2 text-[11px] font-medium text-[#9dd4ff]">{lead.fromName}</div>
+                      ) : null}
                       {lead.replyTo ? (
                         <button
                           type="button"
@@ -4476,17 +5863,23 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           </main>
 
           <footer className="border-t border-white/10 px-3 py-4 sm:px-4 lg:px-5">
-            {chatScopeTab !== 'private' ? (
+            {chatScopeTab === 'channel' ? (
               <div className="rounded-xl border border-dashed border-white/20 bg-black/20 px-4 py-3 text-center text-xs text-telegram-textSecondary">
-                Message composer for {chatScopeTab} will be enabled in the next phase.
+                Message composer for channel will be enabled in the next phase.
               </div>
             ) : !hasStarted ? (
               <button
                 type="button"
-                onClick={onStart}
+                onClick={() => {
+                  if (chatScopeTab === 'private') {
+                    void onStart();
+                  } else {
+                    void onJoinSelectedGroup();
+                  }
+                }}
                 className="w-full rounded-xl bg-[#2b5278] px-4 py-3 text-sm font-semibold tracking-wide text-white transition hover:bg-[#366892]"
               >
-                START
+                {chatScopeTab === 'private' ? 'START' : 'JOIN GROUP'}
               </button>
             ) : (
               <div className="space-y-2">
@@ -5202,7 +6595,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                               onChange={(event) => setPollBuilder((prev) => ({
                                 ...prev,
                                 type: event.target.value as 'regular' | 'quiz',
-                                allowsMultipleAnswers: event.target.value === 'quiz' ? false : prev.allowsMultipleAnswers,
+                                correctOptionIds: event.target.value === 'quiz'
+                                  ? (prev.correctOptionIds.length > 0 ? prev.correctOptionIds : [0])
+                                  : prev.correctOptionIds,
                               }))}
                               className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
                             >
@@ -5218,7 +6613,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                               <option value="anonymous">Anonymous</option>
                             </select>
                           </div>
-                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                             <select
                               value={pollBuilder.questionParseMode}
                               onChange={(event) => setPollBuilder((prev) => ({ ...prev, questionParseMode: event.target.value as ComposerParseMode }))}
@@ -5249,6 +6644,16 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                               <option value="Markdown">Explain mode: Markdown</option>
                               <option value="HTML">Explain mode: HTML</option>
                             </select>
+                            <select
+                              value={pollBuilder.descriptionParseMode}
+                              onChange={(event) => setPollBuilder((prev) => ({ ...prev, descriptionParseMode: event.target.value as ComposerParseMode }))}
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                            >
+                              <option value="none">Description mode: None</option>
+                              <option value="MarkdownV2">Description mode: MarkdownV2</option>
+                              <option value="Markdown">Description mode: Markdown</option>
+                              <option value="HTML">Description mode: HTML</option>
+                            </select>
                           </div>
                           <div className="space-y-1">
                             {pollBuilder.options.map((option, index) => (
@@ -5266,8 +6671,24 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                 {pollBuilder.type === 'quiz' ? (
                                   <button
                                     type="button"
-                                    onClick={() => setPollBuilder((prev) => ({ ...prev, correctOptionId: index }))}
-                                    className={`rounded-md border px-2 py-1 text-[11px] ${pollBuilder.correctOptionId === index ? 'border-emerald-300/60 bg-emerald-700/35 text-emerald-100' : 'border-[#355a76]/60 bg-[#163041]/70 text-white'}`}
+                                    onClick={() => setPollBuilder((prev) => {
+                                      const alreadySelected = prev.correctOptionIds.includes(index);
+                                      if (prev.allowsMultipleAnswers) {
+                                        const nextIds = alreadySelected
+                                          ? prev.correctOptionIds.filter((id) => id !== index)
+                                          : [...prev.correctOptionIds, index].sort((a, b) => a - b);
+                                        return {
+                                          ...prev,
+                                          correctOptionIds: nextIds.length > 0 ? nextIds : [index],
+                                        };
+                                      }
+
+                                      return {
+                                        ...prev,
+                                        correctOptionIds: [index],
+                                      };
+                                    })}
+                                    className={`rounded-md border px-2 py-1 text-[11px] ${pollBuilder.correctOptionIds.includes(index) ? 'border-emerald-300/60 bg-emerald-700/35 text-emerald-100' : 'border-[#355a76]/60 bg-[#163041]/70 text-white'}`}
                                   >
                                     Correct
                                   </button>
@@ -5277,10 +6698,15 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                     type="button"
                                     onClick={() => setPollBuilder((prev) => {
                                       const nextOptions = prev.options.filter((_, i) => i !== index);
+                                      const normalizedCorrectIds = prev.correctOptionIds
+                                        .filter((id) => id !== index)
+                                        .map((id) => (id > index ? id - 1 : id));
                                       return {
                                         ...prev,
                                         options: nextOptions,
-                                        correctOptionId: Math.min(prev.correctOptionId, Math.max(nextOptions.length - 1, 0)),
+                                        correctOptionIds: normalizedCorrectIds.length > 0
+                                          ? normalizedCorrectIds
+                                          : [0],
                                       };
                                     })}
                                     className="rounded-md border border-red-300/30 bg-red-600/30 px-2 py-1 text-[11px] text-red-100"
@@ -5309,11 +6735,18 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                               className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
                             />
                           ) : null}
+                          <textarea
+                            value={pollBuilder.description}
+                            onChange={(event) => setPollBuilder((prev) => ({ ...prev, description: event.target.value }))}
+                            placeholder="Poll description"
+                            rows={2}
+                            className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                          />
                           <div className="grid grid-cols-2 gap-2">
                             <input
                               type="number"
                               min={5}
-                              max={600}
+                              max={2628000}
                               value={pollBuilder.openPeriod}
                               onChange={(event) => setPollBuilder((prev) => ({ ...prev, openPeriod: event.target.value, closeDate: event.target.value ? '' : prev.closeDate }))}
                               placeholder="open_period (sec)"
@@ -5330,11 +6763,18 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                             <label className="inline-flex items-center gap-1">
                               <input
                                 type="checkbox"
-                                checked={pollBuilder.type === 'quiz' ? false : pollBuilder.allowsMultipleAnswers}
+                                checked={pollBuilder.allowsMultipleAnswers}
                                 onChange={(event) => setPollBuilder((prev) => ({ ...prev, allowsMultipleAnswers: event.target.checked }))}
-                                disabled={pollBuilder.type === 'quiz'}
                               />
-                              Multiple answers
+                              {pollBuilder.type === 'quiz' ? 'Multiple correct options' : 'Multiple answers'}
+                            </label>
+                            <label className="inline-flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={pollBuilder.allowsRevoting}
+                                onChange={(event) => setPollBuilder((prev) => ({ ...prev, allowsRevoting: event.target.checked }))}
+                              />
+                              Allow revoting
                             </label>
                             <label className="inline-flex items-center gap-1">
                               <input
@@ -5817,6 +7257,465 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               </button>
             </div>
           </form>
+        </div>
+      ) : null}
+
+      {showGroupActionsModal && chatScopeTab === 'group' && selectedGroup ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#152434] p-4 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Group Controls</h3>
+              <button type="button" onClick={() => setShowGroupActionsModal(false)} className="rounded-full p-1 hover:bg-white/10">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mb-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-telegram-textSecondary">
+              <p>group: {selectedGroup.title}</p>
+              <p>id: {selectedGroup.id}</p>
+              <p>your membership: {groupMembershipStatus || 'left'}</p>
+              <p>bot status: {normalizedSelectedBotMembershipStatus || 'left'}</p>
+            </div>
+
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={onOpenGroupProfile}
+                disabled={!canEditSelectedGroup}
+                className="w-full rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-left text-sm text-white hover:bg-white/10 disabled:opacity-40"
+              >
+                Group info / edit
+              </button>
+
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => void onJoinSelectedGroup()}
+                  disabled={groupMembership === 'joined'}
+                  className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                >
+                  Join as {selectedUser.first_name}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void onLeaveSelectedGroup()}
+                  disabled={groupMembership !== 'joined'}
+                  className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-orange-200 hover:bg-white/10 disabled:opacity-40"
+                >
+                  Leave group
+                </button>
+              </div>
+
+              <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                <p className="mb-2 text-xs uppercase tracking-wide text-[#8fb7d6]">Bot membership</p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <button
+                    type="button"
+                    onClick={() => void onSetSelectedBotMembership('member')}
+                    disabled={!canEditSelectedGroup || !canSetSelectedBotAsMember}
+                    className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                  >
+                    Set member
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void onSetSelectedBotMembership('admin')}
+                    disabled={!canEditSelectedGroup || !canSetSelectedBotAsAdmin}
+                    className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                  >
+                    Set admin
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void onSetSelectedBotMembership('left')}
+                    disabled={!canEditSelectedGroup || !isSelectedBotInGroup}
+                    className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-orange-200 hover:bg-white/10 disabled:opacity-40"
+                  >
+                    Remove bot
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => void onCreateGroupInviteLink(false)}
+                  disabled={!canEditSelectedGroup}
+                  className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                >
+                  Create invite link
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void onCreateGroupInviteLink(true)}
+                  disabled={!canEditSelectedGroup}
+                  className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                >
+                  Create join-request link
+                </button>
+              </div>
+
+              {selectedGroupInviteLink ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(selectedGroupInviteLink);
+                      setErrorText('Invite link copied.');
+                    } catch {
+                      setErrorText('Invite link copy failed.');
+                    }
+                  }}
+                  className="w-full truncate rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-left text-[11px] text-[#bfe4ff] hover:bg-[#14283a]"
+                  title={selectedGroupInviteLink}
+                >
+                  Latest invite: {selectedGroupInviteLink}
+                </button>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={() => void onDeleteSelectedGroup()}
+                disabled={!canDeleteSelectedGroup}
+                className="w-full rounded-lg border border-red-400/35 bg-red-900/25 px-3 py-2 text-left text-sm text-red-200 hover:bg-red-900/35 disabled:opacity-40"
+              >
+                Delete group (owner)
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showGroupProfileModal && selectedGroup ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#152434] p-4 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Group Info & Edit</h3>
+              <button type="button" onClick={() => setShowGroupProfileModal(false)} className="rounded-full p-1 hover:bg-white/10">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mb-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-telegram-textSecondary">
+              <p>id: {selectedGroup.id}</p>
+              <p>type: {selectedGroup.type}</p>
+            </div>
+
+            <div className="space-y-2">
+              <input
+                value={groupProfileDraft.title}
+                onChange={(e) => setGroupProfileDraft((prev) => ({ ...prev, title: e.target.value }))}
+                className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                placeholder="Group title"
+              />
+              <input
+                value={groupProfileDraft.username}
+                onChange={(e) => setGroupProfileDraft((prev) => ({ ...prev, username: e.target.value }))}
+                className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                placeholder="Group username"
+              />
+              <textarea
+                value={groupProfileDraft.description}
+                onChange={(e) => setGroupProfileDraft((prev) => ({ ...prev, description: e.target.value }))}
+                className="h-24 w-full resize-none rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                placeholder="Group description"
+              />
+              <label className="flex items-center gap-2 text-sm text-telegram-textSecondary">
+                <input
+                  type="checkbox"
+                  checked={groupProfileDraft.messageHistoryVisible}
+                  onChange={(e) => setGroupProfileDraft((prev) => ({ ...prev, messageHistoryVisible: e.target.checked }))}
+                />
+                Message history visible to new members
+              </label>
+              <label className="flex items-center gap-2 text-sm text-telegram-textSecondary">
+                <span className="min-w-[120px] text-xs uppercase tracking-wide text-[#8fb7d6]">Slow mode (sec)</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={groupProfileDraft.slowModeDelay}
+                  onChange={(e) => setGroupProfileDraft((prev) => ({
+                    ...prev,
+                    slowModeDelay: Math.max(0, Math.floor(Number(e.target.value) || 0)),
+                  }))}
+                  className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                />
+              </label>
+              <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                <p className="mb-2 text-xs uppercase tracking-wide text-[#8fb7d6]">Permissions</p>
+                <div className="grid grid-cols-1 gap-1 text-sm text-telegram-textSecondary sm:grid-cols-2">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={groupProfileDraft.allowSendMessages}
+                      onChange={(e) => setGroupProfileDraft((prev) => ({ ...prev, allowSendMessages: e.target.checked }))}
+                    />
+                    Send messages
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={groupProfileDraft.allowSendMedia}
+                      onChange={(e) => setGroupProfileDraft((prev) => ({
+                        ...prev,
+                        allowSendMedia: e.target.checked,
+                        allowSendAudios: e.target.checked,
+                        allowSendDocuments: e.target.checked,
+                        allowSendPhotos: e.target.checked,
+                        allowSendVideos: e.target.checked,
+                        allowSendVideoNotes: e.target.checked,
+                        allowSendVoiceNotes: e.target.checked,
+                        allowSendOtherMessages: e.target.checked,
+                        allowAddWebPagePreviews: e.target.checked,
+                      }))}
+                    />
+                    Send all media + links
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={groupProfileDraft.allowPolls}
+                      onChange={(e) => setGroupProfileDraft((prev) => ({ ...prev, allowPolls: e.target.checked }))}
+                    />
+                    Send polls
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={groupProfileDraft.allowInviteUsers}
+                      onChange={(e) => setGroupProfileDraft((prev) => ({ ...prev, allowInviteUsers: e.target.checked }))}
+                    />
+                    Invite users
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={groupProfileDraft.allowPinMessages}
+                      onChange={(e) => setGroupProfileDraft((prev) => ({ ...prev, allowPinMessages: e.target.checked }))}
+                    />
+                    Pin messages
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={groupProfileDraft.allowChangeInfo}
+                      onChange={(e) => setGroupProfileDraft((prev) => ({ ...prev, allowChangeInfo: e.target.checked }))}
+                    />
+                    Change group info
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={groupProfileDraft.allowManageTopics}
+                      onChange={(e) => setGroupProfileDraft((prev) => ({ ...prev, allowManageTopics: e.target.checked }))}
+                    />
+                    Manage topics
+                  </label>
+                </div>
+
+                <p className="mb-2 mt-3 text-xs uppercase tracking-wide text-[#8fb7d6]">Media matrix</p>
+                <div className="grid grid-cols-1 gap-1 text-sm text-telegram-textSecondary sm:grid-cols-2">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={groupProfileDraft.allowSendAudios}
+                      onChange={(e) => setGroupProfileDraft((prev) => {
+                        const next = { ...prev, allowSendAudios: e.target.checked };
+                        return {
+                          ...next,
+                          allowSendMedia: next.allowSendAudios
+                            && next.allowSendDocuments
+                            && next.allowSendPhotos
+                            && next.allowSendVideos
+                            && next.allowSendVideoNotes
+                            && next.allowSendVoiceNotes
+                            && next.allowSendOtherMessages
+                            && next.allowAddWebPagePreviews,
+                        };
+                      })}
+                    />
+                    Send audios
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={groupProfileDraft.allowSendDocuments}
+                      onChange={(e) => setGroupProfileDraft((prev) => {
+                        const next = { ...prev, allowSendDocuments: e.target.checked };
+                        return {
+                          ...next,
+                          allowSendMedia: next.allowSendAudios
+                            && next.allowSendDocuments
+                            && next.allowSendPhotos
+                            && next.allowSendVideos
+                            && next.allowSendVideoNotes
+                            && next.allowSendVoiceNotes
+                            && next.allowSendOtherMessages
+                            && next.allowAddWebPagePreviews,
+                        };
+                      })}
+                    />
+                    Send documents
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={groupProfileDraft.allowSendPhotos}
+                      onChange={(e) => setGroupProfileDraft((prev) => {
+                        const next = { ...prev, allowSendPhotos: e.target.checked };
+                        return {
+                          ...next,
+                          allowSendMedia: next.allowSendAudios
+                            && next.allowSendDocuments
+                            && next.allowSendPhotos
+                            && next.allowSendVideos
+                            && next.allowSendVideoNotes
+                            && next.allowSendVoiceNotes
+                            && next.allowSendOtherMessages
+                            && next.allowAddWebPagePreviews,
+                        };
+                      })}
+                    />
+                    Send photos
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={groupProfileDraft.allowSendVideos}
+                      onChange={(e) => setGroupProfileDraft((prev) => {
+                        const next = { ...prev, allowSendVideos: e.target.checked };
+                        return {
+                          ...next,
+                          allowSendMedia: next.allowSendAudios
+                            && next.allowSendDocuments
+                            && next.allowSendPhotos
+                            && next.allowSendVideos
+                            && next.allowSendVideoNotes
+                            && next.allowSendVoiceNotes
+                            && next.allowSendOtherMessages
+                            && next.allowAddWebPagePreviews,
+                        };
+                      })}
+                    />
+                    Send videos
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={groupProfileDraft.allowSendVideoNotes}
+                      onChange={(e) => setGroupProfileDraft((prev) => {
+                        const next = { ...prev, allowSendVideoNotes: e.target.checked };
+                        return {
+                          ...next,
+                          allowSendMedia: next.allowSendAudios
+                            && next.allowSendDocuments
+                            && next.allowSendPhotos
+                            && next.allowSendVideos
+                            && next.allowSendVideoNotes
+                            && next.allowSendVoiceNotes
+                            && next.allowSendOtherMessages
+                            && next.allowAddWebPagePreviews,
+                        };
+                      })}
+                    />
+                    Send video notes
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={groupProfileDraft.allowSendVoiceNotes}
+                      onChange={(e) => setGroupProfileDraft((prev) => {
+                        const next = { ...prev, allowSendVoiceNotes: e.target.checked };
+                        return {
+                          ...next,
+                          allowSendMedia: next.allowSendAudios
+                            && next.allowSendDocuments
+                            && next.allowSendPhotos
+                            && next.allowSendVideos
+                            && next.allowSendVideoNotes
+                            && next.allowSendVoiceNotes
+                            && next.allowSendOtherMessages
+                            && next.allowAddWebPagePreviews,
+                        };
+                      })}
+                    />
+                    Send voice notes
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={groupProfileDraft.allowSendOtherMessages}
+                      onChange={(e) => setGroupProfileDraft((prev) => {
+                        const next = { ...prev, allowSendOtherMessages: e.target.checked };
+                        return {
+                          ...next,
+                          allowSendMedia: next.allowSendAudios
+                            && next.allowSendDocuments
+                            && next.allowSendPhotos
+                            && next.allowSendVideos
+                            && next.allowSendVideoNotes
+                            && next.allowSendVoiceNotes
+                            && next.allowSendOtherMessages
+                            && next.allowAddWebPagePreviews,
+                        };
+                      })}
+                    />
+                    Send other messages
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={groupProfileDraft.allowAddWebPagePreviews}
+                      onChange={(e) => setGroupProfileDraft((prev) => {
+                        const next = { ...prev, allowAddWebPagePreviews: e.target.checked };
+                        return {
+                          ...next,
+                          allowSendMedia: next.allowSendAudios
+                            && next.allowSendDocuments
+                            && next.allowSendPhotos
+                            && next.allowSendVideos
+                            && next.allowSendVideoNotes
+                            && next.allowSendVoiceNotes
+                            && next.allowSendOtherMessages
+                            && next.allowAddWebPagePreviews,
+                        };
+                      })}
+                    />
+                    Add web page previews
+                  </label>
+                </div>
+              </div>
+              {selectedGroup.type === 'supergroup' ? (
+                <label className="flex items-center gap-2 text-sm text-telegram-textSecondary">
+                  <input
+                    type="checkbox"
+                    checked={groupProfileDraft.isForum}
+                    onChange={(e) => setGroupProfileDraft((prev) => ({ ...prev, isForum: e.target.checked }))}
+                  />
+                  Enable forum topics
+                </label>
+              ) : null}
+            </div>
+
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowGroupProfileModal(false)}
+                className="rounded-lg border border-white/15 px-3 py-2 text-sm text-white hover:bg-white/10"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void onSaveGroupProfile()}
+                disabled={isBootstrapping || !groupProfileDraft.title.trim() || !canEditSelectedGroup}
+                className="rounded-lg bg-[#2b5278] px-3 py-2 text-sm font-medium text-white hover:bg-[#366892] disabled:opacity-50"
+              >
+                Save group
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 

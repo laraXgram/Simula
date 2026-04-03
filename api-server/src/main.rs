@@ -13,6 +13,12 @@ use std::{env, sync::Mutex};
 use crate::database::{init_database, AppState};
 use crate::routes::{
     bot_api_get, bot_api_post, file_download, health, sim_bootstrap, sim_clear_history, sim_create_bot,
+    sim_create_group, sim_create_group_invite_link,
+    sim_delete_group,
+    sim_set_bot_group_membership,
+    sim_join_group, sim_join_group_by_invite_link, sim_leave_group,
+    sim_approve_join_request, sim_decline_join_request,
+    sim_update_group,
     sim_callback_query_answer, sim_choose_inline_result, sim_edit_user_message_media, sim_inline_query_answer, sim_press_inline_button, sim_send_inline_query, sim_send_user_message, sim_set_user_reaction, sim_update_bot, sim_upsert_user,
     sim_pay_invoice, sim_poll_voters, sim_vote_poll,
     sim_send_user_contact, sim_send_user_dice, sim_send_user_game, sim_send_user_location, sim_send_user_media, sim_send_user_venue,
@@ -79,6 +85,16 @@ async fn main() -> std::io::Result<()> {
             .service(sim_poll_voters)
             .service(sim_choose_inline_result)
             .service(sim_create_bot)
+            .service(sim_create_group)
+            .service(sim_create_group_invite_link)
+            .service(sim_join_group_by_invite_link)
+            .service(sim_approve_join_request)
+            .service(sim_decline_join_request)
+            .service(sim_delete_group)
+            .service(sim_set_bot_group_membership)
+            .service(sim_join_group)
+            .service(sim_leave_group)
+            .service(sim_update_group)
             .service(sim_update_bot)
             .service(sim_upsert_user)
             .service(sim_clear_history)
