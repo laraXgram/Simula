@@ -154,8 +154,10 @@ import {
   ChatMessage,
   InlineKeyboardButton,
   InlineQueryResult,
+  MessageParseMode,
   MessageEntity,
   ReplyKeyboardButton,
+  SimBootstrapForumTopic,
   SimRealtimeEvent,
   SimBot,
   SimUser,
@@ -182,6 +184,10 @@ const GROUP_INVITE_LINKS_KEY = 'laragram-group-invite-links';
 const GROUP_JOIN_REQUESTS_KEY = 'laragram-group-join-requests';
 const GROUP_PINNED_MESSAGES_KEY = 'laragram-group-pinned-messages';
 const INVOICE_META_KEY = 'laragram-invoice-meta-by-message';
+const FORUM_TOPICS_KEY = 'laragram-forum-topics-by-chat';
+const SELECTED_FORUM_TOPIC_KEY = 'laragram-selected-forum-topic-by-chat';
+const GENERAL_FORUM_TOPIC_THREAD_ID = 1;
+const DEFAULT_FORUM_ICON_COLOR = 0x6FB9F0;
 type SidebarTab = 'chats' | 'bots' | 'users';
 type ChatScopeTab = 'private' | 'group' | 'channel';
 type BotModalMode = 'create' | 'edit';
@@ -231,6 +237,16 @@ const TELEGRAM_REACTION_EMOJIS = [
 ];
 
 const DICE_EMOJIS = ['🎲', '🎯', '🏀', '⚽', '🎳', '🎰', '🏐'] as const;
+const FORUM_ICON_COLOR_PRESETS = [
+  0x6FB9F0,
+  0xFFD67E,
+  0xFF93B2,
+  0x90D98B,
+  0xB8A9FF,
+  0x7ED9D1,
+  0xFFA76D,
+  0x8EC5FF,
+];
 
 function mapIncomingReplyMarkup(raw?: Record<string, unknown>): BotReplyMarkup | undefined {
   if (!raw || typeof raw !== 'object') {
@@ -361,6 +377,75 @@ interface InvoiceMetaState {
   isFlexible?: boolean;
   sendPhoneNumberToProvider?: boolean;
   sendEmailToProvider?: boolean;
+}
+
+interface ForumTopicState {
+  messageThreadId: number;
+  name: string;
+  iconColor: number;
+  iconCustomEmojiId?: string;
+  isClosed: boolean;
+  isHidden: boolean;
+  isGeneral: boolean;
+  updatedAt?: number;
+}
+
+interface ForumTopicContextMenuState {
+  x: number;
+  y: number;
+  topic: ForumTopicState;
+}
+
+const isMessageParseMode = (value: unknown): value is MessageParseMode => (
+  value === 'Markdown' || value === 'MarkdownV2' || value === 'HTML'
+);
+
+function normalizeForumTopics(topics: ForumTopicState[]): ForumTopicState[] {
+  const byThreadId = new Map<number, ForumTopicState>();
+  topics.forEach((topic) => {
+    const threadId = Math.floor(Number(topic.messageThreadId));
+    if (!Number.isFinite(threadId) || threadId <= 0) {
+      return;
+    }
+
+    byThreadId.set(threadId, {
+      messageThreadId: threadId,
+      name: topic.name || `Topic ${threadId}`,
+      iconColor: Number.isFinite(Number(topic.iconColor)) ? Math.floor(Number(topic.iconColor)) : DEFAULT_FORUM_ICON_COLOR,
+      iconCustomEmojiId: topic.iconCustomEmojiId || undefined,
+      isClosed: Boolean(topic.isClosed),
+      isHidden: Boolean(topic.isHidden),
+      isGeneral: topic.isGeneral || threadId === GENERAL_FORUM_TOPIC_THREAD_ID,
+      updatedAt: Number.isFinite(Number(topic.updatedAt)) ? Math.floor(Number(topic.updatedAt)) : undefined,
+    });
+  });
+
+  if (!byThreadId.has(GENERAL_FORUM_TOPIC_THREAD_ID)) {
+    byThreadId.set(GENERAL_FORUM_TOPIC_THREAD_ID, {
+      messageThreadId: GENERAL_FORUM_TOPIC_THREAD_ID,
+      name: 'General',
+      iconColor: DEFAULT_FORUM_ICON_COLOR,
+      iconCustomEmojiId: undefined,
+      isClosed: false,
+      isHidden: false,
+      isGeneral: true,
+    });
+  }
+
+  return Array.from(byThreadId.values()).sort((a, b) => {
+    if (a.messageThreadId === GENERAL_FORUM_TOPIC_THREAD_ID) {
+      return -1;
+    }
+    if (b.messageThreadId === GENERAL_FORUM_TOPIC_THREAD_ID) {
+      return 1;
+    }
+    const left = a.updatedAt || 0;
+    const right = b.updatedAt || 0;
+    if (left !== right) {
+      return right - left;
+    }
+    return a.name.localeCompare(b.name);
+  });
 }
 
 function formatChatActionLabel(action: string): string {
@@ -809,10 +894,47 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       return {};
     }
   });
+  const [forumTopicsByChatKey, setForumTopicsByChatKey] = useState<Record<string, ForumTopicState[]>>(() => {
+    try {
+      const raw = localStorage.getItem(FORUM_TOPICS_KEY);
+      if (!raw) {
+        return {};
+      }
+
+      const parsed = JSON.parse(raw) as Record<string, ForumTopicState[]>;
+      const normalized: Record<string, ForumTopicState[]> = {};
+      Object.entries(parsed).forEach(([key, topics]) => {
+        normalized[key] = normalizeForumTopics(Array.isArray(topics) ? topics : []);
+      });
+      return normalized;
+    } catch {
+      return {};
+    }
+  });
+  const [selectedForumTopicByChatKey, setSelectedForumTopicByChatKey] = useState<Record<string, number>>(() => {
+    try {
+      const raw = localStorage.getItem(SELECTED_FORUM_TOPIC_KEY);
+      if (!raw) {
+        return {};
+      }
+
+      const parsed = JSON.parse(raw) as Record<string, number>;
+      const normalized: Record<string, number> = {};
+      Object.entries(parsed).forEach(([key, value]) => {
+        const threadId = Math.floor(Number(value));
+        if (Number.isFinite(threadId) && threadId > 0) {
+          normalized[key] = threadId;
+        }
+      });
+      return normalized;
+    } catch {
+      return {};
+    }
+  });
   const [forumTopicDraft, setForumTopicDraft] = useState({
     messageThreadId: '',
     name: '',
-    iconColor: String(0x6FB9F0),
+    iconColor: String(DEFAULT_FORUM_ICON_COLOR),
     iconCustomEmojiId: '',
     generalName: 'General',
   });
@@ -821,6 +943,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     emoji?: string;
     custom_emoji_id?: string;
   }>>([]);
+  const [showForumTopicModal, setShowForumTopicModal] = useState(false);
+  const [forumTopicModalMode, setForumTopicModalMode] = useState<'create' | 'edit'>('create');
+  const [forumTopicModalThreadId, setForumTopicModalThreadId] = useState<number | null>(null);
+  const [expandedForumTopicThreadId, setExpandedForumTopicThreadId] = useState<number | null>(null);
+  const [forumTopicContextMenu, setForumTopicContextMenu] = useState<ForumTopicContextMenuState | null>(null);
   const [groupMenuButtonDraft, setGroupMenuButtonDraft] = useState<GroupMenuButtonDraft>({
     scope: 'default',
     targetChatId: '',
@@ -1104,6 +1231,53 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const selectedGroupInviteLink = selectedGroupStateKey ? groupInviteLinksByChat[selectedGroupStateKey] : undefined;
   const selectedGroupJoinRequests = selectedGroupStateKey ? (pendingJoinRequestsByChat[selectedGroupStateKey] || []) : [];
   const selectedPinnedMessageIds = selectedGroupStateKey ? (pinnedMessageByChatKey[selectedGroupStateKey] || []) : [];
+  const selectedForumTopics = useMemo(() => {
+    if (!selectedGroupStateKey || !selectedGroup?.isForum) {
+      return [] as ForumTopicState[];
+    }
+
+    return normalizeForumTopics(forumTopicsByChatKey[selectedGroupStateKey] || []);
+  }, [forumTopicsByChatKey, selectedGroup?.isForum, selectedGroupStateKey]);
+
+  const activeForumTopicThreadId = useMemo(() => {
+    if (!selectedGroupStateKey || !selectedGroup?.isForum) {
+      return undefined;
+    }
+
+    const selected = selectedForumTopicByChatKey[selectedGroupStateKey];
+    if (Number.isFinite(selected) && selected > 0 && selectedForumTopics.some((topic) => topic.messageThreadId === selected)) {
+      return selected;
+    }
+
+    return selectedForumTopics[0]?.messageThreadId || GENERAL_FORUM_TOPIC_THREAD_ID;
+  }, [selectedForumTopicByChatKey, selectedForumTopics, selectedGroup?.isForum, selectedGroupStateKey]);
+
+  const activeForumTopic = useMemo(() => {
+    if (!selectedGroup?.isForum || activeForumTopicThreadId === undefined) {
+      return null;
+    }
+    return selectedForumTopics.find((topic) => topic.messageThreadId === activeForumTopicThreadId) || null;
+  }, [activeForumTopicThreadId, selectedForumTopics, selectedGroup?.isForum]);
+
+  const activeMessageThreadId = selectedGroup?.isForum
+    ? activeForumTopicThreadId
+    : undefined;
+
+  const selectForumTopicThread = (threadId: number) => {
+    if (!selectedGroupStateKey || !selectedGroup?.isForum) {
+      return;
+    }
+
+    const normalizedThreadId = Math.floor(Number(threadId));
+    if (!Number.isFinite(normalizedThreadId) || normalizedThreadId <= 0) {
+      return;
+    }
+
+    setSelectedForumTopicByChatKey((prev) => ({
+      ...prev,
+      [selectedGroupStateKey]: normalizedThreadId,
+    }));
+  };
 
   const selectedChatId = chatScopeTab === 'group'
     ? (selectedGroup?.id ?? 0)
@@ -1128,14 +1302,26 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
   const visibleMessages = useMemo(
     () => messages
-      .filter((message) => message.chatId === selectedChatId && message.botToken === selectedBotToken)
+      .filter((message) => {
+        if (message.chatId !== selectedChatId || message.botToken !== selectedBotToken) {
+          return false;
+        }
+
+        if (chatScopeTab === 'group' && selectedGroup?.isForum) {
+          const targetThreadId = activeMessageThreadId || GENERAL_FORUM_TOPIC_THREAD_ID;
+          const messageThreadId = message.messageThreadId || GENERAL_FORUM_TOPIC_THREAD_ID;
+          return messageThreadId === targetThreadId;
+        }
+
+        return true;
+      })
       .sort((a, b) => {
         if (a.date === b.date) {
           return a.id - b.id;
         }
         return a.date - b.date;
       }),
-    [messages, selectedBotToken, selectedChatId],
+    [activeMessageThreadId, chatScopeTab, messages, selectedBotToken, selectedChatId, selectedGroup?.isForum],
   );
 
   const selectedPinnedMessages = useMemo(() => {
@@ -1498,11 +1684,56 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       ...prev,
       messageThreadId: '',
       name: '',
-      iconColor: String(0x6FB9F0),
+      iconColor: String(DEFAULT_FORUM_ICON_COLOR),
       iconCustomEmojiId: '',
     }));
     setForumTopicIconStickers([]);
+    setShowForumTopicModal(false);
+    setForumTopicModalThreadId(null);
+    setExpandedForumTopicThreadId(null);
+    setForumTopicContextMenu(null);
   }, [selectedGroupStateKey]);
+
+  useEffect(() => {
+    if (!selectedGroupStateKey || !selectedGroup?.isForum) {
+      return;
+    }
+
+    const selectedThread = selectedForumTopicByChatKey[selectedGroupStateKey];
+    const hasSelected = Number.isFinite(selectedThread)
+      && selectedThread > 0
+      && selectedForumTopics.some((topic) => topic.messageThreadId === selectedThread);
+    if (hasSelected) {
+      return;
+    }
+
+    const fallbackThreadId = selectedForumTopics[0]?.messageThreadId || GENERAL_FORUM_TOPIC_THREAD_ID;
+    setSelectedForumTopicByChatKey((prev) => ({
+      ...prev,
+      [selectedGroupStateKey]: fallbackThreadId,
+    }));
+  }, [selectedForumTopicByChatKey, selectedForumTopics, selectedGroup?.isForum, selectedGroupStateKey]);
+
+  useEffect(() => {
+    if (!selectedGroup?.isForum) {
+      return;
+    }
+
+    const generalTopic = selectedForumTopics.find((topic) => topic.messageThreadId === GENERAL_FORUM_TOPIC_THREAD_ID);
+    if (!generalTopic) {
+      return;
+    }
+
+    setForumTopicDraft((prev) => {
+      if ((prev.generalName || '').trim() === generalTopic.name.trim()) {
+        return prev;
+      }
+      return {
+        ...prev,
+        generalName: generalTopic.name,
+      };
+    });
+  }, [selectedForumTopics, selectedGroup?.isForum]);
 
   useEffect(() => {
     localStorage.setItem(SELECTED_USER_KEY, String(selectedUserId));
@@ -1535,6 +1766,14 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   useEffect(() => {
     localStorage.setItem(INVOICE_META_KEY, JSON.stringify(invoiceMetaByMessageKey));
   }, [invoiceMetaByMessageKey]);
+
+  useEffect(() => {
+    localStorage.setItem(FORUM_TOPICS_KEY, JSON.stringify(forumTopicsByChatKey));
+  }, [forumTopicsByChatKey]);
+
+  useEffect(() => {
+    localStorage.setItem(SELECTED_FORUM_TOPIC_KEY, JSON.stringify(selectedForumTopicByChatKey));
+  }, [selectedForumTopicByChatKey]);
 
   useEffect(() => {
     localStorage.setItem(SELECTED_GROUP_BY_BOT_KEY, JSON.stringify(selectedGroupByBot));
@@ -1933,12 +2172,28 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         return null;
       })();
 
+      const payloadRecord = payload as unknown as Record<string, unknown>;
+      const rawMessageThreadId = Math.floor(Number(payloadRecord.message_thread_id));
+      const messageThreadId = Number.isFinite(rawMessageThreadId) && rawMessageThreadId > 0
+        ? rawMessageThreadId
+        : undefined;
+      const rawParseMode = payloadRecord.sim_parse_mode;
+      const parseMode = isMessageParseMode(rawParseMode)
+        ? rawParseMode
+        : undefined;
+      const isTopicMessage = typeof payloadRecord.is_topic_message === 'boolean'
+        ? payloadRecord.is_topic_message
+        : (messageThreadId !== undefined ? true : undefined);
+
       const mapped: ChatMessage = {
         id: payload.message_id,
         botToken: selectedBotToken,
         chatId: payload.chat.id,
+        messageThreadId,
+        isTopicMessage,
         text: serviceMessage?.text || payload.text || payload.caption || '',
         date: payload.date,
+        parseMode,
         isOutgoing: Boolean(payload.from?.is_bot),
         fromName: payload.from?.first_name || (payload.from?.username ? `@${payload.from.username}` : 'Bot'),
         fromUserId: payload.from?.id || 0,
@@ -2156,6 +2411,82 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           return next;
         });
 
+        const incomingForumTopicsByChat: Record<string, ForumTopicState[]> = {};
+        (bootstrap.forum_topics || []).forEach((rawTopic: SimBootstrapForumTopic) => {
+          const chatId = Number(rawTopic.chat_id);
+          const messageThreadId = Math.floor(Number(rawTopic.message_thread_id));
+          if (!Number.isFinite(chatId) || !Number.isFinite(messageThreadId) || messageThreadId <= 0) {
+            return;
+          }
+
+          const key = `${selectedBotToken}:${chatId}`;
+          const topic: ForumTopicState = {
+            messageThreadId,
+            name: rawTopic.name || `Topic ${messageThreadId}`,
+            iconColor: Number.isFinite(Number(rawTopic.icon_color)) ? Math.floor(Number(rawTopic.icon_color)) : DEFAULT_FORUM_ICON_COLOR,
+            iconCustomEmojiId: rawTopic.icon_custom_emoji_id || undefined,
+            isClosed: Boolean(rawTopic.is_closed),
+            isHidden: Boolean(rawTopic.is_hidden),
+            isGeneral: Boolean(rawTopic.is_general) || messageThreadId === GENERAL_FORUM_TOPIC_THREAD_ID,
+            updatedAt: Number.isFinite(Number(rawTopic.updated_at)) ? Math.floor(Number(rawTopic.updated_at)) : undefined,
+          };
+
+          incomingForumTopicsByChat[key] = [...(incomingForumTopicsByChat[key] || []), topic];
+        });
+
+        incomingGroups
+          .filter((group) => group.type === 'supergroup' && group.isForum)
+          .forEach((group) => {
+            const key = `${selectedBotToken}:${group.id}`;
+            const topics = incomingForumTopicsByChat[key] || [];
+            incomingForumTopicsByChat[key] = normalizeForumTopics(topics);
+          });
+
+        setForumTopicsByChatKey((prev) => {
+          const prefix = `${selectedBotToken}:`;
+          const next: Record<string, ForumTopicState[]> = {};
+
+          Object.entries(prev).forEach(([key, value]) => {
+            if (!key.startsWith(prefix)) {
+              next[key] = value;
+            }
+          });
+
+          Object.entries(incomingForumTopicsByChat).forEach(([key, value]) => {
+            next[key] = normalizeForumTopics(value);
+          });
+
+          return next;
+        });
+
+        setSelectedForumTopicByChatKey((prev) => {
+          const prefix = `${selectedBotToken}:`;
+          const next: Record<string, number> = {};
+
+          Object.entries(prev).forEach(([key, value]) => {
+            if (!key.startsWith(prefix)) {
+              next[key] = value;
+            }
+          });
+
+          Object.entries(incomingForumTopicsByChat).forEach(([key, topics]) => {
+            const normalized = normalizeForumTopics(topics);
+            if (normalized.length === 0) {
+              return;
+            }
+
+            const previousThreadId = prev[key];
+            const hasPrevious = Number.isFinite(previousThreadId)
+              && previousThreadId > 0
+              && normalized.some((topic) => topic.messageThreadId === previousThreadId);
+            next[key] = hasPrevious
+              ? previousThreadId
+              : normalized[0].messageThreadId;
+          });
+
+          return next;
+        });
+
         if (incomingGroups.length > 0) {
           setGroupChats((prev) => {
             const byId = new Map<number, GroupChatItem>();
@@ -2219,6 +2550,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     try {
       await sendUserMessage(selectedBotToken, {
         chat_id: selectedChatId,
+        message_thread_id: activeMessageThreadId,
         user_id: selectedUser.id,
         first_name: selectedUser.first_name,
         username: selectedUser.username,
@@ -2282,6 +2614,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       try {
         await sendPoll(selectedBotToken, {
           chat_id: selectedChatId,
+          message_thread_id: activeMessageThreadId,
           question: pollTrigger.question,
           options: pollTrigger.options.map((option) => ({ text: option })),
           is_anonymous: false,
@@ -2404,6 +2737,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         if (selectedUploads.length === 1) {
           await sendUserMedia(selectedBotToken, {
             chatId: selectedChatId,
+            messageThreadId: activeMessageThreadId,
             userId: selectedUser.id,
             firstName: selectedUser.first_name,
             username: selectedUser.username,
@@ -2417,6 +2751,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             const file = selectedUploads[index];
             await sendUserMedia(selectedBotToken, {
               chatId: selectedChatId,
+              messageThreadId: activeMessageThreadId,
               userId: selectedUser.id,
               firstName: selectedUser.first_name,
               username: selectedUser.username,
@@ -2503,6 +2838,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     try {
       await sendPoll(selectedBotToken, {
         chat_id: selectedChatId,
+        message_thread_id: activeMessageThreadId,
         question,
         question_parse_mode: parseOrUndefined(pollBuilder.questionParseMode),
         options: options.map((text) => ({
@@ -2613,6 +2949,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     try {
       await sendInvoice(selectedBotToken, {
         chat_id: selectedChatId,
+        message_thread_id: activeMessageThreadId,
         title,
         description,
         payload,
@@ -2950,11 +3287,13 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     try {
       await sendUserMediaByReference(selectedBotToken, {
         chatId: selectedChatId,
+        messageThreadId: activeMessageThreadId,
         userId: selectedUser.id,
         firstName: selectedUser.first_name,
         username: selectedUser.username,
         mediaKind,
         media: mediaRef,
+        replyToMessageId: replyTarget?.id,
       });
       setShowMediaDrawer(false);
       setReplyTarget(null);
@@ -2979,11 +3318,13 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     try {
       await sendUserMedia(selectedBotToken, {
         chatId: selectedChatId,
+        messageThreadId: activeMessageThreadId,
         userId: selectedUser.id,
         firstName: selectedUser.first_name,
         username: selectedUser.username,
         file,
         mediaKind,
+        replyToMessageId: replyTarget?.id,
       });
       if (mediaKind === 'animation') {
         setAnimationUploadFile(null);
@@ -3683,8 +4024,67 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
   };
 
-  const resolveForumTopicThreadId = (): number | null => {
-    const parsed = Math.floor(Number(forumTopicDraft.messageThreadId.trim()));
+  const updateForumTopicsForChat = (
+    chatId: number,
+    updater: (topics: ForumTopicState[]) => ForumTopicState[],
+  ) => {
+    const chatKeyForTopics = `${selectedBotToken}:${chatId}`;
+    setForumTopicsByChatKey((prev) => {
+      const current = normalizeForumTopics(prev[chatKeyForTopics] || []);
+      const nextTopics = normalizeForumTopics(updater(current));
+      return {
+        ...prev,
+        [chatKeyForTopics]: nextTopics,
+      };
+    });
+  };
+
+  const openCreateForumTopicModal = () => {
+    if (!selectedGroup || !canManageForumTopics) {
+      return;
+    }
+
+    setForumTopicModalMode('create');
+    setForumTopicModalThreadId(null);
+    setForumTopicDraft((prev) => ({
+      ...prev,
+      messageThreadId: '',
+      name: '',
+      iconColor: String(activeForumTopic?.iconColor || DEFAULT_FORUM_ICON_COLOR),
+      iconCustomEmojiId: '',
+    }));
+    setShowForumTopicModal(true);
+    setForumTopicContextMenu(null);
+  };
+
+  const openEditForumTopicModal = (topic: ForumTopicState) => {
+    if (!selectedGroup || !canManageForumTopics) {
+      return;
+    }
+
+    setForumTopicModalMode('edit');
+    setForumTopicModalThreadId(topic.messageThreadId);
+    setForumTopicDraft((prev) => ({
+      ...prev,
+      messageThreadId: String(topic.messageThreadId),
+      name: topic.name,
+      iconColor: String(topic.iconColor),
+      iconCustomEmojiId: topic.iconCustomEmojiId || '',
+      generalName: topic.isGeneral ? topic.name : prev.generalName,
+    }));
+    setShowForumTopicModal(true);
+    setForumTopicContextMenu(null);
+  };
+
+  const onQuickCreateForumTopic = () => {
+    openCreateForumTopicModal();
+  };
+
+  const resolveForumTopicThreadId = (threadIdOverride?: number | string): number | null => {
+    const source = threadIdOverride === undefined
+      ? forumTopicDraft.messageThreadId.trim()
+      : threadIdOverride;
+    const parsed = Math.floor(Number(source));
     if (!Number.isFinite(parsed) || parsed <= 0) {
       setErrorText('Valid message_thread_id is required.');
       return null;
@@ -3709,16 +4109,18 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     });
   };
 
-  const onCreateForumTopicFromDraft = async () => {
+  const onCreateForumTopicFromDraft = async (): Promise<boolean> => {
     if (!selectedGroup || !canManageForumTopics) {
-      return;
+      return false;
     }
 
     const name = forumTopicDraft.name.trim();
     if (!name) {
       setErrorText('Topic name is required.');
-      return;
+      return false;
     }
+
+    let created = false;
 
     await runGroupAction(async () => {
       const parsedColor = Math.floor(Number(forumTopicDraft.iconColor.trim()));
@@ -3736,20 +4138,43 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         iconColor: String(topic.icon_color),
         iconCustomEmojiId: topic.icon_custom_emoji_id || '',
       }));
+      updateForumTopicsForChat(selectedGroup.id, (topics) => ([
+        ...topics,
+        {
+          messageThreadId: topic.message_thread_id,
+          name: topic.name,
+          iconColor: topic.icon_color,
+          iconCustomEmojiId: topic.icon_custom_emoji_id || undefined,
+          isClosed: false,
+          isHidden: false,
+          isGeneral: false,
+        },
+      ]));
+      if (selectedGroupStateKey) {
+        setSelectedForumTopicByChatKey((prev) => ({
+          ...prev,
+          [selectedGroupStateKey]: topic.message_thread_id,
+        }));
+      }
       renderInspector('createForumTopic', topic);
       setErrorText(`Forum topic created with thread id ${topic.message_thread_id}.`);
+      created = true;
     });
+
+    return created;
   };
 
-  const onEditForumTopicFromDraft = async () => {
+  const onEditForumTopicFromDraft = async (threadIdOverride?: number): Promise<boolean> => {
     if (!selectedGroup || !canManageForumTopics) {
-      return;
+      return false;
     }
 
-    const messageThreadId = resolveForumTopicThreadId();
+    const messageThreadId = resolveForumTopicThreadId(threadIdOverride);
     if (!messageThreadId) {
-      return;
+      return false;
     }
+
+    let updated = false;
 
     await runGroupAction(async () => {
       const payload: {
@@ -3774,17 +4199,33 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       }
 
       const ok = await editForumTopic(selectedBotToken, payload, selectedUser.id);
+      if (ok) {
+        updateForumTopicsForChat(selectedGroup.id, (topics) => topics.map((topic) => (
+          topic.messageThreadId === messageThreadId
+            ? {
+              ...topic,
+              name: payload.name || topic.name,
+              iconCustomEmojiId: payload.icon_custom_emoji_id
+                ? payload.icon_custom_emoji_id
+                : undefined,
+            }
+            : topic
+        )));
+      }
       renderInspector('editForumTopic', { ...payload, ok });
       setErrorText(ok ? 'Forum topic updated.' : 'Forum topic update returned false.');
+      updated = ok;
     });
+
+    return updated;
   };
 
-  const onCloseForumTopicFromDraft = async () => {
+  const onCloseForumTopicFromDraft = async (threadIdOverride?: number) => {
     if (!selectedGroup || !canManageForumTopics) {
       return;
     }
 
-    const messageThreadId = resolveForumTopicThreadId();
+    const messageThreadId = resolveForumTopicThreadId(threadIdOverride);
     if (!messageThreadId) {
       return;
     }
@@ -3794,17 +4235,24 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         chat_id: selectedGroup.id,
         message_thread_id: messageThreadId,
       }, selectedUser.id);
+      if (ok) {
+        updateForumTopicsForChat(selectedGroup.id, (topics) => topics.map((topic) => (
+          topic.messageThreadId === messageThreadId
+            ? { ...topic, isClosed: true }
+            : topic
+        )));
+      }
       renderInspector('closeForumTopic', { message_thread_id: messageThreadId, ok });
       setErrorText(ok ? 'Forum topic closed.' : 'closeForumTopic returned false.');
     });
   };
 
-  const onReopenForumTopicFromDraft = async () => {
+  const onReopenForumTopicFromDraft = async (threadIdOverride?: number) => {
     if (!selectedGroup || !canManageForumTopics) {
       return;
     }
 
-    const messageThreadId = resolveForumTopicThreadId();
+    const messageThreadId = resolveForumTopicThreadId(threadIdOverride);
     if (!messageThreadId) {
       return;
     }
@@ -3814,18 +4262,30 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         chat_id: selectedGroup.id,
         message_thread_id: messageThreadId,
       }, selectedUser.id);
+      if (ok) {
+        updateForumTopicsForChat(selectedGroup.id, (topics) => topics.map((topic) => (
+          topic.messageThreadId === messageThreadId
+            ? { ...topic, isClosed: false }
+            : topic
+        )));
+      }
       renderInspector('reopenForumTopic', { message_thread_id: messageThreadId, ok });
       setErrorText(ok ? 'Forum topic reopened.' : 'reopenForumTopic returned false.');
     });
   };
 
-  const onDeleteForumTopicFromDraft = async () => {
+  const onDeleteForumTopicFromDraft = async (threadIdOverride?: number) => {
     if (!selectedGroup || !canManageForumTopics) {
       return;
     }
 
-    const messageThreadId = resolveForumTopicThreadId();
+    const messageThreadId = resolveForumTopicThreadId(threadIdOverride);
     if (!messageThreadId) {
+      return;
+    }
+
+    if (messageThreadId === GENERAL_FORUM_TOPIC_THREAD_ID) {
+      setErrorText('General forum topic cannot be deleted.');
       return;
     }
 
@@ -3834,17 +4294,31 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         chat_id: selectedGroup.id,
         message_thread_id: messageThreadId,
       }, selectedUser.id);
+      if (ok) {
+        updateForumTopicsForChat(selectedGroup.id, (topics) => topics.filter((topic) => topic.messageThreadId !== messageThreadId));
+        if (selectedGroupStateKey) {
+          setSelectedForumTopicByChatKey((prev) => {
+            if (prev[selectedGroupStateKey] !== messageThreadId) {
+              return prev;
+            }
+            return {
+              ...prev,
+              [selectedGroupStateKey]: GENERAL_FORUM_TOPIC_THREAD_ID,
+            };
+          });
+        }
+      }
       renderInspector('deleteForumTopic', { message_thread_id: messageThreadId, ok });
       setErrorText(ok ? 'Forum topic deleted.' : 'deleteForumTopic returned false.');
     });
   };
 
-  const onUnpinAllForumTopicMessagesFromDraft = async () => {
+  const onUnpinAllForumTopicMessagesFromDraft = async (threadIdOverride?: number) => {
     if (!selectedGroup || !canManageForumTopics) {
       return;
     }
 
-    const messageThreadId = resolveForumTopicThreadId();
+    const messageThreadId = resolveForumTopicThreadId(threadIdOverride);
     if (!messageThreadId) {
       return;
     }
@@ -3859,25 +4333,129 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     });
   };
 
-  const onEditGeneralForumTopicFromDraft = async () => {
+  const onEditGeneralForumTopicFromDraft = async (nameOverride?: string): Promise<boolean> => {
     if (!selectedGroup || !canManageForumTopics) {
-      return;
+      return false;
     }
 
-    const name = forumTopicDraft.generalName.trim();
+    const name = (nameOverride ?? forumTopicDraft.generalName).trim();
     if (!name) {
       setErrorText('General topic name is required.');
-      return;
+      return false;
     }
+
+    let updated = false;
 
     await runGroupAction(async () => {
       const ok = await editGeneralForumTopic(selectedBotToken, {
         chat_id: selectedGroup.id,
         name,
       }, selectedUser.id);
+      if (ok) {
+        updateForumTopicsForChat(selectedGroup.id, (topics) => topics.map((topic) => (
+          topic.messageThreadId === GENERAL_FORUM_TOPIC_THREAD_ID
+            ? { ...topic, name }
+            : topic
+        )));
+        setForumTopicDraft((prev) => ({
+          ...prev,
+          generalName: name,
+        }));
+      }
       renderInspector('editGeneralForumTopic', { name, ok });
       setErrorText(ok ? 'General forum topic updated.' : 'editGeneralForumTopic returned false.');
+      updated = ok;
     });
+
+    return updated;
+  };
+
+  const onSubmitForumTopicModal = async () => {
+    if (!canManageForumTopics) {
+      return;
+    }
+
+    if (forumTopicModalMode === 'create') {
+      const created = await onCreateForumTopicFromDraft();
+      if (created) {
+        setShowForumTopicModal(false);
+      }
+      return;
+    }
+
+    const threadId = resolveForumTopicThreadId(forumTopicModalThreadId ?? forumTopicDraft.messageThreadId);
+    if (!threadId) {
+      return;
+    }
+
+    const isGeneral = threadId === GENERAL_FORUM_TOPIC_THREAD_ID;
+    const updated = isGeneral
+      ? await onEditGeneralForumTopicFromDraft(forumTopicDraft.name)
+      : await onEditForumTopicFromDraft(threadId);
+    if (updated) {
+      setShowForumTopicModal(false);
+    }
+  };
+
+  const onRunForumTopicContextAction = async (
+    action: 'edit' | 'close' | 'reopen' | 'delete' | 'unpin' | 'hide' | 'unhide',
+  ) => {
+    const topic = forumTopicContextMenu?.topic;
+    if (!topic) {
+      return;
+    }
+
+    if (action === 'edit') {
+      openEditForumTopicModal(topic);
+      return;
+    }
+
+    if (action === 'close') {
+      if (topic.isGeneral) {
+        await onCloseGeneralForumTopic();
+      } else {
+        await onCloseForumTopicFromDraft(topic.messageThreadId);
+      }
+      setForumTopicContextMenu(null);
+      return;
+    }
+
+    if (action === 'reopen') {
+      if (topic.isGeneral) {
+        await onReopenGeneralForumTopic();
+      } else {
+        await onReopenForumTopicFromDraft(topic.messageThreadId);
+      }
+      setForumTopicContextMenu(null);
+      return;
+    }
+
+    if (action === 'delete') {
+      await onDeleteForumTopicFromDraft(topic.messageThreadId);
+      setForumTopicContextMenu(null);
+      return;
+    }
+
+    if (action === 'unpin') {
+      if (topic.isGeneral) {
+        await onUnpinAllGeneralForumTopicMessages();
+      } else {
+        await onUnpinAllForumTopicMessagesFromDraft(topic.messageThreadId);
+      }
+      setForumTopicContextMenu(null);
+      return;
+    }
+
+    if (action === 'hide' && topic.isGeneral) {
+      await onHideGeneralForumTopic();
+      setForumTopicContextMenu(null);
+      return;
+    }
+
+    if (action === 'unhide' && topic.isGeneral) {
+      await onUnhideGeneralForumTopic();
+      setForumTopicContextMenu(null);
+    }
   };
 
   const onCloseGeneralForumTopic = async () => {
@@ -3888,6 +4466,13 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       const ok = await closeGeneralForumTopic(selectedBotToken, {
         chat_id: selectedGroup.id,
       }, selectedUser.id);
+      if (ok) {
+        updateForumTopicsForChat(selectedGroup.id, (topics) => topics.map((topic) => (
+          topic.messageThreadId === GENERAL_FORUM_TOPIC_THREAD_ID
+            ? { ...topic, isClosed: true }
+            : topic
+        )));
+      }
       renderInspector('closeGeneralForumTopic', { ok });
       setErrorText(ok ? 'General forum topic closed.' : 'closeGeneralForumTopic returned false.');
     });
@@ -3901,6 +4486,13 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       const ok = await reopenGeneralForumTopic(selectedBotToken, {
         chat_id: selectedGroup.id,
       }, selectedUser.id);
+      if (ok) {
+        updateForumTopicsForChat(selectedGroup.id, (topics) => topics.map((topic) => (
+          topic.messageThreadId === GENERAL_FORUM_TOPIC_THREAD_ID
+            ? { ...topic, isClosed: false }
+            : topic
+        )));
+      }
       renderInspector('reopenGeneralForumTopic', { ok });
       setErrorText(ok ? 'General forum topic reopened.' : 'reopenGeneralForumTopic returned false.');
     });
@@ -3914,6 +4506,13 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       const ok = await hideGeneralForumTopic(selectedBotToken, {
         chat_id: selectedGroup.id,
       }, selectedUser.id);
+      if (ok) {
+        updateForumTopicsForChat(selectedGroup.id, (topics) => topics.map((topic) => (
+          topic.messageThreadId === GENERAL_FORUM_TOPIC_THREAD_ID
+            ? { ...topic, isHidden: true }
+            : topic
+        )));
+      }
       renderInspector('hideGeneralForumTopic', { ok });
       setErrorText(ok ? 'General forum topic hidden.' : 'hideGeneralForumTopic returned false.');
     });
@@ -3927,6 +4526,13 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       const ok = await unhideGeneralForumTopic(selectedBotToken, {
         chat_id: selectedGroup.id,
       }, selectedUser.id);
+      if (ok) {
+        updateForumTopicsForChat(selectedGroup.id, (topics) => topics.map((topic) => (
+          topic.messageThreadId === GENERAL_FORUM_TOPIC_THREAD_ID
+            ? { ...topic, isHidden: false }
+            : topic
+        )));
+      }
       renderInspector('unhideGeneralForumTopic', { ok });
       setErrorText(ok ? 'General forum topic unhidden.' : 'unhideGeneralForumTopic returned false.');
     });
@@ -4053,6 +4659,16 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         return next;
       });
       setPinnedMessageByChatKey((prev) => {
+        const next = { ...prev };
+        delete next[groupStateKey];
+        return next;
+      });
+      setForumTopicsByChatKey((prev) => {
+        const next = { ...prev };
+        delete next[groupStateKey];
+        return next;
+      });
+      setSelectedForumTopicByChatKey((prev) => {
         const next = { ...prev };
         delete next[groupStateKey];
         return next;
@@ -4782,12 +5398,18 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
     const sourceEntities =
       (message.media ? (message.captionEntities || message.entities) : (message.entities || message.captionEntities)) || [];
-    const rebuilt = rebuildFormattedMessageForEditing(message.text, sourceEntities, composerParseMode);
+    const preferredParseMode: ComposerParseMode = message.parseMode || composerParseMode;
+    const rebuilt = rebuildFormattedMessageForEditing(
+      message.text,
+      sourceEntities,
+      preferredParseMode,
+      Boolean(message.parseMode),
+    );
 
     setComposerEditTarget(message);
     setReplyTarget(null);
     setComposerText(rebuilt.text);
-    setComposerParseMode(rebuilt.parseMode);
+    setComposerParseMode(message.parseMode || rebuilt.parseMode);
     setSelectedUploads([]);
     setMessageMenu(null);
   };
@@ -4835,6 +5457,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       try {
         await sendUserContact(selectedBotToken, {
           chatId: selectedChatId,
+          messageThreadId: activeMessageThreadId,
           userId: selectedUser.id,
           firstName: selectedUser.first_name,
           username: selectedUser.username,
@@ -4855,6 +5478,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       try {
         await sendUserLocation(selectedBotToken, {
           chatId: selectedChatId,
+          messageThreadId: activeMessageThreadId,
           userId: selectedUser.id,
           firstName: selectedUser.first_name,
           username: selectedUser.username,
@@ -5723,7 +6347,12 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const resolveEditParseMode = (
     entities: MessageEntity[],
     preferredMode: ComposerParseMode,
+    preservePreferredMode = false,
   ): ComposerParseMode => {
+    if (preservePreferredMode && preferredMode !== 'none') {
+      return preferredMode;
+    }
+
     if (entities.length === 0) {
       return 'none';
     }
@@ -5897,19 +6526,26 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     text: string,
     entities: MessageEntity[],
     preferredMode: ComposerParseMode,
+    preservePreferredMode = false,
   ): { text: string; parseMode: ComposerParseMode } => {
     if (!text || entities.length === 0) {
-      return { text, parseMode: 'none' };
+      return {
+        text,
+        parseMode: preservePreferredMode && preferredMode !== 'none' ? preferredMode : 'none',
+      };
     }
 
     const formattingEntities = entities
       .filter((entity) => entity.length > 0 && formattedEntityTypes.has(entity.type))
       .sort((a, b) => a.offset - b.offset);
     if (formattingEntities.length === 0) {
-      return { text, parseMode: 'none' };
+      return {
+        text,
+        parseMode: preservePreferredMode && preferredMode !== 'none' ? preferredMode : 'none',
+      };
     }
 
-    const parseMode = resolveEditParseMode(formattingEntities, preferredMode);
+    const parseMode = resolveEditParseMode(formattingEntities, preferredMode, preservePreferredMode);
     if (parseMode === 'none') {
       return { text, parseMode };
     }
@@ -5955,7 +6591,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     });
 
     if (openAt.size === 0) {
-      return { text, parseMode: 'none' };
+      return {
+        text,
+        parseMode: preservePreferredMode && preferredMode !== 'none' ? preferredMode : 'none',
+      };
     }
 
     openAt.forEach((items) => {
@@ -6915,6 +7554,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     const closeMenus = () => {
       setMessageMenu(null);
       setChatMenuOpen(false);
+      setForumTopicContextMenu(null);
     };
 
     window.addEventListener('click', closeMenus);
@@ -7461,6 +8101,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                 <h2 className="truncate font-semibold">{selectedBot?.first_name || 'Bot'}</h2>
                 <p className="truncate text-xs text-telegram-textSecondary">
                   @{selectedBot?.username || 'unknown'} | {chatScopeTab === 'group' ? selectedGroup?.title || 'Group' : 'Private'}
+                  {chatScopeTab === 'group' && selectedGroup?.isForum && activeForumTopic
+                    ? ` · Topic: ${activeForumTopic.name}`
+                    : ''}
                 </p>
               </div>
             </div>
@@ -7558,6 +8201,64 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               </div>
             </div>
           </header>
+
+          {chatScopeTab === 'group' && selectedGroup?.isForum ? (
+            <div className="shrink-0 border-b border-white/10 bg-[#0f2234]/90 px-3 py-2 backdrop-blur sm:px-4 lg:px-6">
+              <div className="mx-auto w-full max-w-3xl">
+                <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                  {selectedForumTopics
+                    .filter((topic) => !topic.isHidden || topic.messageThreadId === activeMessageThreadId)
+                    .map((topic) => {
+                      const isActive = topic.messageThreadId === activeMessageThreadId;
+                      const badgeColor = topic.iconColor.toString(16).padStart(6, '0');
+                      const isPremiumIcon = Boolean(topic.iconCustomEmojiId);
+                      return (
+                        <button
+                          key={`forum-topic-tab-${topic.messageThreadId}`}
+                          type="button"
+                          onClick={() => selectForumTopicThread(topic.messageThreadId)}
+                          onContextMenu={(event) => {
+                            if (!canManageForumTopics) {
+                              return;
+                            }
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setForumTopicContextMenu({
+                              x: event.clientX,
+                              y: event.clientY,
+                              topic,
+                            });
+                          }}
+                          className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition ${isActive ? 'border-[#8ad1ff]/70 bg-[#214865]/80 text-white' : 'border-white/15 bg-black/20 text-[#c8e4f6] hover:bg-white/10'}`}
+                          title={`thread #${topic.messageThreadId}${canManageForumTopics ? ' (right-click for actions)' : ''}`}
+                        >
+                          <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: `#${badgeColor}` }} />
+                          <span className="max-w-[180px] truncate">{topic.name}</span>
+                          {isPremiumIcon ? <Star className="h-3 w-3 text-amber-200" /> : null}
+                          {topic.isClosed ? <span className="text-[10px] text-amber-200">closed</span> : null}
+                        </button>
+                      );
+                    })}
+                  {canManageForumTopics ? (
+                    <button
+                      type="button"
+                      onClick={onQuickCreateForumTopic}
+                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[#76b8e4]/50 bg-[#1a3f5a]/75 text-[#e2f3ff] hover:bg-[#225276]"
+                      title="Create topic"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
+                </div>
+                <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#9ac4df]">
+                  <span>
+                    active thread #{activeMessageThreadId || GENERAL_FORUM_TOPIC_THREAD_ID}
+                  </span>
+                  {canManageForumTopics ? <span>right-click on a topic chip for quick actions</span> : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           {chatScopeTab === 'group' && selectedGroup && selectedGroupJoinRequests.length > 0 ? (
             <div className="shrink-0 border-b border-white/10 bg-[#112738]/90 px-3 py-2 backdrop-blur sm:px-4 lg:px-6">
@@ -8457,6 +9158,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                   try {
                                     await sendUserDice(selectedBotToken, {
                                       chatId: selectedChatId,
+                                      messageThreadId: activeMessageThreadId,
                                       userId: selectedUser.id,
                                       firstName: selectedUser.first_name,
                                       username: selectedUser.username,
@@ -8495,6 +9197,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                     const shortName = gameShortNameDraft.trim() || `game_${Math.floor(Date.now() / 1000)}`;
                                     await sendUserGame(selectedBotToken, {
                                       chatId: selectedChatId,
+                                      messageThreadId: activeMessageThreadId,
                                       userId: selectedUser.id,
                                       firstName: selectedUser.first_name,
                                       username: selectedUser.username,
@@ -8536,6 +9239,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                   try {
                                     await sendUserContact(selectedBotToken, {
                                       chatId: selectedChatId,
+                                      messageThreadId: activeMessageThreadId,
                                       userId: selectedUser.id,
                                       firstName: selectedUser.first_name,
                                       username: selectedUser.username,
@@ -8580,6 +9284,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                   try {
                                     await sendUserLocation(selectedBotToken, {
                                       chatId: selectedChatId,
+                                      messageThreadId: activeMessageThreadId,
                                       userId: selectedUser.id,
                                       firstName: selectedUser.first_name,
                                       username: selectedUser.username,
@@ -8637,6 +9342,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                   try {
                                     await sendUserVenue(selectedBotToken, {
                                       chatId: selectedChatId,
+                                      messageThreadId: activeMessageThreadId,
                                       userId: selectedUser.id,
                                       firstName: selectedUser.first_name,
                                       username: selectedUser.username,
@@ -9799,176 +10505,203 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                 ) : null}
 
                 <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-                  <p className="mb-2 text-xs uppercase tracking-wide text-[#8fb7d6]">Topic icon stickers</p>
-                  <button
-                    type="button"
-                    onClick={() => void onLoadForumTopicIconStickers()}
-                    disabled={isGroupActionRunning || !canManageForumTopics}
-                    className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
-                  >
-                    getForumTopicIconStickers
-                  </button>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-[#8fb7d6]">Topic creation & icon presets</p>
+                      <p className="mt-1 text-[11px] text-[#aacce2]">Use the + button in chat header or create from this panel.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={onQuickCreateForumTopic}
+                        disabled={isGroupActionRunning || !canManageForumTopics}
+                        className="rounded-lg border border-[#7cbfe9]/35 bg-[#153349] px-3 py-2 text-sm text-[#d2eeff] hover:bg-[#1b425d] disabled:opacity-40"
+                      >
+                        + New topic
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void onLoadForumTopicIconStickers()}
+                        disabled={isGroupActionRunning || !canManageForumTopics}
+                        className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                      >
+                        Load premium icons
+                      </button>
+                    </div>
+                  </div>
 
-                  {forumTopicIconStickers.length > 0 ? (
-                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      {forumTopicIconStickers.slice(0, 12).map((sticker) => (
+                  <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-8">
+                    {FORUM_ICON_COLOR_PRESETS.map((color) => {
+                      const hex = color.toString(16).padStart(6, '0');
+                      const isActiveColor = Math.floor(Number(forumTopicDraft.iconColor)) === color;
+                      return (
                         <button
-                          key={sticker.file_id}
+                          key={`forum-color-preset-${color}`}
                           type="button"
                           onClick={() => setForumTopicDraft((prev) => ({
                             ...prev,
-                            iconCustomEmojiId: sticker.custom_emoji_id || prev.iconCustomEmojiId,
+                            iconColor: String(color),
+                            iconCustomEmojiId: '',
                           }))}
-                          className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-left text-xs text-[#d7ebfb] hover:bg-[#162b3d]"
-                          title={sticker.custom_emoji_id || sticker.file_id}
-                        >
-                          <div className="truncate">{sticker.emoji || 'custom emoji sticker'}</div>
-                          <div className="truncate text-[10px] text-[#9cc5df]">{sticker.custom_emoji_id || sticker.file_id}</div>
-                        </button>
-                      ))}
+                          className={`h-7 rounded-md border ${isActiveColor ? 'border-white/80' : 'border-white/20'} transition hover:scale-[1.03]`}
+                          style={{ backgroundColor: `#${hex}` }}
+                          title={`icon_color ${color}`}
+                        />
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-3">
+                    <label className="mb-1 block text-[11px] text-[#9ec2da]">Premium icon (custom emoji id)</label>
+                    <input
+                      value={forumTopicDraft.iconCustomEmojiId}
+                      onChange={(event) => setForumTopicDraft((prev) => ({ ...prev, iconCustomEmojiId: event.target.value }))}
+                      className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                      placeholder="icon_custom_emoji_id"
+                    />
+                  </div>
+
+                  {forumTopicIconStickers.length > 0 ? (
+                    <div className="mt-3 grid max-h-44 grid-cols-1 gap-2 overflow-auto pr-1 sm:grid-cols-2">
+                      {forumTopicIconStickers.map((sticker) => {
+                        const selected = Boolean(
+                          sticker.custom_emoji_id
+                          && sticker.custom_emoji_id === forumTopicDraft.iconCustomEmojiId,
+                        );
+
+                        return (
+                          <button
+                            key={sticker.file_id}
+                            type="button"
+                            onClick={() => setForumTopicDraft((prev) => ({
+                              ...prev,
+                              iconCustomEmojiId: sticker.custom_emoji_id || prev.iconCustomEmojiId,
+                            }))}
+                            className={`rounded-lg border px-3 py-2 text-left text-xs ${selected ? 'border-[#8dd2ff]/70 bg-[#1f4868]/75 text-white' : 'border-white/15 bg-[#0f1c28] text-[#d7ebfb] hover:bg-[#162b3d]'}`}
+                            title={sticker.custom_emoji_id || sticker.file_id}
+                          >
+                            <div className="truncate">{sticker.emoji || 'premium icon'}</div>
+                            <div className="truncate text-[10px] text-[#9cc5df]">{sticker.custom_emoji_id || sticker.file_id}</div>
+                          </button>
+                        );
+                      })}
                     </div>
                   ) : null}
                 </div>
 
                 <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-                  <p className="mb-2 text-xs uppercase tracking-wide text-[#8fb7d6]">Forum topic actions</p>
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <input
-                      value={forumTopicDraft.messageThreadId}
-                      onChange={(event) => setForumTopicDraft((prev) => ({ ...prev, messageThreadId: event.target.value }))}
-                      className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
-                      placeholder="message_thread_id"
-                    />
-                    <input
-                      value={forumTopicDraft.name}
-                      onChange={(event) => setForumTopicDraft((prev) => ({ ...prev, name: event.target.value }))}
-                      className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
-                      placeholder="topic name"
-                    />
-                    <input
-                      value={forumTopicDraft.iconColor}
-                      onChange={(event) => setForumTopicDraft((prev) => ({ ...prev, iconColor: event.target.value }))}
-                      className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
-                      placeholder="icon_color (integer)"
-                    />
-                    <input
-                      value={forumTopicDraft.iconCustomEmojiId}
-                      onChange={(event) => setForumTopicDraft((prev) => ({ ...prev, iconCustomEmojiId: event.target.value }))}
-                      className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
-                      placeholder="icon_custom_emoji_id"
-                    />
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-xs uppercase tracking-wide text-[#8fb7d6]">Existing topics</p>
+                    <span className="rounded-full border border-white/15 px-2 py-0.5 text-[11px] text-[#c7e3f6]">
+                      {selectedForumTopics.length} topics
+                    </span>
                   </div>
 
-                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <button
-                      type="button"
-                      onClick={() => void onCreateForumTopicFromDraft()}
-                      disabled={isGroupActionRunning || !canManageForumTopics}
-                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
-                    >
-                      createForumTopic
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void onEditForumTopicFromDraft()}
-                      disabled={isGroupActionRunning || !canManageForumTopics}
-                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
-                    >
-                      editForumTopic
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void onCloseForumTopicFromDraft()}
-                      disabled={isGroupActionRunning || !canManageForumTopics}
-                      className="rounded-lg border border-orange-300/35 bg-orange-900/20 px-3 py-2 text-sm text-orange-100 hover:bg-orange-900/30 disabled:opacity-40"
-                    >
-                      closeForumTopic
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void onReopenForumTopicFromDraft()}
-                      disabled={isGroupActionRunning || !canManageForumTopics}
-                      className="rounded-lg border border-emerald-300/35 bg-emerald-900/20 px-3 py-2 text-sm text-emerald-100 hover:bg-emerald-900/30 disabled:opacity-40"
-                    >
-                      reopenForumTopic
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void onDeleteForumTopicFromDraft()}
-                      disabled={isGroupActionRunning || !canManageForumTopics}
-                      className="rounded-lg border border-red-300/35 bg-red-900/20 px-3 py-2 text-sm text-red-100 hover:bg-red-900/30 disabled:opacity-40"
-                    >
-                      deleteForumTopic
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void onUnpinAllForumTopicMessagesFromDraft()}
-                      disabled={isGroupActionRunning || !canManageForumTopics}
-                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
-                    >
-                      unpinAllForumTopicMessages
-                    </button>
-                  </div>
-                </div>
+                  {selectedForumTopics.length === 0 ? (
+                    <p className="rounded-lg border border-white/10 bg-[#0f1c28] px-3 py-2 text-sm text-[#a8c8de]">
+                      No forum topics available yet.
+                    </p>
+                  ) : (
+                    <div className="max-h-[52vh] space-y-2 overflow-auto pr-1">
+                      {selectedForumTopics.map((topic) => {
+                        const isExpanded = expandedForumTopicThreadId === topic.messageThreadId;
+                        const isActive = topic.messageThreadId === activeMessageThreadId;
+                        const colorHex = topic.iconColor.toString(16).padStart(6, '0');
 
-                <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-                  <p className="mb-2 text-xs uppercase tracking-wide text-[#8fb7d6]">General forum topic</p>
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <input
-                      value={forumTopicDraft.generalName}
-                      onChange={(event) => setForumTopicDraft((prev) => ({ ...prev, generalName: event.target.value }))}
-                      className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
-                      placeholder="general topic name"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void onEditGeneralForumTopicFromDraft()}
-                      disabled={isGroupActionRunning || !canManageForumTopics}
-                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
-                    >
-                      editGeneralForumTopic
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void onCloseGeneralForumTopic()}
-                      disabled={isGroupActionRunning || !canManageForumTopics}
-                      className="rounded-lg border border-orange-300/35 bg-orange-900/20 px-3 py-2 text-sm text-orange-100 hover:bg-orange-900/30 disabled:opacity-40"
-                    >
-                      closeGeneralForumTopic
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void onReopenGeneralForumTopic()}
-                      disabled={isGroupActionRunning || !canManageForumTopics}
-                      className="rounded-lg border border-emerald-300/35 bg-emerald-900/20 px-3 py-2 text-sm text-emerald-100 hover:bg-emerald-900/30 disabled:opacity-40"
-                    >
-                      reopenGeneralForumTopic
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void onHideGeneralForumTopic()}
-                      disabled={isGroupActionRunning || !canManageForumTopics}
-                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
-                    >
-                      hideGeneralForumTopic
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void onUnhideGeneralForumTopic()}
-                      disabled={isGroupActionRunning || !canManageForumTopics}
-                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
-                    >
-                      unhideGeneralForumTopic
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void onUnpinAllGeneralForumTopicMessages()}
-                      disabled={isGroupActionRunning || !canManageForumTopics}
-                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40 sm:col-span-2"
-                    >
-                      unpinAllGeneralForumTopicMessages
-                    </button>
-                  </div>
+                        return (
+                          <div key={`group-topic-row-${topic.messageThreadId}`} className="rounded-xl border border-white/10 bg-[#0f1d2b]/70 p-3">
+                            <button
+                              type="button"
+                              onClick={() => setExpandedForumTopicThreadId((prev) => (
+                                prev === topic.messageThreadId ? null : topic.messageThreadId
+                              ))}
+                              className="flex w-full items-center justify-between text-left"
+                            >
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: `#${colorHex}` }} />
+                                  <p className="truncate text-sm font-medium text-white">{topic.name}</p>
+                                  {topic.iconCustomEmojiId ? (
+                                    <span className="rounded border border-amber-300/35 bg-amber-900/20 px-1.5 py-0.5 text-[10px] text-amber-100">premium icon</span>
+                                  ) : (
+                                    <span className="rounded border border-white/15 bg-black/20 px-1.5 py-0.5 text-[10px] text-[#c6def0]">default icon</span>
+                                  )}
+                                  {topic.isGeneral ? <span className="rounded border border-sky-300/35 bg-sky-900/20 px-1.5 py-0.5 text-[10px] text-sky-100">general</span> : null}
+                                  {topic.isClosed ? <span className="rounded border border-orange-300/35 bg-orange-900/20 px-1.5 py-0.5 text-[10px] text-orange-100">closed</span> : null}
+                                  {topic.isHidden ? <span className="rounded border border-white/15 bg-black/20 px-1.5 py-0.5 text-[10px] text-[#c6def0]">hidden</span> : null}
+                                  {isActive ? <span className="rounded border border-emerald-300/35 bg-emerald-900/20 px-1.5 py-0.5 text-[10px] text-emerald-100">active in chat</span> : null}
+                                </div>
+                                <p className="mt-1 truncate text-xs text-[#9dbfd7]">
+                                  thread #{topic.messageThreadId}
+                                  {topic.iconCustomEmojiId ? ` · ${topic.iconCustomEmojiId}` : ''}
+                                </p>
+                              </div>
+                              <ChevronDown className={`h-4 w-4 text-[#9cc4de] transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                            </button>
+
+                            {isExpanded ? (
+                              <div className="mt-3 grid grid-cols-1 gap-2 border-t border-white/10 pt-3 sm:grid-cols-2">
+                                <button
+                                  type="button"
+                                  onClick={() => selectForumTopicThread(topic.messageThreadId)}
+                                  className="rounded-lg border border-[#7cbfe9]/35 bg-[#153349] px-3 py-2 text-sm text-[#d2eeff] hover:bg-[#1b425d]"
+                                >
+                                  Open in chat
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openEditForumTopicModal(topic)}
+                                  disabled={isGroupActionRunning || !canManageForumTopics}
+                                  className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                                >
+                                  Edit topic
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void (topic.isClosed
+                                    ? (topic.isGeneral ? onReopenGeneralForumTopic() : onReopenForumTopicFromDraft(topic.messageThreadId))
+                                    : (topic.isGeneral ? onCloseGeneralForumTopic() : onCloseForumTopicFromDraft(topic.messageThreadId)))}
+                                  disabled={isGroupActionRunning || !canManageForumTopics}
+                                  className={`rounded-lg border px-3 py-2 text-sm disabled:opacity-40 ${topic.isClosed ? 'border-emerald-300/35 bg-emerald-900/20 text-emerald-100 hover:bg-emerald-900/30' : 'border-orange-300/35 bg-orange-900/20 text-orange-100 hover:bg-orange-900/30'}`}
+                                >
+                                  {topic.isClosed ? 'Reopen topic' : 'Close topic'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void (topic.isGeneral
+                                    ? onUnpinAllGeneralForumTopicMessages()
+                                    : onUnpinAllForumTopicMessagesFromDraft(topic.messageThreadId))}
+                                  disabled={isGroupActionRunning || !canManageForumTopics}
+                                  className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                                >
+                                  Unpin all messages
+                                </button>
+                                {topic.isGeneral ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void (topic.isHidden ? onUnhideGeneralForumTopic() : onHideGeneralForumTopic())}
+                                    disabled={isGroupActionRunning || !canManageForumTopics}
+                                    className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                                  >
+                                    {topic.isHidden ? 'Unhide general topic' : 'Hide general topic'}
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => void onDeleteForumTopicFromDraft(topic.messageThreadId)}
+                                    disabled={isGroupActionRunning || !canManageForumTopics}
+                                    className="rounded-lg border border-red-300/35 bg-red-900/20 px-3 py-2 text-sm text-red-100 hover:bg-red-900/30 disabled:opacity-40"
+                                  >
+                                    Delete topic
+                                  </button>
+                                )}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {groupInspectorOutput ? (
@@ -10660,6 +11393,130 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         </div>
       ) : null}
 
+      {showForumTopicModal && selectedGroup && canManageForumTopics ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 px-4 pb-6 sm:items-center sm:pb-0">
+          <div className="w-full max-w-2xl rounded-2xl border border-white/20 bg-[#182b3c] p-4 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-semibold text-white">
+                  {forumTopicModalMode === 'create' ? 'Create forum topic' : `Edit topic #${forumTopicModalThreadId || ''}`}
+                </h3>
+                <p className="text-xs text-[#9ec3dc]">
+                  {forumTopicModalMode === 'create'
+                    ? 'Create a new topic with default or premium icon.'
+                    : 'Update topic name and icon.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowForumTopicModal(false)}
+                className="rounded-full p-1 text-white hover:bg-white/10"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <input
+                value={forumTopicDraft.name}
+                onChange={(event) => setForumTopicDraft((prev) => ({ ...prev, name: event.target.value }))}
+                className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                placeholder="Topic name"
+              />
+
+              <div>
+                <p className="mb-1 text-xs text-[#9ec2da]">Default icon colors</p>
+                <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
+                  {FORUM_ICON_COLOR_PRESETS.map((color) => {
+                    const hex = color.toString(16).padStart(6, '0');
+                    const active = Math.floor(Number(forumTopicDraft.iconColor)) === color;
+                    return (
+                      <button
+                        key={`forum-topic-modal-color-${color}`}
+                        type="button"
+                        onClick={() => setForumTopicDraft((prev) => ({
+                          ...prev,
+                          iconColor: String(color),
+                          iconCustomEmojiId: '',
+                        }))}
+                        className={`h-8 rounded-md border ${active ? 'border-white/80' : 'border-white/20'} transition hover:scale-[1.03]`}
+                        style={{ backgroundColor: `#${hex}` }}
+                        title={`icon_color ${color}`}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <p className="text-xs text-[#9ec2da]">Premium icon (custom emoji)</p>
+                  <button
+                    type="button"
+                    onClick={() => void onLoadForumTopicIconStickers()}
+                    disabled={isGroupActionRunning}
+                    className="rounded-md border border-white/20 bg-black/20 px-2 py-1 text-[11px] text-white hover:bg-white/10 disabled:opacity-40"
+                  >
+                    Load icons
+                  </button>
+                </div>
+                <input
+                  value={forumTopicDraft.iconCustomEmojiId}
+                  onChange={(event) => setForumTopicDraft((prev) => ({ ...prev, iconCustomEmojiId: event.target.value }))}
+                  className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                  placeholder="icon_custom_emoji_id"
+                />
+              </div>
+
+              {forumTopicIconStickers.length > 0 ? (
+                <div className="grid max-h-48 grid-cols-1 gap-2 overflow-auto pr-1 sm:grid-cols-2">
+                  {forumTopicIconStickers.map((sticker) => {
+                    const active = Boolean(
+                      sticker.custom_emoji_id
+                      && sticker.custom_emoji_id === forumTopicDraft.iconCustomEmojiId,
+                    );
+
+                    return (
+                      <button
+                        key={`forum-topic-modal-icon-${sticker.file_id}`}
+                        type="button"
+                        onClick={() => setForumTopicDraft((prev) => ({
+                          ...prev,
+                          iconCustomEmojiId: sticker.custom_emoji_id || prev.iconCustomEmojiId,
+                        }))}
+                        className={`rounded-lg border px-3 py-2 text-left text-xs ${active ? 'border-[#8dd2ff]/70 bg-[#1f4868]/75 text-white' : 'border-white/15 bg-[#0f1c28] text-[#d7ebfb] hover:bg-[#162b3d]'}`}
+                        title={sticker.custom_emoji_id || sticker.file_id}
+                      >
+                        <div className="truncate">{sticker.emoji || 'premium icon'}</div>
+                        <div className="truncate text-[10px] text-[#9cc5df]">{sticker.custom_emoji_id || sticker.file_id}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowForumTopicModal(false)}
+                className="rounded-lg border border-white/15 px-3 py-2 text-sm text-white hover:bg-white/10"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void onSubmitForumTopicModal()}
+                disabled={isGroupActionRunning || !forumTopicDraft.name.trim()}
+                className="rounded-lg bg-[#2b5278] px-3 py-2 text-sm font-medium text-white hover:bg-[#366892] disabled:opacity-50"
+              >
+                {forumTopicModalMode === 'create' ? 'Create topic' : 'Save topic'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {messageMenu ? (
         <div
           className="fixed z-50 w-60 max-w-[90vw] rounded-2xl border border-white/15 bg-[#132130] p-2 shadow-2xl"
@@ -10739,6 +11596,70 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               </>
             );
           })()}
+        </div>
+      ) : null}
+
+      {forumTopicContextMenu && canManageForumTopics ? (
+        <div
+          className="fixed z-50 w-64 max-w-[90vw] rounded-2xl border border-white/15 bg-[#132130] p-2 shadow-2xl"
+          style={{ left: forumTopicContextMenu.x, top: forumTopicContextMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="mb-1 truncate px-2 pt-1 text-xs font-semibold text-white">
+            {forumTopicContextMenu.topic.name}
+          </div>
+          <div className="mb-2 px-2 text-[11px] text-[#9ec3dc]">
+            thread #{forumTopicContextMenu.topic.messageThreadId}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              selectForumTopicThread(forumTopicContextMenu.topic.messageThreadId);
+              setForumTopicContextMenu(null);
+            }}
+            className="w-full rounded-lg px-3 py-2 text-left text-sm text-[#d7efff] hover:bg-white/10"
+          >
+            Open in chat
+          </button>
+          <button
+            type="button"
+            onClick={() => void onRunForumTopicContextAction('edit')}
+            className="w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10"
+          >
+            Edit topic
+          </button>
+          <button
+            type="button"
+            onClick={() => void onRunForumTopicContextAction(forumTopicContextMenu.topic.isClosed ? 'reopen' : 'close')}
+            className="w-full rounded-lg px-3 py-2 text-left text-sm text-orange-100 hover:bg-white/10"
+          >
+            {forumTopicContextMenu.topic.isClosed ? 'Reopen topic' : 'Close topic'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void onRunForumTopicContextAction('unpin')}
+            className="w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10"
+          >
+            Unpin all messages
+          </button>
+          {forumTopicContextMenu.topic.isGeneral ? (
+            <button
+              type="button"
+              onClick={() => void onRunForumTopicContextAction(forumTopicContextMenu.topic.isHidden ? 'unhide' : 'hide')}
+              className="w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10"
+            >
+              {forumTopicContextMenu.topic.isHidden ? 'Unhide general topic' : 'Hide general topic'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void onRunForumTopicContextAction('delete')}
+              className="w-full rounded-lg px-3 py-2 text-left text-sm text-red-200 hover:bg-white/10"
+            >
+              Delete topic
+            </button>
+          )}
         </div>
       ) : null}
 

@@ -749,6 +749,7 @@ export async function declineSimulationGroupJoinRequest(token: string, payload: 
 
 export async function sendUserMessage(token: string, payload: {
   chat_id: number;
+  message_thread_id?: number;
   user_id: number;
   first_name: string;
   username?: string;
@@ -983,6 +984,7 @@ export async function getCallbackQueryAnswer(token: string, callbackQueryId: str
 
 export async function sendUserMedia(token: string, payload: {
   chatId: number;
+  messageThreadId?: number;
   userId: number;
   firstName: string;
   username?: string;
@@ -1011,6 +1013,9 @@ export async function sendUserMedia(token: string, payload: {
 
   const formData = new FormData();
   formData.append('chat_id', String(payload.chatId));
+  if (typeof payload.messageThreadId === 'number' && Number.isFinite(payload.messageThreadId)) {
+    formData.append('message_thread_id', String(Math.trunc(payload.messageThreadId)));
+  }
   formData.append('user_id', String(payload.userId));
   formData.append('first_name', payload.firstName);
   if (payload.username) {
@@ -1046,6 +1051,7 @@ export async function sendUserMedia(token: string, payload: {
 
 export async function sendUserMediaByReference(token: string, payload: {
   chatId: number;
+  messageThreadId?: number;
   userId: number;
   firstName: string;
   username?: string;
@@ -1062,6 +1068,7 @@ export async function sendUserMediaByReference(token: string, payload: {
     },
     body: JSON.stringify({
       chat_id: payload.chatId,
+      message_thread_id: payload.messageThreadId,
       user_id: payload.userId,
       first_name: payload.firstName,
       username: payload.username,
@@ -1083,6 +1090,7 @@ export async function sendUserMediaByReference(token: string, payload: {
 
 export async function sendUserDice(token: string, payload: {
   chatId: number;
+  messageThreadId?: number;
   userId: number;
   firstName: string;
   username?: string;
@@ -1096,6 +1104,7 @@ export async function sendUserDice(token: string, payload: {
     },
     body: JSON.stringify({
       chat_id: payload.chatId,
+      message_thread_id: payload.messageThreadId,
       user_id: payload.userId,
       first_name: payload.firstName,
       username: payload.username,
@@ -1113,6 +1122,7 @@ export async function sendUserDice(token: string, payload: {
 
 export async function sendUserGame(token: string, payload: {
   chatId: number;
+  messageThreadId?: number;
   userId: number;
   firstName: string;
   username?: string;
@@ -1126,6 +1136,7 @@ export async function sendUserGame(token: string, payload: {
     },
     body: JSON.stringify({
       chat_id: payload.chatId,
+      message_thread_id: payload.messageThreadId,
       user_id: payload.userId,
       first_name: payload.firstName,
       username: payload.username,
@@ -1143,6 +1154,7 @@ export async function sendUserGame(token: string, payload: {
 
 export async function sendUserContact(token: string, payload: {
   chatId: number;
+  messageThreadId?: number;
   userId: number;
   firstName: string;
   username?: string;
@@ -1159,6 +1171,7 @@ export async function sendUserContact(token: string, payload: {
     },
     body: JSON.stringify({
       chat_id: payload.chatId,
+      message_thread_id: payload.messageThreadId,
       user_id: payload.userId,
       first_name: payload.firstName,
       username: payload.username,
@@ -1179,6 +1192,7 @@ export async function sendUserContact(token: string, payload: {
 
 export async function sendUserLocation(token: string, payload: {
   chatId: number;
+  messageThreadId?: number;
   userId: number;
   firstName: string;
   username?: string;
@@ -1197,6 +1211,7 @@ export async function sendUserLocation(token: string, payload: {
     },
     body: JSON.stringify({
       chat_id: payload.chatId,
+      message_thread_id: payload.messageThreadId,
       user_id: payload.userId,
       first_name: payload.firstName,
       username: payload.username,
@@ -1219,6 +1234,7 @@ export async function sendUserLocation(token: string, payload: {
 
 export async function sendUserVenue(token: string, payload: {
   chatId: number;
+  messageThreadId?: number;
   userId: number;
   firstName: string;
   username?: string;
@@ -1235,6 +1251,7 @@ export async function sendUserVenue(token: string, payload: {
     },
     body: JSON.stringify({
       chat_id: payload.chatId,
+      message_thread_id: payload.messageThreadId,
       user_id: payload.userId,
       first_name: payload.firstName,
       username: payload.username,

@@ -71,6 +71,18 @@ export interface SimChatSettings {
   permissions: GeneratedChatPermissions;
 }
 
+export interface SimBootstrapForumTopic {
+  chat_id: number;
+  message_thread_id: number;
+  name: string;
+  icon_color: number;
+  icon_custom_emoji_id?: string;
+  is_closed?: boolean;
+  is_hidden?: boolean;
+  is_general?: boolean;
+  updated_at?: number;
+}
+
 export interface SimBootstrapResponse {
   bot: SimBot;
   users: SimUser[];
@@ -78,14 +90,20 @@ export interface SimBootstrapResponse {
   chat_settings?: SimChatSettings[];
   memberships?: SimChatMembership[];
   join_requests?: SimChatJoinRequest[];
+  forum_topics?: SimBootstrapForumTopic[];
 }
+
+export type MessageParseMode = 'MarkdownV2' | 'Markdown' | 'HTML';
 
 export interface ChatMessage {
   id: number;
   botToken: string;
   chatId: number;
+  messageThreadId?: number;
+  isTopicMessage?: boolean;
   text: string;
   date: number;
+  parseMode?: MessageParseMode;
   isOutgoing: boolean;
   fromName: string;
   fromUserId: number;

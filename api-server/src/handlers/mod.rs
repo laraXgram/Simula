@@ -72,6 +72,7 @@ fn current_request_actor_user_id() -> Option<i64> {
 #[derive(Deserialize)]
 pub struct SimSendUserMessageRequest {
     pub chat_id: Option<i64>,
+    pub message_thread_id: Option<i64>,
     pub user_id: Option<i64>,
     pub first_name: Option<String>,
     pub username: Option<String>,
@@ -83,6 +84,7 @@ pub struct SimSendUserMessageRequest {
 #[derive(Deserialize)]
 pub struct SimSendUserMediaRequest {
     pub chat_id: Option<i64>,
+    pub message_thread_id: Option<i64>,
     pub user_id: Option<i64>,
     pub first_name: Option<String>,
     pub username: Option<String>,
@@ -273,6 +275,7 @@ pub struct SimVotePollRequest {
 #[derive(Deserialize)]
 pub struct SimSendUserDiceRequest {
     pub chat_id: Option<i64>,
+    pub message_thread_id: Option<i64>,
     pub user_id: Option<i64>,
     pub first_name: Option<String>,
     pub username: Option<String>,
@@ -283,6 +286,7 @@ pub struct SimSendUserDiceRequest {
 #[derive(Deserialize)]
 pub struct SimSendUserGameRequest {
     pub chat_id: Option<i64>,
+    pub message_thread_id: Option<i64>,
     pub user_id: Option<i64>,
     pub first_name: Option<String>,
     pub username: Option<String>,
@@ -293,6 +297,7 @@ pub struct SimSendUserGameRequest {
 #[derive(Deserialize)]
 pub struct SimSendUserContactRequest {
     pub chat_id: Option<i64>,
+    pub message_thread_id: Option<i64>,
     pub user_id: Option<i64>,
     pub first_name: Option<String>,
     pub username: Option<String>,
@@ -306,6 +311,7 @@ pub struct SimSendUserContactRequest {
 #[derive(Deserialize)]
 pub struct SimSendUserLocationRequest {
     pub chat_id: Option<i64>,
+    pub message_thread_id: Option<i64>,
     pub user_id: Option<i64>,
     pub first_name: Option<String>,
     pub username: Option<String>,
@@ -321,6 +327,7 @@ pub struct SimSendUserLocationRequest {
 #[derive(Deserialize)]
 pub struct SimSendUserVenueRequest {
     pub chat_id: Option<i64>,
+    pub message_thread_id: Option<i64>,
     pub user_id: Option<i64>,
     pub first_name: Option<String>,
     pub username: Option<String>,
@@ -2155,6 +2162,86 @@ fn is_allowed_forum_topic_icon_color(value: i64) -> bool {
     )
 }
 
+fn normalize_sim_parse_mode(value: Option<&str>) -> Option<String> {
+    let normalized = value?.trim();
+    if normalized.is_empty() {
+        return None;
+    }
+
+    if normalized.eq_ignore_ascii_case("markdownv2") {
+        return Some("MarkdownV2".to_string());
+    }
+    if normalized.eq_ignore_ascii_case("markdown") {
+        return Some("Markdown".to_string());
+    }
+    if normalized.eq_ignore_ascii_case("html") {
+        return Some("HTML".to_string());
+    }
+
+    None
+}
+
+fn resolve_forum_message_thread_id(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    sim_chat: &SimChatRecord,
+    requested_message_thread_id: Option<i64>,
+) -> Result<Option<i64>, ApiError> {
+    if sim_chat.chat_type != "supergroup" || !sim_chat.is_forum {
+        if requested_message_thread_id.is_some() {
+            return Err(ApiError::bad_request(
+                "message_thread_id is available only in forum supergroups",
+            ));
+        }
+        return Ok(None);
+    }
+
+    let thread_id = requested_message_thread_id.unwrap_or(1);
+    if thread_id <= 0 {
+        return Err(ApiError::bad_request("message_thread_id is invalid"));
+    }
+
+    if thread_id == 1 {
+        ensure_general_forum_topic_state(conn, bot_id, &sim_chat.chat_key)?;
+        return Ok(Some(thread_id));
+    }
+
+    let exists: Option<i64> = conn
+        .query_row(
+            "SELECT 1 FROM forum_topics
+             WHERE bot_id = ?1 AND chat_key = ?2 AND message_thread_id = ?3",
+            params![bot_id, &sim_chat.chat_key, thread_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    if exists.is_none() {
+        return Err(ApiError::not_found("forum topic not found"));
+    }
+
+    Ok(Some(thread_id))
+}
+
+fn resolve_forum_message_thread_for_chat_key(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    chat_key: &str,
+    requested_message_thread_id: Option<i64>,
+) -> Result<Option<i64>, ApiError> {
+    if let Some(sim_chat) = load_sim_chat_record(conn, bot_id, chat_key)? {
+        return resolve_forum_message_thread_id(conn, bot_id, &sim_chat, requested_message_thread_id);
+    }
+
+    if requested_message_thread_id.is_some() {
+        return Err(ApiError::bad_request(
+            "message_thread_id is available only in forum supergroups",
+        ));
+    }
+
+    Ok(None)
+}
+
 fn resolve_forum_supergroup_chat(
     conn: &mut rusqlite::Connection,
     bot: &crate::database::BotInfoRecord,
@@ -3758,6 +3845,7 @@ fn handle_get_me(state: &Data<AppState>, token: &str, params: &HashMap<String, V
 
 fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: SendMessageRequest = parse_request(params)?;
+    let sim_parse_mode = normalize_sim_parse_mode(request.parse_mode.as_deref());
     let explicit_entities = request
         .entities
         .as_ref()
@@ -3782,6 +3870,12 @@ fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap<Str
         bot.id,
         &request.chat_id,
         ChatSendKind::Text,
+    )?;
+    let message_thread_id = resolve_forum_message_thread_for_chat_key(
+        &mut conn,
+        bot.id,
+        &chat_key,
+        request.message_thread_id,
     )?;
 
     let reply_markup = handle_reply_markup_state(
@@ -3831,6 +3925,13 @@ fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap<Str
     let mut base_message_json = base_message_json;
     if let Some(entities) = parsed_entities {
         base_message_json["entities"] = entities;
+    }
+    if let Some(thread_id) = message_thread_id {
+        base_message_json["message_thread_id"] = Value::from(thread_id);
+        base_message_json["is_topic_message"] = Value::Bool(true);
+    }
+    if let Some(mode) = sim_parse_mode {
+        base_message_json["sim_parse_mode"] = Value::String(mode);
     }
     let message: Message = serde_json::from_value(base_message_json).map_err(ApiError::internal)?;
 
@@ -3894,6 +3995,7 @@ fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap<Str
 
 fn handle_send_photo(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: SendPhotoRequest = parse_request(params)?;
+    let sim_parse_mode = normalize_sim_parse_mode(request.parse_mode.as_deref());
     let explicit_caption_entities = request
         .caption_entities
         .as_ref()
@@ -3923,11 +4025,14 @@ fn handle_send_photo(state: &Data<AppState>, token: &str, params: &HashMap<Strin
         request.reply_markup,
         "photo",
         photo,
+        request.message_thread_id,
+        sim_parse_mode,
     )
 }
 
 fn handle_send_audio(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: SendAudioRequest = parse_request(params)?;
+    let sim_parse_mode = normalize_sim_parse_mode(request.parse_mode.as_deref());
     let explicit_caption_entities = request
         .caption_entities
         .as_ref()
@@ -3958,11 +4063,14 @@ fn handle_send_audio(state: &Data<AppState>, token: &str, params: &HashMap<Strin
         request.reply_markup,
         "audio",
         audio,
+        request.message_thread_id,
+        sim_parse_mode,
     )
 }
 
 fn handle_send_document(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: SendDocumentRequest = parse_request(params)?;
+    let sim_parse_mode = normalize_sim_parse_mode(request.parse_mode.as_deref());
     let explicit_caption_entities = request
         .caption_entities
         .as_ref()
@@ -3991,11 +4099,14 @@ fn handle_send_document(state: &Data<AppState>, token: &str, params: &HashMap<St
         request.reply_markup,
         "document",
         document,
+        request.message_thread_id,
+        sim_parse_mode,
     )
 }
 
 fn handle_send_video(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: SendVideoRequest = parse_request(params)?;
+    let sim_parse_mode = normalize_sim_parse_mode(request.parse_mode.as_deref());
     let explicit_caption_entities = request
         .caption_entities
         .as_ref()
@@ -4026,11 +4137,14 @@ fn handle_send_video(state: &Data<AppState>, token: &str, params: &HashMap<Strin
         request.reply_markup,
         "video",
         video,
+        request.message_thread_id,
+        sim_parse_mode,
     )
 }
 
 fn handle_send_voice(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: SendVoiceRequest = parse_request(params)?;
+    let sim_parse_mode = normalize_sim_parse_mode(request.parse_mode.as_deref());
     let explicit_caption_entities = request
         .caption_entities
         .as_ref()
@@ -4059,6 +4173,8 @@ fn handle_send_voice(state: &Data<AppState>, token: &str, params: &HashMap<Strin
         request.reply_markup,
         "voice",
         voice,
+        request.message_thread_id,
+        sim_parse_mode,
     )
 }
 
@@ -4088,6 +4204,7 @@ fn handle_send_contact(state: &Data<AppState>, token: &str, params: &HashMap<Str
         request.reply_markup,
         "contact",
         serde_json::to_value(contact).map_err(ApiError::internal)?,
+        request.message_thread_id,
     )
 }
 
@@ -4112,6 +4229,7 @@ fn handle_send_location(state: &Data<AppState>, token: &str, params: &HashMap<St
         request.reply_markup,
         "location",
         serde_json::to_value(location).map_err(ApiError::internal)?,
+        request.message_thread_id,
     )
 }
 
@@ -4150,6 +4268,7 @@ fn handle_send_venue(state: &Data<AppState>, token: &str, params: &HashMap<Strin
         request.reply_markup,
         "venue",
         serde_json::to_value(venue).map_err(ApiError::internal)?,
+        request.message_thread_id,
     )
 }
 
@@ -4176,6 +4295,7 @@ fn handle_send_dice(state: &Data<AppState>, token: &str, params: &HashMap<String
         request.reply_markup,
         "dice",
         serde_json::to_value(dice).map_err(ApiError::internal)?,
+        request.message_thread_id,
     )
 }
 
@@ -4209,6 +4329,7 @@ fn handle_send_game(state: &Data<AppState>, token: &str, params: &HashMap<String
         request.reply_markup.as_ref().and_then(|m| serde_json::to_value(m).ok()),
         "game",
         serde_json::to_value(&game).map_err(ApiError::internal)?,
+        request.message_thread_id,
     )?;
 
     let message_id = message_value
@@ -4241,6 +4362,7 @@ fn handle_send_game(state: &Data<AppState>, token: &str, params: &HashMap<String
 
 fn handle_send_animation(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: SendAnimationRequest = parse_request(params)?;
+    let sim_parse_mode = normalize_sim_parse_mode(request.parse_mode.as_deref());
     let explicit_caption_entities = request
         .caption_entities
         .as_ref()
@@ -4275,6 +4397,8 @@ fn handle_send_animation(state: &Data<AppState>, token: &str, params: &HashMap<S
         request.reply_markup,
         "animation",
         animation,
+        request.message_thread_id,
+        sim_parse_mode,
     )
 }
 
@@ -4303,6 +4427,8 @@ fn handle_send_video_note(state: &Data<AppState>, token: &str, params: &HashMap<
         request.reply_markup,
         "video_note",
         video_note,
+        request.message_thread_id,
+        None,
     )
 }
 
@@ -4357,6 +4483,8 @@ fn handle_send_sticker(state: &Data<AppState>, token: &str, params: &HashMap<Str
         request.reply_markup,
         "sticker",
         serde_json::to_value(sticker).map_err(ApiError::internal)?,
+        request.message_thread_id,
+        None,
     )
 }
 
@@ -5034,6 +5162,12 @@ fn handle_send_invoice(state: &Data<AppState>, token: &str, params: &HashMap<Str
         &request.chat_id,
         ChatSendKind::Invoice,
     )?;
+    let message_thread_id = resolve_forum_message_thread_for_chat_key(
+        &mut conn,
+        bot.id,
+        &chat_key,
+        request.message_thread_id,
+    )?;
 
     let reply_markup_value = request
         .reply_markup
@@ -5057,6 +5191,10 @@ fn handle_send_invoice(state: &Data<AppState>, token: &str, params: &HashMap<Str
     let message_id = conn.last_insert_rowid();
     let mut message_value = load_message_value(&mut conn, &bot, message_id)?;
     message_value.as_object_mut().map(|obj| obj.remove("text"));
+    if let Some(thread_id) = message_thread_id {
+        message_value["message_thread_id"] = Value::from(thread_id);
+        message_value["is_topic_message"] = Value::Bool(true);
+    }
     let message_chat_id = message_value
         .get("chat")
         .and_then(|chat| chat.get("id"))
@@ -5331,6 +5469,12 @@ fn handle_send_poll(state: &Data<AppState>, token: &str, params: &HashMap<String
         &request.chat_id,
         ChatSendKind::Poll,
     )?;
+    let message_thread_id = resolve_forum_message_thread_for_chat_key(
+        &mut conn,
+        bot.id,
+        &chat_key,
+        request.message_thread_id,
+    )?;
 
     let reply_markup = handle_reply_markup_state(
         &mut conn,
@@ -5432,6 +5576,10 @@ fn handle_send_poll(state: &Data<AppState>, token: &str, params: &HashMap<String
     message_value["poll"] = serde_json::to_value(&poll).map_err(ApiError::internal)?;
     message_value.as_object_mut().map(|obj| obj.remove("text"));
     message_value.as_object_mut().map(|obj| obj.remove("edit_date"));
+    if let Some(thread_id) = message_thread_id {
+        message_value["message_thread_id"] = Value::from(thread_id);
+        message_value["is_topic_message"] = Value::Bool(true);
+    }
 
     if let Some(markup) = reply_markup {
         message_value["reply_markup"] = markup;
@@ -5564,6 +5712,7 @@ fn handle_send_media_group(
 
         let explicit_caption_entities = item.get("caption_entities").cloned();
         let parse_mode = item.get("parse_mode").and_then(Value::as_str);
+        let sim_parse_mode = normalize_sim_parse_mode(parse_mode);
         let (caption, caption_entities) = parse_optional_formatted_text(
             item.get("caption").and_then(Value::as_str),
             parse_mode,
@@ -5592,6 +5741,8 @@ fn handle_send_media_group(
                     "photo",
                     payload,
                     Some(&media_group_id),
+                    request.message_thread_id,
+                    sim_parse_mode,
                 )?
             }
             "video" => {
@@ -5615,6 +5766,8 @@ fn handle_send_media_group(
                     "video",
                     payload,
                     Some(&media_group_id),
+                    request.message_thread_id,
+                    sim_parse_mode,
                 )?
             }
             "audio" => {
@@ -5638,6 +5791,8 @@ fn handle_send_media_group(
                     "audio",
                     payload,
                     Some(&media_group_id),
+                    request.message_thread_id,
+                    sim_parse_mode,
                 )?
             }
             "document" => {
@@ -5659,6 +5814,8 @@ fn handle_send_media_group(
                     "document",
                     payload,
                     Some(&media_group_id),
+                    request.message_thread_id,
+                    sim_parse_mode,
                 )?
             }
             _ => {
@@ -6863,6 +7020,8 @@ fn send_media_message(
     reply_markup: Option<Value>,
     media_field: &str,
     media_payload: Value,
+    message_thread_id: Option<i64>,
+    sim_parse_mode: Option<String>,
 ) -> ApiResult {
     send_media_message_with_group(
         state,
@@ -6874,6 +7033,8 @@ fn send_media_message(
         media_field,
         media_payload,
         None,
+        message_thread_id,
+        sim_parse_mode,
     )
 }
 
@@ -6886,12 +7047,19 @@ fn send_payload_message(
     reply_markup: Option<Value>,
     payload_field: &str,
     payload_value: Value,
+    message_thread_id: Option<i64>,
 ) -> ApiResult {
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
 
     let send_kind = send_kind_from_payload_field(payload_field);
     let (chat_key, chat) = resolve_bot_outbound_chat(&mut conn, bot.id, chat_id_value, send_kind)?;
+    let resolved_thread_id = resolve_forum_message_thread_for_chat_key(
+        &mut conn,
+        bot.id,
+        &chat_key,
+        message_thread_id,
+    )?;
 
     let resolved_reply_markup = handle_reply_markup_state(
         &mut conn,
@@ -6927,6 +7095,10 @@ fn send_payload_message(
     }
     if let Some(e) = entities {
         base["entities"] = e;
+    }
+    if let Some(thread_id) = resolved_thread_id {
+        base["message_thread_id"] = Value::from(thread_id);
+        base["is_topic_message"] = Value::Bool(true);
     }
 
     let message: Message = serde_json::from_value(base).map_err(ApiError::internal)?;
@@ -6997,12 +7169,20 @@ fn send_media_message_with_group(
     media_field: &str,
     media_payload: Value,
     media_group_id: Option<&str>,
+    message_thread_id: Option<i64>,
+    sim_parse_mode: Option<String>,
 ) -> ApiResult {
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
 
     let send_kind = send_kind_from_media_field(media_field);
     let (chat_key, chat) = resolve_bot_outbound_chat(&mut conn, bot.id, chat_id_value, send_kind)?;
+    let resolved_thread_id = resolve_forum_message_thread_for_chat_key(
+        &mut conn,
+        bot.id,
+        &chat_key,
+        message_thread_id,
+    )?;
 
     let resolved_reply_markup = handle_reply_markup_state(
         &mut conn,
@@ -7041,6 +7221,13 @@ fn send_media_message_with_group(
     }
     if let Some(group_id) = media_group_id {
         base["media_group_id"] = Value::String(group_id.to_string());
+    }
+    if let Some(thread_id) = resolved_thread_id {
+        base["message_thread_id"] = Value::from(thread_id);
+        base["is_topic_message"] = Value::Bool(true);
+    }
+    if let Some(mode) = sim_parse_mode {
+        base["sim_parse_mode"] = Value::String(mode);
     }
 
     let message: Message = serde_json::from_value(base).map_err(ApiError::internal)?;
@@ -7726,6 +7913,70 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
         join_requests.push(row.map_err(ApiError::internal)?);
     }
 
+    let mut forum_topics_stmt = conn
+        .prepare(
+            "SELECT c.chat_id, t.message_thread_id, t.name, t.icon_color, t.icon_custom_emoji_id,
+                    t.is_closed, t.updated_at
+             FROM forum_topics t
+             INNER JOIN sim_chats c
+               ON c.bot_id = t.bot_id AND c.chat_key = t.chat_key
+             WHERE t.bot_id = ?1
+             ORDER BY c.chat_id ASC, t.message_thread_id ASC",
+        )
+        .map_err(ApiError::internal)?;
+    let forum_topics_rows = forum_topics_stmt
+        .query_map(params![bot.id], |row| {
+            Ok(json!({
+                "chat_id": row.get::<_, i64>(0)?,
+                "message_thread_id": row.get::<_, i64>(1)?,
+                "name": row.get::<_, String>(2)?,
+                "icon_color": row.get::<_, i64>(3)?,
+                "icon_custom_emoji_id": row.get::<_, Option<String>>(4)?,
+                "is_closed": row.get::<_, i64>(5)? == 1,
+                "is_hidden": false,
+                "is_general": false,
+                "updated_at": row.get::<_, i64>(6)?,
+            }))
+        })
+        .map_err(ApiError::internal)?;
+    let mut forum_topics = Vec::<Value>::new();
+    for row in forum_topics_rows {
+        forum_topics.push(row.map_err(ApiError::internal)?);
+    }
+
+    let mut general_topics_stmt = conn
+        .prepare(
+            "SELECT c.chat_id,
+                    COALESCE(g.name, 'General') AS name,
+                    COALESCE(g.is_closed, 0) AS is_closed,
+                    COALESCE(g.is_hidden, 0) AS is_hidden,
+                    COALESCE(g.updated_at, CAST(strftime('%s','now') AS INTEGER)) AS updated_at
+             FROM sim_chats c
+             LEFT JOIN forum_topic_general_states g
+               ON g.bot_id = c.bot_id AND g.chat_key = c.chat_key
+             WHERE c.bot_id = ?1 AND c.chat_type = 'supergroup' AND c.is_forum = 1
+             ORDER BY c.chat_id ASC",
+        )
+        .map_err(ApiError::internal)?;
+    let general_topics_rows = general_topics_stmt
+        .query_map(params![bot.id], |row| {
+            Ok(json!({
+                "chat_id": row.get::<_, i64>(0)?,
+                "message_thread_id": 1,
+                "name": row.get::<_, String>(1)?,
+                "icon_color": forum_topic_default_icon_color(),
+                "icon_custom_emoji_id": Value::Null,
+                "is_closed": row.get::<_, i64>(2)? == 1,
+                "is_hidden": row.get::<_, i64>(3)? == 1,
+                "is_general": true,
+                "updated_at": row.get::<_, i64>(4)?,
+            }))
+        })
+        .map_err(ApiError::internal)?;
+    for row in general_topics_rows {
+        forum_topics.push(row.map_err(ApiError::internal)?);
+    }
+
     Ok(json!({
         "bot": {
             "id": bot.id,
@@ -7737,7 +7988,8 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
         "chats": chats,
         "chat_settings": chat_settings,
         "memberships": memberships,
-        "join_requests": join_requests
+        "join_requests": join_requests,
+        "forum_topics": forum_topics
     }))
 }
 
@@ -7783,6 +8035,7 @@ pub fn handle_sim_send_user_message(
         None,
     );
     let parsed_entities = merge_auto_message_entities(&parsed_text, parsed_entities);
+    let sim_parse_mode = normalize_sim_parse_mode(body.parse_mode.as_deref());
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
@@ -7804,6 +8057,12 @@ pub fn handle_sim_send_user_message(
             ChatSendKind::Text,
         )?;
     }
+    let resolved_thread_id = resolve_forum_message_thread_id(
+        &mut conn,
+        bot.id,
+        &sim_chat,
+        body.message_thread_id,
+    )?;
     let chat_key = sim_chat.chat_key.clone();
 
     let now = Utc::now().timestamp();
@@ -7833,6 +8092,13 @@ pub fn handle_sim_send_user_message(
     }
     if let Some(entities) = parsed_entities {
         message_json["entities"] = entities;
+    }
+    if let Some(thread_id) = resolved_thread_id {
+        message_json["message_thread_id"] = Value::from(thread_id);
+        message_json["is_topic_message"] = Value::Bool(true);
+    }
+    if let Some(mode) = sim_parse_mode {
+        message_json["sim_parse_mode"] = Value::String(mode);
     }
 
     let message: Message = serde_json::from_value(message_json).map_err(ApiError::internal)?;
@@ -7926,6 +8192,7 @@ pub fn handle_sim_send_user_media(
     } else {
         None
     };
+    let sim_parse_mode = normalize_sim_parse_mode(body.parse_mode.as_deref());
 
     let media_input = if ["sticker", "animation", "video_note"].contains(&media_kind.as_str()) {
         parse_input_file_value(&body.media, &media_kind)?
@@ -8067,6 +8334,12 @@ pub fn handle_sim_send_user_media(
             send_kind_from_sim_user_media_kind(media_kind.as_str()),
         )?;
     }
+    let resolved_thread_id = resolve_forum_message_thread_id(
+        &mut conn,
+        bot.id,
+        &sim_chat,
+        body.message_thread_id,
+    )?;
     let chat_key = sim_chat.chat_key.clone();
 
     let now = Utc::now().timestamp();
@@ -8094,6 +8367,13 @@ pub fn handle_sim_send_user_media(
     }
     if let Some(entities) = caption_entities {
         message_json["caption_entities"] = entities;
+    }
+    if let Some(thread_id) = resolved_thread_id {
+        message_json["message_thread_id"] = Value::from(thread_id);
+        message_json["is_topic_message"] = Value::Bool(true);
+    }
+    if let Some(mode) = sim_parse_mode {
+        message_json["sim_parse_mode"] = Value::String(mode);
     }
     if let Some(reply_id) = body.reply_to_message_id {
         let reply_value = load_reply_message_for_chat(&mut conn, &bot, &chat_key, reply_id)?;
@@ -8175,6 +8455,7 @@ pub fn handle_sim_edit_user_message_media(
     params: HashMap<String, Value>,
 ) -> ApiResult {
     let body: SimEditUserMediaRequest = parse_request(&params)?;
+    let sim_parse_mode = normalize_sim_parse_mode(body.parse_mode.as_deref());
 
     let media_kind = body.media_kind.to_ascii_lowercase();
     if !["photo", "video", "audio", "voice", "document", "sticker", "animation", "video_note"].contains(&media_kind.as_str()) {
@@ -8360,6 +8641,13 @@ pub fn handle_sim_edit_user_message_media(
         edited_message["caption_entities"] = entities;
     } else {
         edited_message.as_object_mut().map(|obj| obj.remove("caption_entities"));
+    }
+    if let Some(mode) = sim_parse_mode {
+        edited_message["sim_parse_mode"] = Value::String(mode);
+    } else {
+        edited_message
+            .as_object_mut()
+            .map(|obj| obj.remove("sim_parse_mode"));
     }
     edited_message.as_object_mut().map(|obj| obj.remove("text"));
 
@@ -11197,6 +11485,7 @@ fn handle_edit_message_text(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: EditMessageTextRequest = parse_request(params)?;
+    let sim_parse_mode = normalize_sim_parse_mode(request.parse_mode.as_deref());
 
     let explicit_entities = request
         .entities
@@ -11255,6 +11544,13 @@ fn handle_edit_message_text(
     } else {
         edited_message.as_object_mut().map(|obj| obj.remove("entities"));
     }
+    if let Some(mode) = sim_parse_mode {
+        edited_message["sim_parse_mode"] = Value::String(mode);
+    } else {
+        edited_message
+            .as_object_mut()
+            .map(|obj| obj.remove("sim_parse_mode"));
+    }
 
     publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
 
@@ -11291,6 +11587,7 @@ fn handle_edit_message_media(
     let explicit_caption_entities = media_obj.get("caption_entities").cloned();
     let should_auto_detect_entities = explicit_caption_entities.is_none();
     let parse_mode = media_obj.get("parse_mode").and_then(Value::as_str);
+    let sim_parse_mode = normalize_sim_parse_mode(parse_mode);
     let (caption, caption_entities) = parse_optional_formatted_text(
         media_obj.get("caption").and_then(Value::as_str),
         parse_mode,
@@ -11398,6 +11695,13 @@ fn handle_edit_message_media(
         edited_message["caption_entities"] = entities;
     } else {
         edited_message.as_object_mut().map(|obj| obj.remove("caption_entities"));
+    }
+    if let Some(mode) = sim_parse_mode {
+        edited_message["sim_parse_mode"] = Value::String(mode);
+    } else {
+        edited_message
+            .as_object_mut()
+            .map(|obj| obj.remove("sim_parse_mode"));
     }
     edited_message.as_object_mut().map(|obj| obj.remove("text"));
 
@@ -11549,6 +11853,7 @@ fn send_sim_user_payload_message(
     state: &Data<AppState>,
     token: &str,
     chat_id: Option<i64>,
+    message_thread_id: Option<i64>,
     user_id: Option<i64>,
     first_name: Option<String>,
     username: Option<String>,
@@ -11556,6 +11861,7 @@ fn send_sim_user_payload_message(
     text: Option<String>,
     entities: Option<Value>,
     reply_to_message_id: Option<i64>,
+    sim_parse_mode: Option<String>,
 ) -> ApiResult {
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
@@ -11575,6 +11881,12 @@ fn send_sim_user_payload_message(
             send_kind,
         )?;
     }
+    let resolved_thread_id = resolve_forum_message_thread_id(
+        &mut conn,
+        bot.id,
+        &sim_chat,
+        message_thread_id,
+    )?;
     let chat_key = sim_chat.chat_key.clone();
 
     let now = Utc::now().timestamp();
@@ -11618,6 +11930,13 @@ fn send_sim_user_payload_message(
     }
     if let Some(e) = entities {
         message_json["entities"] = e;
+    }
+    if let Some(thread_id) = resolved_thread_id {
+        message_json["message_thread_id"] = Value::from(thread_id);
+        message_json["is_topic_message"] = Value::Bool(true);
+    }
+    if let Some(mode) = sim_parse_mode {
+        message_json["sim_parse_mode"] = Value::String(mode);
     }
     if let Some(reply_id) = reply_to_message_id {
         let reply_value = load_reply_message_for_chat(&mut conn, &bot, &chat_key, reply_id)?;
@@ -11711,6 +12030,7 @@ pub fn handle_sim_send_user_dice(
         state,
         token,
         body.chat_id,
+        body.message_thread_id,
         body.user_id,
         body.first_name,
         body.username,
@@ -11718,6 +12038,7 @@ pub fn handle_sim_send_user_dice(
         None,
         None,
         body.reply_to_message_id,
+        None,
     )
 }
 
@@ -11749,6 +12070,7 @@ pub fn handle_sim_send_user_game(
         state,
         token,
         body.chat_id,
+        body.message_thread_id,
         body.user_id,
         body.first_name,
         body.username,
@@ -11756,6 +12078,7 @@ pub fn handle_sim_send_user_game(
         None,
         None,
         body.reply_to_message_id,
+        None,
     )
 }
 
@@ -11783,6 +12106,7 @@ pub fn handle_sim_send_user_contact(
         state,
         token,
         body.chat_id,
+        body.message_thread_id,
         body.user_id,
         body.first_name,
         body.username,
@@ -11790,6 +12114,7 @@ pub fn handle_sim_send_user_contact(
         None,
         None,
         body.reply_to_message_id,
+        None,
     )
 }
 
@@ -11811,6 +12136,7 @@ pub fn handle_sim_send_user_location(
         state,
         token,
         body.chat_id,
+        body.message_thread_id,
         body.user_id,
         body.first_name,
         body.username,
@@ -11818,6 +12144,7 @@ pub fn handle_sim_send_user_location(
         None,
         None,
         body.reply_to_message_id,
+        None,
     )
 }
 
@@ -11854,6 +12181,7 @@ pub fn handle_sim_send_user_venue(
         state,
         token,
         body.chat_id,
+        body.message_thread_id,
         body.user_id,
         body.first_name,
         body.username,
@@ -11861,6 +12189,7 @@ pub fn handle_sim_send_user_venue(
         None,
         None,
         body.reply_to_message_id,
+        None,
     )
 }
 
@@ -11878,6 +12207,7 @@ fn handle_edit_message_caption(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: EditMessageCaptionRequest = parse_request(params)?;
+    let sim_parse_mode = normalize_sim_parse_mode(request.parse_mode.as_deref());
 
     let explicit_entities = request
         .caption_entities
@@ -11940,6 +12270,13 @@ fn handle_edit_message_caption(
         edited_message
             .as_object_mut()
             .map(|obj| obj.remove("caption_entities"));
+    }
+    if let Some(mode) = sim_parse_mode {
+        edited_message["sim_parse_mode"] = Value::String(mode);
+    } else {
+        edited_message
+            .as_object_mut()
+            .map(|obj| obj.remove("sim_parse_mode"));
     }
     edited_message.as_object_mut().map(|obj| obj.remove("text"));
 
