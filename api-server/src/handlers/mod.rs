@@ -2723,11 +2723,11 @@ fn handle_edit_general_forum_topic(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, _sim_chat, _chat, _actor) =
+    let (chat_key, _sim_chat, chat, actor) =
         resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
     let now = Utc::now().timestamp();
 
-    ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
+    let (current_name, _, _) = ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
     conn.execute(
         "UPDATE forum_topic_general_states
          SET name = ?1, updated_at = ?2
@@ -2735,6 +2735,38 @@ fn handle_edit_general_forum_topic(
         params![name, now, bot.id, &chat_key],
     )
     .map_err(ApiError::internal)?;
+
+    let mut service_fields = Map::new();
+    service_fields.insert("is_topic_message".to_string(), Value::Bool(true));
+    service_fields.insert("message_thread_id".to_string(), Value::from(1_i64));
+    service_fields.insert(
+        "forum_topic_edited".to_string(),
+        json!({
+            "name": if name != current_name {
+                Some(name.to_string())
+            } else {
+                None::<String>
+            },
+            "icon_custom_emoji_id": None::<String>,
+        }),
+    );
+
+    emit_service_message_update(
+        state,
+        &mut conn,
+        token,
+        bot.id,
+        &chat_key,
+        &chat,
+        &actor,
+        now,
+        format!(
+            "{} edited topic \"{}\"",
+            display_name_for_service_user(&actor),
+            name
+        ),
+        service_fields,
+    )?;
 
     Ok(Value::Bool(true))
 }
@@ -2748,7 +2780,7 @@ fn handle_close_general_forum_topic(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, _sim_chat, _chat, _actor) =
+    let (chat_key, _sim_chat, chat, actor) =
         resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
     let now = Utc::now().timestamp();
 
@@ -2760,6 +2792,27 @@ fn handle_close_general_forum_topic(
         params![now, bot.id, &chat_key],
     )
     .map_err(ApiError::internal)?;
+
+    let mut service_fields = Map::new();
+    service_fields.insert("is_topic_message".to_string(), Value::Bool(true));
+    service_fields.insert("message_thread_id".to_string(), Value::from(1_i64));
+    service_fields.insert("forum_topic_closed".to_string(), json!({}));
+
+    emit_service_message_update(
+        state,
+        &mut conn,
+        token,
+        bot.id,
+        &chat_key,
+        &chat,
+        &actor,
+        now,
+        format!(
+            "{} closed the General topic",
+            display_name_for_service_user(&actor)
+        ),
+        service_fields,
+    )?;
 
     Ok(Value::Bool(true))
 }
@@ -2773,7 +2826,7 @@ fn handle_reopen_general_forum_topic(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, _sim_chat, _chat, _actor) =
+    let (chat_key, _sim_chat, chat, actor) =
         resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
     let now = Utc::now().timestamp();
 
@@ -2785,6 +2838,27 @@ fn handle_reopen_general_forum_topic(
         params![now, bot.id, &chat_key],
     )
     .map_err(ApiError::internal)?;
+
+    let mut service_fields = Map::new();
+    service_fields.insert("is_topic_message".to_string(), Value::Bool(true));
+    service_fields.insert("message_thread_id".to_string(), Value::from(1_i64));
+    service_fields.insert("forum_topic_reopened".to_string(), json!({}));
+
+    emit_service_message_update(
+        state,
+        &mut conn,
+        token,
+        bot.id,
+        &chat_key,
+        &chat,
+        &actor,
+        now,
+        format!(
+            "{} reopened the General topic",
+            display_name_for_service_user(&actor)
+        ),
+        service_fields,
+    )?;
 
     Ok(Value::Bool(true))
 }
@@ -2798,7 +2872,7 @@ fn handle_hide_general_forum_topic(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, _sim_chat, _chat, _actor) =
+    let (chat_key, _sim_chat, chat, actor) =
         resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
     let now = Utc::now().timestamp();
 
@@ -2810,6 +2884,27 @@ fn handle_hide_general_forum_topic(
         params![now, bot.id, &chat_key],
     )
     .map_err(ApiError::internal)?;
+
+    let mut service_fields = Map::new();
+    service_fields.insert("is_topic_message".to_string(), Value::Bool(true));
+    service_fields.insert("message_thread_id".to_string(), Value::from(1_i64));
+    service_fields.insert("general_forum_topic_hidden".to_string(), json!({}));
+
+    emit_service_message_update(
+        state,
+        &mut conn,
+        token,
+        bot.id,
+        &chat_key,
+        &chat,
+        &actor,
+        now,
+        format!(
+            "{} hid the General topic",
+            display_name_for_service_user(&actor)
+        ),
+        service_fields,
+    )?;
 
     Ok(Value::Bool(true))
 }
@@ -2823,7 +2918,7 @@ fn handle_unhide_general_forum_topic(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, _sim_chat, _chat, _actor) =
+    let (chat_key, _sim_chat, chat, actor) =
         resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
     let now = Utc::now().timestamp();
 
@@ -2835,6 +2930,27 @@ fn handle_unhide_general_forum_topic(
         params![now, bot.id, &chat_key],
     )
     .map_err(ApiError::internal)?;
+
+    let mut service_fields = Map::new();
+    service_fields.insert("is_topic_message".to_string(), Value::Bool(true));
+    service_fields.insert("message_thread_id".to_string(), Value::from(1_i64));
+    service_fields.insert("general_forum_topic_unhidden".to_string(), json!({}));
+
+    emit_service_message_update(
+        state,
+        &mut conn,
+        token,
+        bot.id,
+        &chat_key,
+        &chat,
+        &actor,
+        now,
+        format!(
+            "{} unhid the General topic",
+            display_name_for_service_user(&actor)
+        ),
+        service_fields,
+    )?;
 
     Ok(Value::Bool(true))
 }

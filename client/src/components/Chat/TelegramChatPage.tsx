@@ -483,6 +483,14 @@ function buildForumTopicNameWithEmoji(rawName: string, emoji: string): string {
   return `${normalizedEmoji} ${name}`;
 }
 
+function buildForumTopicNameForIconMode(rawName: string, normalEmoji: string, iconCustomEmojiId?: string): string {
+  const customId = iconCustomEmojiId?.trim() || '';
+  if (customId) {
+    return rawName.trim();
+  }
+  return buildForumTopicNameWithEmoji(rawName, normalEmoji);
+}
+
 function formatChatActionLabel(action: string): string {
   switch (action) {
     case 'typing':
@@ -2211,6 +2219,68 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             text: payload.text || `${actorName} changed the group name to "${payload.new_chat_title}"`,
             service: {
               kind: 'system' as const,
+            },
+          };
+        }
+
+        if (payload.forum_topic_created) {
+          const topicName = payload.forum_topic_created.name || 'topic';
+          return {
+            text: payload.text || `${actorName} created the topic "${topicName}"`,
+            service: {
+              kind: 'system' as const,
+              targetName: topicName,
+            },
+          };
+        }
+
+        if (payload.forum_topic_edited) {
+          const editedName = payload.forum_topic_edited.name?.trim() || undefined;
+          return {
+            text: payload.text || (editedName
+              ? `${actorName} edited topic "${editedName}"`
+              : `${actorName} edited a topic`),
+            service: {
+              kind: 'system' as const,
+              targetName: editedName,
+            },
+          };
+        }
+
+        if (payload.forum_topic_closed) {
+          return {
+            text: payload.text || `${actorName} closed a topic`,
+            service: {
+              kind: 'system' as const,
+            },
+          };
+        }
+
+        if (payload.forum_topic_reopened) {
+          return {
+            text: payload.text || `${actorName} reopened a topic`,
+            service: {
+              kind: 'system' as const,
+            },
+          };
+        }
+
+        if (payload.general_forum_topic_hidden) {
+          return {
+            text: payload.text || `${actorName} hid the General topic`,
+            service: {
+              kind: 'system' as const,
+              targetName: 'General',
+            },
+          };
+        }
+
+        if (payload.general_forum_topic_unhidden) {
+          return {
+            text: payload.text || `${actorName} unhid the General topic`,
+            service: {
+              kind: 'system' as const,
+              targetName: 'General',
             },
           };
         }
@@ -4162,12 +4232,13 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
     setForumTopicModalMode('edit');
     setForumTopicModalThreadId(topic.messageThreadId);
+    const hasCustomIcon = Boolean(topic.iconCustomEmojiId?.trim());
     const parsedTopicName = splitForumTopicNameWithEmoji(topic.name);
     setForumTopicDraft((prev) => ({
       ...prev,
       messageThreadId: String(topic.messageThreadId),
-      name: parsedTopicName.name,
-      normalEmoji: parsedTopicName.emoji,
+      name: hasCustomIcon ? topic.name : parsedTopicName.name,
+      normalEmoji: hasCustomIcon ? '' : parsedTopicName.emoji,
       iconColor: String(topic.iconColor),
       iconCustomEmojiId: topic.iconCustomEmojiId || '',
       generalName: topic.isGeneral ? topic.name : prev.generalName,
@@ -4214,7 +4285,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       return false;
     }
 
-    const name = buildForumTopicNameWithEmoji(forumTopicDraft.name, forumTopicDraft.normalEmoji);
+    const name = buildForumTopicNameForIconMode(
+      forumTopicDraft.name,
+      forumTopicDraft.normalEmoji,
+      forumTopicDraft.iconCustomEmojiId,
+    );
     if (!name) {
       setErrorText('Topic name is required.');
       return false;
@@ -4231,13 +4306,14 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         icon_custom_emoji_id: forumTopicDraft.iconCustomEmojiId.trim() || undefined,
       }, selectedUser.id);
 
+      const hasCustomIcon = Boolean(topic.icon_custom_emoji_id?.trim());
       const parsedTopicName = splitForumTopicNameWithEmoji(topic.name);
 
       setForumTopicDraft((prev) => ({
         ...prev,
         messageThreadId: String(topic.message_thread_id),
-        name: parsedTopicName.name,
-        normalEmoji: parsedTopicName.emoji,
+        name: hasCustomIcon ? topic.name : parsedTopicName.name,
+        normalEmoji: hasCustomIcon ? '' : parsedTopicName.emoji,
         iconColor: String(topic.icon_color),
         iconCustomEmojiId: topic.icon_custom_emoji_id || '',
       }));
@@ -4290,7 +4366,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         message_thread_id: messageThreadId,
       };
 
-      const nextName = buildForumTopicNameWithEmoji(forumTopicDraft.name, forumTopicDraft.normalEmoji);
+      const nextName = buildForumTopicNameForIconMode(
+        forumTopicDraft.name,
+        forumTopicDraft.normalEmoji,
+        forumTopicDraft.iconCustomEmojiId,
+      );
       if (nextName) {
         payload.name = nextName;
       }
@@ -4492,7 +4572,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
 
     const isGeneral = threadId === GENERAL_FORUM_TOPIC_THREAD_ID;
-    const modalTopicName = buildForumTopicNameWithEmoji(forumTopicDraft.name, forumTopicDraft.normalEmoji);
+    const modalTopicName = buildForumTopicNameForIconMode(
+      forumTopicDraft.name,
+      forumTopicDraft.normalEmoji,
+      forumTopicDraft.iconCustomEmojiId,
+    );
     const updated = isGeneral
       ? await onEditGeneralForumTopicFromDraft(modalTopicName)
       : await onEditForumTopicFromDraft(threadId);
@@ -10738,7 +10822,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     <label className="mb-1 block text-[11px] text-[#9ec2da]">Premium icon (custom emoji id)</label>
                     <input
                       value={forumTopicDraft.iconCustomEmojiId}
-                      onChange={(event) => setForumTopicDraft((prev) => ({ ...prev, iconCustomEmojiId: event.target.value }))}
+                      onChange={(event) => setForumTopicDraft((prev) => ({
+                        ...prev,
+                        iconCustomEmojiId: event.target.value,
+                        normalEmoji: event.target.value.trim() ? '' : prev.normalEmoji,
+                      }))}
                       className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
                       placeholder="icon_custom_emoji_id"
                     />
@@ -10759,6 +10847,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                             onClick={() => setForumTopicDraft((prev) => ({
                               ...prev,
                               iconCustomEmojiId: sticker.custom_emoji_id || prev.iconCustomEmojiId,
+                              normalEmoji: '',
                             }))}
                             className={`rounded-lg border px-3 py-2 text-left text-xs ${selected ? 'border-[#8dd2ff]/70 bg-[#1f4868]/75 text-white' : 'border-white/15 bg-[#0f1c28] text-[#d7ebfb] hover:bg-[#162b3d]'}`}
                             title={sticker.custom_emoji_id || sticker.file_id}
@@ -11611,7 +11700,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                 <label className="block text-xs text-[#9ec2da]">Normal emoji prefix</label>
                 <input
                   value={forumTopicDraft.normalEmoji}
-                  onChange={(event) => setForumTopicDraft((prev) => ({ ...prev, normalEmoji: event.target.value }))}
+                  onChange={(event) => setForumTopicDraft((prev) => ({
+                    ...prev,
+                    normalEmoji: event.target.value,
+                    iconCustomEmojiId: event.target.value.trim() ? '' : prev.iconCustomEmojiId,
+                  }))}
                   className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
                   placeholder="e.g. 🚀"
                 />
@@ -11620,7 +11713,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     <button
                       key={`forum-topic-modal-emoji-${emoji}`}
                       type="button"
-                      onClick={() => setForumTopicDraft((prev) => ({ ...prev, normalEmoji: emoji }))}
+                      onClick={() => setForumTopicDraft((prev) => ({ ...prev, normalEmoji: emoji, iconCustomEmojiId: '' }))}
                       className={`rounded-md border px-2 py-1 text-base leading-none ${forumTopicDraft.normalEmoji === emoji ? 'border-[#8dd2ff]/75 bg-[#214a69]' : 'border-white/20 bg-black/20 hover:bg-white/10'}`}
                       title={`Use ${emoji}`}
                     >
@@ -11629,7 +11722,14 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   ))}
                 </div>
                 <p className="text-[11px] text-[#9ec2da]">
-                  Preview: {buildForumTopicNameWithEmoji(forumTopicDraft.name, forumTopicDraft.normalEmoji) || '-'}
+                  Preview: {buildForumTopicNameForIconMode(
+                    forumTopicDraft.name,
+                    forumTopicDraft.normalEmoji,
+                    forumTopicDraft.iconCustomEmojiId,
+                  ) || '-'}
+                </p>
+                <p className="text-[11px] text-[#89b4cf]">
+                  Use either normal emoji prefix or premium custom icon.
                 </p>
               </div>
 
@@ -11671,7 +11771,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                 </div>
                 <input
                   value={forumTopicDraft.iconCustomEmojiId}
-                  onChange={(event) => setForumTopicDraft((prev) => ({ ...prev, iconCustomEmojiId: event.target.value }))}
+                  onChange={(event) => setForumTopicDraft((prev) => ({
+                    ...prev,
+                    iconCustomEmojiId: event.target.value,
+                    normalEmoji: event.target.value.trim() ? '' : prev.normalEmoji,
+                  }))}
                   className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
                   placeholder="icon_custom_emoji_id"
                 />
@@ -11692,6 +11796,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         onClick={() => setForumTopicDraft((prev) => ({
                           ...prev,
                           iconCustomEmojiId: sticker.custom_emoji_id || prev.iconCustomEmojiId,
+                          normalEmoji: '',
                         }))}
                         className={`rounded-lg border px-3 py-2 text-left text-xs ${active ? 'border-[#8dd2ff]/70 bg-[#1f4868]/75 text-white' : 'border-white/15 bg-[#0f1c28] text-[#d7ebfb] hover:bg-[#162b3d]'}`}
                         title={sticker.custom_emoji_id || sticker.file_id}
@@ -11716,7 +11821,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               <button
                 type="button"
                 onClick={() => void onSubmitForumTopicModal()}
-                disabled={isGroupActionRunning || !buildForumTopicNameWithEmoji(forumTopicDraft.name, forumTopicDraft.normalEmoji).trim()}
+                disabled={isGroupActionRunning || !buildForumTopicNameForIconMode(
+                  forumTopicDraft.name,
+                  forumTopicDraft.normalEmoji,
+                  forumTopicDraft.iconCustomEmojiId,
+                ).trim()}
                 className="rounded-lg bg-[#2b5278] px-3 py-2 text-sm font-medium text-white hover:bg-[#366892] disabled:opacity-50"
               >
                 {forumTopicModalMode === 'create' ? 'Create topic' : 'Save topic'}
