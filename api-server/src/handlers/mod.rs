@@ -25,7 +25,7 @@ use crate::generated::methods::{
     EditMessageMediaRequest, EditMessageReplyMarkupRequest, EditMessageTextRequest,
     EditUserStarSubscriptionRequest, GetCustomEmojiStickersRequest, GetFileRequest,
     GetChatRequest, GetChatAdministratorsRequest, GetChatMemberCountRequest,
-    GetChatMemberRequest, GetChatMenuButtonRequest,
+    GetChatMemberRequest, GetChatMenuButtonRequest, GetForumTopicIconStickersRequest,
     GetGameHighScoresRequest, GetMeRequest, GetMyStarBalanceRequest,
     GetStarTransactionsRequest, GetStickerSetRequest, GetUpdatesRequest, LeaveChatRequest,
     PinChatMessageRequest, PromoteChatMemberRequest, RefundStarPaymentRequest,
@@ -43,8 +43,13 @@ use crate::generated::methods::{
     SetStickerSetThumbnailRequest, SetStickerSetTitleRequest, SetWebhookRequest,
     StopMessageLiveLocationRequest, StopPollRequest, UnbanChatMemberRequest,
     UnbanChatSenderChatRequest, UnpinAllChatMessagesRequest, UnpinChatMessageRequest,
+    CreateForumTopicRequest, EditForumTopicRequest, CloseForumTopicRequest,
+    ReopenForumTopicRequest, DeleteForumTopicRequest, UnpinAllForumTopicMessagesRequest,
+    EditGeneralForumTopicRequest, CloseGeneralForumTopicRequest,
+    ReopenGeneralForumTopicRequest, HideGeneralForumTopicRequest,
+    UnhideGeneralForumTopicRequest, UnpinAllGeneralForumTopicMessagesRequest,
 };
-use crate::generated::types::{AcceptedGiftTypes, Animation, Audio, CallbackQuery, Chat, ChatFullInfo, ChatInviteLink, ChatJoinRequest, ChatMember, ChatMemberAdministrator, ChatMemberBanned, ChatMemberLeft, ChatMemberMember, ChatMemberOwner, ChatMemberRestricted, ChatMemberUpdated, ChatPermissions, ChatPhoto, ChosenInlineResult, Contact, Dice, Document, File, Game, GameHighScore, InlineKeyboardMarkup, InlineQuery, InputSticker, Invoice, Location, MaskPosition, MaybeInaccessibleMessage, MenuButton, Message, MessageReactionCountUpdated, MessageReactionUpdated, OrderInfo, PhotoSize, Poll, PollAnswer, PollOption, PreCheckoutQuery, ReactionCount, ReactionType, ReplyKeyboardMarkup, ReplyKeyboardRemove, ShippingAddress, ShippingQuery, Sticker, StickerSet, SuccessfulPayment, Update, User, Venue, Video, VideoNote, Voice};
+use crate::generated::types::{AcceptedGiftTypes, Animation, Audio, CallbackQuery, Chat, ChatFullInfo, ChatInviteLink, ChatJoinRequest, ChatMember, ChatMemberAdministrator, ChatMemberBanned, ChatMemberLeft, ChatMemberMember, ChatMemberOwner, ChatMemberRestricted, ChatMemberUpdated, ChatPermissions, ChatPhoto, ChosenInlineResult, Contact, Dice, Document, File, ForumTopic, Game, GameHighScore, InlineKeyboardMarkup, InlineQuery, InputSticker, Invoice, Location, MaskPosition, MaybeInaccessibleMessage, MenuButton, Message, MessageEntity, MessageReactionCountUpdated, MessageReactionUpdated, OrderInfo, PhotoSize, Poll, PollAnswer, PollOption, PreCheckoutQuery, ReactionCount, ReactionType, ReplyKeyboardMarkup, ReplyKeyboardRemove, ShippingAddress, ShippingQuery, Sticker, StickerSet, SuccessfulPayment, Update, User, Venue, Video, VideoNote, Voice};
 use crate::types::{strip_nulls, ApiError, ApiResult};
 
 thread_local! {
@@ -477,6 +482,23 @@ pub fn dispatch_method(
         "setchatdescription" => handle_set_chat_description(state, token, &params),
         "setchatstickerset" => handle_set_chat_sticker_set(state, token, &params),
         "deletechatstickerset" => handle_delete_chat_sticker_set(state, token, &params),
+        "getforumtopiciconstickers" => handle_get_forum_topic_icon_stickers(state, token, &params),
+        "createforumtopic" => handle_create_forum_topic(state, token, &params),
+        "editforumtopic" => handle_edit_forum_topic(state, token, &params),
+        "closeforumtopic" => handle_close_forum_topic(state, token, &params),
+        "reopenforumtopic" => handle_reopen_forum_topic(state, token, &params),
+        "deleteforumtopic" => handle_delete_forum_topic(state, token, &params),
+        "unpinallforumtopicmessages" => {
+            handle_unpin_all_forum_topic_messages(state, token, &params)
+        }
+        "editgeneralforumtopic" => handle_edit_general_forum_topic(state, token, &params),
+        "closegeneralforumtopic" => handle_close_general_forum_topic(state, token, &params),
+        "reopengeneralforumtopic" => handle_reopen_general_forum_topic(state, token, &params),
+        "hidegeneralforumtopic" => handle_hide_general_forum_topic(state, token, &params),
+        "unhidegeneralforumtopic" => handle_unhide_general_forum_topic(state, token, &params),
+        "unpinallgeneralforumtopicmessages" => {
+            handle_unpin_all_general_forum_topic_messages(state, token, &params)
+        }
         "pinchatmessage" => handle_pin_chat_message(state, token, &params),
         "unpinchatmessage" => handle_unpin_chat_message(state, token, &params),
         "unpinallchatmessages" => handle_unpin_all_chat_messages(state, token, &params),
@@ -1403,26 +1425,12 @@ fn is_supported_chat_action(action: &str) -> bool {
     )
 }
 
-fn publish_chat_action_event(
+fn publish_sim_client_event(
     state: &Data<AppState>,
     token: &str,
-    chat_id: i64,
-    action: &str,
-    actor_user_id: i64,
-    actor_name: &str,
+    event_payload: Value,
 ) {
-    let update_value = json!({
-        "update_id": 0,
-        "chat_action": {
-            "chat_id": chat_id,
-            "action": action,
-            "from_user_id": actor_user_id,
-            "from_name": actor_name,
-            "date": Utc::now().timestamp(),
-        }
-    });
-
-    state.ws_hub.publish_json(token, &update_value);
+    state.ws_hub.publish_json(token, &event_payload);
 }
 
 fn handle_send_chat_action(
@@ -1477,13 +1485,17 @@ fn handle_send_chat_action(
     }
 
     let target_chat_id = sim_chat.as_ref().map(|chat| chat.chat_id).unwrap_or(chat_id);
-    publish_chat_action_event(
+    publish_sim_client_event(
         state,
         token,
-        target_chat_id,
-        &normalized_action,
-        actor_user_id,
-        &actor_name,
+        json!({
+            "sim_event": "chat_action",
+            "chat_id": target_chat_id,
+            "action": normalized_action,
+            "from_user_id": actor_user_id,
+            "from_name": actor_name,
+            "date": Utc::now().timestamp(),
+        }),
     );
 
     Ok(Value::Bool(true))
@@ -2130,6 +2142,620 @@ fn handle_get_chat_member(
     };
 
     serde_json::to_value(member).map_err(ApiError::internal)
+}
+
+fn forum_topic_default_icon_color() -> i64 {
+    0x6FB9F0
+}
+
+fn is_allowed_forum_topic_icon_color(value: i64) -> bool {
+    matches!(
+        value,
+        0x6FB9F0 | 0xFFD67E | 0xCB86DB | 0x8EEE98 | 0xFF93B2 | 0xFB6F5F
+    )
+}
+
+fn resolve_forum_supergroup_chat(
+    conn: &mut rusqlite::Connection,
+    bot: &crate::database::BotInfoRecord,
+    chat_id: &Value,
+) -> Result<(String, SimChatRecord, Chat, User), ApiError> {
+    let (chat_key, sim_chat) = resolve_non_private_sim_chat(conn, bot.id, chat_id)?;
+    if sim_chat.chat_type != "supergroup" || !sim_chat.is_forum {
+        return Err(ApiError::bad_request(
+            "forum topics are available only in forum supergroups",
+        ));
+    }
+
+    let actor = resolve_chat_admin_actor(conn, bot, &chat_key)?;
+    let chat = build_chat_from_group_record(&sim_chat);
+    Ok((chat_key, sim_chat, chat, actor))
+}
+
+fn load_forum_topic(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    chat_key: &str,
+    message_thread_id: i64,
+) -> Result<Option<ForumTopic>, ApiError> {
+    conn.query_row(
+        "SELECT name, icon_color, icon_custom_emoji_id
+         FROM forum_topics
+         WHERE bot_id = ?1 AND chat_key = ?2 AND message_thread_id = ?3",
+        params![bot_id, chat_key, message_thread_id],
+        |row| {
+            Ok(ForumTopic {
+                message_thread_id,
+                name: row.get(0)?,
+                icon_color: row.get(1)?,
+                icon_custom_emoji_id: row.get(2)?,
+                is_name_implicit: None,
+            })
+        },
+    )
+    .optional()
+    .map_err(ApiError::internal)
+}
+
+fn ensure_general_forum_topic_state(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    chat_key: &str,
+) -> Result<(String, bool, bool), ApiError> {
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO forum_topic_general_states (bot_id, chat_key, name, is_closed, is_hidden, updated_at)
+         VALUES (?1, ?2, 'General', 0, 0, ?3)
+         ON CONFLICT(bot_id, chat_key) DO NOTHING",
+        params![bot_id, chat_key, now],
+    )
+    .map_err(ApiError::internal)?;
+
+    conn.query_row(
+        "SELECT name, is_closed, is_hidden FROM forum_topic_general_states
+         WHERE bot_id = ?1 AND chat_key = ?2",
+        params![bot_id, chat_key],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)? == 1,
+                row.get::<_, i64>(2)? == 1,
+            ))
+        },
+    )
+    .map_err(ApiError::internal)
+}
+
+fn handle_get_forum_topic_icon_stickers(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let _request: GetForumTopicIconStickersRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT file_id, file_unique_id, sticker_type, width, height, is_animated, is_video,
+                    emoji, set_name, mask_position_json, custom_emoji_id, needs_repainting
+             FROM stickers
+             WHERE bot_id = ?1 AND custom_emoji_id IS NOT NULL
+             ORDER BY updated_at DESC
+             LIMIT 64",
+        )
+        .map_err(ApiError::internal)?;
+
+    let rows = stmt
+        .query_map(params![bot.id], |row| {
+            Ok(Sticker {
+                file_id: row.get(0)?,
+                file_unique_id: row.get(1)?,
+                r#type: row.get(2)?,
+                width: row.get(3)?,
+                height: row.get(4)?,
+                is_animated: row.get::<_, i64>(5)? == 1,
+                is_video: row.get::<_, i64>(6)? == 1,
+                thumbnail: None,
+                emoji: row.get(7)?,
+                set_name: row.get(8)?,
+                premium_animation: None,
+                mask_position: row
+                    .get::<_, Option<String>>(9)?
+                    .and_then(|raw| serde_json::from_str(&raw).ok()),
+                custom_emoji_id: row.get(10)?,
+                needs_repainting: Some(row.get::<_, i64>(11)? == 1),
+                file_size: None,
+            })
+        })
+        .map_err(ApiError::internal)?;
+
+    let mut stickers: Vec<Sticker> = Vec::new();
+    for row in rows {
+        stickers.push(row.map_err(ApiError::internal)?);
+    }
+
+    serde_json::to_value(stickers).map_err(ApiError::internal)
+}
+
+fn handle_create_forum_topic(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: CreateForumTopicRequest = parse_request(params)?;
+    let name = request.name.trim();
+    if name.is_empty() {
+        return Err(ApiError::bad_request("name is empty"));
+    }
+
+    let icon_color = request.icon_color.unwrap_or_else(forum_topic_default_icon_color);
+    if !is_allowed_forum_topic_icon_color(icon_color) {
+        return Err(ApiError::bad_request("icon_color is invalid"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let (chat_key, _sim_chat, chat, actor) =
+        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+
+    let mut message_thread_id =
+        ((Utc::now().timestamp_millis().unsigned_abs() % 2_000_000_000) as i64).max(2);
+    for _ in 0..8 {
+        let exists: Option<i64> = conn
+            .query_row(
+                "SELECT 1 FROM forum_topics
+                 WHERE bot_id = ?1 AND chat_key = ?2 AND message_thread_id = ?3",
+                params![bot.id, &chat_key, message_thread_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(ApiError::internal)?;
+        if exists.is_none() {
+            break;
+        }
+        message_thread_id += 1;
+    }
+
+    let now = Utc::now().timestamp();
+    let icon_custom_emoji_id = request
+        .icon_custom_emoji_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    conn.execute(
+        "INSERT INTO forum_topics
+         (bot_id, chat_key, message_thread_id, name, icon_color, icon_custom_emoji_id, is_closed, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?7)",
+        params![
+            bot.id,
+            &chat_key,
+            message_thread_id,
+            name,
+            icon_color,
+            icon_custom_emoji_id,
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    let mut service_fields = Map::new();
+    service_fields.insert("is_topic_message".to_string(), Value::Bool(true));
+    service_fields.insert("message_thread_id".to_string(), Value::from(message_thread_id));
+    service_fields.insert(
+        "forum_topic_created".to_string(),
+        json!({
+            "name": name,
+            "icon_color": icon_color,
+            "icon_custom_emoji_id": icon_custom_emoji_id,
+        }),
+    );
+    emit_service_message_update(
+        state,
+        &mut conn,
+        token,
+        bot.id,
+        &chat_key,
+        &chat,
+        &actor,
+        now,
+        format!("{} created the topic \"{}\"", display_name_for_service_user(&actor), name),
+        service_fields,
+    )?;
+
+    let topic = ForumTopic {
+        message_thread_id,
+        name: name.to_string(),
+        icon_color,
+        icon_custom_emoji_id,
+        is_name_implicit: None,
+    };
+
+    serde_json::to_value(topic).map_err(ApiError::internal)
+}
+
+fn handle_edit_forum_topic(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: EditForumTopicRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let (chat_key, _sim_chat, chat, actor) =
+        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+
+    let Some(current_topic) = load_forum_topic(&mut conn, bot.id, &chat_key, request.message_thread_id)? else {
+        return Err(ApiError::not_found("forum topic not found"));
+    };
+
+    let next_name = if let Some(raw_name) = request.name.as_deref() {
+        let trimmed = raw_name.trim();
+        if trimmed.is_empty() {
+            return Err(ApiError::bad_request("name is empty"));
+        }
+        trimmed.to_string()
+    } else {
+        current_topic.name.clone()
+    };
+
+    let next_icon_custom_emoji_id = if let Some(raw_icon) = request.icon_custom_emoji_id.as_deref() {
+        let trimmed = raw_icon.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    } else {
+        current_topic.icon_custom_emoji_id.clone()
+    };
+
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "UPDATE forum_topics
+         SET name = ?1,
+             icon_custom_emoji_id = ?2,
+             updated_at = ?3
+         WHERE bot_id = ?4 AND chat_key = ?5 AND message_thread_id = ?6",
+        params![
+            next_name,
+            next_icon_custom_emoji_id,
+            now,
+            bot.id,
+            &chat_key,
+            request.message_thread_id,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    let mut service_fields = Map::new();
+    service_fields.insert("is_topic_message".to_string(), Value::Bool(true));
+    service_fields.insert(
+        "message_thread_id".to_string(),
+        Value::from(request.message_thread_id),
+    );
+    service_fields.insert(
+        "forum_topic_edited".to_string(),
+        json!({
+            "name": if next_name != current_topic.name { Some(next_name.clone()) } else { None::<String> },
+            "icon_custom_emoji_id": if request.icon_custom_emoji_id.is_some() {
+                next_icon_custom_emoji_id.clone()
+            } else {
+                None
+            },
+        }),
+    );
+
+    emit_service_message_update(
+        state,
+        &mut conn,
+        token,
+        bot.id,
+        &chat_key,
+        &chat,
+        &actor,
+        now,
+        format!(
+            "{} edited topic \"{}\"",
+            display_name_for_service_user(&actor),
+            next_name
+        ),
+        service_fields,
+    )?;
+
+    Ok(Value::Bool(true))
+}
+
+fn handle_close_forum_topic(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: CloseForumTopicRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let (chat_key, _sim_chat, chat, actor) =
+        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+
+    let Some(_) = load_forum_topic(&mut conn, bot.id, &chat_key, request.message_thread_id)? else {
+        return Err(ApiError::not_found("forum topic not found"));
+    };
+
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "UPDATE forum_topics
+         SET is_closed = 1, updated_at = ?1
+         WHERE bot_id = ?2 AND chat_key = ?3 AND message_thread_id = ?4",
+        params![now, bot.id, &chat_key, request.message_thread_id],
+    )
+    .map_err(ApiError::internal)?;
+
+    let mut service_fields = Map::new();
+    service_fields.insert("is_topic_message".to_string(), Value::Bool(true));
+    service_fields.insert(
+        "message_thread_id".to_string(),
+        Value::from(request.message_thread_id),
+    );
+    service_fields.insert("forum_topic_closed".to_string(), json!({}));
+
+    emit_service_message_update(
+        state,
+        &mut conn,
+        token,
+        bot.id,
+        &chat_key,
+        &chat,
+        &actor,
+        now,
+        format!("{} closed a topic", display_name_for_service_user(&actor)),
+        service_fields,
+    )?;
+
+    Ok(Value::Bool(true))
+}
+
+fn handle_reopen_forum_topic(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: ReopenForumTopicRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let (chat_key, _sim_chat, chat, actor) =
+        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+
+    let Some(_) = load_forum_topic(&mut conn, bot.id, &chat_key, request.message_thread_id)? else {
+        return Err(ApiError::not_found("forum topic not found"));
+    };
+
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "UPDATE forum_topics
+         SET is_closed = 0, updated_at = ?1
+         WHERE bot_id = ?2 AND chat_key = ?3 AND message_thread_id = ?4",
+        params![now, bot.id, &chat_key, request.message_thread_id],
+    )
+    .map_err(ApiError::internal)?;
+
+    let mut service_fields = Map::new();
+    service_fields.insert("is_topic_message".to_string(), Value::Bool(true));
+    service_fields.insert(
+        "message_thread_id".to_string(),
+        Value::from(request.message_thread_id),
+    );
+    service_fields.insert("forum_topic_reopened".to_string(), json!({}));
+
+    emit_service_message_update(
+        state,
+        &mut conn,
+        token,
+        bot.id,
+        &chat_key,
+        &chat,
+        &actor,
+        now,
+        format!("{} reopened a topic", display_name_for_service_user(&actor)),
+        service_fields,
+    )?;
+
+    Ok(Value::Bool(true))
+}
+
+fn handle_delete_forum_topic(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: DeleteForumTopicRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let (chat_key, _sim_chat, _chat, _actor) =
+        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+
+    let deleted = conn
+        .execute(
+            "DELETE FROM forum_topics
+             WHERE bot_id = ?1 AND chat_key = ?2 AND message_thread_id = ?3",
+            params![bot.id, &chat_key, request.message_thread_id],
+        )
+        .map_err(ApiError::internal)?;
+    if deleted == 0 {
+        return Err(ApiError::not_found("forum topic not found"));
+    }
+
+    Ok(Value::Bool(true))
+}
+
+fn handle_unpin_all_forum_topic_messages(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: UnpinAllForumTopicMessagesRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let (chat_key, _sim_chat, _chat, _actor) =
+        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+
+    let Some(_) = load_forum_topic(&mut conn, bot.id, &chat_key, request.message_thread_id)? else {
+        return Err(ApiError::not_found("forum topic not found"));
+    };
+
+    Ok(Value::Bool(true))
+}
+
+fn handle_edit_general_forum_topic(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: EditGeneralForumTopicRequest = parse_request(params)?;
+    let name = request.name.trim();
+    if name.is_empty() {
+        return Err(ApiError::bad_request("name is empty"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let (chat_key, _sim_chat, _chat, _actor) =
+        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+    let now = Utc::now().timestamp();
+
+    ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
+    conn.execute(
+        "UPDATE forum_topic_general_states
+         SET name = ?1, updated_at = ?2
+         WHERE bot_id = ?3 AND chat_key = ?4",
+        params![name, now, bot.id, &chat_key],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(Value::Bool(true))
+}
+
+fn handle_close_general_forum_topic(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: CloseGeneralForumTopicRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let (chat_key, _sim_chat, _chat, _actor) =
+        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+    let now = Utc::now().timestamp();
+
+    ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
+    conn.execute(
+        "UPDATE forum_topic_general_states
+         SET is_closed = 1, updated_at = ?1
+         WHERE bot_id = ?2 AND chat_key = ?3",
+        params![now, bot.id, &chat_key],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(Value::Bool(true))
+}
+
+fn handle_reopen_general_forum_topic(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: ReopenGeneralForumTopicRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let (chat_key, _sim_chat, _chat, _actor) =
+        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+    let now = Utc::now().timestamp();
+
+    ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
+    conn.execute(
+        "UPDATE forum_topic_general_states
+         SET is_closed = 0, updated_at = ?1
+         WHERE bot_id = ?2 AND chat_key = ?3",
+        params![now, bot.id, &chat_key],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(Value::Bool(true))
+}
+
+fn handle_hide_general_forum_topic(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: HideGeneralForumTopicRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let (chat_key, _sim_chat, _chat, _actor) =
+        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+    let now = Utc::now().timestamp();
+
+    ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
+    conn.execute(
+        "UPDATE forum_topic_general_states
+         SET is_hidden = 1, updated_at = ?1
+         WHERE bot_id = ?2 AND chat_key = ?3",
+        params![now, bot.id, &chat_key],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(Value::Bool(true))
+}
+
+fn handle_unhide_general_forum_topic(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: UnhideGeneralForumTopicRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let (chat_key, _sim_chat, _chat, _actor) =
+        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+    let now = Utc::now().timestamp();
+
+    ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
+    conn.execute(
+        "UPDATE forum_topic_general_states
+         SET is_hidden = 0, updated_at = ?1
+         WHERE bot_id = ?2 AND chat_key = ?3",
+        params![now, bot.id, &chat_key],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(Value::Bool(true))
+}
+
+fn handle_unpin_all_general_forum_topic_messages(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: UnpinAllGeneralForumTopicMessagesRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let (chat_key, _sim_chat, _chat, _actor) =
+        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+
+    ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
+    Ok(Value::Bool(true))
 }
 
 fn handle_export_chat_invite_link(
@@ -3136,11 +3762,17 @@ fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap<Str
         .entities
         .as_ref()
         .and_then(|v| serde_json::to_value(v).ok());
+    let should_auto_detect_entities = explicit_entities.is_none();
     let (parsed_text, parsed_entities) = parse_formatted_text(
         &request.text,
         request.parse_mode.as_deref(),
         explicit_entities,
     );
+    let parsed_entities = if should_auto_detect_entities {
+        merge_auto_message_entities(&parsed_text, parsed_entities)
+    } else {
+        parsed_entities
+    };
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
@@ -4425,6 +5057,11 @@ fn handle_send_invoice(state: &Data<AppState>, token: &str, params: &HashMap<Str
     let message_id = conn.last_insert_rowid();
     let mut message_value = load_message_value(&mut conn, &bot, message_id)?;
     message_value.as_object_mut().map(|obj| obj.remove("text"));
+    let message_chat_id = message_value
+        .get("chat")
+        .and_then(|chat| chat.get("id"))
+        .and_then(Value::as_i64)
+        .unwrap_or_else(|| chat_id_as_i64(&request.chat_id, &chat_key));
 
     let invoice_title = request.title.clone();
     let invoice_description = request.description.clone();
@@ -4442,18 +5079,6 @@ fn handle_send_invoice(state: &Data<AppState>, token: &str, params: &HashMap<Str
     };
 
     message_value["invoice"] = serde_json::to_value(invoice).map_err(ApiError::internal)?;
-    message_value["invoice_meta"] = json!({
-        "photo_url": request.photo_url,
-        "max_tip_amount": max_tip_amount,
-        "suggested_tip_amounts": if suggested_tip_amounts.is_empty() { Value::Null } else { json!(suggested_tip_amounts) },
-        "need_name": request.need_name.unwrap_or(false),
-        "need_phone_number": request.need_phone_number.unwrap_or(false),
-        "need_email": request.need_email.unwrap_or(false),
-        "need_shipping_address": request.need_shipping_address.unwrap_or(false),
-        "is_flexible": request.is_flexible.unwrap_or(false),
-        "send_phone_number_to_provider": request.send_phone_number_to_provider.unwrap_or(false),
-        "send_email_to_provider": request.send_email_to_provider.unwrap_or(false)
-    });
 
     conn.execute(
         "INSERT OR REPLACE INTO invoices
@@ -4536,6 +5161,27 @@ fn handle_send_invoice(state: &Data<AppState>, token: &str, params: &HashMap<Str
     });
 
     persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
+    publish_sim_client_event(
+        state,
+        token,
+        json!({
+            "sim_event": "invoice_meta",
+            "chat_id": message_chat_id,
+            "message_id": message_id,
+            "invoice_meta": {
+                "photo_url": request.photo_url,
+                "max_tip_amount": max_tip_amount,
+                "suggested_tip_amounts": if suggested_tip_amounts.is_empty() { Value::Null } else { json!(suggested_tip_amounts) },
+                "need_name": request.need_name.unwrap_or(false),
+                "need_phone_number": request.need_phone_number.unwrap_or(false),
+                "need_email": request.need_email.unwrap_or(false),
+                "need_shipping_address": request.need_shipping_address.unwrap_or(false),
+                "is_flexible": request.is_flexible.unwrap_or(false),
+                "send_phone_number_to_provider": request.send_phone_number_to_provider.unwrap_or(false),
+                "send_email_to_provider": request.send_email_to_provider.unwrap_or(false)
+            }
+        }),
+    );
     Ok(message_value)
 }
 
@@ -7136,6 +7782,7 @@ pub fn handle_sim_send_user_message(
         body.parse_mode.as_deref(),
         None,
     );
+    let parsed_entities = merge_auto_message_entities(&parsed_text, parsed_entities);
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
@@ -7274,6 +7921,11 @@ pub fn handle_sim_send_user_media(
         body.parse_mode.as_deref(),
         None,
     );
+    let caption_entities = if let Some(caption_text) = caption.as_deref() {
+        merge_auto_message_entities(caption_text, caption_entities)
+    } else {
+        None
+    };
 
     let media_input = if ["sticker", "animation", "video_note"].contains(&media_kind.as_str()) {
         parse_input_file_value(&body.media, &media_kind)?
@@ -7535,6 +8187,11 @@ pub fn handle_sim_edit_user_message_media(
         body.parse_mode.as_deref(),
         None,
     );
+    let caption_entities = if let Some(caption_text) = caption.as_deref() {
+        merge_auto_message_entities(caption_text, caption_entities)
+    } else {
+        None
+    };
 
     let media_input = if ["sticker", "animation", "video_note"].contains(&media_kind.as_str()) {
         parse_input_file_value(&body.media, &media_kind)?
@@ -10545,11 +11202,17 @@ fn handle_edit_message_text(
         .entities
         .as_ref()
         .and_then(|v| serde_json::to_value(v).ok());
+    let should_auto_detect_entities = explicit_entities.is_none();
     let (parsed_text, parsed_entities) = parse_formatted_text(
         &request.text,
         request.parse_mode.as_deref(),
         explicit_entities,
     );
+    let parsed_entities = if should_auto_detect_entities {
+        merge_auto_message_entities(&parsed_text, parsed_entities)
+    } else {
+        parsed_entities
+    };
 
     if parsed_text.trim().is_empty() {
         return Err(ApiError::bad_request("text is empty"));
@@ -10589,6 +11252,8 @@ fn handle_edit_message_text(
     apply_inline_reply_markup(&mut edited_message, request.reply_markup);
     if let Some(entities) = parsed_entities {
         edited_message["entities"] = entities;
+    } else {
+        edited_message.as_object_mut().map(|obj| obj.remove("entities"));
     }
 
     publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
@@ -10624,12 +11289,22 @@ fn handle_edit_message_media(
         .ok_or_else(|| ApiError::bad_request("media.media is required"))?;
 
     let explicit_caption_entities = media_obj.get("caption_entities").cloned();
+    let should_auto_detect_entities = explicit_caption_entities.is_none();
     let parse_mode = media_obj.get("parse_mode").and_then(Value::as_str);
     let (caption, caption_entities) = parse_optional_formatted_text(
         media_obj.get("caption").and_then(Value::as_str),
         parse_mode,
         explicit_caption_entities,
     );
+    let caption_entities = if should_auto_detect_entities {
+        if let Some(caption_text) = caption.as_deref() {
+            merge_auto_message_entities(caption_text, caption_entities)
+        } else {
+            None
+        }
+    } else {
+        caption_entities
+    };
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
@@ -11208,11 +11883,21 @@ fn handle_edit_message_caption(
         .caption_entities
         .as_ref()
         .and_then(|v| serde_json::to_value(v).ok());
+    let should_auto_detect_entities = explicit_entities.is_none();
     let (parsed_caption, parsed_entities) = parse_optional_formatted_text(
         request.caption.as_deref(),
         request.parse_mode.as_deref(),
         explicit_entities,
     );
+    let parsed_entities = if should_auto_detect_entities {
+        if let Some(caption_text) = parsed_caption.as_deref() {
+            merge_auto_message_entities(caption_text, parsed_entities)
+        } else {
+            None
+        }
+    } else {
+        parsed_entities
+    };
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
@@ -11563,6 +12248,300 @@ fn parse_formatted_text(
             (clean, entities_value(entities))
         }
         _ => (text.to_string(), None),
+    }
+}
+
+fn merge_auto_message_entities(text: &str, entities: Option<Value>) -> Option<Value> {
+    let mut merged_entities = match entities {
+        Some(Value::Array(items)) => items,
+        Some(other) => vec![other],
+        None => Vec::new(),
+    };
+
+    let mut occupied = collect_occupied_entity_ranges(&merged_entities);
+    append_auto_entities(
+        text,
+        &mut merged_entities,
+        &mut occupied,
+        "bot_command",
+        find_auto_bot_command_spans,
+    );
+    append_auto_entities(
+        text,
+        &mut merged_entities,
+        &mut occupied,
+        "mention",
+        find_auto_mention_spans,
+    );
+    append_auto_entities(
+        text,
+        &mut merged_entities,
+        &mut occupied,
+        "hashtag",
+        find_auto_hashtag_spans,
+    );
+    append_auto_entities(
+        text,
+        &mut merged_entities,
+        &mut occupied,
+        "cashtag",
+        find_auto_cashtag_spans,
+    );
+
+    merged_entities.sort_by_key(|entity| {
+        entity
+            .get("offset")
+            .and_then(Value::as_u64)
+            .unwrap_or_default()
+    });
+
+    entities_value(merged_entities)
+}
+
+fn collect_occupied_entity_ranges(entities: &[Value]) -> Vec<(usize, usize)> {
+    entities
+        .iter()
+        .filter_map(|entity| {
+            let offset = entity.get("offset").and_then(Value::as_i64)?;
+            let length = entity.get("length").and_then(Value::as_i64)?;
+            if offset < 0 || length <= 0 {
+                return None;
+            }
+            let start = offset as usize;
+            Some((start, start + length as usize))
+        })
+        .collect()
+}
+
+fn range_is_free(occupied: &[(usize, usize)], start: usize, end: usize) -> bool {
+    occupied
+        .iter()
+        .all(|(range_start, range_end)| end <= *range_start || start >= *range_end)
+}
+
+fn append_auto_entities(
+    text: &str,
+    entities: &mut Vec<Value>,
+    occupied: &mut Vec<(usize, usize)>,
+    entity_type: &str,
+    detector: fn(&str) -> Vec<(usize, usize)>,
+) {
+    for (start_byte, end_byte) in detector(text) {
+        let start = utf16_len(&text[..start_byte]);
+        let length = utf16_len(&text[start_byte..end_byte]);
+        if length == 0 {
+            continue;
+        }
+        let end = start + length;
+        if !range_is_free(occupied, start, end) {
+            continue;
+        }
+
+        entities.push(json!({
+            "type": entity_type,
+            "offset": start,
+            "length": length,
+        }));
+        occupied.push((start, end));
+    }
+}
+
+fn find_auto_bot_command_spans(text: &str) -> Vec<(usize, usize)> {
+    let mut spans = Vec::new();
+    for (start, ch) in text.char_indices() {
+        if ch != '/' {
+            continue;
+        }
+        if let Some(end) = match_bot_command_at(text, start) {
+            spans.push((start, end));
+        }
+    }
+    spans
+}
+
+fn find_auto_mention_spans(text: &str) -> Vec<(usize, usize)> {
+    let mut spans = Vec::new();
+    for (start, ch) in text.char_indices() {
+        if ch != '@' {
+            continue;
+        }
+        if let Some(end) = match_mention_at(text, start) {
+            spans.push((start, end));
+        }
+    }
+    spans
+}
+
+fn find_auto_hashtag_spans(text: &str) -> Vec<(usize, usize)> {
+    let mut spans = Vec::new();
+    for (start, ch) in text.char_indices() {
+        if ch != '#' {
+            continue;
+        }
+        if let Some(end) = match_hashtag_at(text, start) {
+            spans.push((start, end));
+        }
+    }
+    spans
+}
+
+fn find_auto_cashtag_spans(text: &str) -> Vec<(usize, usize)> {
+    let mut spans = Vec::new();
+    for (start, ch) in text.char_indices() {
+        if ch != '$' {
+            continue;
+        }
+        if let Some(end) = match_cashtag_at(text, start) {
+            spans.push((start, end));
+        }
+    }
+    spans
+}
+
+fn match_bot_command_at(text: &str, start: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut cursor = start + 1;
+    if cursor >= bytes.len() || !bytes[cursor].is_ascii_alphabetic() {
+        return None;
+    }
+
+    cursor += 1;
+    while cursor < bytes.len()
+        && is_ascii_entity_word_byte(bytes[cursor])
+        && (cursor - (start + 1)) < 32
+    {
+        cursor += 1;
+    }
+
+    let mut end = cursor;
+    if cursor < bytes.len() && bytes[cursor] == b'@' {
+        let mut username_cursor = cursor + 1;
+        let mut username_len = 0usize;
+
+        while username_cursor < bytes.len()
+            && is_ascii_entity_word_byte(bytes[username_cursor])
+            && username_len < 32
+        {
+            username_cursor += 1;
+            username_len += 1;
+        }
+
+        if username_len >= 5 {
+            end = username_cursor;
+        }
+    }
+
+    Some(end)
+}
+
+fn match_mention_at(text: &str, start: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut cursor = start + 1;
+    let mut len = 0usize;
+
+    while cursor < bytes.len() && is_ascii_entity_word_byte(bytes[cursor]) && len < 32 {
+        cursor += 1;
+        len += 1;
+    }
+
+    if len == 0 {
+        return None;
+    }
+
+    Some(cursor)
+}
+
+fn match_hashtag_at(text: &str, start: usize) -> Option<usize> {
+    let mut count = 0usize;
+    let mut end = start + 1;
+
+    for (rel, ch) in text[start + 1..].char_indices() {
+        if !is_hashtag_char(ch) || count >= 64 {
+            break;
+        }
+        count += 1;
+        end = start + 1 + rel + ch.len_utf8();
+    }
+
+    if count == 0 {
+        return None;
+    }
+
+    Some(end)
+}
+
+fn match_cashtag_at(text: &str, start: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut cursor = start + 1;
+    let mut left_len = 0usize;
+
+    while cursor < bytes.len() && bytes[cursor].is_ascii_alphabetic() && left_len < 8 {
+        cursor += 1;
+        left_len += 1;
+    }
+
+    if left_len == 0 {
+        return None;
+    }
+
+    let mut end = cursor;
+    if cursor < bytes.len() && bytes[cursor] == b'_' {
+        let mut right_cursor = cursor + 1;
+        let mut right_len = 0usize;
+
+        while right_cursor < bytes.len() && bytes[right_cursor].is_ascii_alphabetic() && right_len < 8
+        {
+            right_cursor += 1;
+            right_len += 1;
+        }
+
+        if right_len > 0 {
+            end = right_cursor;
+        }
+    }
+
+    Some(end)
+}
+
+fn is_ascii_entity_word_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
+}
+
+fn is_hashtag_char(ch: char) -> bool {
+    ch == '_' || ch.is_alphanumeric()
+}
+
+fn utf16_span_to_byte_range(text: &str, offset: usize, length: usize) -> Option<(usize, usize)> {
+    let target_end = offset.checked_add(length)?;
+    let mut utf16_pos = 0usize;
+    let mut start_byte = None;
+    let mut end_byte = None;
+
+    for (byte_idx, ch) in text.char_indices() {
+        if start_byte.is_none() && utf16_pos == offset {
+            start_byte = Some(byte_idx);
+        }
+        if utf16_pos == target_end {
+            end_byte = Some(byte_idx);
+            break;
+        }
+
+        utf16_pos += ch.len_utf16();
+        if utf16_pos > target_end {
+            return None;
+        }
+    }
+
+    if start_byte.is_none() && utf16_pos == offset {
+        start_byte = Some(text.len());
+    }
+    if end_byte.is_none() && utf16_pos == target_end {
+        end_byte = Some(text.len());
+    }
+
+    match (start_byte, end_byte) {
+        (Some(start), Some(end)) if start <= end => Some((start, end)),
+        _ => None,
     }
 }
 
@@ -12968,12 +13947,88 @@ fn text_matches_privacy_command_or_mention(text: &str, bot_username: &str) -> bo
     true
 }
 
+fn message_targets_bot_via_entities(
+    text: Option<&str>,
+    entities: Option<&Vec<MessageEntity>>,
+    bot_username: &str,
+) -> bool {
+    let Some(text) = text else {
+        return false;
+    };
+    let Some(entities) = entities else {
+        return false;
+    };
+
+    let bot_username_lower = bot_username.to_ascii_lowercase();
+    let bot_mention = format!("@{}", bot_username_lower);
+    let first_non_ws_byte = text
+        .char_indices()
+        .find_map(|(idx, ch)| if ch.is_whitespace() { None } else { Some(idx) })
+        .unwrap_or(text.len());
+    let first_non_ws_offset = utf16_len(&text[..first_non_ws_byte]);
+
+    for entity in entities {
+        if entity.offset < 0 || entity.length <= 0 {
+            continue;
+        }
+
+        let Some(fragment) = entity_text_by_utf16_span(text, entity.offset as usize, entity.length as usize) else {
+            continue;
+        };
+
+        if entity.r#type == "mention" {
+            if fragment.to_ascii_lowercase() == bot_mention {
+                return true;
+            }
+            continue;
+        }
+
+        if entity.r#type == "bot_command" {
+            if entity.offset as usize != first_non_ws_offset {
+                continue;
+            }
+
+            let normalized = fragment.to_ascii_lowercase();
+            if let Some((_, command_scope)) = normalized.split_once('@') {
+                if command_scope == bot_username_lower.as_str() {
+                    return true;
+                }
+            } else {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+fn entity_text_by_utf16_span<'a>(text: &'a str, offset: usize, length: usize) -> Option<&'a str> {
+    let (start, end) = utf16_span_to_byte_range(text, offset, length)?;
+    text.get(start..end)
+}
+
 fn message_targets_bot_in_privacy_mode(message: &Message, bot: &crate::database::BotInfoRecord) -> bool {
     if let Some(reply) = message.reply_to_message.as_ref() {
         let reply_from_id = reply.from.as_ref().map(|from| from.id);
         if reply_from_id == Some(bot.id) {
             return true;
         }
+    }
+
+    if message_targets_bot_via_entities(
+        message.text.as_deref(),
+        message.entities.as_ref(),
+        &bot.username,
+    ) {
+        return true;
+    }
+
+    if message_targets_bot_via_entities(
+        message.caption.as_deref(),
+        message.caption_entities.as_ref(),
+        &bot.username,
+    ) {
+        return true;
     }
 
     if let Some(text) = message.text.as_deref() {

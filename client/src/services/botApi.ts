@@ -12,6 +12,7 @@ import type {
   DeclineChatJoinRequestRequest,
   DeleteChatPhotoRequest,
   DeleteChatStickerSetRequest,
+  DeleteForumTopicRequest,
   DeleteStickerFromSetRequest,
   DeleteStickerSetRequest,
   EditChatInviteLinkRequest,
@@ -19,7 +20,10 @@ import type {
   EditMessageCaptionRequest,
   EditMessageLiveLocationRequest,
   EditMessageMediaRequest,
+  EditGeneralForumTopicRequest,
+  EditForumTopicRequest,
   ExportChatInviteLinkRequest,
+  GetForumTopicIconStickersRequest,
   GetChatAdministratorsRequest,
   GetChatMenuButtonRequest,
   GetChatMemberCountRequest,
@@ -33,6 +37,8 @@ import type {
   LeaveChatRequest,
   PinChatMessageRequest,
   PromoteChatMemberRequest,
+  ReopenForumTopicRequest,
+  ReopenGeneralForumTopicRequest,
   ReplaceStickerInSetRequest,
   RevokeChatInviteLinkRequest,
   RestrictChatMemberRequest,
@@ -64,13 +70,20 @@ import type {
   SetStickerSetThumbnailRequest,
   SetStickerSetTitleRequest,
   StopPollRequest,
+  HideGeneralForumTopicRequest,
+  CloseForumTopicRequest,
+  CloseGeneralForumTopicRequest,
+  CreateForumTopicRequest,
+  UnhideGeneralForumTopicRequest,
+  UnpinAllForumTopicMessagesRequest,
+  UnpinAllGeneralForumTopicMessagesRequest,
   UnbanChatMemberRequest,
   UnbanChatSenderChatRequest,
   UnpinAllChatMessagesRequest,
   UnpinChatMessageRequest,
   UploadStickerFileRequest,
 } from '../types/generated/methods';
-import type { Chat as GeneratedChat, ChatFullInfo, ChatInviteLink, ChatMember, ChatPermissions, File as TgFile, GameHighScore, InlineQueryResult, InlineQueryResultsButton, MenuButton, Message, Sticker, StickerSet, User as GeneratedUser } from '../types/generated/types';
+import type { Chat as GeneratedChat, ChatFullInfo, ChatInviteLink, ChatMember, ChatPermissions, File as TgFile, ForumTopic, GameHighScore, InlineQueryResult, InlineQueryResultsButton, MenuButton, Message, Sticker, StickerSet, User as GeneratedUser } from '../types/generated/types';
 
 export interface SimCreateGroupResult {
   chat: GeneratedChat;
@@ -401,6 +414,109 @@ export async function setChatStickerSet(token: string, payload: SetChatStickerSe
 
 export async function deleteChatStickerSet(token: string, payload: DeleteChatStickerSetRequest, actorUserId?: number): Promise<boolean> {
   return callBotMethod<boolean>(token, 'deleteChatStickerSet', payload, { actorUserId });
+}
+
+export async function getForumTopicIconStickers(
+  token: string,
+  payload: GetForumTopicIconStickersRequest = {},
+): Promise<Sticker[]> {
+  return callBotMethod<Sticker[]>(token, 'getForumTopicIconStickers', payload);
+}
+
+export async function createForumTopic(
+  token: string,
+  payload: CreateForumTopicRequest,
+  actorUserId?: number,
+): Promise<ForumTopic> {
+  return callBotMethod<ForumTopic>(token, 'createForumTopic', payload, { actorUserId });
+}
+
+export async function editForumTopic(
+  token: string,
+  payload: EditForumTopicRequest,
+  actorUserId?: number,
+): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'editForumTopic', payload, { actorUserId });
+}
+
+export async function closeForumTopic(
+  token: string,
+  payload: CloseForumTopicRequest,
+  actorUserId?: number,
+): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'closeForumTopic', payload, { actorUserId });
+}
+
+export async function reopenForumTopic(
+  token: string,
+  payload: ReopenForumTopicRequest,
+  actorUserId?: number,
+): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'reopenForumTopic', payload, { actorUserId });
+}
+
+export async function deleteForumTopic(
+  token: string,
+  payload: DeleteForumTopicRequest,
+  actorUserId?: number,
+): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'deleteForumTopic', payload, { actorUserId });
+}
+
+export async function unpinAllForumTopicMessages(
+  token: string,
+  payload: UnpinAllForumTopicMessagesRequest,
+  actorUserId?: number,
+): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'unpinAllForumTopicMessages', payload, { actorUserId });
+}
+
+export async function editGeneralForumTopic(
+  token: string,
+  payload: EditGeneralForumTopicRequest,
+  actorUserId?: number,
+): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'editGeneralForumTopic', payload, { actorUserId });
+}
+
+export async function closeGeneralForumTopic(
+  token: string,
+  payload: CloseGeneralForumTopicRequest,
+  actorUserId?: number,
+): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'closeGeneralForumTopic', payload, { actorUserId });
+}
+
+export async function reopenGeneralForumTopic(
+  token: string,
+  payload: ReopenGeneralForumTopicRequest,
+  actorUserId?: number,
+): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'reopenGeneralForumTopic', payload, { actorUserId });
+}
+
+export async function hideGeneralForumTopic(
+  token: string,
+  payload: HideGeneralForumTopicRequest,
+  actorUserId?: number,
+): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'hideGeneralForumTopic', payload, { actorUserId });
+}
+
+export async function unhideGeneralForumTopic(
+  token: string,
+  payload: UnhideGeneralForumTopicRequest,
+  actorUserId?: number,
+): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'unhideGeneralForumTopic', payload, { actorUserId });
+}
+
+export async function unpinAllGeneralForumTopicMessages(
+  token: string,
+  payload: UnpinAllGeneralForumTopicMessagesRequest,
+  actorUserId?: number,
+): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'unpinAllGeneralForumTopicMessages', payload, { actorUserId });
 }
 
 export async function pinChatMessage(token: string, payload: PinChatMessageRequest, actorUserId?: number): Promise<boolean> {

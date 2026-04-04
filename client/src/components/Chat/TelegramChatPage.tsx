@@ -61,6 +61,19 @@ import {
   getChatAdministrators,
   getChatMemberCount,
   getChatMember,
+  getForumTopicIconStickers,
+  createForumTopic,
+  editForumTopic,
+  closeForumTopic,
+  reopenForumTopic,
+  deleteForumTopic,
+  unpinAllForumTopicMessages,
+  editGeneralForumTopic,
+  closeGeneralForumTopic,
+  reopenGeneralForumTopic,
+  hideGeneralForumTopic,
+  unhideGeneralForumTopic,
+  unpinAllGeneralForumTopicMessages,
   getChatMenuButton,
   getSimBotPrivacyMode,
   exportChatInviteLink,
@@ -127,7 +140,7 @@ import {
 } from '../../services/botApi';
 import { API_BASE_URL, DEFAULT_BOT_TOKEN } from '../../services/config';
 import { useBotUpdates } from '../../hooks/useBotUpdates';
-import type { GetChatMenuButtonRequest, SendChatActionRequest, SetChatMenuButtonRequest } from '../../types/generated/methods';
+import type { GetChatMenuButtonRequest, SetChatMenuButtonRequest } from '../../types/generated/methods';
 import type {
   ChatMember as GeneratedChatMember,
   MenuButton as GeneratedMenuButton,
@@ -143,6 +156,7 @@ import {
   InlineQueryResult,
   MessageEntity,
   ReplyKeyboardButton,
+  SimRealtimeEvent,
   SimBot,
   SimUser,
 } from '../../types/app';
@@ -167,11 +181,12 @@ const SELECTED_GROUP_BY_BOT_KEY = 'laragram-selected-group-by-bot';
 const GROUP_INVITE_LINKS_KEY = 'laragram-group-invite-links';
 const GROUP_JOIN_REQUESTS_KEY = 'laragram-group-join-requests';
 const GROUP_PINNED_MESSAGES_KEY = 'laragram-group-pinned-messages';
+const INVOICE_META_KEY = 'laragram-invoice-meta-by-message';
 type SidebarTab = 'chats' | 'bots' | 'users';
 type ChatScopeTab = 'private' | 'group' | 'channel';
 type BotModalMode = 'create' | 'edit';
 type UserModalMode = 'create' | 'edit';
-type GroupSettingsPage = 'home' | 'bot-membership' | 'discovery' | 'members' | 'sender-chat' | 'danger-zone';
+type GroupSettingsPage = 'home' | 'bot-membership' | 'discovery' | 'topics' | 'members' | 'sender-chat' | 'danger-zone';
 type ComposerParseMode = 'none' | 'MarkdownV2' | 'Markdown' | 'HTML';
 type PaymentMethod = 'wallet' | 'card' | 'stars';
 type CheckoutStep = 1 | 2 | 3;
@@ -330,9 +345,22 @@ interface GroupMenuButtonDraft {
 }
 
 interface ActiveChatActionState {
-  action: SendChatActionRequest['action'];
+  action: string;
   actorName: string;
   expiresAt: number;
+}
+
+interface InvoiceMetaState {
+  photoUrl?: string;
+  maxTipAmount?: number;
+  suggestedTipAmounts?: number[];
+  needName?: boolean;
+  needPhoneNumber?: boolean;
+  needEmail?: boolean;
+  needShippingAddress?: boolean;
+  isFlexible?: boolean;
+  sendPhoneNumberToProvider?: boolean;
+  sendEmailToProvider?: boolean;
 }
 
 function formatChatActionLabel(action: string): string {
@@ -773,6 +801,26 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const [groupSenderChatModerationDraft, setGroupSenderChatModerationDraft] = useState('');
   const [groupInspectorOutput, setGroupInspectorOutput] = useState('');
   const [chatActionByChatKey, setChatActionByChatKey] = useState<Record<string, ActiveChatActionState>>({});
+  const [invoiceMetaByMessageKey, setInvoiceMetaByMessageKey] = useState<Record<string, InvoiceMetaState>>(() => {
+    try {
+      const raw = localStorage.getItem(INVOICE_META_KEY);
+      return raw ? (JSON.parse(raw) as Record<string, InvoiceMetaState>) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [forumTopicDraft, setForumTopicDraft] = useState({
+    messageThreadId: '',
+    name: '',
+    iconColor: String(0x6FB9F0),
+    iconCustomEmojiId: '',
+    generalName: 'General',
+  });
+  const [forumTopicIconStickers, setForumTopicIconStickers] = useState<Array<{
+    file_id: string;
+    emoji?: string;
+    custom_emoji_id?: string;
+  }>>([]);
   const [groupMenuButtonDraft, setGroupMenuButtonDraft] = useState<GroupMenuButtonDraft>({
     scope: 'default',
     targetChatId: '',
@@ -1037,6 +1085,12 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const canLeaveSelectedGroup = groupMembership === 'joined' && normalizeMembershipStatus(groupMembershipStatus) !== 'owner';
   const canEditSelectedGroup = canEditGroupByStatus(groupMembershipStatus);
   const canDeleteSelectedGroup = canDeleteGroupByStatus(groupMembershipStatus);
+  const canManageForumTopics = Boolean(
+    selectedGroup
+    && selectedGroup.type === 'supergroup'
+    && selectedGroup.isForum
+    && canEditSelectedGroup,
+  );
   const selectedBotMembershipKey = selectedGroup && selectedBot
     ? `${selectedBotToken}:${selectedGroup.id}:${selectedBot.id}`
     : null;
@@ -1199,6 +1253,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       ? 'Bot membership'
       : groupSettingsPage === 'discovery'
         ? 'Discovery & invite links'
+        : groupSettingsPage === 'topics'
+          ? 'Forum topics'
         : groupSettingsPage === 'members'
           ? 'Members management'
           : groupSettingsPage === 'sender-chat'
@@ -1438,6 +1494,17 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   }, [selectedBotToken]);
 
   useEffect(() => {
+    setForumTopicDraft((prev) => ({
+      ...prev,
+      messageThreadId: '',
+      name: '',
+      iconColor: String(0x6FB9F0),
+      iconCustomEmojiId: '',
+    }));
+    setForumTopicIconStickers([]);
+  }, [selectedGroupStateKey]);
+
+  useEffect(() => {
     localStorage.setItem(SELECTED_USER_KEY, String(selectedUserId));
   }, [selectedUserId]);
 
@@ -1464,6 +1531,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   useEffect(() => {
     localStorage.setItem(GROUP_PINNED_MESSAGES_KEY, JSON.stringify(pinnedMessageByChatKey));
   }, [pinnedMessageByChatKey]);
+
+  useEffect(() => {
+    localStorage.setItem(INVOICE_META_KEY, JSON.stringify(invoiceMetaByMessageKey));
+  }, [invoiceMetaByMessageKey]);
 
   useEffect(() => {
     localStorage.setItem(SELECTED_GROUP_BY_BOT_KEY, JSON.stringify(selectedGroupByBot));
@@ -1510,6 +1581,63 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   useBotUpdates({
     token: selectedBotToken,
     lastUpdateId,
+    onSimEvent: (event: SimRealtimeEvent) => {
+      if (event.sim_event === 'chat_action') {
+        const chatId = Number(event.chat_id);
+        const normalizedAction = String(event.action || '').trim();
+        if (!Number.isFinite(chatId) || !normalizedAction) {
+          return;
+        }
+
+        const actorName = event.from_name?.trim()
+          || (Number.isFinite(event.from_user_id) ? `user_${event.from_user_id}` : '')
+          || selectedBot?.first_name
+          || 'Bot';
+
+        const actionKey = `${selectedBotToken}:${chatId}`;
+        setChatActionByChatKey((prev) => ({
+          ...prev,
+          [actionKey]: {
+            action: normalizedAction,
+            actorName,
+            expiresAt: Date.now() + 5000,
+          },
+        }));
+        return;
+      }
+
+      if (event.sim_event === 'invoice_meta') {
+        const chatId = Number(event.chat_id);
+        const messageId = Number(event.message_id);
+        if (!Number.isFinite(chatId) || !Number.isFinite(messageId)) {
+          return;
+        }
+
+        const meta = event.invoice_meta || {};
+        const suggested = Array.isArray(meta.suggested_tip_amounts)
+          ? meta.suggested_tip_amounts
+            .map((item) => Number(item))
+            .filter((item) => Number.isFinite(item) && item > 0)
+          : undefined;
+
+        const key = `${selectedBotToken}:${chatId}:${messageId}`;
+        setInvoiceMetaByMessageKey((prev) => ({
+          ...prev,
+          [key]: {
+            photoUrl: typeof meta.photo_url === 'string' ? meta.photo_url : undefined,
+            maxTipAmount: Number.isFinite(Number(meta.max_tip_amount)) ? Number(meta.max_tip_amount) : undefined,
+            suggestedTipAmounts: suggested,
+            needName: typeof meta.need_name === 'boolean' ? meta.need_name : undefined,
+            needPhoneNumber: typeof meta.need_phone_number === 'boolean' ? meta.need_phone_number : undefined,
+            needEmail: typeof meta.need_email === 'boolean' ? meta.need_email : undefined,
+            needShippingAddress: typeof meta.need_shipping_address === 'boolean' ? meta.need_shipping_address : undefined,
+            isFlexible: typeof meta.is_flexible === 'boolean' ? meta.is_flexible : undefined,
+            sendPhoneNumberToProvider: typeof meta.send_phone_number_to_provider === 'boolean' ? meta.send_phone_number_to_provider : undefined,
+            sendEmailToProvider: typeof meta.send_email_to_provider === 'boolean' ? meta.send_email_to_provider : undefined,
+          },
+        }));
+      }
+    },
     onUpdate: (update: BotUpdate) => {
       const membershipUpdate = update.chat_member || update.my_chat_member;
       if (membershipUpdate) {
@@ -1622,32 +1750,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             reactionCounts: counts,
           };
         }));
-      }
-
-      if (update.chat_action && typeof update.chat_action.action === 'string') {
-        const normalizedAction = update.chat_action.action.trim();
-        const chatId = update.chat_action.chat?.id
-          ?? (Number.isFinite(update.chat_action.chat_id) ? update.chat_action.chat_id : undefined);
-
-        if (normalizedAction && Number.isFinite(chatId)) {
-          const actor = update.chat_action.actor;
-          const actorName = actor?.first_name?.trim()
-            || update.chat_action.from_name?.trim()
-            || (actor?.username ? `@${actor.username}` : '')
-            || (Number.isFinite(actor?.id) ? `user_${actor?.id}` : '')
-            || (Number.isFinite(update.chat_action.from_user_id) ? `user_${update.chat_action.from_user_id}` : '')
-            || selectedBot?.first_name
-            || 'Bot';
-          const actionKey = `${selectedBotToken}:${chatId}`;
-          setChatActionByChatKey((prev) => ({
-            ...prev,
-            [actionKey]: {
-              action: normalizedAction,
-              actorName,
-              expiresAt: Date.now() + 5000,
-            },
-          }));
-        }
       }
 
       const payload = update.edited_message || update.message;
@@ -1850,32 +1952,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         game: payload.game,
         poll: payload.poll,
         invoice: payload.invoice,
-        invoiceMeta: (() => {
-          const raw = (payload as unknown as Record<string, unknown>).invoice_meta;
-          if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-            return undefined;
-          }
-
-          const meta = raw as Record<string, unknown>;
-          const suggested = Array.isArray(meta.suggested_tip_amounts)
-            ? meta.suggested_tip_amounts
-              .map((item) => Number(item))
-              .filter((item) => Number.isFinite(item) && item > 0)
-            : undefined;
-
-          return {
-            photoUrl: typeof meta.photo_url === 'string' ? meta.photo_url : undefined,
-            maxTipAmount: Number.isFinite(Number(meta.max_tip_amount)) ? Number(meta.max_tip_amount) : undefined,
-            suggestedTipAmounts: suggested,
-            needName: typeof meta.need_name === 'boolean' ? meta.need_name : undefined,
-            needPhoneNumber: typeof meta.need_phone_number === 'boolean' ? meta.need_phone_number : undefined,
-            needEmail: typeof meta.need_email === 'boolean' ? meta.need_email : undefined,
-            needShippingAddress: typeof meta.need_shipping_address === 'boolean' ? meta.need_shipping_address : undefined,
-            isFlexible: typeof meta.is_flexible === 'boolean' ? meta.is_flexible : undefined,
-            sendPhoneNumberToProvider: typeof meta.send_phone_number_to_provider === 'boolean' ? meta.send_phone_number_to_provider : undefined,
-            sendEmailToProvider: typeof meta.send_email_to_provider === 'boolean' ? meta.send_email_to_provider : undefined,
-          };
-        })(),
         successfulPayment: payload.successful_payment,
         media,
         mediaGroupId: payload.media_group_id,
@@ -3607,6 +3683,268 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
   };
 
+  const resolveForumTopicThreadId = (): number | null => {
+    const parsed = Math.floor(Number(forumTopicDraft.messageThreadId.trim()));
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setErrorText('Valid message_thread_id is required.');
+      return null;
+    }
+    return parsed;
+  };
+
+  const onLoadForumTopicIconStickers = async () => {
+    if (!canManageForumTopics) {
+      return;
+    }
+
+    await runGroupAction(async () => {
+      const stickers = await getForumTopicIconStickers(selectedBotToken, {});
+      setForumTopicIconStickers(stickers.map((sticker) => ({
+        file_id: sticker.file_id,
+        emoji: sticker.emoji || undefined,
+        custom_emoji_id: sticker.custom_emoji_id || undefined,
+      })));
+      renderInspector('getForumTopicIconStickers', stickers);
+      setErrorText(`Loaded ${stickers.length} forum icon sticker(s).`);
+    });
+  };
+
+  const onCreateForumTopicFromDraft = async () => {
+    if (!selectedGroup || !canManageForumTopics) {
+      return;
+    }
+
+    const name = forumTopicDraft.name.trim();
+    if (!name) {
+      setErrorText('Topic name is required.');
+      return;
+    }
+
+    await runGroupAction(async () => {
+      const parsedColor = Math.floor(Number(forumTopicDraft.iconColor.trim()));
+      const topic = await createForumTopic(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        name,
+        icon_color: Number.isFinite(parsedColor) && parsedColor > 0 ? parsedColor : undefined,
+        icon_custom_emoji_id: forumTopicDraft.iconCustomEmojiId.trim() || undefined,
+      }, selectedUser.id);
+
+      setForumTopicDraft((prev) => ({
+        ...prev,
+        messageThreadId: String(topic.message_thread_id),
+        name: topic.name,
+        iconColor: String(topic.icon_color),
+        iconCustomEmojiId: topic.icon_custom_emoji_id || '',
+      }));
+      renderInspector('createForumTopic', topic);
+      setErrorText(`Forum topic created with thread id ${topic.message_thread_id}.`);
+    });
+  };
+
+  const onEditForumTopicFromDraft = async () => {
+    if (!selectedGroup || !canManageForumTopics) {
+      return;
+    }
+
+    const messageThreadId = resolveForumTopicThreadId();
+    if (!messageThreadId) {
+      return;
+    }
+
+    await runGroupAction(async () => {
+      const payload: {
+        chat_id: number;
+        message_thread_id: number;
+        name?: string;
+        icon_custom_emoji_id?: string;
+      } = {
+        chat_id: selectedGroup.id,
+        message_thread_id: messageThreadId,
+      };
+
+      const nextName = forumTopicDraft.name.trim();
+      if (nextName) {
+        payload.name = nextName;
+      }
+
+      if (forumTopicDraft.iconCustomEmojiId.trim()) {
+        payload.icon_custom_emoji_id = forumTopicDraft.iconCustomEmojiId.trim();
+      } else {
+        payload.icon_custom_emoji_id = '';
+      }
+
+      const ok = await editForumTopic(selectedBotToken, payload, selectedUser.id);
+      renderInspector('editForumTopic', { ...payload, ok });
+      setErrorText(ok ? 'Forum topic updated.' : 'Forum topic update returned false.');
+    });
+  };
+
+  const onCloseForumTopicFromDraft = async () => {
+    if (!selectedGroup || !canManageForumTopics) {
+      return;
+    }
+
+    const messageThreadId = resolveForumTopicThreadId();
+    if (!messageThreadId) {
+      return;
+    }
+
+    await runGroupAction(async () => {
+      const ok = await closeForumTopic(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        message_thread_id: messageThreadId,
+      }, selectedUser.id);
+      renderInspector('closeForumTopic', { message_thread_id: messageThreadId, ok });
+      setErrorText(ok ? 'Forum topic closed.' : 'closeForumTopic returned false.');
+    });
+  };
+
+  const onReopenForumTopicFromDraft = async () => {
+    if (!selectedGroup || !canManageForumTopics) {
+      return;
+    }
+
+    const messageThreadId = resolveForumTopicThreadId();
+    if (!messageThreadId) {
+      return;
+    }
+
+    await runGroupAction(async () => {
+      const ok = await reopenForumTopic(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        message_thread_id: messageThreadId,
+      }, selectedUser.id);
+      renderInspector('reopenForumTopic', { message_thread_id: messageThreadId, ok });
+      setErrorText(ok ? 'Forum topic reopened.' : 'reopenForumTopic returned false.');
+    });
+  };
+
+  const onDeleteForumTopicFromDraft = async () => {
+    if (!selectedGroup || !canManageForumTopics) {
+      return;
+    }
+
+    const messageThreadId = resolveForumTopicThreadId();
+    if (!messageThreadId) {
+      return;
+    }
+
+    await runGroupAction(async () => {
+      const ok = await deleteForumTopic(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        message_thread_id: messageThreadId,
+      }, selectedUser.id);
+      renderInspector('deleteForumTopic', { message_thread_id: messageThreadId, ok });
+      setErrorText(ok ? 'Forum topic deleted.' : 'deleteForumTopic returned false.');
+    });
+  };
+
+  const onUnpinAllForumTopicMessagesFromDraft = async () => {
+    if (!selectedGroup || !canManageForumTopics) {
+      return;
+    }
+
+    const messageThreadId = resolveForumTopicThreadId();
+    if (!messageThreadId) {
+      return;
+    }
+
+    await runGroupAction(async () => {
+      const ok = await unpinAllForumTopicMessages(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        message_thread_id: messageThreadId,
+      }, selectedUser.id);
+      renderInspector('unpinAllForumTopicMessages', { message_thread_id: messageThreadId, ok });
+      setErrorText(ok ? 'Unpinned all topic messages.' : 'unpinAllForumTopicMessages returned false.');
+    });
+  };
+
+  const onEditGeneralForumTopicFromDraft = async () => {
+    if (!selectedGroup || !canManageForumTopics) {
+      return;
+    }
+
+    const name = forumTopicDraft.generalName.trim();
+    if (!name) {
+      setErrorText('General topic name is required.');
+      return;
+    }
+
+    await runGroupAction(async () => {
+      const ok = await editGeneralForumTopic(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        name,
+      }, selectedUser.id);
+      renderInspector('editGeneralForumTopic', { name, ok });
+      setErrorText(ok ? 'General forum topic updated.' : 'editGeneralForumTopic returned false.');
+    });
+  };
+
+  const onCloseGeneralForumTopic = async () => {
+    if (!selectedGroup || !canManageForumTopics) {
+      return;
+    }
+    await runGroupAction(async () => {
+      const ok = await closeGeneralForumTopic(selectedBotToken, {
+        chat_id: selectedGroup.id,
+      }, selectedUser.id);
+      renderInspector('closeGeneralForumTopic', { ok });
+      setErrorText(ok ? 'General forum topic closed.' : 'closeGeneralForumTopic returned false.');
+    });
+  };
+
+  const onReopenGeneralForumTopic = async () => {
+    if (!selectedGroup || !canManageForumTopics) {
+      return;
+    }
+    await runGroupAction(async () => {
+      const ok = await reopenGeneralForumTopic(selectedBotToken, {
+        chat_id: selectedGroup.id,
+      }, selectedUser.id);
+      renderInspector('reopenGeneralForumTopic', { ok });
+      setErrorText(ok ? 'General forum topic reopened.' : 'reopenGeneralForumTopic returned false.');
+    });
+  };
+
+  const onHideGeneralForumTopic = async () => {
+    if (!selectedGroup || !canManageForumTopics) {
+      return;
+    }
+    await runGroupAction(async () => {
+      const ok = await hideGeneralForumTopic(selectedBotToken, {
+        chat_id: selectedGroup.id,
+      }, selectedUser.id);
+      renderInspector('hideGeneralForumTopic', { ok });
+      setErrorText(ok ? 'General forum topic hidden.' : 'hideGeneralForumTopic returned false.');
+    });
+  };
+
+  const onUnhideGeneralForumTopic = async () => {
+    if (!selectedGroup || !canManageForumTopics) {
+      return;
+    }
+    await runGroupAction(async () => {
+      const ok = await unhideGeneralForumTopic(selectedBotToken, {
+        chat_id: selectedGroup.id,
+      }, selectedUser.id);
+      renderInspector('unhideGeneralForumTopic', { ok });
+      setErrorText(ok ? 'General forum topic unhidden.' : 'unhideGeneralForumTopic returned false.');
+    });
+  };
+
+  const onUnpinAllGeneralForumTopicMessages = async () => {
+    if (!selectedGroup || !canManageForumTopics) {
+      return;
+    }
+    await runGroupAction(async () => {
+      const ok = await unpinAllGeneralForumTopicMessages(selectedBotToken, {
+        chat_id: selectedGroup.id,
+      }, selectedUser.id);
+      renderInspector('unpinAllGeneralForumTopicMessages', { ok });
+      setErrorText(ok ? 'Unpinned all general-topic messages.' : 'unpinAllGeneralForumTopicMessages returned false.');
+    });
+  };
+
   const onJoinGroupByInviteLink = async () => {
     const inviteLink = groupInviteLinkInput.trim();
     if (!inviteLink) {
@@ -3717,6 +4055,16 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       setPinnedMessageByChatKey((prev) => {
         const next = { ...prev };
         delete next[groupStateKey];
+        return next;
+      });
+      setInvoiceMetaByMessageKey((prev) => {
+        const prefix = `${selectedBotToken}:${selectedGroup.id}:`;
+        const next: Record<string, InvoiceMetaState> = {};
+        Object.entries(prev).forEach(([key, value]) => {
+          if (!key.startsWith(prefix)) {
+            next[key] = value;
+          }
+        });
         return next;
       });
       setShowGroupActionsModal(false);
@@ -4432,9 +4780,14 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       return;
     }
 
+    const sourceEntities =
+      (message.media ? (message.captionEntities || message.entities) : (message.entities || message.captionEntities)) || [];
+    const rebuilt = rebuildFormattedMessageForEditing(message.text, sourceEntities, composerParseMode);
+
     setComposerEditTarget(message);
     setReplyTarget(null);
-    setComposerText(message.text);
+    setComposerText(rebuilt.text);
+    setComposerParseMode(rebuilt.parseMode);
     setSelectedUploads([]);
     setMessageMenu(null);
   };
@@ -4809,6 +5162,22 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         selectedMessageIds.includes(item.id)
       )));
 
+      setInvoiceMetaByMessageKey((prev) => {
+        const selectedSet = new Set(selectedMessageIds);
+        const next: Record<string, InvoiceMetaState> = {};
+        Object.entries(prev).forEach(([key, value]) => {
+          const parts = key.split(':');
+          const token = parts[0] || '';
+          const chatId = Number(parts[1]);
+          const messageId = Number(parts[2]);
+          if (token === selectedBotToken && chatId === selectedChatId && selectedSet.has(messageId)) {
+            return;
+          }
+          next[key] = value;
+        });
+        return next;
+      });
+
       setPinnedMessageByChatKey((prev) => {
         const selectedSet = new Set(selectedMessageIds);
         const next: Record<string, number[]> = {};
@@ -4832,6 +5201,16 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     try {
       await clearSimHistory(selectedBotToken, selectedChatId);
       setMessages((prev) => prev.filter((item) => !(item.botToken === selectedBotToken && item.chatId === selectedChatId)));
+      setInvoiceMetaByMessageKey((prev) => {
+        const prefix = `${selectedBotToken}:${selectedChatId}:`;
+        const next: Record<string, InvoiceMetaState> = {};
+        Object.entries(prev).forEach(([key, value]) => {
+          if (!key.startsWith(prefix)) {
+            next[key] = value;
+          }
+        });
+        return next;
+      });
       persistStarted({ ...startedChats, [chatKey]: false });
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'Clear history failed');
@@ -5300,6 +5679,334 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     return { text, entities: mergeAutoEntities(text, entities) };
   };
 
+  const markdownV2SpecialChars = new Set(['\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']);
+
+  const escapeHtmlText = (value: string) => value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  const escapeHtmlAttr = (value: string) => value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  const escapeMarkdownV2Text = (value: string) => {
+    let escaped = '';
+    for (let i = 0; i < value.length; i += 1) {
+      const char = value[i];
+      if (markdownV2SpecialChars.has(char)) {
+        escaped += `\\${char}`;
+      } else {
+        escaped += char;
+      }
+    }
+    return escaped;
+  };
+
+  const formattedEntityTypes = new Set([
+    'bold',
+    'italic',
+    'underline',
+    'strikethrough',
+    'spoiler',
+    'code',
+    'pre',
+    'text_link',
+    'custom_emoji',
+    'date_time',
+    'blockquote',
+    'expandable_blockquote',
+  ]);
+
+  const resolveEditParseMode = (
+    entities: MessageEntity[],
+    preferredMode: ComposerParseMode,
+  ): ComposerParseMode => {
+    if (entities.length === 0) {
+      return 'none';
+    }
+
+    const hasQuote = entities.some((entity) => entity.type === 'blockquote' || entity.type === 'expandable_blockquote');
+    const hasMarkdownV2Only = entities.some((entity) => (
+      entity.type === 'underline'
+      || entity.type === 'strikethrough'
+      || entity.type === 'spoiler'
+      || entity.type === 'custom_emoji'
+      || entity.type === 'date_time'
+    ));
+
+    if (preferredMode === 'HTML') {
+      return 'HTML';
+    }
+    if (preferredMode === 'MarkdownV2') {
+      return hasQuote ? 'HTML' : 'MarkdownV2';
+    }
+    if (preferredMode === 'Markdown') {
+      if (hasQuote) {
+        return 'HTML';
+      }
+      if (hasMarkdownV2Only) {
+        return 'MarkdownV2';
+      }
+      return 'Markdown';
+    }
+
+    if (hasQuote) {
+      return 'HTML';
+    }
+    if (hasMarkdownV2Only) {
+      return 'MarkdownV2';
+    }
+    return 'Markdown';
+  };
+
+  const markerForEntity = (
+    entity: MessageEntity,
+    mode: Exclude<ComposerParseMode, 'none'>,
+  ): { open: string; close: string } | null => {
+    if (mode === 'HTML') {
+      switch (entity.type) {
+        case 'bold':
+          return { open: '<b>', close: '</b>' };
+        case 'italic':
+          return { open: '<i>', close: '</i>' };
+        case 'underline':
+          return { open: '<u>', close: '</u>' };
+        case 'strikethrough':
+          return { open: '<s>', close: '</s>' };
+        case 'spoiler':
+          return { open: '<tg-spoiler>', close: '</tg-spoiler>' };
+        case 'code':
+          return { open: '<code>', close: '</code>' };
+        case 'pre': {
+          const language = (entity.language || '').trim();
+          if (language) {
+            return {
+              open: `<pre><code class="language-${escapeHtmlAttr(language)}">`,
+              close: '</code></pre>',
+            };
+          }
+          return { open: '<pre>', close: '</pre>' };
+        }
+        case 'text_link': {
+          const url = entity.url?.trim();
+          if (!url) {
+            return null;
+          }
+          return { open: `<a href="${escapeHtmlAttr(url)}">`, close: '</a>' };
+        }
+        case 'custom_emoji': {
+          const id = entity.custom_emoji_id?.trim();
+          if (!id) {
+            return null;
+          }
+          return { open: `<tg-emoji emoji-id="${escapeHtmlAttr(id)}">`, close: '</tg-emoji>' };
+        }
+        case 'date_time': {
+          const unix = Number.isFinite(Number(entity.unix_time)) ? Math.trunc(Number(entity.unix_time)) : 0;
+          const formatAttr = entity.date_time_format?.trim()
+            ? ` format="${escapeHtmlAttr(entity.date_time_format.trim())}"`
+            : '';
+          return { open: `<tg-time unix="${unix}"${formatAttr}>`, close: '</tg-time>' };
+        }
+        case 'blockquote':
+          return { open: '<blockquote>', close: '</blockquote>' };
+        case 'expandable_blockquote':
+          return { open: '<blockquote expandable>', close: '</blockquote>' };
+        default:
+          return null;
+      }
+    }
+
+    if (mode === 'Markdown') {
+      switch (entity.type) {
+        case 'bold':
+          return { open: '*', close: '*' };
+        case 'italic':
+          return { open: '_', close: '_' };
+        case 'code':
+          return { open: '`', close: '`' };
+        case 'pre': {
+          const language = (entity.language || '').replace(/[\r\n`]/g, '').trim();
+          return {
+            open: language ? `\`\`\`${language}\n` : '```\n',
+            close: '\n```',
+          };
+        }
+        case 'text_link': {
+          const url = entity.url?.trim();
+          if (!url) {
+            return null;
+          }
+          return { open: '[', close: `](${url.replace(/\)/g, '\\)')})` };
+        }
+        default:
+          return null;
+      }
+    }
+
+    switch (entity.type) {
+      case 'bold':
+        return { open: '*', close: '*' };
+      case 'italic':
+        return { open: '_', close: '_' };
+      case 'underline':
+        return { open: '__', close: '__' };
+      case 'strikethrough':
+        return { open: '~', close: '~' };
+      case 'spoiler':
+        return { open: '||', close: '||' };
+      case 'code':
+        return { open: '`', close: '`' };
+      case 'pre': {
+        const language = (entity.language || '').replace(/[\r\n`]/g, '').trim();
+        return {
+          open: language ? `\`\`\`${language}\n` : '```\n',
+          close: '\n```',
+        };
+      }
+      case 'text_link': {
+        const url = entity.url?.trim();
+        if (!url) {
+          return null;
+        }
+        return { open: '[', close: `](${url.replace(/\)/g, '\\)')})` };
+      }
+      case 'custom_emoji': {
+        const id = entity.custom_emoji_id?.trim();
+        if (!id) {
+          return null;
+        }
+        return { open: '![', close: `](tg://emoji?id=${id})` };
+      }
+      case 'date_time': {
+        const unix = Number.isFinite(Number(entity.unix_time)) ? Math.trunc(Number(entity.unix_time)) : 0;
+        const fmt = entity.date_time_format?.trim()
+          ? `&format=${encodeURIComponent(entity.date_time_format.trim())}`
+          : '';
+        return { open: '![', close: `](tg://time?unix=${unix}${fmt})` };
+      }
+      default:
+        return null;
+    }
+  };
+
+  const rebuildFormattedMessageForEditing = (
+    text: string,
+    entities: MessageEntity[],
+    preferredMode: ComposerParseMode,
+  ): { text: string; parseMode: ComposerParseMode } => {
+    if (!text || entities.length === 0) {
+      return { text, parseMode: 'none' };
+    }
+
+    const formattingEntities = entities
+      .filter((entity) => entity.length > 0 && formattedEntityTypes.has(entity.type))
+      .sort((a, b) => a.offset - b.offset);
+    if (formattingEntities.length === 0) {
+      return { text, parseMode: 'none' };
+    }
+
+    const parseMode = resolveEditParseMode(formattingEntities, preferredMode);
+    if (parseMode === 'none') {
+      return { text, parseMode };
+    }
+
+    type Marker = {
+      open: string;
+      close: string;
+      start: number;
+      end: number;
+      length: number;
+    };
+
+    const openAt = new Map<number, Marker[]>();
+    const closeAt = new Map<number, Marker[]>();
+    const textLength = text.length;
+
+    formattingEntities.forEach((entity) => {
+      const marker = markerForEntity(entity, parseMode);
+      if (!marker) {
+        return;
+      }
+      const start = Math.max(0, Math.min(textLength, entity.offset));
+      const end = Math.max(start, Math.min(textLength, entity.offset + entity.length));
+      if (end <= start) {
+        return;
+      }
+
+      const item: Marker = {
+        open: marker.open,
+        close: marker.close,
+        start,
+        end,
+        length: end - start,
+      };
+
+      const opens = openAt.get(start) || [];
+      opens.push(item);
+      openAt.set(start, opens);
+
+      const closes = closeAt.get(end) || [];
+      closes.push(item);
+      closeAt.set(end, closes);
+    });
+
+    if (openAt.size === 0) {
+      return { text, parseMode: 'none' };
+    }
+
+    openAt.forEach((items) => {
+      items.sort((a, b) => {
+        if (b.length !== a.length) {
+          return b.length - a.length;
+        }
+        return b.open.length - a.open.length;
+      });
+    });
+
+    closeAt.forEach((items) => {
+      items.sort((a, b) => {
+        if (a.length !== b.length) {
+          return a.length - b.length;
+        }
+        return b.start - a.start;
+      });
+    });
+
+    let rebuilt = '';
+    for (let i = 0; i <= textLength; i += 1) {
+      const closes = closeAt.get(i);
+      if (closes) {
+        closes.forEach((marker) => {
+          rebuilt += marker.close;
+        });
+      }
+
+      if (i === textLength) {
+        break;
+      }
+
+      const opens = openAt.get(i);
+      if (opens) {
+        opens.forEach((marker) => {
+          rebuilt += marker.open;
+        });
+      }
+
+      const char = text[i];
+      rebuilt += parseMode === 'HTML'
+        ? escapeHtmlText(char)
+        : parseMode === 'MarkdownV2'
+          ? escapeMarkdownV2Text(char)
+          : char;
+    }
+
+    return { text: rebuilt, parseMode };
+  };
+
   const pollInlineAnswer = async (inlineQueryId: string, requestSeq: number, append = false) => {
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const result = await getInlineQueryAnswer(selectedBotToken, inlineQueryId);
@@ -5680,8 +6387,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
 
     const isStars = message.invoice.currency.toUpperCase() === 'XTR';
-    const invoiceImage = message.invoiceMeta?.photoUrl;
-    const suggestedTips = message.invoiceMeta?.suggestedTipAmounts || [];
+    const invoiceMetaKey = `${selectedBotToken}:${message.chatId}:${message.id}`;
+    const invoiceMeta = invoiceMetaByMessageKey[invoiceMetaKey];
+    const invoiceImage = invoiceMeta?.photoUrl;
+    const suggestedTips = invoiceMeta?.suggestedTipAmounts || [];
 
     return (
       <div className="mb-2 rounded-xl border border-[#2f4e66]/55 bg-[#102638]/80 p-3">
@@ -8729,6 +9438,15 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                 </button>
                 <button
                   type="button"
+                  onClick={() => setGroupSettingsPage('topics')}
+                  disabled={!canManageForumTopics}
+                  className="flex w-full items-center justify-between rounded-xl border border-white/15 bg-black/20 px-3 py-3 text-left text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                >
+                  <span>Forum topics</span>
+                  <ChevronRight className="h-4 w-4 text-[#9ec5de]" />
+                </button>
+                <button
+                  type="button"
                   onClick={() => setGroupSettingsPage('sender-chat')}
                   disabled={!canEditSelectedGroup}
                   className="flex w-full items-center justify-between rounded-xl border border-white/15 bg-black/20 px-3 py-3 text-left text-sm text-white hover:bg-white/10 disabled:opacity-40"
@@ -9050,6 +9768,208 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     Latest invite: {selectedGroupInviteLink}
                   </button>
                 ) : null}
+
+                {groupInspectorOutput ? (
+                  <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <p className="text-xs uppercase tracking-wide text-[#8fb7d6]">Inspector output</p>
+                      <button
+                        type="button"
+                        onClick={() => setGroupInspectorOutput('')}
+                        className="rounded-full p-1 text-[#8fb7d6] hover:bg-white/10 hover:text-white"
+                        title="Close inspector output"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-md border border-white/10 bg-[#0f1a26] p-2 text-[11px] text-[#c5e5fb]">
+                      {groupInspectorOutput}
+                    </pre>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {groupSettingsPage === 'topics' ? (
+              <div className="space-y-3">
+                {!selectedGroup.isForum ? (
+                  <div className="rounded-xl border border-amber-300/35 bg-amber-900/25 px-3 py-2 text-sm text-amber-100">
+                    This supergroup is not configured as a forum. Enable forum topics in Group profile first.
+                  </div>
+                ) : null}
+
+                <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                  <p className="mb-2 text-xs uppercase tracking-wide text-[#8fb7d6]">Topic icon stickers</p>
+                  <button
+                    type="button"
+                    onClick={() => void onLoadForumTopicIconStickers()}
+                    disabled={isGroupActionRunning || !canManageForumTopics}
+                    className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                  >
+                    getForumTopicIconStickers
+                  </button>
+
+                  {forumTopicIconStickers.length > 0 ? (
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {forumTopicIconStickers.slice(0, 12).map((sticker) => (
+                        <button
+                          key={sticker.file_id}
+                          type="button"
+                          onClick={() => setForumTopicDraft((prev) => ({
+                            ...prev,
+                            iconCustomEmojiId: sticker.custom_emoji_id || prev.iconCustomEmojiId,
+                          }))}
+                          className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-left text-xs text-[#d7ebfb] hover:bg-[#162b3d]"
+                          title={sticker.custom_emoji_id || sticker.file_id}
+                        >
+                          <div className="truncate">{sticker.emoji || 'custom emoji sticker'}</div>
+                          <div className="truncate text-[10px] text-[#9cc5df]">{sticker.custom_emoji_id || sticker.file_id}</div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                  <p className="mb-2 text-xs uppercase tracking-wide text-[#8fb7d6]">Forum topic actions</p>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <input
+                      value={forumTopicDraft.messageThreadId}
+                      onChange={(event) => setForumTopicDraft((prev) => ({ ...prev, messageThreadId: event.target.value }))}
+                      className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                      placeholder="message_thread_id"
+                    />
+                    <input
+                      value={forumTopicDraft.name}
+                      onChange={(event) => setForumTopicDraft((prev) => ({ ...prev, name: event.target.value }))}
+                      className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                      placeholder="topic name"
+                    />
+                    <input
+                      value={forumTopicDraft.iconColor}
+                      onChange={(event) => setForumTopicDraft((prev) => ({ ...prev, iconColor: event.target.value }))}
+                      className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                      placeholder="icon_color (integer)"
+                    />
+                    <input
+                      value={forumTopicDraft.iconCustomEmojiId}
+                      onChange={(event) => setForumTopicDraft((prev) => ({ ...prev, iconCustomEmojiId: event.target.value }))}
+                      className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                      placeholder="icon_custom_emoji_id"
+                    />
+                  </div>
+
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => void onCreateForumTopicFromDraft()}
+                      disabled={isGroupActionRunning || !canManageForumTopics}
+                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                    >
+                      createForumTopic
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onEditForumTopicFromDraft()}
+                      disabled={isGroupActionRunning || !canManageForumTopics}
+                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                    >
+                      editForumTopic
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onCloseForumTopicFromDraft()}
+                      disabled={isGroupActionRunning || !canManageForumTopics}
+                      className="rounded-lg border border-orange-300/35 bg-orange-900/20 px-3 py-2 text-sm text-orange-100 hover:bg-orange-900/30 disabled:opacity-40"
+                    >
+                      closeForumTopic
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onReopenForumTopicFromDraft()}
+                      disabled={isGroupActionRunning || !canManageForumTopics}
+                      className="rounded-lg border border-emerald-300/35 bg-emerald-900/20 px-3 py-2 text-sm text-emerald-100 hover:bg-emerald-900/30 disabled:opacity-40"
+                    >
+                      reopenForumTopic
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onDeleteForumTopicFromDraft()}
+                      disabled={isGroupActionRunning || !canManageForumTopics}
+                      className="rounded-lg border border-red-300/35 bg-red-900/20 px-3 py-2 text-sm text-red-100 hover:bg-red-900/30 disabled:opacity-40"
+                    >
+                      deleteForumTopic
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onUnpinAllForumTopicMessagesFromDraft()}
+                      disabled={isGroupActionRunning || !canManageForumTopics}
+                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                    >
+                      unpinAllForumTopicMessages
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                  <p className="mb-2 text-xs uppercase tracking-wide text-[#8fb7d6]">General forum topic</p>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <input
+                      value={forumTopicDraft.generalName}
+                      onChange={(event) => setForumTopicDraft((prev) => ({ ...prev, generalName: event.target.value }))}
+                      className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                      placeholder="general topic name"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void onEditGeneralForumTopicFromDraft()}
+                      disabled={isGroupActionRunning || !canManageForumTopics}
+                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                    >
+                      editGeneralForumTopic
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onCloseGeneralForumTopic()}
+                      disabled={isGroupActionRunning || !canManageForumTopics}
+                      className="rounded-lg border border-orange-300/35 bg-orange-900/20 px-3 py-2 text-sm text-orange-100 hover:bg-orange-900/30 disabled:opacity-40"
+                    >
+                      closeGeneralForumTopic
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onReopenGeneralForumTopic()}
+                      disabled={isGroupActionRunning || !canManageForumTopics}
+                      className="rounded-lg border border-emerald-300/35 bg-emerald-900/20 px-3 py-2 text-sm text-emerald-100 hover:bg-emerald-900/30 disabled:opacity-40"
+                    >
+                      reopenGeneralForumTopic
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onHideGeneralForumTopic()}
+                      disabled={isGroupActionRunning || !canManageForumTopics}
+                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                    >
+                      hideGeneralForumTopic
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onUnhideGeneralForumTopic()}
+                      disabled={isGroupActionRunning || !canManageForumTopics}
+                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                    >
+                      unhideGeneralForumTopic
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onUnpinAllGeneralForumTopicMessages()}
+                      disabled={isGroupActionRunning || !canManageForumTopics}
+                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40 sm:col-span-2"
+                    >
+                      unpinAllGeneralForumTopicMessages
+                    </button>
+                  </div>
+                </div>
 
                 {groupInspectorOutput ? (
                   <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">

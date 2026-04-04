@@ -1,20 +1,26 @@
 import { useEffect, useRef } from 'react';
-import { BotUpdate } from '../types/app';
+import { BotUpdate, SimRealtimeEvent } from '../types/app';
 import { buildWsUrl } from '../services/config';
 
 interface UseBotUpdatesOptions {
   token: string;
   lastUpdateId?: number;
   onUpdate: (update: BotUpdate) => void;
+  onSimEvent?: (event: SimRealtimeEvent) => void;
 }
 
-export function useBotUpdates({ token, lastUpdateId, onUpdate }: UseBotUpdatesOptions) {
+export function useBotUpdates({ token, lastUpdateId, onUpdate, onSimEvent }: UseBotUpdatesOptions) {
   const callbackRef = useRef(onUpdate);
+  const simEventRef = useRef(onSimEvent);
   const lastUpdateIdRef = useRef(lastUpdateId);
 
   useEffect(() => {
     callbackRef.current = onUpdate;
   }, [onUpdate]);
+
+  useEffect(() => {
+    simEventRef.current = onSimEvent;
+  }, [onSimEvent]);
 
   useEffect(() => {
     lastUpdateIdRef.current = lastUpdateId;
@@ -40,8 +46,17 @@ export function useBotUpdates({ token, lastUpdateId, onUpdate }: UseBotUpdatesOp
 
       ws.onmessage = (event) => {
         try {
-          const parsed = JSON.parse(event.data) as BotUpdate;
-          callbackRef.current(parsed);
+          const parsed = JSON.parse(event.data) as unknown;
+          if (
+            parsed
+            && typeof parsed === 'object'
+            && 'sim_event' in (parsed as Record<string, unknown>)
+          ) {
+            simEventRef.current?.(parsed as SimRealtimeEvent);
+            return;
+          }
+
+          callbackRef.current(parsed as BotUpdate);
         } catch {
           // Ignore malformed payloads from development servers.
         }

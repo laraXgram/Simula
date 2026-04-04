@@ -440,6 +440,33 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
             FOREIGN KEY(poll_id) REFERENCES polls(id)
         );
 
+        CREATE TABLE IF NOT EXISTS forum_topics (
+            bot_id                INTEGER NOT NULL,
+            chat_key              TEXT NOT NULL,
+            message_thread_id     INTEGER NOT NULL,
+            name                  TEXT NOT NULL,
+            icon_color            INTEGER NOT NULL,
+            icon_custom_emoji_id  TEXT,
+            is_closed             INTEGER NOT NULL DEFAULT 0,
+            created_at            INTEGER NOT NULL,
+            updated_at            INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, chat_key, message_thread_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS forum_topic_general_states (
+            bot_id      INTEGER NOT NULL,
+            chat_key    TEXT NOT NULL,
+            name        TEXT NOT NULL DEFAULT 'General',
+            is_closed   INTEGER NOT NULL DEFAULT 0,
+            is_hidden   INTEGER NOT NULL DEFAULT 0,
+            updated_at  INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, chat_key),
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
+
         CREATE TABLE IF NOT EXISTS sticker_sets (
             bot_id              INTEGER NOT NULL,
             name                TEXT NOT NULL,

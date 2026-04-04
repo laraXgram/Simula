@@ -98,18 +98,6 @@ export interface ChatMessage {
   dice?: GeneratedDice;
   game?: GeneratedGame;
   invoice?: GeneratedInvoice;
-  invoiceMeta?: {
-    photoUrl?: string;
-    maxTipAmount?: number;
-    suggestedTipAmounts?: number[];
-    needName?: boolean;
-    needPhoneNumber?: boolean;
-    needEmail?: boolean;
-    needShippingAddress?: boolean;
-    isFlexible?: boolean;
-    sendPhoneNumberToProvider?: boolean;
-    sendEmailToProvider?: boolean;
-  };
   successfulPayment?: GeneratedSuccessfulPayment;
   media?: {
     type: 'photo' | 'video' | 'audio' | 'voice' | 'document' | 'sticker' | 'animation' | 'video_note';
@@ -181,19 +169,33 @@ export type BotUpdate = Omit<GeneratedUpdate,
   chosen_inline_result?: GeneratedChosenInlineResult;
   message_reaction?: GeneratedMessageReactionUpdated;
   message_reaction_count?: GeneratedMessageReactionCountUpdated;
-  chat_action?: {
-    chat?: {
-      id: number;
-    };
-    chat_id?: number;
-    action: string;
-    actor?: {
-      id?: number;
-      is_bot?: boolean;
-      first_name?: string;
-      username?: string;
-    };
-    from_user_id?: number;
-    from_name?: string;
-  };
 };
+
+export interface SimChatActionEvent {
+  sim_event: 'chat_action';
+  chat_id: number;
+  action: string;
+  from_user_id?: number;
+  from_name?: string;
+  date?: number;
+}
+
+export interface SimInvoiceMetaEvent {
+  sim_event: 'invoice_meta';
+  chat_id: number;
+  message_id: number;
+  invoice_meta?: {
+    photo_url?: string;
+    max_tip_amount?: number;
+    suggested_tip_amounts?: number[];
+    need_name?: boolean;
+    need_phone_number?: boolean;
+    need_email?: boolean;
+    need_shipping_address?: boolean;
+    is_flexible?: boolean;
+    send_phone_number_to_provider?: boolean;
+    send_email_to_provider?: boolean;
+  };
+}
+
+export type SimRealtimeEvent = SimChatActionEvent | SimInvoiceMetaEvent;
