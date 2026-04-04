@@ -4060,12 +4060,21 @@ fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap<Str
         base_message_json["sim_parse_mode"] = Value::String(mode);
     }
     let message: Message = serde_json::from_value(base_message_json).map_err(ApiError::internal)?;
+    let is_channel_post = chat.r#type == "channel";
 
     let update_stub = Update {
         update_id: 0,
-        message: Some(message.clone()),
+        message: if is_channel_post {
+            None
+        } else {
+            Some(message.clone())
+        },
         edited_message: None,
-        channel_post: None,
+        channel_post: if is_channel_post {
+            Some(message.clone())
+        } else {
+            None
+        },
         edited_channel_post: None,
         business_connection: None,
         business_message: None,
@@ -4104,7 +4113,11 @@ fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap<Str
     if let Some(markup) = reply_markup {
         message_value["reply_markup"] = markup;
     }
-    update_value["message"] = message_value.clone();
+    if is_channel_post {
+        update_value["channel_post"] = message_value.clone();
+    } else {
+        update_value["message"] = message_value.clone();
+    }
 
     conn.execute(
         "UPDATE updates SET update_json = ?1 WHERE update_id = ?2",
@@ -5282,7 +5295,7 @@ fn handle_send_invoice(state: &Data<AppState>, token: &str, params: &HashMap<Str
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
 
-    let (chat_key, _chat) = resolve_bot_outbound_chat(
+    let (chat_key, chat) = resolve_bot_outbound_chat(
         &mut conn,
         bot.id,
         &request.chat_id,
@@ -5419,10 +5432,18 @@ fn handle_send_invoice(state: &Data<AppState>, token: &str, params: &HashMap<Str
         }
     }
 
-    let update_value = json!({
-        "update_id": 0,
-        "message": message_value.clone(),
-    });
+    let is_channel_post = chat.r#type == "channel";
+    let update_value = if is_channel_post {
+        json!({
+            "update_id": 0,
+            "channel_post": message_value.clone(),
+        })
+    } else {
+        json!({
+            "update_id": 0,
+            "message": message_value.clone(),
+        })
+    };
 
     persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
     publish_sim_client_event(
@@ -5589,7 +5610,7 @@ fn handle_send_poll(state: &Data<AppState>, token: &str, params: &HashMap<String
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, _chat) = resolve_bot_outbound_chat(
+    let (chat_key, chat) = resolve_bot_outbound_chat(
         &mut conn,
         bot.id,
         &request.chat_id,
@@ -5735,11 +5756,20 @@ fn handle_send_poll(state: &Data<AppState>, token: &str, params: &HashMap<String
         }
     }
 
+    let is_channel_post = chat.r#type == "channel";
     let update_value = serde_json::to_value(Update {
         update_id: 0,
-        message: Some(serde_json::from_value(message_value.clone()).map_err(ApiError::internal)?),
+        message: if is_channel_post {
+            None
+        } else {
+            Some(serde_json::from_value(message_value.clone()).map_err(ApiError::internal)?)
+        },
         edited_message: None,
-        channel_post: None,
+        channel_post: if is_channel_post {
+            Some(serde_json::from_value(message_value.clone()).map_err(ApiError::internal)?)
+        } else {
+            None
+        },
         edited_channel_post: None,
         business_connection: None,
         business_message: None,
@@ -7092,12 +7122,25 @@ pub fn handle_sim_pay_invoice(
     }
 
     paid_message["successful_payment"] = serde_json::to_value(successful_payment).map_err(ApiError::internal)?;
+    let is_channel_post = paid_message
+        .get("chat")
+        .and_then(|chat| chat.get("type"))
+        .and_then(Value::as_str)
+        == Some("channel");
 
     let paid_update = serde_json::to_value(Update {
         update_id: 0,
-        message: Some(serde_json::from_value(paid_message.clone()).map_err(ApiError::internal)?),
+        message: if is_channel_post {
+            None
+        } else {
+            Some(serde_json::from_value(paid_message.clone()).map_err(ApiError::internal)?)
+        },
         edited_message: None,
-        channel_post: None,
+        channel_post: if is_channel_post {
+            Some(serde_json::from_value(paid_message.clone()).map_err(ApiError::internal)?)
+        } else {
+            None
+        },
         edited_channel_post: None,
         business_connection: None,
         business_message: None,
@@ -7228,6 +7271,7 @@ fn send_payload_message(
     }
 
     let message: Message = serde_json::from_value(base).map_err(ApiError::internal)?;
+    let is_channel_post = chat.r#type == "channel";
     let mut message_value = serde_json::to_value(&message).map_err(ApiError::internal)?;
     if let Some(markup) = resolved_reply_markup {
         message_value["reply_markup"] = markup;
@@ -7235,9 +7279,9 @@ fn send_payload_message(
 
     let update_stub = Update {
         update_id: 0,
-        message: Some(message),
+        message: if is_channel_post { None } else { Some(message.clone()) },
         edited_message: None,
-        channel_post: None,
+        channel_post: if is_channel_post { Some(message) } else { None },
         edited_channel_post: None,
         business_connection: None,
         business_message: None,
@@ -7270,7 +7314,11 @@ fn send_payload_message(
     let update_id = conn.last_insert_rowid();
     let mut update_value = serde_json::to_value(update_stub).map_err(ApiError::internal)?;
     update_value["update_id"] = json!(update_id);
-    update_value["message"] = message_value.clone();
+    if is_channel_post {
+        update_value["channel_post"] = message_value.clone();
+    } else {
+        update_value["message"] = message_value.clone();
+    }
 
     conn.execute(
         "UPDATE updates SET update_json = ?1 WHERE update_id = ?2",
@@ -7357,6 +7405,7 @@ fn send_media_message_with_group(
     }
 
     let message: Message = serde_json::from_value(base).map_err(ApiError::internal)?;
+    let is_channel_post = chat.r#type == "channel";
     let mut message_value = serde_json::to_value(&message).map_err(ApiError::internal)?;
     if let Some(markup) = resolved_reply_markup {
         message_value["reply_markup"] = markup;
@@ -7364,9 +7413,9 @@ fn send_media_message_with_group(
 
     let update_stub = Update {
         update_id: 0,
-        message: Some(message),
+        message: if is_channel_post { None } else { Some(message.clone()) },
         edited_message: None,
-        channel_post: None,
+        channel_post: if is_channel_post { Some(message) } else { None },
         edited_channel_post: None,
         business_connection: None,
         business_message: None,
@@ -7399,7 +7448,11 @@ fn send_media_message_with_group(
     let update_id = conn.last_insert_rowid();
     let mut update_value = serde_json::to_value(update_stub).map_err(ApiError::internal)?;
     update_value["update_id"] = json!(update_id);
-    update_value["message"] = message_value.clone();
+    if is_channel_post {
+        update_value["channel_post"] = message_value.clone();
+    } else {
+        update_value["message"] = message_value.clone();
+    }
 
     conn.execute(
         "UPDATE updates SET update_json = ?1 WHERE update_id = ?2",
@@ -7990,7 +8043,7 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
         .prepare(
             "SELECT chat_id, description, message_history_visible, slow_mode_delay, permissions_json
              FROM sim_chats
-             WHERE bot_id = ?1 AND chat_type IN ('group', 'supergroup')
+             WHERE bot_id = ?1 AND chat_type IN ('group', 'supergroup', 'channel')
              ORDER BY chat_id ASC",
         )
         .map_err(ApiError::internal)?;
@@ -8268,12 +8321,21 @@ pub fn handle_sim_send_user_message(
         user.id,
         &message,
     )?;
+    let is_channel_post = sim_chat.chat_type == "channel";
 
     let update_stub = Update {
         update_id: 0,
-        message: Some(message.clone()),
+        message: if is_channel_post {
+            None
+        } else {
+            Some(message.clone())
+        },
         edited_message: None,
-        channel_post: None,
+        channel_post: if is_channel_post {
+            Some(message.clone())
+        } else {
+            None
+        },
         edited_channel_post: None,
         business_connection: None,
         business_message: None,
@@ -8312,7 +8374,11 @@ pub fn handle_sim_send_user_message(
     update_value["update_id"] = json!(update_id);
 
     let message_value = serde_json::to_value(&message).map_err(ApiError::internal)?;
-    update_value["message"] = message_value.clone();
+    if is_channel_post {
+        update_value["channel_post"] = message_value.clone();
+    } else {
+        update_value["message"] = message_value.clone();
+    }
 
     conn.execute(
         "UPDATE updates SET update_json = ?1 WHERE update_id = ?2",
@@ -8547,12 +8613,21 @@ pub fn handle_sim_send_user_media(
         user.id,
         &message,
     )?;
+    let is_channel_post = sim_chat.chat_type == "channel";
 
     let update_stub = Update {
         update_id: 0,
-        message: Some(message.clone()),
+        message: if is_channel_post {
+            None
+        } else {
+            Some(message.clone())
+        },
         edited_message: None,
-        channel_post: None,
+        channel_post: if is_channel_post {
+            Some(message.clone())
+        } else {
+            None
+        },
         edited_channel_post: None,
         business_connection: None,
         business_message: None,
@@ -8591,7 +8666,11 @@ pub fn handle_sim_send_user_media(
     update_value["update_id"] = json!(update_id);
 
     let message_value = serde_json::to_value(&message).map_err(ApiError::internal)?;
-    update_value["message"] = message_value.clone();
+    if is_channel_post {
+        update_value["channel_post"] = message_value.clone();
+    } else {
+        update_value["message"] = message_value.clone();
+    }
 
     conn.execute(
         "UPDATE updates SET update_json = ?1 WHERE update_id = ?2",
@@ -8809,13 +8888,26 @@ pub fn handle_sim_edit_user_message_media(
             .map(|obj| obj.remove("sim_parse_mode"));
     }
     edited_message.as_object_mut().map(|obj| obj.remove("text"));
+    let is_channel_post = edited_message
+        .get("chat")
+        .and_then(|chat| chat.get("type"))
+        .and_then(Value::as_str)
+        == Some("channel");
 
     let update_stub = Update {
         update_id: 0,
         message: None,
-        edited_message: serde_json::from_value(edited_message.clone()).ok(),
+        edited_message: if is_channel_post {
+            None
+        } else {
+            serde_json::from_value(edited_message.clone()).ok()
+        },
         channel_post: None,
-        edited_channel_post: None,
+        edited_channel_post: if is_channel_post {
+            serde_json::from_value(edited_message.clone()).ok()
+        } else {
+            None
+        },
         business_connection: None,
         business_message: None,
         edited_business_message: None,
@@ -8847,7 +8939,11 @@ pub fn handle_sim_edit_user_message_media(
     let update_id = conn.last_insert_rowid();
     let mut update_value = serde_json::to_value(update_stub).map_err(ApiError::internal)?;
     update_value["update_id"] = json!(update_id);
-    update_value["edited_message"] = edited_message.clone();
+    if is_channel_post {
+        update_value["edited_channel_post"] = edited_message.clone();
+    } else {
+        update_value["edited_message"] = edited_message.clone();
+    }
 
     conn.execute(
         "UPDATE updates SET update_json = ?1 WHERE update_id = ?2",
@@ -8978,8 +9074,8 @@ pub fn handle_sim_create_group(
         .map(|v| v.trim().to_ascii_lowercase())
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| "supergroup".to_string());
-    if !matches!(chat_type.as_str(), "group" | "supergroup") {
-        return Err(ApiError::bad_request("chat_type must be group or supergroup"));
+    if !matches!(chat_type.as_str(), "group" | "supergroup" | "channel") {
+        return Err(ApiError::bad_request("chat_type must be group, supergroup, or channel"));
     }
 
     let mut conn = lock_db(state)?;
@@ -8992,7 +9088,7 @@ pub fn handle_sim_create_group(
     )?;
 
     let now = Utc::now().timestamp();
-    let mut chat_id = if chat_type == "supergroup" {
+    let mut chat_id = if chat_type == "supergroup" || chat_type == "channel" {
         // Keep ids in -100xxxxxxxxxx range for Telegram supergroup/channel parity.
         -((Utc::now().timestamp_millis().abs() % 10_000_000_000) + 1_000_000_000_000)
     } else {
@@ -9025,7 +9121,11 @@ pub fn handle_sim_create_group(
         .as_deref()
         .map(sanitize_username)
         .filter(|v| !v.is_empty());
-    let is_forum = body.is_forum.unwrap_or(false);
+    let is_forum = if chat_type == "supergroup" {
+        body.is_forum.unwrap_or(false)
+    } else {
+        false
+    };
     let message_history_visible = body.message_history_visible.unwrap_or(true);
     let slow_mode_delay = body.slow_mode_delay.unwrap_or(0).max(0);
     let permissions = default_group_permissions();
@@ -9105,7 +9205,7 @@ pub fn handle_sim_create_group(
 
     let chat = Chat {
         id: chat_id,
-        r#type: chat_type,
+        r#type: chat_type.clone(),
         title: conn
             .query_row(
                 "SELECT title FROM sim_chats WHERE bot_id = ?1 AND chat_key = ?2",
@@ -9150,10 +9250,10 @@ pub fn handle_sim_create_group(
         can_post_stories: true,
         can_edit_stories: true,
         can_delete_stories: true,
-        can_post_messages: None,
-        can_edit_messages: None,
-        can_pin_messages: Some(true),
-        can_manage_topics: Some(is_forum),
+        can_post_messages: if chat_type == "channel" { Some(true) } else { None },
+        can_edit_messages: if chat_type == "channel" { Some(true) } else { None },
+        can_pin_messages: if chat_type == "channel" { None } else { Some(true) },
+        can_manage_topics: if chat_type == "supergroup" { Some(is_forum) } else { None },
         can_manage_direct_messages: None,
         can_manage_tags: None,
         custom_title: None,
@@ -9259,7 +9359,9 @@ pub fn handle_sim_create_group(
     )?;
 
     let mut service_fields = Map::<String, Value>::new();
-    if chat.r#type == "supergroup" {
+    if chat.r#type == "channel" {
+        service_fields.insert("channel_chat_created".to_string(), Value::Bool(true));
+    } else if chat.r#type == "supergroup" {
         service_fields.insert("supergroup_chat_created".to_string(), Value::Bool(true));
     } else {
         service_fields.insert("group_chat_created".to_string(), Value::Bool(true));
@@ -11558,13 +11660,26 @@ fn publish_edited_message_update(
 ) -> Result<(), ApiError> {
     let mut edited_with_timestamp = edited_message.clone();
     edited_with_timestamp["edit_date"] = Value::from(Utc::now().timestamp());
+    let is_channel_post = edited_with_timestamp
+        .get("chat")
+        .and_then(|chat| chat.get("type"))
+        .and_then(Value::as_str)
+        == Some("channel");
 
     let update_value = serde_json::to_value(Update {
         update_id: 0,
         message: None,
-        edited_message: Some(serde_json::from_value(edited_with_timestamp).map_err(ApiError::internal)?),
+        edited_message: if is_channel_post {
+            None
+        } else {
+            Some(serde_json::from_value(edited_with_timestamp.clone()).map_err(ApiError::internal)?)
+        },
         channel_post: None,
-        edited_channel_post: None,
+        edited_channel_post: if is_channel_post {
+            Some(serde_json::from_value(edited_with_timestamp).map_err(ApiError::internal)?)
+        } else {
+            None
+        },
         business_connection: None,
         business_message: None,
         edited_business_message: None,
@@ -12110,11 +12225,20 @@ fn send_sim_user_payload_message(
         user.id,
         &message,
     )?;
+    let is_channel_post = sim_chat.chat_type == "channel";
     let update_stub = Update {
         update_id: 0,
-        message: Some(message.clone()),
+        message: if is_channel_post {
+            None
+        } else {
+            Some(message.clone())
+        },
         edited_message: None,
-        channel_post: None,
+        channel_post: if is_channel_post {
+            Some(message.clone())
+        } else {
+            None
+        },
         edited_channel_post: None,
         business_connection: None,
         business_message: None,
@@ -12153,7 +12277,11 @@ fn send_sim_user_payload_message(
     update_value["update_id"] = json!(update_id);
 
     let message_value = serde_json::to_value(&message).map_err(ApiError::internal)?;
-    update_value["message"] = message_value.clone();
+    if is_channel_post {
+        update_value["channel_post"] = message_value.clone();
+    } else {
+        update_value["message"] = message_value.clone();
+    }
 
     conn.execute(
         "UPDATE updates SET update_json = ?1 WHERE update_id = ?2",
@@ -13933,11 +14061,12 @@ fn emit_service_message_update(
     }
 
     let message: Message = serde_json::from_value(message_json).map_err(ApiError::internal)?;
+    let is_channel_post = chat.r#type == "channel";
     let update = Update {
         update_id: 0,
-        message: Some(message),
+        message: if is_channel_post { None } else { Some(message.clone()) },
         edited_message: None,
-        channel_post: None,
+        channel_post: if is_channel_post { Some(message) } else { None },
         edited_channel_post: None,
         business_connection: None,
         business_message: None,

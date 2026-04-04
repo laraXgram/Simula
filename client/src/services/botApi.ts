@@ -49,6 +49,7 @@ import type {
   SendGameRequest,
   SendInvoiceRequest,
   SendLocationRequest,
+  SendMessageRequest,
   SendPollRequest,
   SendStickerRequest,
   SendVenueRequest,
@@ -187,7 +188,7 @@ export async function getSimulationBootstrap(token: string): Promise<SimBootstra
 
 export async function createSimulationGroup(token: string, payload: {
   title: string;
-  chat_type?: 'group' | 'supergroup';
+  chat_type?: 'group' | 'supergroup' | 'channel';
   owner_user_id?: number;
   owner_first_name?: string;
   owner_username?: string;
@@ -1349,6 +1350,10 @@ export async function clearSimHistory(token: string, chatId: number) {
   }
 
   return data.result as { deleted_count: number };
+}
+
+export async function sendBotMessage(token: string, payload: SendMessageRequest, actorUserId?: number) {
+  return callBotMethod<Message>(token, 'sendMessage', payload, { actorUserId });
 }
 
 export async function editBotMessageText(token: string, payload: EditMessageTextRequest, actorUserId?: number) {

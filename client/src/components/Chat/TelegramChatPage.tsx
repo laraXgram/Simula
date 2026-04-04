@@ -132,6 +132,7 @@ import {
   sendUserMediaByReference,
   uploadStickerFile,
   sendUserMessage,
+  sendBotMessage,
   setUserMessageReaction,
   setSimulationBotGroupMembership,
   updateSimulationGroup,
@@ -249,41 +250,43 @@ const FORUM_ICON_COLOR_PRESETS = [
 ];
 const FORUM_TOPIC_EMOJI_PRESETS = ['😀', '😎', '🎯', '📣', '💡', '🚀', '🎮', '🛠️', '🧪', '📌'];
 
-function mapIncomingReplyMarkup(raw?: Record<string, unknown>): BotReplyMarkup | undefined {
+function mapIncomingReplyMarkup(raw?: unknown): BotReplyMarkup | undefined {
   if (!raw || typeof raw !== 'object') {
     return undefined;
   }
 
-  if (Array.isArray(raw.keyboard)) {
+  const rawRecord = raw as Record<string, unknown>;
+
+  if (Array.isArray(rawRecord.keyboard)) {
     return {
       kind: 'reply',
-      keyboard: raw.keyboard as ReplyKeyboardButton[][],
-      is_persistent: typeof raw.is_persistent === 'boolean' ? raw.is_persistent : undefined,
-      resize_keyboard: typeof raw.resize_keyboard === 'boolean' ? raw.resize_keyboard : undefined,
-      one_time_keyboard: typeof raw.one_time_keyboard === 'boolean' ? raw.one_time_keyboard : undefined,
-      input_field_placeholder: typeof raw.input_field_placeholder === 'string' ? raw.input_field_placeholder : undefined,
-      selective: typeof raw.selective === 'boolean' ? raw.selective : undefined,
+      keyboard: rawRecord.keyboard as ReplyKeyboardButton[][],
+      is_persistent: typeof rawRecord.is_persistent === 'boolean' ? rawRecord.is_persistent : undefined,
+      resize_keyboard: typeof rawRecord.resize_keyboard === 'boolean' ? rawRecord.resize_keyboard : undefined,
+      one_time_keyboard: typeof rawRecord.one_time_keyboard === 'boolean' ? rawRecord.one_time_keyboard : undefined,
+      input_field_placeholder: typeof rawRecord.input_field_placeholder === 'string' ? rawRecord.input_field_placeholder : undefined,
+      selective: typeof rawRecord.selective === 'boolean' ? rawRecord.selective : undefined,
     };
   }
 
-  if (Array.isArray(raw.inline_keyboard)) {
+  if (Array.isArray(rawRecord.inline_keyboard)) {
     return {
       kind: 'inline',
-      inline_keyboard: raw.inline_keyboard as InlineKeyboardButton[][],
+      inline_keyboard: rawRecord.inline_keyboard as InlineKeyboardButton[][],
     };
   }
 
-  if (typeof raw.remove_keyboard === 'boolean') {
+  if (typeof rawRecord.remove_keyboard === 'boolean') {
     return {
       kind: 'remove',
-      remove_keyboard: raw.remove_keyboard,
-      selective: typeof raw.selective === 'boolean' ? raw.selective : undefined,
+      remove_keyboard: rawRecord.remove_keyboard,
+      selective: typeof rawRecord.selective === 'boolean' ? rawRecord.selective : undefined,
     };
   }
 
   return {
     kind: 'other',
-    raw,
+    raw: rawRecord,
   };
 }
 
@@ -293,7 +296,7 @@ interface TelegramChatPageProps {
 
 interface GroupChatItem {
   id: number;
-  type: 'group' | 'supergroup';
+  type: 'group' | 'supergroup' | 'channel';
   title: string;
   username?: string;
   description?: string;
@@ -863,7 +866,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const [showCreateGroupForm, setShowCreateGroupForm] = useState(false);
   const [groupDraft, setGroupDraft] = useState({
     title: '',
-    type: 'supergroup' as 'group' | 'supergroup',
+    type: 'supergroup' as 'group' | 'supergroup' | 'channel',
     username: '',
     description: '',
     isForum: false,
@@ -1227,19 +1230,29 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     };
   }, [composerText, selectedBot?.username]);
 
+  const scopedGroupChats = useMemo(() => {
+    if (chatScopeTab === 'group') {
+      return groupChats.filter((group) => group.type === 'group' || group.type === 'supergroup');
+    }
+    if (chatScopeTab === 'channel') {
+      return groupChats.filter((group) => group.type === 'channel');
+    }
+    return [] as GroupChatItem[];
+  }, [chatScopeTab, groupChats]);
+
   const filteredGroups = useMemo(() => {
     const keyword = chatSearch.trim().toLowerCase();
     if (!keyword) {
-      return groupChats;
+      return scopedGroupChats;
     }
 
-    return groupChats.filter((group) => {
+    return scopedGroupChats.filter((group) => {
       const title = group.title.toLowerCase();
       const username = (group.username || '').toLowerCase();
       const idText = String(group.id);
       return title.includes(keyword) || username.includes(keyword) || idText.includes(keyword);
     });
-  }, [groupChats, chatSearch]);
+  }, [chatSearch, scopedGroupChats]);
 
   const selectedGroup = useMemo(
     () => groupChats.find((group) => group.id === selectedGroupChatId) || null,
@@ -1346,9 +1359,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     return true;
   };
 
-  const selectedChatId = chatScopeTab === 'group'
-    ? (selectedGroup?.id ?? 0)
-    : selectedUser.id;
+  const selectedChatId = chatScopeTab === 'private'
+    ? selectedUser.id
+    : (selectedGroup?.id ?? 0);
   const chatKey = `${selectedBotToken}:${selectedChatId}`;
   const hasStarted = chatScopeTab === 'private'
     ? Boolean(startedChats[chatKey])
@@ -2059,7 +2072,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         }));
       }
 
-      const payload = update.edited_message || update.message;
+      const payload = update.edited_channel_post || update.edited_message || update.channel_post || update.message;
       if (update.poll) {
         setMessages((prev) => prev.map((message) => {
           if (!message.poll || message.poll.id !== update.poll!.id) {
@@ -2463,10 +2476,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         });
 
         const incomingGroups: GroupChatItem[] = (bootstrap.chats || [])
-          .filter((chat) => chat.type === 'group' || chat.type === 'supergroup')
+          .filter((chat) => chat.type === 'group' || chat.type === 'supergroup' || chat.type === 'channel')
           .map((chat) => ({
             id: chat.id,
-            type: chat.type as 'group' | 'supergroup',
+            type: chat.type as 'group' | 'supergroup' | 'channel',
             title: chat.title || `Group ${Math.abs(chat.id)}`,
             username: chat.username || undefined,
             description: settingsByChatId.get(chat.id)?.description,
@@ -2652,14 +2665,21 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   }, [selectedBotToken]);
 
   useEffect(() => {
-    if (chatScopeTab !== 'group') {
+    if (chatScopeTab !== 'group' && chatScopeTab !== 'channel') {
       return;
     }
-    if (selectedGroupChatId || groupChats.length === 0) {
+
+    if (scopedGroupChats.length === 0) {
+      setSelectedGroupChatId(null);
       return;
     }
-    setSelectedGroupChatId(groupChats[0].id);
-  }, [chatScopeTab, groupChats, selectedGroupChatId]);
+
+    if (selectedGroupChatId && scopedGroupChats.some((group) => group.id === selectedGroupChatId)) {
+      return;
+    }
+
+    setSelectedGroupChatId(scopedGroupChats[0].id);
+  }, [chatScopeTab, scopedGroupChats, selectedGroupChatId]);
 
   const persistStarted = (next: Record<string, boolean>) => {
     setStartedChats(next);
@@ -2794,6 +2814,44 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       }
 
       await onChooseInlineResult(inlineResults[0]);
+      return;
+    }
+
+    if (chatScopeTab === 'channel' && !composerEditTarget) {
+      if (selectedUploads.length > 0) {
+        setErrorText('Channel media upload from composer is not enabled yet.');
+        return;
+      }
+
+      if (!text) {
+        return;
+      }
+
+      try {
+        await sendBotMessage(
+          selectedBotToken,
+          {
+            chat_id: selectedChatId,
+            text,
+            parse_mode: composerParseMode === 'none' ? undefined : composerParseMode,
+            reply_parameters: replyTarget
+              ? {
+                message_id: replyTarget.id,
+              }
+              : undefined,
+          },
+          selectedUser.id,
+        );
+        setComposerText('');
+        setReplyTarget(null);
+        dismissActiveOneTimeKeyboard();
+        isNearBottomRef.current = true;
+        window.setTimeout(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        }, 0);
+      } catch (error) {
+        setErrorText(error instanceof Error ? error.message : 'Channel send failed');
+      }
       return;
     }
 
@@ -3773,7 +3831,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       const settings = mapServerSettingsToSnapshot(created.settings);
       const mapped: GroupChatItem = {
         id: chat.id,
-        type: chat.type as 'group' | 'supergroup',
+        type: chat.type as 'group' | 'supergroup' | 'channel',
         title: chat.title || title,
         username: chat.username || undefined,
         description: groupDraft.description.trim() || undefined,
@@ -7975,25 +8033,32 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               </button>
               <button
                 type="button"
-                onClick={() => setChatScopeTab('group')}
+                onClick={() => {
+                  setChatScopeTab('group');
+                  setGroupDraft((prev) => ({
+                    ...prev,
+                    type: prev.type === 'channel' ? 'supergroup' : prev.type,
+                  }));
+                }}
                 className={`rounded-md px-2 py-1.5 ${chatScopeTab === 'group' ? 'bg-[#2b5278] text-white' : 'text-telegram-textSecondary'}`}
               >
                 Group
               </button>
               <button
                 type="button"
-                onClick={() => setChatScopeTab('channel')}
+                onClick={() => {
+                  setChatScopeTab('channel');
+                  setGroupDraft((prev) => ({
+                    ...prev,
+                    type: 'channel',
+                    isForum: false,
+                  }));
+                }}
                 className={`rounded-md px-2 py-1.5 ${chatScopeTab === 'channel' ? 'bg-[#2b5278] text-white' : 'text-telegram-textSecondary'}`}
               >
                 Channel
               </button>
             </div>
-
-            {chatScopeTab === 'channel' ? (
-              <div className="mb-3 rounded-xl border border-dashed border-white/20 bg-black/20 px-3 py-3 text-xs text-telegram-textSecondary">
-                Channel simulator will be enabled in next phase.
-              </div>
-            ) : null}
 
             <div className="mb-3 flex items-center justify-between rounded-xl bg-white/5 px-3 py-2">
               <div className="min-w-0 text-xs text-telegram-textSecondary">
@@ -8056,7 +8121,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               </>
             ) : null}
 
-            {activeTab === 'chats' && chatScopeTab === 'group' ? (
+            {activeTab === 'chats' && (chatScopeTab === 'group' || chatScopeTab === 'channel') ? (
               <>
                 <div className="mb-3 flex items-center gap-2 rounded-xl bg-white/5 px-3 py-2 text-sm text-telegram-textSecondary">
                   <Search className="h-4 w-4" />
@@ -8064,7 +8129,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     value={chatSearch}
                     onChange={(e) => setChatSearch(e.target.value)}
                     className="w-full bg-transparent text-sm text-white outline-none placeholder:text-telegram-textSecondary"
-                    placeholder="Search groups"
+                    placeholder={chatScopeTab === 'channel' ? 'Search channels' : 'Search groups'}
                   />
                 </div>
 
@@ -8073,7 +8138,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   onClick={() => setShowCreateGroupForm((prev) => !prev)}
                   className="mb-2 w-full rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-left text-xs text-white hover:bg-black/30"
                 >
-                  {showCreateGroupForm ? 'Close group creator' : 'Create new group'}
+                  {showCreateGroupForm
+                    ? `Close ${chatScopeTab === 'channel' ? 'channel' : 'group'} creator`
+                    : `Create new ${chatScopeTab === 'channel' ? 'channel' : 'group'}`}
                 </button>
 
                 {showCreateGroupForm ? (
@@ -8082,16 +8149,17 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       value={groupDraft.title}
                       onChange={(e) => setGroupDraft((prev) => ({ ...prev, title: e.target.value }))}
                       className="w-full rounded-lg border border-white/15 bg-[#0f1a26] px-2 py-1.5 text-white outline-none"
-                      placeholder="Group title"
+                      placeholder={chatScopeTab === 'channel' ? 'Channel title' : 'Group title'}
                     />
                     <div className="grid grid-cols-2 gap-2">
                       <select
                         value={groupDraft.type}
-                        onChange={(e) => setGroupDraft((prev) => ({ ...prev, type: e.target.value as 'group' | 'supergroup' }))}
+                        onChange={(e) => setGroupDraft((prev) => ({ ...prev, type: e.target.value as 'group' | 'supergroup' | 'channel' }))}
                         className="rounded-lg border border-white/15 bg-[#0f1a26] px-2 py-1.5 text-white outline-none"
                       >
                         <option value="group">group</option>
                         <option value="supergroup">supergroup</option>
+                        <option value="channel">channel</option>
                       </select>
                       <input
                         value={groupDraft.username}
@@ -8122,7 +8190,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       disabled={isCreatingGroup || !groupDraft.title.trim()}
                       className="w-full rounded-lg bg-[#2b5278] px-3 py-2 text-white disabled:opacity-50"
                     >
-                      {isCreatingGroup ? 'Creating...' : 'Create Group'}
+                      {isCreatingGroup
+                        ? 'Creating...'
+                        : (groupDraft.type === 'channel' ? 'Create Channel' : 'Create Group')}
                     </button>
                   </div>
                 ) : null}
@@ -8188,7 +8258,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   })}
                   {filteredGroups.length === 0 ? (
                     <p className="rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-xs text-telegram-textSecondary">
-                      No groups yet. Create your first group.
+                      {chatScopeTab === 'channel'
+                        ? 'No channels yet. Create your first channel.'
+                        : 'No groups yet. Create your first group.'}
                     </p>
                   ) : null}
                 </div>
@@ -8292,7 +8364,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               <div className="min-w-0">
                 <h2 className="truncate font-semibold">{selectedBot?.first_name || 'Bot'}</h2>
                 <p className="truncate text-xs text-telegram-textSecondary">
-                  @{selectedBot?.username || 'unknown'} | {chatScopeTab === 'group' ? selectedGroup?.title || 'Group' : 'Private'}
+                  @{selectedBot?.username || 'unknown'} | {chatScopeTab === 'private'
+                    ? 'Private'
+                    : (selectedGroup?.title || (chatScopeTab === 'channel' ? 'Channel' : 'Group'))}
                   {chatScopeTab === 'group' && selectedGroup?.isForum && activeForumTopic
                     ? ` · Topic: ${activeForumTopic.name}`
                     : ''}
@@ -8598,20 +8672,15 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             onScroll={onMessagesScroll}
             className="relative min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-[url('/telegram-bg.svg')] bg-cover bg-center px-3 py-4 sm:px-4 sm:py-5 lg:px-6"
           >
-            {chatScopeTab === 'channel' ? (
-              <div className="mx-auto mt-16 max-w-md rounded-2xl border border-dashed border-white/20 bg-black/20 p-6 text-center shadow-2xl">
-                <h3 className="mb-2 text-2xl font-semibold">Channels Coming Soon</h3>
-                <p className="mb-2 text-sm leading-6 text-telegram-textSecondary">
-                  Channel timeline and controls will be enabled in the next step.
-                </p>
-              </div>
-            ) : !hasStarted ? (
+            {!hasStarted ? (
               <div className="mx-auto mt-16 max-w-md rounded-2xl border border-white/15 bg-black/20 p-6 text-center shadow-2xl">
                 <h3 className="mb-2 text-2xl font-semibold">No messages here yet</h3>
                 <p className="mb-2 text-sm leading-6 text-telegram-textSecondary">
                   {chatScopeTab === 'private'
                     ? 'Tap Start in the bottom bar to begin this conversation exactly like Telegram private bot chat.'
-                    : 'Join this group as current user to send and receive messages.'}
+                    : (chatScopeTab === 'channel'
+                      ? 'Join this channel as current user to view and send posts.'
+                      : 'Join this group as current user to send and receive messages.')}
                 </p>
               </div>
             ) : (
@@ -8825,11 +8894,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           </main>
 
           <footer className="border-t border-white/10 px-3 py-4 sm:px-4 lg:px-5">
-            {chatScopeTab === 'channel' ? (
-              <div className="rounded-xl border border-dashed border-white/20 bg-black/20 px-4 py-3 text-center text-xs text-telegram-textSecondary">
-                Message composer for channel will be enabled in the next phase.
-              </div>
-            ) : !hasStarted ? (
+            {!hasStarted ? (
               <button
                 type="button"
                 onClick={() => {
@@ -8841,7 +8906,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                 }}
                 className="w-full rounded-xl bg-[#2b5278] px-4 py-3 text-sm font-semibold tracking-wide text-white transition hover:bg-[#366892]"
               >
-                {chatScopeTab === 'private' ? 'START' : 'JOIN GROUP'}
+                {chatScopeTab === 'private'
+                  ? 'START'
+                  : (chatScopeTab === 'channel' ? 'JOIN CHANNEL' : 'JOIN GROUP')}
               </button>
             ) : (
               <div className="space-y-2">
