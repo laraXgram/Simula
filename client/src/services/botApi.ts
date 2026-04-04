@@ -9,6 +9,8 @@ import type {
   CreateChatInviteLinkRequest,
   CreateChatSubscriptionInviteLinkRequest,
   CreateNewStickerSetRequest,
+  CopyMessageRequest,
+  CopyMessagesRequest,
   DeclineChatJoinRequestRequest,
   DeleteChatPhotoRequest,
   DeleteChatStickerSetRequest,
@@ -34,6 +36,8 @@ import type {
   GetGameHighScoresRequest,
   GetCustomEmojiStickersRequest,
   GetStickerSetRequest,
+  ForwardMessageRequest,
+  ForwardMessagesRequest,
   LeaveChatRequest,
   PinChatMessageRequest,
   PromoteChatMemberRequest,
@@ -84,13 +88,14 @@ import type {
   UnpinChatMessageRequest,
   UploadStickerFileRequest,
 } from '../types/generated/methods';
-import type { Chat as GeneratedChat, ChatFullInfo, ChatInviteLink, ChatMember, ChatPermissions, File as TgFile, ForumTopic, GameHighScore, InlineQueryResult, InlineQueryResultsButton, MenuButton, Message, Sticker, StickerSet, User as GeneratedUser } from '../types/generated/types';
+import type { Chat as GeneratedChat, ChatFullInfo, ChatInviteLink, ChatMember, ChatPermissions, ChatShared, File as TgFile, ForumTopic, GameHighScore, InlineQueryResult, InlineQueryResultsButton, MenuButton, Message, Sticker, StickerSet, User as GeneratedUser, UsersShared, WebAppData } from '../types/generated/types';
 
 export interface SimCreateGroupResult {
   chat: GeneratedChat;
   owner: GeneratedUser;
   members: GeneratedUser[];
   settings: {
+    show_author_signature?: boolean;
     message_history_visible: boolean;
     slow_mode_delay: number;
     permissions: ChatPermissions;
@@ -196,6 +201,7 @@ export async function createSimulationGroup(token: string, payload: {
   username?: string;
   description?: string;
   is_forum?: boolean;
+  show_author_signature?: boolean;
   message_history_visible?: boolean;
   slow_mode_delay?: number;
 }): Promise<SimCreateGroupResult> {
@@ -220,7 +226,7 @@ export async function joinSimulationGroup(token: string, payload: {
   user_id?: number;
   first_name?: string;
   username?: string;
-}): Promise<{ joined: boolean; reason?: string; chat_id: number; user_id: number }> {
+}): Promise<{ joined: boolean; pending?: boolean; reason?: string; chat_id: number; user_id: number }> {
   const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/groups/join`, {
     method: 'POST',
     headers: {
@@ -234,7 +240,7 @@ export async function joinSimulationGroup(token: string, payload: {
     throw new Error(data.description || 'Unable to join simulation group');
   }
 
-  return data.result as { joined: boolean; reason?: string; chat_id: number; user_id: number };
+  return data.result as { joined: boolean; pending?: boolean; reason?: string; chat_id: number; user_id: number };
 }
 
 export async function leaveSimulationGroup(token: string, payload: {
@@ -268,6 +274,7 @@ export async function updateSimulationGroup(token: string, payload: {
   username?: string;
   description?: string;
   is_forum?: boolean;
+  show_author_signature?: boolean;
   message_history_visible?: boolean;
   slow_mode_delay?: number;
   permissions?: ChatPermissions;
@@ -275,6 +282,7 @@ export async function updateSimulationGroup(token: string, payload: {
   chat: GeneratedChat;
   settings?: {
     description?: string;
+    show_author_signature?: boolean;
     message_history_visible: boolean;
     slow_mode_delay: number;
     permissions: ChatPermissions;
@@ -297,6 +305,7 @@ export async function updateSimulationGroup(token: string, payload: {
     chat: GeneratedChat;
     settings?: {
       description?: string;
+      show_author_signature?: boolean;
       message_history_visible: boolean;
       slow_mode_delay: number;
       permissions: ChatPermissions;
@@ -685,7 +694,7 @@ export async function joinSimulationGroupByInviteLink(token: string, payload: {
   user_id?: number;
   first_name?: string;
   username?: string;
-}): Promise<{ joined: boolean; pending?: boolean; reason?: string; chat_id: number; user_id: number }> {
+}): Promise<{ joined: boolean; pending?: boolean; reason?: string; chat_id: number; chat_type?: 'group' | 'supergroup' | 'channel'; user_id: number }> {
   const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/groups/invite/join`, {
     method: 'POST',
     headers: {
@@ -696,10 +705,33 @@ export async function joinSimulationGroupByInviteLink(token: string, payload: {
 
   const data = await response.json();
   if (!data.ok) {
-    throw new Error(data.description || 'Unable to join group by invite link');
+    throw new Error(data.description || 'Unable to join by invite link');
   }
 
-  return data.result as { joined: boolean; pending?: boolean; reason?: string; chat_id: number; user_id: number };
+  return data.result as { joined: boolean; pending?: boolean; reason?: string; chat_id: number; chat_type?: 'group' | 'supergroup' | 'channel'; user_id: number };
+}
+
+export async function markSimulationChannelMessageView(token: string, payload: {
+  chat_id: number;
+  message_id: number;
+  user_id?: number;
+  first_name?: string;
+  username?: string;
+}): Promise<{ chat_id: number; chat_type: 'channel'; message_id: number; user_id: number; views: number; incremented: boolean; window_seconds: number }> {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/channels/views/mark`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to update channel views');
+  }
+
+  return data.result as { chat_id: number; chat_type: 'channel'; message_id: number; user_id: number; views: number; incremented: boolean; window_seconds: number };
 }
 
 export async function approveSimulationGroupJoinRequest(token: string, payload: {
@@ -757,6 +789,9 @@ export async function sendUserMessage(token: string, payload: {
   text: string;
   parse_mode?: 'HTML' | 'Markdown' | 'MarkdownV2';
   reply_to_message_id?: number;
+  users_shared?: UsersShared;
+  chat_shared?: ChatShared;
+  web_app_data?: WebAppData;
 }) {
   const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/sendUserMessage`, {
     method: 'POST',
@@ -1356,6 +1391,22 @@ export async function sendBotMessage(token: string, payload: SendMessageRequest,
   return callBotMethod<Message>(token, 'sendMessage', payload, { actorUserId });
 }
 
+export async function forwardMessage(token: string, payload: ForwardMessageRequest, actorUserId?: number) {
+  return callBotMethod<Message>(token, 'forwardMessage', payload, { actorUserId });
+}
+
+export async function forwardMessages(token: string, payload: ForwardMessagesRequest, actorUserId?: number) {
+  return callBotMethod<Array<{ message_id: number }>>(token, 'forwardMessages', payload, { actorUserId });
+}
+
+export async function copyMessage(token: string, payload: CopyMessageRequest, actorUserId?: number) {
+  return callBotMethod<{ message_id: number }>(token, 'copyMessage', payload, { actorUserId });
+}
+
+export async function copyMessages(token: string, payload: CopyMessagesRequest, actorUserId?: number) {
+  return callBotMethod<Array<{ message_id: number }>>(token, 'copyMessages', payload, { actorUserId });
+}
+
 export async function editBotMessageText(token: string, payload: EditMessageTextRequest, actorUserId?: number) {
   return callBotMethod(token, 'editMessageText', payload, { actorUserId });
 }
@@ -1497,10 +1548,14 @@ export async function sendBotMediaFile(token: string, payload: {
   width?: number;
   height?: number;
   length?: number;
-}) {
+  replyToMessageId?: number;
+}, actorUserId?: number) {
   const formData = new FormData();
   formData.append('chat_id', String(payload.chatId));
   formData.append(payload.field, payload.file, payload.file.name);
+  if (typeof payload.replyToMessageId === 'number' && Number.isFinite(payload.replyToMessageId)) {
+    formData.append('reply_to_message_id', String(Math.trunc(payload.replyToMessageId)));
+  }
   if (payload.caption?.trim()) {
     formData.append('caption', payload.caption.trim());
     if (payload.parseMode) {
@@ -1524,8 +1579,14 @@ export async function sendBotMediaFile(token: string, payload: {
     formData.append('length', String(payload.length));
   }
 
-  const response = await fetch(`${API_BASE_URL}/bot${token}/${payload.method}`, {
+  const headers: Record<string, string> = {};
+  if (typeof actorUserId === 'number' && Number.isFinite(actorUserId)) {
+    headers['X-LaraGram-Actor-User-Id'] = String(Math.trunc(actorUserId));
+  }
+
+  const response = await fetch(`${API_BASE_URL}/bot${encodeURIComponent(token)}/${payload.method}`, {
     method: 'POST',
+    headers,
     body: formData,
   });
 

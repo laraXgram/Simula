@@ -124,6 +124,7 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
             description             TEXT,
             photo_file_id           TEXT,
             is_forum                INTEGER NOT NULL DEFAULT 0,
+            channel_show_author_signature INTEGER NOT NULL DEFAULT 0,
             message_history_visible INTEGER NOT NULL DEFAULT 1,
             slow_mode_delay         INTEGER NOT NULL DEFAULT 0,
             permissions_json        TEXT,
@@ -157,6 +158,7 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
             status      TEXT NOT NULL,
             role        TEXT NOT NULL,
             permissions_json TEXT,
+            admin_rights_json TEXT,
             until_date  INTEGER,
             custom_title TEXT,
             tag         TEXT,
@@ -210,6 +212,31 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
             FOREIGN KEY(bot_id) REFERENCES bots(id),
             FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
         );
+
+        CREATE TABLE IF NOT EXISTS sim_channel_post_stats (
+            bot_id      INTEGER NOT NULL,
+            chat_key    TEXT NOT NULL,
+            message_id  INTEGER NOT NULL,
+            views       INTEGER NOT NULL DEFAULT 0,
+            updated_at  INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, chat_key, message_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS sim_channel_post_viewers (
+            bot_id         INTEGER NOT NULL,
+            chat_key       TEXT NOT NULL,
+            message_id     INTEGER NOT NULL,
+            viewer_user_id INTEGER NOT NULL,
+            viewed_at      INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, chat_key, message_id, viewer_user_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_sim_channel_post_viewers_window
+            ON sim_channel_post_viewers (bot_id, chat_key, message_id, viewed_at DESC);
 
         CREATE TABLE IF NOT EXISTS messages (
             message_id    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -558,7 +585,9 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
     ensure_column_exists(conn, "poll_metadata", "description_entities_json", "TEXT")?;
     ensure_column_exists(conn, "sim_chats", "sticker_set_name", "TEXT")?;
     ensure_column_exists(conn, "sim_chats", "pinned_message_id", "INTEGER")?;
+    ensure_column_exists(conn, "sim_chats", "channel_show_author_signature", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column_exists(conn, "sim_chat_members", "permissions_json", "TEXT")?;
+    ensure_column_exists(conn, "sim_chat_members", "admin_rights_json", "TEXT")?;
     ensure_column_exists(conn, "sim_chat_members", "until_date", "INTEGER")?;
     ensure_column_exists(conn, "sim_chat_members", "custom_title", "TEXT")?;
     ensure_column_exists(conn, "sim_chat_members", "tag", "TEXT")?;

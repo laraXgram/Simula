@@ -18,6 +18,7 @@ use crate::handlers::{
     handle_sim_decline_join_request,
     handle_sim_delete_group,
     handle_sim_set_bot_group_membership,
+    handle_sim_mark_channel_message_view,
     handle_sim_join_group,
     handle_sim_join_group_by_invite_link,
     handle_sim_leave_group,
@@ -40,7 +41,7 @@ use crate::handlers::{
     handle_sim_upsert_user,
     handle_download_file,
     with_request_actor_user_id,
-    SimChooseInlineResultRequest, SimClearHistoryRequest, SimCreateBotRequest, SimCreateGroupInviteLinkRequest, SimCreateGroupRequest, SimDeleteGroupRequest, SimJoinGroupByInviteLinkRequest, SimJoinGroupRequest, SimLeaveGroupRequest, SimPayInvoiceRequest, SimPressInlineButtonRequest, SimResolveJoinRequestRequest, SimSendInlineQueryRequest, SimSendUserMessageRequest, SimSetBotGroupMembershipRequest, SimSetUserReactionRequest, SimUpdateBotRequest, SimUpdateGroupRequest,
+    SimChooseInlineResultRequest, SimClearHistoryRequest, SimCreateBotRequest, SimCreateGroupInviteLinkRequest, SimCreateGroupRequest, SimDeleteGroupRequest, SimJoinGroupByInviteLinkRequest, SimJoinGroupRequest, SimLeaveGroupRequest, SimMarkChannelMessageViewRequest, SimPayInvoiceRequest, SimPressInlineButtonRequest, SimResolveJoinRequestRequest, SimSendInlineQueryRequest, SimSendUserMessageRequest, SimSetBotGroupMembershipRequest, SimSetUserReactionRequest, SimUpdateBotRequest, SimUpdateGroupRequest,
     SimSendUserContactRequest, SimSendUserDiceRequest, SimSendUserGameRequest, SimSendUserLocationRequest, SimSendUserVenueRequest,
     SimSetPrivacyModeRequest,
     SimVotePollRequest,
@@ -484,6 +485,16 @@ pub async fn sim_leave_group(
 ) -> impl Responder {
     let token = path.into_inner();
     into_telegram_response(handle_sim_leave_group(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/channels/views/mark")]
+pub async fn sim_mark_channel_message_view(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimMarkChannelMessageViewRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_mark_channel_message_view(&state, &token, payload.into_inner()))
 }
 
 #[post("/client-api/bot{token}/groups/update")]

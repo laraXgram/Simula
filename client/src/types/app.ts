@@ -66,6 +66,7 @@ export interface SimChatJoinRequest {
 export interface SimChatSettings {
   chat_id: number;
   description?: string;
+  show_author_signature?: boolean;
   message_history_visible: boolean;
   slow_mode_delay: number;
   permissions: GeneratedChatPermissions;
@@ -136,6 +137,9 @@ export interface ChatMessage {
   captionEntities?: MessageEntity[];
   replyMarkup?: BotReplyMarkup;
   editDate?: number;
+  views?: number;
+  forwardedFrom?: string;
+  forwardedDate?: number;
   reactionCounts?: Array<{
     emoji: string;
     count: number;

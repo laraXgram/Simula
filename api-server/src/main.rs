@@ -16,6 +16,7 @@ use crate::routes::{
     sim_create_group, sim_create_group_invite_link,
     sim_delete_group,
     sim_get_privacy_mode,
+    sim_mark_channel_message_view,
     sim_set_bot_group_membership,
     sim_set_privacy_mode,
     sim_join_group, sim_join_group_by_invite_link, sim_leave_group,
@@ -98,6 +99,7 @@ async fn main() -> std::io::Result<()> {
             .service(sim_set_bot_group_membership)
             .service(sim_join_group)
             .service(sim_leave_group)
+            .service(sim_mark_channel_message_view)
             .service(sim_update_group)
             .service(sim_update_bot)
             .service(sim_upsert_user)
