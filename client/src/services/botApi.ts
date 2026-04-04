@@ -1655,8 +1655,15 @@ export async function setStickerSetThumbnail(token: string, payload: SetStickerS
 
   if (payload.thumbnail !== undefined && payload.thumbnail !== null) {
     const thumb = payload.thumbnail as unknown;
+    const extra = (typeof thumb === 'object' && thumb !== null && 'extra' in thumb)
+      ? (thumb as { extra?: unknown }).extra
+      : undefined;
     if (thumb instanceof window.File) {
       formData.append('thumbnail', thumb, thumb.name);
+    } else if (extra instanceof window.File) {
+      formData.append('thumbnail', extra, extra.name);
+    } else if (typeof extra === 'string') {
+      formData.append('thumbnail', extra);
     } else if (typeof thumb === 'string') {
       formData.append('thumbnail', thumb);
     }

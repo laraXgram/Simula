@@ -247,6 +247,7 @@ const FORUM_ICON_COLOR_PRESETS = [
   0xFFA76D,
   0x8EC5FF,
 ];
+const FORUM_TOPIC_EMOJI_PRESETS = ['😀', '😎', '🎯', '📣', '💡', '🚀', '🎮', '🛠️', '🧪', '📌'];
 
 function mapIncomingReplyMarkup(raw?: Record<string, unknown>): BotReplyMarkup | undefined {
   if (!raw || typeof raw !== 'object') {
@@ -446,6 +447,40 @@ function normalizeForumTopics(topics: ForumTopicState[]): ForumTopicState[] {
     }
     return a.name.localeCompare(b.name);
   });
+}
+
+function splitForumTopicNameWithEmoji(rawName: string): { emoji: string; name: string } {
+  const normalized = rawName.trim();
+  if (!normalized) {
+    return { emoji: '', name: '' };
+  }
+
+  const matched = FORUM_TOPIC_EMOJI_PRESETS.find((emoji) => (
+    normalized === emoji || normalized.startsWith(`${emoji} `)
+  ));
+  if (!matched) {
+    return { emoji: '', name: normalized };
+  }
+
+  const name = normalized === matched
+    ? ''
+    : normalized.slice(matched.length).trim();
+  return { emoji: matched, name };
+}
+
+function buildForumTopicNameWithEmoji(rawName: string, emoji: string): string {
+  const name = rawName.trim();
+  const normalizedEmoji = emoji.trim();
+  if (!normalizedEmoji) {
+    return name;
+  }
+  if (!name) {
+    return normalizedEmoji;
+  }
+  if (name === normalizedEmoji || name.startsWith(`${normalizedEmoji} `)) {
+    return name;
+  }
+  return `${normalizedEmoji} ${name}`;
 }
 
 function formatChatActionLabel(action: string): string {
@@ -934,6 +969,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const [forumTopicDraft, setForumTopicDraft] = useState({
     messageThreadId: '',
     name: '',
+    normalEmoji: '',
     iconColor: String(DEFAULT_FORUM_ICON_COLOR),
     iconCustomEmojiId: '',
     generalName: 'General',
@@ -1104,6 +1140,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     setTitle: '',
     stickerType: 'regular',
     stickerFormat: 'static',
+    needsRepainting: false,
     emojiList: '😀',
     keywords: '',
     oldStickerId: '',
@@ -1277,6 +1314,28 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       ...prev,
       [selectedGroupStateKey]: normalizedThreadId,
     }));
+  };
+
+  const ensureActiveForumTopicWritable = (): boolean => {
+    if (chatScopeTab !== 'group' || !selectedGroup?.isForum) {
+      return true;
+    }
+
+    if (!activeForumTopic) {
+      return true;
+    }
+
+    if (activeForumTopic.isClosed) {
+      setErrorText('Selected forum topic is closed. Reopen it to send new messages.');
+      return false;
+    }
+
+    if (activeForumTopic.isGeneral && activeForumTopic.isHidden) {
+      setErrorText('General topic is hidden. Unhide it before sending messages.');
+      return false;
+    }
+
+    return true;
   };
 
   const selectedChatId = chatScopeTab === 'group'
@@ -1684,6 +1743,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       ...prev,
       messageThreadId: '',
       name: '',
+      normalEmoji: '',
       iconColor: String(DEFAULT_FORUM_ICON_COLOR),
       iconCustomEmojiId: '',
     }));
@@ -2544,6 +2604,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     if (!text.trim() || isSending) {
       return;
     }
+    if (!ensureActiveForumTopicWritable()) {
+      return;
+    }
 
     setIsSending(true);
     setErrorText('');
@@ -2567,6 +2630,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
   const submitComposer = async () => {
     const text = composerText.trim();
+
+    if (!composerEditTarget && !ensureActiveForumTopicWritable()) {
+      return;
+    }
 
     const pollTrigger = (() => {
       const lower = text.toLowerCase();
@@ -2792,6 +2859,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   };
 
   const submitPollBuilder = async () => {
+    if (!ensureActiveForumTopicWritable()) {
+      return;
+    }
+
     const question = pollBuilder.question.trim();
     const options = pollBuilder.options.map((item) => item.trim()).filter(Boolean);
 
@@ -2884,6 +2955,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   };
 
   const submitInvoiceBuilder = async () => {
+    if (!ensureActiveForumTopicWritable()) {
+      return;
+    }
+
     const title = invoiceBuilder.title.trim();
     const description = invoiceBuilder.description.trim();
     const amount = Number(invoiceBuilder.amount);
@@ -3021,6 +3096,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       setErrorText('Sticker set name/title are required.');
       return;
     }
+    if (stickerEmojiList.length === 0) {
+      setErrorText('Provide at least one emoji in emoji list.');
+      return;
+    }
 
     try {
       await createNewStickerSet(selectedBotToken, {
@@ -3028,7 +3107,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         name: stickerStudio.setName.trim(),
         title: stickerStudio.setTitle.trim(),
         sticker_type: stickerStudio.stickerType,
-        needs_repainting: false,
+        needs_repainting: stickerStudio.stickerType === 'custom_emoji'
+          ? stickerStudio.needsRepainting
+          : undefined,
         stickers: [
           {
             sticker: uploadedStickerFileId,
@@ -3056,6 +3137,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const addStickerToSetAction = async () => {
     if (!uploadedStickerFileId || !stickerStudio.setName.trim()) {
       setErrorText('Upload sticker and provide set name.');
+      return;
+    }
+    if (stickerEmojiList.length === 0) {
+      setErrorText('Provide at least one emoji in emoji list.');
       return;
     }
 
@@ -3138,6 +3223,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     const stickerRef = stickerStudio.targetStickerId.trim() || uploadedStickerFileId;
     if (!stickerRef) {
       setErrorText('Sticker file_id is required for item actions.');
+      return;
+    }
+    if (stickerEmojiList.length === 0) {
+      setErrorText('Provide at least one emoji in emoji list.');
       return;
     }
 
@@ -3284,6 +3373,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     mediaKind: 'sticker' | 'animation' | 'video_note' | 'voice',
     mediaRef: string,
   ) => {
+    if (!ensureActiveForumTopicWritable()) {
+      return;
+    }
+
     try {
       await sendUserMediaByReference(selectedBotToken, {
         chatId: selectedChatId,
@@ -3310,6 +3403,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     file: File | null,
     mediaKind: 'animation' | 'voice' | 'video_note',
   ) => {
+    if (!ensureActiveForumTopicWritable()) {
+      return;
+    }
+
     if (!file) {
       setErrorText('Select a file first.');
       return;
@@ -4050,6 +4147,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       ...prev,
       messageThreadId: '',
       name: '',
+      normalEmoji: '',
       iconColor: String(activeForumTopic?.iconColor || DEFAULT_FORUM_ICON_COLOR),
       iconCustomEmojiId: '',
     }));
@@ -4064,10 +4162,12 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
     setForumTopicModalMode('edit');
     setForumTopicModalThreadId(topic.messageThreadId);
+    const parsedTopicName = splitForumTopicNameWithEmoji(topic.name);
     setForumTopicDraft((prev) => ({
       ...prev,
       messageThreadId: String(topic.messageThreadId),
-      name: topic.name,
+      name: parsedTopicName.name,
+      normalEmoji: parsedTopicName.emoji,
       iconColor: String(topic.iconColor),
       iconCustomEmojiId: topic.iconCustomEmojiId || '',
       generalName: topic.isGeneral ? topic.name : prev.generalName,
@@ -4114,7 +4214,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       return false;
     }
 
-    const name = forumTopicDraft.name.trim();
+    const name = buildForumTopicNameWithEmoji(forumTopicDraft.name, forumTopicDraft.normalEmoji);
     if (!name) {
       setErrorText('Topic name is required.');
       return false;
@@ -4131,10 +4231,13 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         icon_custom_emoji_id: forumTopicDraft.iconCustomEmojiId.trim() || undefined,
       }, selectedUser.id);
 
+      const parsedTopicName = splitForumTopicNameWithEmoji(topic.name);
+
       setForumTopicDraft((prev) => ({
         ...prev,
         messageThreadId: String(topic.message_thread_id),
-        name: topic.name,
+        name: parsedTopicName.name,
+        normalEmoji: parsedTopicName.emoji,
         iconColor: String(topic.icon_color),
         iconCustomEmojiId: topic.icon_custom_emoji_id || '',
       }));
@@ -4187,7 +4290,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         message_thread_id: messageThreadId,
       };
 
-      const nextName = forumTopicDraft.name.trim();
+      const nextName = buildForumTopicNameWithEmoji(forumTopicDraft.name, forumTopicDraft.normalEmoji);
       if (nextName) {
         payload.name = nextName;
       }
@@ -4389,8 +4492,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
 
     const isGeneral = threadId === GENERAL_FORUM_TOPIC_THREAD_ID;
+    const modalTopicName = buildForumTopicNameWithEmoji(forumTopicDraft.name, forumTopicDraft.normalEmoji);
     const updated = isGeneral
-      ? await onEditGeneralForumTopicFromDraft(forumTopicDraft.name)
+      ? await onEditGeneralForumTopicFromDraft(modalTopicName)
       : await onEditForumTopicFromDraft(threadId);
     if (updated) {
       setShowForumTopicModal(false);
@@ -5449,6 +5553,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const onReplyKeyboardButtonPress = async (button: ReplyKeyboardButton) => {
     const text = button.text.trim();
     if (!text || isSending) {
+      return;
+    }
+
+    if (!ensureActiveForumTopicWritable()) {
       return;
     }
 
@@ -9155,6 +9263,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                               type="button"
                               onClick={() => {
                                 void (async () => {
+                                  if (!ensureActiveForumTopicWritable()) {
+                                    return;
+                                  }
+
                                   try {
                                     await sendUserDice(selectedBotToken, {
                                       chatId: selectedChatId,
@@ -9193,6 +9305,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                               type="button"
                               onClick={() => {
                                 void (async () => {
+                                  if (!ensureActiveForumTopicWritable()) {
+                                    return;
+                                  }
+
                                   try {
                                     const shortName = gameShortNameDraft.trim() || `game_${Math.floor(Date.now() / 1000)}`;
                                     await sendUserGame(selectedBotToken, {
@@ -9236,6 +9352,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                               type="button"
                               onClick={() => {
                                 void (async () => {
+                                  if (!ensureActiveForumTopicWritable()) {
+                                    return;
+                                  }
+
                                   try {
                                     await sendUserContact(selectedBotToken, {
                                       chatId: selectedChatId,
@@ -9281,6 +9401,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                               type="button"
                               onClick={() => {
                                 void (async () => {
+                                  if (!ensureActiveForumTopicWritable()) {
+                                    return;
+                                  }
+
                                   try {
                                     await sendUserLocation(selectedBotToken, {
                                       chatId: selectedChatId,
@@ -9339,6 +9463,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                               type="button"
                               onClick={() => {
                                 void (async () => {
+                                  if (!ensureActiveForumTopicWritable()) {
+                                    return;
+                                  }
+
                                   try {
                                     await sendUserVenue(selectedBotToken, {
                                       chatId: selectedChatId,
@@ -9776,6 +9904,61 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                               className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
                             />
                           </div>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <input
+                              value={stickerStudio.keywords}
+                              onChange={(event) => setStickerStudio((prev) => ({ ...prev, keywords: event.target.value }))}
+                              placeholder="keywords csv (optional)"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                            />
+                            {stickerStudio.stickerType === 'custom_emoji' ? (
+                              <label className="flex items-center gap-2 rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-[#d4e9f8]">
+                                <input
+                                  type="checkbox"
+                                  checked={stickerStudio.needsRepainting}
+                                  onChange={(event) => setStickerStudio((prev) => ({ ...prev, needsRepainting: event.target.checked }))}
+                                />
+                                Needs repainting
+                              </label>
+                            ) : (
+                              <div className="rounded-md border border-[#355a76]/40 bg-black/20 px-2 py-1 text-[11px] text-[#9ec2da]">
+                                Use mask controls when type is mask.
+                              </div>
+                            )}
+                          </div>
+
+                          {stickerStudio.stickerType === 'mask' ? (
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
+                              <select
+                                value={stickerStudio.maskPoint}
+                                onChange={(event) => setStickerStudio((prev) => ({ ...prev, maskPoint: event.target.value }))}
+                                className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                              >
+                                <option value="forehead">forehead</option>
+                                <option value="eyes">eyes</option>
+                                <option value="mouth">mouth</option>
+                                <option value="chin">chin</option>
+                              </select>
+                              <input
+                                value={stickerStudio.maskXShift}
+                                onChange={(event) => setStickerStudio((prev) => ({ ...prev, maskXShift: event.target.value }))}
+                                placeholder="x_shift"
+                                className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                              />
+                              <input
+                                value={stickerStudio.maskYShift}
+                                onChange={(event) => setStickerStudio((prev) => ({ ...prev, maskYShift: event.target.value }))}
+                                placeholder="y_shift"
+                                className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                              />
+                              <input
+                                value={stickerStudio.maskScale}
+                                onChange={(event) => setStickerStudio((prev) => ({ ...prev, maskScale: event.target.value }))}
+                                placeholder="scale"
+                                className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                              />
+                            </div>
+                          ) : null}
                           <hr className="border-white/15" />
 
                           <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
@@ -11424,6 +11607,32 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                 placeholder="Topic name"
               />
 
+              <div className="space-y-2">
+                <label className="block text-xs text-[#9ec2da]">Normal emoji prefix</label>
+                <input
+                  value={forumTopicDraft.normalEmoji}
+                  onChange={(event) => setForumTopicDraft((prev) => ({ ...prev, normalEmoji: event.target.value }))}
+                  className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                  placeholder="e.g. 🚀"
+                />
+                <div className="flex flex-wrap gap-2">
+                  {FORUM_TOPIC_EMOJI_PRESETS.map((emoji) => (
+                    <button
+                      key={`forum-topic-modal-emoji-${emoji}`}
+                      type="button"
+                      onClick={() => setForumTopicDraft((prev) => ({ ...prev, normalEmoji: emoji }))}
+                      className={`rounded-md border px-2 py-1 text-base leading-none ${forumTopicDraft.normalEmoji === emoji ? 'border-[#8dd2ff]/75 bg-[#214a69]' : 'border-white/20 bg-black/20 hover:bg-white/10'}`}
+                      title={`Use ${emoji}`}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-[#9ec2da]">
+                  Preview: {buildForumTopicNameWithEmoji(forumTopicDraft.name, forumTopicDraft.normalEmoji) || '-'}
+                </p>
+              </div>
+
               <div>
                 <p className="mb-1 text-xs text-[#9ec2da]">Default icon colors</p>
                 <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
@@ -11507,7 +11716,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               <button
                 type="button"
                 onClick={() => void onSubmitForumTopicModal()}
-                disabled={isGroupActionRunning || !forumTopicDraft.name.trim()}
+                disabled={isGroupActionRunning || !buildForumTopicNameWithEmoji(forumTopicDraft.name, forumTopicDraft.normalEmoji).trim()}
                 className="rounded-lg bg-[#2b5278] px-3 py-2 text-sm font-medium text-white hover:bg-[#366892] disabled:opacity-50"
               >
                 {forumTopicModalMode === 'create' ? 'Create topic' : 'Save topic'}

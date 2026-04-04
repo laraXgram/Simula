@@ -2202,13 +2202,19 @@ fn resolve_forum_message_thread_id(
     }
 
     if thread_id == 1 {
-        ensure_general_forum_topic_state(conn, bot_id, &sim_chat.chat_key)?;
+        let (_, is_closed, is_hidden) = ensure_general_forum_topic_state(conn, bot_id, &sim_chat.chat_key)?;
+        if is_closed {
+            return Err(ApiError::bad_request("general forum topic is closed"));
+        }
+        if is_hidden {
+            return Err(ApiError::bad_request("general forum topic is hidden"));
+        }
         return Ok(Some(thread_id));
     }
 
-    let exists: Option<i64> = conn
+    let topic_is_closed: Option<i64> = conn
         .query_row(
-            "SELECT 1 FROM forum_topics
+            "SELECT is_closed FROM forum_topics
              WHERE bot_id = ?1 AND chat_key = ?2 AND message_thread_id = ?3",
             params![bot_id, &sim_chat.chat_key, thread_id],
             |row| row.get(0),
@@ -2216,8 +2222,12 @@ fn resolve_forum_message_thread_id(
         .optional()
         .map_err(ApiError::internal)?;
 
-    if exists.is_none() {
+    if topic_is_closed.is_none() {
         return Err(ApiError::not_found("forum topic not found"));
+    }
+
+    if topic_is_closed.unwrap_or_default() == 1 {
+        return Err(ApiError::bad_request("forum topic is closed"));
     }
 
     Ok(Some(thread_id))
@@ -7334,6 +7344,17 @@ fn sticker_format_flags(format: &str) -> (bool, bool) {
     }
 }
 
+fn derive_custom_emoji_id(bot_id: i64, file_unique_id: &str) -> String {
+    let mut hash: u64 = 1469598103934665603;
+    for byte in file_unique_id.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(1099511628211);
+    }
+    hash ^= bot_id as u64;
+    hash = hash.wrapping_mul(1099511628211);
+    hash.to_string()
+}
+
 fn infer_sticker_format_from_file(file: &StoredFile) -> Option<&'static str> {
     let mime = file
         .mime_type
@@ -7471,6 +7492,26 @@ fn upsert_set_sticker(
     let now = Utc::now().timestamp();
     let (is_animated, is_video) = sticker_format_flags(format);
 
+    let existing_custom_emoji_id: Option<String> = conn
+        .query_row(
+            "SELECT custom_emoji_id FROM stickers WHERE bot_id = ?1 AND file_id = ?2",
+            params![bot.id, file.file_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?
+        .flatten();
+    let custom_emoji_id = if sticker_type == "custom_emoji" {
+        existing_custom_emoji_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .or_else(|| Some(derive_custom_emoji_id(bot.id, &file.file_unique_id)))
+    } else {
+        None
+    };
+
     let mask_json = input
         .mask_position
         .as_ref()
@@ -7487,7 +7528,7 @@ fn upsert_set_sticker(
         "INSERT INTO stickers
          (bot_id, file_id, file_unique_id, set_name, sticker_type, format, width, height, is_animated, is_video,
           emoji, emoji_list_json, keywords_json, mask_position_json, custom_emoji_id, needs_repainting, position, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 512, 512, ?7, ?8, ?9, ?10, ?11, ?12, NULL, ?13, ?14, ?15, ?15)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 512, 512, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?16)
          ON CONFLICT(bot_id, file_id) DO UPDATE SET
              set_name = excluded.set_name,
              sticker_type = excluded.sticker_type,
@@ -7498,6 +7539,7 @@ fn upsert_set_sticker(
              emoji_list_json = excluded.emoji_list_json,
              keywords_json = excluded.keywords_json,
              mask_position_json = excluded.mask_position_json,
+             custom_emoji_id = excluded.custom_emoji_id,
              needs_repainting = excluded.needs_repainting,
              position = excluded.position,
              updated_at = excluded.updated_at",
@@ -7514,6 +7556,7 @@ fn upsert_set_sticker(
             emoji_json,
             keywords_json,
             mask_json,
+            custom_emoji_id,
             if needs_repainting { 1 } else { 0 },
             position,
             now,
