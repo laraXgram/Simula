@@ -275,6 +275,7 @@ export async function updateSimulationGroup(token: string, payload: {
   description?: string;
   is_forum?: boolean;
   show_author_signature?: boolean;
+  linked_chat_id?: number;
   message_history_visible?: boolean;
   slow_mode_delay?: number;
   permissions?: ChatPermissions;
@@ -283,6 +284,7 @@ export async function updateSimulationGroup(token: string, payload: {
   settings?: {
     description?: string;
     show_author_signature?: boolean;
+    linked_chat_id?: number;
     message_history_visible: boolean;
     slow_mode_delay: number;
     permissions: ChatPermissions;
@@ -306,6 +308,7 @@ export async function updateSimulationGroup(token: string, payload: {
     settings?: {
       description?: string;
       show_author_signature?: boolean;
+      linked_chat_id?: number;
       message_history_visible: boolean;
       slow_mode_delay: number;
       permissions: ChatPermissions;
@@ -786,6 +789,7 @@ export async function sendUserMessage(token: string, payload: {
   user_id: number;
   first_name: string;
   username?: string;
+  sender_chat_id?: number;
   text: string;
   parse_mode?: 'HTML' | 'Markdown' | 'MarkdownV2';
   reply_to_message_id?: number;
@@ -1024,6 +1028,7 @@ export async function sendUserMedia(token: string, payload: {
   userId: number;
   firstName: string;
   username?: string;
+  senderChatId?: number;
   file: globalThis.File;
   mediaKind?: 'photo' | 'video' | 'audio' | 'voice' | 'document' | 'sticker' | 'animation' | 'video_note';
   caption?: string;
@@ -1056,6 +1061,9 @@ export async function sendUserMedia(token: string, payload: {
   formData.append('first_name', payload.firstName);
   if (payload.username) {
     formData.append('username', payload.username);
+  }
+  if (typeof payload.senderChatId === 'number' && Number.isFinite(payload.senderChatId) && payload.senderChatId > 0) {
+    formData.append('sender_chat_id', String(Math.trunc(payload.senderChatId)));
   }
   if (payload.replyToMessageId) {
     formData.append('reply_to_message_id', String(payload.replyToMessageId));
@@ -1091,6 +1099,7 @@ export async function sendUserMediaByReference(token: string, payload: {
   userId: number;
   firstName: string;
   username?: string;
+  senderChatId?: number;
   mediaKind: 'sticker' | 'animation' | 'video_note' | 'voice';
   media: string;
   caption?: string;
@@ -1108,6 +1117,7 @@ export async function sendUserMediaByReference(token: string, payload: {
       user_id: payload.userId,
       first_name: payload.firstName,
       username: payload.username,
+      sender_chat_id: payload.senderChatId,
       media_kind: payload.mediaKind,
       media: payload.media,
       caption: payload.caption,
@@ -1130,6 +1140,7 @@ export async function sendUserDice(token: string, payload: {
   userId: number;
   firstName: string;
   username?: string;
+  senderChatId?: number;
   emoji?: string;
   replyToMessageId?: number;
 }) {
@@ -1144,6 +1155,7 @@ export async function sendUserDice(token: string, payload: {
       user_id: payload.userId,
       first_name: payload.firstName,
       username: payload.username,
+      sender_chat_id: payload.senderChatId,
       emoji: payload.emoji,
       reply_to_message_id: payload.replyToMessageId,
     }),
@@ -1162,6 +1174,7 @@ export async function sendUserGame(token: string, payload: {
   userId: number;
   firstName: string;
   username?: string;
+  senderChatId?: number;
   gameShortName: string;
   replyToMessageId?: number;
 }) {
@@ -1176,6 +1189,7 @@ export async function sendUserGame(token: string, payload: {
       user_id: payload.userId,
       first_name: payload.firstName,
       username: payload.username,
+      sender_chat_id: payload.senderChatId,
       game_short_name: payload.gameShortName,
       reply_to_message_id: payload.replyToMessageId,
     }),
@@ -1194,6 +1208,7 @@ export async function sendUserContact(token: string, payload: {
   userId: number;
   firstName: string;
   username?: string;
+  senderChatId?: number;
   phoneNumber: string;
   contactFirstName: string;
   contactLastName?: string;
@@ -1211,6 +1226,7 @@ export async function sendUserContact(token: string, payload: {
       user_id: payload.userId,
       first_name: payload.firstName,
       username: payload.username,
+      sender_chat_id: payload.senderChatId,
       phone_number: payload.phoneNumber,
       contact_first_name: payload.contactFirstName,
       contact_last_name: payload.contactLastName,
@@ -1232,6 +1248,7 @@ export async function sendUserLocation(token: string, payload: {
   userId: number;
   firstName: string;
   username?: string;
+  senderChatId?: number;
   latitude: number;
   longitude: number;
   horizontalAccuracy?: number;
@@ -1251,6 +1268,7 @@ export async function sendUserLocation(token: string, payload: {
       user_id: payload.userId,
       first_name: payload.firstName,
       username: payload.username,
+      sender_chat_id: payload.senderChatId,
       latitude: payload.latitude,
       longitude: payload.longitude,
       horizontal_accuracy: payload.horizontalAccuracy,
@@ -1274,6 +1292,7 @@ export async function sendUserVenue(token: string, payload: {
   userId: number;
   firstName: string;
   username?: string;
+  senderChatId?: number;
   latitude: number;
   longitude: number;
   title: string;
@@ -1291,6 +1310,7 @@ export async function sendUserVenue(token: string, payload: {
       user_id: payload.userId,
       first_name: payload.firstName,
       username: payload.username,
+      sender_chat_id: payload.senderChatId,
       latitude: payload.latitude,
       longitude: payload.longitude,
       title: payload.title,

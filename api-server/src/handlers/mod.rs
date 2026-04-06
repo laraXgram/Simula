@@ -78,6 +78,7 @@ pub struct SimSendUserMessageRequest {
     pub user_id: Option<i64>,
     pub first_name: Option<String>,
     pub username: Option<String>,
+    pub sender_chat_id: Option<i64>,
     pub text: String,
     pub parse_mode: Option<String>,
     pub reply_to_message_id: Option<i64>,
@@ -93,6 +94,7 @@ pub struct SimSendUserMediaRequest {
     pub user_id: Option<i64>,
     pub first_name: Option<String>,
     pub username: Option<String>,
+    pub sender_chat_id: Option<i64>,
     pub media_kind: String,
     pub media: Value,
     pub caption: Option<String>,
@@ -186,6 +188,7 @@ pub struct SimUpdateGroupRequest {
     pub description: Option<String>,
     pub is_forum: Option<bool>,
     pub show_author_signature: Option<bool>,
+    pub linked_chat_id: Option<i64>,
     pub message_history_visible: Option<bool>,
     pub slow_mode_delay: Option<i64>,
     pub permissions: Option<ChatPermissions>,
@@ -295,6 +298,7 @@ pub struct SimSendUserDiceRequest {
     pub user_id: Option<i64>,
     pub first_name: Option<String>,
     pub username: Option<String>,
+    pub sender_chat_id: Option<i64>,
     pub emoji: Option<String>,
     pub reply_to_message_id: Option<i64>,
 }
@@ -306,6 +310,7 @@ pub struct SimSendUserGameRequest {
     pub user_id: Option<i64>,
     pub first_name: Option<String>,
     pub username: Option<String>,
+    pub sender_chat_id: Option<i64>,
     pub game_short_name: String,
     pub reply_to_message_id: Option<i64>,
 }
@@ -317,6 +322,7 @@ pub struct SimSendUserContactRequest {
     pub user_id: Option<i64>,
     pub first_name: Option<String>,
     pub username: Option<String>,
+    pub sender_chat_id: Option<i64>,
     pub phone_number: String,
     pub contact_first_name: String,
     pub contact_last_name: Option<String>,
@@ -331,6 +337,7 @@ pub struct SimSendUserLocationRequest {
     pub user_id: Option<i64>,
     pub first_name: Option<String>,
     pub username: Option<String>,
+    pub sender_chat_id: Option<i64>,
     pub latitude: f64,
     pub longitude: f64,
     pub horizontal_accuracy: Option<f64>,
@@ -347,6 +354,7 @@ pub struct SimSendUserVenueRequest {
     pub user_id: Option<i64>,
     pub first_name: Option<String>,
     pub username: Option<String>,
+    pub sender_chat_id: Option<i64>,
     pub latitude: f64,
     pub longitude: f64,
     pub title: String,
@@ -1153,8 +1161,13 @@ fn handle_ban_chat_sender_chat(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, _sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
+    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    ensure_request_actor_can_manage_sender_chat_in_linked_context(
+        &mut conn,
+        &bot,
+        &chat_key,
+        &sim_chat,
+    )?;
 
     let now = Utc::now().timestamp();
     conn.execute(
@@ -1178,8 +1191,13 @@ fn handle_unban_chat_sender_chat(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, _sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
+    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    ensure_request_actor_can_manage_sender_chat_in_linked_context(
+        &mut conn,
+        &bot,
+        &chat_key,
+        &sim_chat,
+    )?;
 
     conn.execute(
         "DELETE FROM sim_banned_sender_chats
@@ -2046,6 +2064,8 @@ fn handle_get_chat(
         .optional()
         .map_err(ApiError::internal)?;
 
+    let linked_chat_id = resolve_linked_chat_id_for_chat(&mut conn, bot.id, &sim_chat)?;
+
     let chat_full = ChatFullInfo {
         id: sim_chat.chat_id,
         r#type: sim_chat.chat_type.clone(),
@@ -2114,7 +2134,7 @@ fn handle_get_chat(
             None
         },
         custom_emoji_sticker_set_name: None,
-        linked_chat_id: None,
+        linked_chat_id,
         location: None,
         rating: None,
         first_profile_audio: None,
@@ -4244,6 +4264,17 @@ fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap<Str
     state.ws_hub.publish_json(token, &clean_update);
     dispatch_webhook_if_configured(&mut conn, bot.id, clean_update.clone());
 
+    if is_channel_post {
+        ensure_linked_discussion_forward_for_channel_post(
+            state,
+            &mut conn,
+            token,
+            &bot,
+            &chat_key,
+            &message_value,
+        )?;
+    }
+
     Ok(message_value)
 }
 
@@ -4346,6 +4377,10 @@ fn handle_copy_message(
         request.show_caption_above_media,
         request.reply_markup,
         request.protect_content,
+        None,
+        None,
+        None,
+        None,
     )?;
 
     let message_id = copied_message
@@ -4386,6 +4421,10 @@ fn handle_copy_messages(
             None,
             None,
             request.protect_content,
+            None,
+            None,
+            None,
+            None,
         ) {
             Ok(copied_message) => {
                 if let Some(id) = copied_message.get("message_id").and_then(Value::as_i64) {
@@ -4401,6 +4440,13 @@ fn handle_copy_messages(
     }
 
     Ok(Value::Array(copied))
+}
+
+#[derive(Clone)]
+struct LinkedDiscussionTransportContext {
+    channel_chat_key: String,
+    channel_message_id: i64,
+    discussion_root_message_id: Option<i64>,
 }
 
 fn forward_message_internal(
@@ -4481,6 +4527,7 @@ fn forward_message_internal(
         &destination_chat,
         &sender_user,
         message_value,
+        None,
     )
 }
 
@@ -4499,6 +4546,10 @@ fn copy_message_internal(
     show_caption_above_media: Option<bool>,
     reply_markup_override: Option<Value>,
     protect_content: Option<bool>,
+    reply_to_message_id_override: Option<i64>,
+    sender_chat_override: Option<Value>,
+    is_automatic_forward_override: Option<bool>,
+    linked_discussion_context: Option<LinkedDiscussionTransportContext>,
 ) -> Result<Value, ApiError> {
     let source_message = resolve_source_message_for_transport(
         conn,
@@ -4530,6 +4581,9 @@ fn copy_message_internal(
         }
         None => None,
     };
+    let reply_to_message_value = reply_to_message_id_override
+        .map(|reply_id| load_reply_message_for_chat(conn, bot, &destination_chat_key, reply_id))
+        .transpose()?;
 
     let mut message_value = source_message;
     let source_has_media = message_has_media(&message_value);
@@ -4546,6 +4600,16 @@ fn copy_message_internal(
     object.remove("author_signature");
     object.remove("sender_chat");
     object.insert("from".to_string(), sender_user_value);
+
+    if let Some(sender_chat_value) = sender_chat_override {
+        object.insert("sender_chat".to_string(), sender_chat_value);
+    }
+    if let Some(is_automatic_forward) = is_automatic_forward_override {
+        object.insert(
+            "is_automatic_forward".to_string(),
+            Value::Bool(is_automatic_forward),
+        );
+    }
 
     if source_has_media {
         if remove_caption {
@@ -4567,6 +4631,9 @@ fn copy_message_internal(
 
     if let Some(markup) = normalized_reply_markup {
         object.insert("reply_markup".to_string(), markup);
+    }
+    if let Some(reply_value) = reply_to_message_value {
+        object.insert("reply_to_message".to_string(), reply_value);
     }
 
     if let Some(thread_id) = resolved_thread_id {
@@ -4593,6 +4660,7 @@ fn copy_message_internal(
         &destination_chat,
         &sender_user,
         message_value,
+        linked_discussion_context.as_ref(),
     )
 }
 
@@ -4819,6 +4887,7 @@ fn persist_transported_message(
     destination_chat: &Chat,
     sender_user: &User,
     mut message_value: Value,
+    linked_discussion_context: Option<&LinkedDiscussionTransportContext>,
 ) -> Result<Value, ApiError> {
     let now = Utc::now().timestamp();
     let persisted_text = message_value
@@ -4849,7 +4918,24 @@ fn persist_transported_message(
     object.remove("edit_date");
     object.remove("views");
     object.remove("author_signature");
-    object.remove("sender_chat");
+
+    if let Some(context) = linked_discussion_context {
+        let discussion_root_message_id = context
+            .discussion_root_message_id
+            .unwrap_or(message_id);
+        object.insert(
+            "linked_channel_chat_id".to_string(),
+            Value::String(context.channel_chat_key.clone()),
+        );
+        object.insert(
+            "linked_channel_message_id".to_string(),
+            Value::from(context.channel_message_id),
+        );
+        object.insert(
+            "linked_discussion_root_message_id".to_string(),
+            Value::from(discussion_root_message_id),
+        );
+    }
 
     let update_value = if destination_chat.r#type == "channel" {
         json!({
@@ -8070,7 +8156,18 @@ fn send_payload_message(
 
     let clean_update = strip_nulls(update_value);
     state.ws_hub.publish_json(token, &clean_update);
-    dispatch_webhook_if_configured(&mut conn, bot.id, clean_update);
+    dispatch_webhook_if_configured(&mut conn, bot.id, clean_update.clone());
+
+    if is_channel_post {
+        ensure_linked_discussion_forward_for_channel_post(
+            state,
+            &mut conn,
+            token,
+            &bot,
+            &chat_key,
+            &message_value,
+        )?;
+    }
 
     Ok(message_value)
 }
@@ -8211,9 +8308,334 @@ fn send_media_message_with_group(
 
     let clean_update = strip_nulls(update_value);
     state.ws_hub.publish_json(token, &clean_update);
-    dispatch_webhook_if_configured(&mut conn, bot.id, clean_update);
+    dispatch_webhook_if_configured(&mut conn, bot.id, clean_update.clone());
+
+    if is_channel_post {
+        ensure_linked_discussion_forward_for_channel_post(
+            state,
+            &mut conn,
+            token,
+            &bot,
+            &chat_key,
+            &message_value,
+        )?;
+    }
 
     Ok(message_value)
+}
+
+fn save_linked_discussion_mapping(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    discussion_chat_key: &str,
+    discussion_message_id: i64,
+    discussion_root_message_id: i64,
+    channel_chat_key: &str,
+    channel_message_id: i64,
+    now: i64,
+) -> Result<(), ApiError> {
+    conn.execute(
+        "INSERT INTO sim_linked_discussion_messages
+         (bot_id, discussion_chat_key, discussion_message_id, discussion_root_message_id, channel_chat_key, channel_message_id, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
+         ON CONFLICT(bot_id, discussion_chat_key, discussion_message_id)
+         DO UPDATE SET
+             discussion_root_message_id = excluded.discussion_root_message_id,
+             channel_chat_key = excluded.channel_chat_key,
+             channel_message_id = excluded.channel_message_id,
+             updated_at = excluded.updated_at",
+        params![
+            bot_id,
+            discussion_chat_key,
+            discussion_message_id,
+            discussion_root_message_id,
+            channel_chat_key,
+            channel_message_id,
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(())
+}
+
+fn load_linked_discussion_mapping_for_message(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    discussion_chat_key: &str,
+    discussion_message_id: i64,
+) -> Result<Option<(String, i64, i64)>, ApiError> {
+    conn.query_row(
+        "SELECT channel_chat_key, channel_message_id, discussion_root_message_id
+         FROM sim_linked_discussion_messages
+         WHERE bot_id = ?1 AND discussion_chat_key = ?2 AND discussion_message_id = ?3",
+        params![bot_id, discussion_chat_key, discussion_message_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )
+    .optional()
+    .map_err(ApiError::internal)
+}
+
+fn is_reply_to_linked_discussion_root_message(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    discussion_chat_key: &str,
+    reply_to_message_id: Option<i64>,
+) -> Result<bool, ApiError> {
+    let Some(reply_id) = reply_to_message_id else {
+        return Ok(false);
+    };
+
+    Ok(load_linked_discussion_mapping_for_message(
+        conn,
+        bot_id,
+        discussion_chat_key,
+        reply_id,
+    )?
+    .is_some())
+}
+
+fn ensure_linked_discussion_forward_for_channel_post(
+    state: &Data<AppState>,
+    conn: &mut rusqlite::Connection,
+    token: &str,
+    bot: &crate::database::BotInfoRecord,
+    channel_chat_key: &str,
+    channel_message_value: &Value,
+) -> Result<(), ApiError> {
+    let Some(channel_sim_chat) = load_sim_chat_record(conn, bot.id, channel_chat_key)? else {
+        return Ok(());
+    };
+    if channel_sim_chat.chat_type != "channel" {
+        return Ok(());
+    }
+
+    let Some(linked_discussion_chat_id) = channel_sim_chat.linked_discussion_chat_id else {
+        return Ok(());
+    };
+    let linked_discussion_chat_key = linked_discussion_chat_id.to_string();
+    let Some(linked_discussion_chat) = load_sim_chat_record(conn, bot.id, &linked_discussion_chat_key)? else {
+        return Ok(());
+    };
+    if linked_discussion_chat.chat_type != "group" && linked_discussion_chat.chat_type != "supergroup" {
+        return Ok(());
+    }
+
+    let channel_message_id = channel_message_value
+        .get("message_id")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| ApiError::internal("channel_post missing message_id"))?;
+
+    if is_service_message_for_transport(channel_message_value)
+        || !message_has_transportable_content(channel_message_value)
+    {
+        return Ok(());
+    }
+
+    let existing_forward: Option<(i64, i64)> = conn
+        .query_row(
+            "SELECT discussion_message_id, discussion_root_message_id
+             FROM sim_linked_discussion_messages
+             WHERE bot_id = ?1
+               AND channel_chat_key = ?2
+               AND channel_message_id = ?3
+             ORDER BY updated_at DESC
+             LIMIT 1",
+            params![bot.id, channel_chat_key, channel_message_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+    if existing_forward.is_some() {
+        return Ok(());
+    }
+
+    let sender_chat_override = channel_message_value
+        .get("sender_chat")
+        .cloned()
+        .or_else(|| channel_message_value.get("chat").cloned());
+    let linked_discussion_context = LinkedDiscussionTransportContext {
+        channel_chat_key: channel_chat_key.to_string(),
+        channel_message_id,
+        discussion_root_message_id: None,
+    };
+    let discussion_reply_to_message_id = channel_message_value
+        .get("reply_to_message")
+        .and_then(Value::as_object)
+        .and_then(|reply| reply.get("message_id"))
+        .and_then(Value::as_i64)
+        .map(|parent_channel_message_id| {
+            conn.query_row(
+                "SELECT discussion_root_message_id
+                 FROM sim_linked_discussion_messages
+                 WHERE bot_id = ?1
+                   AND discussion_chat_key = ?2
+                   AND channel_chat_key = ?3
+                   AND channel_message_id = ?4
+                 ORDER BY updated_at DESC
+                 LIMIT 1",
+                params![
+                    bot.id,
+                    &linked_discussion_chat_key,
+                    channel_chat_key,
+                    parent_channel_message_id,
+                ],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(ApiError::internal)
+        })
+        .transpose()?
+        .flatten();
+
+    let forwarded_value = copy_message_internal(
+        state,
+        conn,
+        token,
+        bot,
+        &Value::String(channel_chat_key.to_string()),
+        &Value::from(linked_discussion_chat_id),
+        channel_message_id,
+        None,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+        discussion_reply_to_message_id,
+        sender_chat_override,
+        Some(true),
+        Some(linked_discussion_context),
+    )?;
+
+    let discussion_message_id = forwarded_value
+        .get("message_id")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| ApiError::internal("forwarded discussion message missing message_id"))?;
+    let now = Utc::now().timestamp();
+
+    save_linked_discussion_mapping(
+        conn,
+        bot.id,
+        &linked_discussion_chat_key,
+        discussion_message_id,
+        discussion_message_id,
+        channel_chat_key,
+        channel_message_id,
+        now,
+    )?;
+
+    Ok(())
+}
+
+fn enrich_reply_with_linked_channel_context(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    discussion_chat_key: &str,
+    reply_to_message_id: i64,
+    message_json: &mut Value,
+) -> Result<(), ApiError> {
+    let reply_mapping = load_linked_discussion_mapping_for_message(
+        conn,
+        bot_id,
+        discussion_chat_key,
+        reply_to_message_id,
+    )?;
+
+    let Some((channel_chat_key, channel_message_id, discussion_root_message_id)) = reply_mapping else {
+        return Ok(());
+    };
+
+    if let Some(reply_obj) = message_json
+        .get_mut("reply_to_message")
+        .and_then(Value::as_object_mut)
+    {
+        reply_obj.insert("linked_channel_message_id".to_string(), Value::from(channel_message_id));
+        reply_obj.insert(
+            "linked_discussion_root_message_id".to_string(),
+            Value::from(discussion_root_message_id),
+        );
+        reply_obj.insert("linked_channel_chat_id".to_string(), Value::String(channel_chat_key.clone()));
+    }
+
+    if let Some(obj) = message_json.as_object_mut() {
+        obj.insert("linked_channel_message_id".to_string(), Value::from(channel_message_id));
+        obj.insert(
+            "linked_discussion_root_message_id".to_string(),
+            Value::from(discussion_root_message_id),
+        );
+        obj.insert("linked_channel_chat_id".to_string(), Value::String(channel_chat_key));
+    }
+
+    Ok(())
+}
+
+fn enrich_message_with_linked_channel_context(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    discussion_chat_key: &str,
+    discussion_message_id: i64,
+    message_json: &mut Value,
+) -> Result<(), ApiError> {
+    let mapping = load_linked_discussion_mapping_for_message(
+        conn,
+        bot_id,
+        discussion_chat_key,
+        discussion_message_id,
+    )?;
+
+    let Some((channel_chat_key, channel_message_id, discussion_root_message_id)) = mapping else {
+        return Ok(());
+    };
+
+    if let Some(obj) = message_json.as_object_mut() {
+        obj.insert("linked_channel_message_id".to_string(), Value::from(channel_message_id));
+        obj.insert(
+            "linked_discussion_root_message_id".to_string(),
+            Value::from(discussion_root_message_id),
+        );
+        obj.insert("linked_channel_chat_id".to_string(), Value::String(channel_chat_key));
+    }
+
+    Ok(())
+}
+
+fn map_discussion_message_to_channel_post_if_needed(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    discussion_chat_key: &str,
+    discussion_message_id: i64,
+    reply_to_message_id: Option<i64>,
+) -> Result<(), ApiError> {
+    let Some(reply_id) = reply_to_message_id else {
+        return Ok(());
+    };
+
+    let reply_mapping = load_linked_discussion_mapping_for_message(
+        conn,
+        bot_id,
+        discussion_chat_key,
+        reply_id,
+    )?;
+
+    let Some((channel_chat_key, channel_message_id, discussion_root_message_id)) = reply_mapping else {
+        return Ok(());
+    };
+
+    let now = Utc::now().timestamp();
+    save_linked_discussion_mapping(
+        conn,
+        bot_id,
+        discussion_chat_key,
+        discussion_message_id,
+        discussion_root_message_id,
+        &channel_chat_key,
+        channel_message_id,
+        now,
+    )?;
+
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -8790,7 +9212,7 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
 
     let mut chat_settings_stmt = conn
         .prepare(
-            "SELECT chat_id, description, channel_show_author_signature, message_history_visible, slow_mode_delay, permissions_json
+            "SELECT chat_id, description, channel_show_author_signature, linked_discussion_chat_id, message_history_visible, slow_mode_delay, permissions_json
              FROM sim_chats
              WHERE bot_id = ?1 AND chat_type IN ('group', 'supergroup', 'channel')
              ORDER BY chat_id ASC",
@@ -8798,7 +9220,7 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
         .map_err(ApiError::internal)?;
     let chat_settings_rows = chat_settings_stmt
         .query_map(params![bot.id], |row| {
-            let permissions_raw: Option<String> = row.get(5)?;
+            let permissions_raw: Option<String> = row.get(6)?;
             let permissions = permissions_raw
                 .as_deref()
                 .and_then(|raw| serde_json::from_str::<ChatPermissions>(raw).ok())
@@ -8807,8 +9229,9 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
                 "chat_id": row.get::<_, i64>(0)?,
                 "description": row.get::<_, Option<String>>(1)?,
                 "show_author_signature": row.get::<_, i64>(2)? == 1,
-                "message_history_visible": row.get::<_, i64>(3)? == 1,
-                "slow_mode_delay": row.get::<_, i64>(4)?,
+                "linked_chat_id": row.get::<_, Option<i64>>(3)?,
+                "message_history_visible": row.get::<_, i64>(4)? == 1,
+                "slow_mode_delay": row.get::<_, i64>(5)?,
                 "permissions": permissions,
             }))
         })
@@ -9019,6 +9442,18 @@ pub fn handle_sim_send_user_message(
             ChatSendKind::Text,
         )?;
     }
+    let sender_chat = resolve_sender_chat_for_sim_user_message(
+        &mut conn,
+        bot.id,
+        &sim_chat,
+        &user,
+        body.sender_chat_id,
+        ChatSendKind::Text,
+    )?;
+    let sender_chat_json = sender_chat
+        .as_ref()
+        .map(|chat| serde_json::to_value(chat).map_err(ApiError::internal))
+        .transpose()?;
     let resolved_thread_id = resolve_forum_message_thread_id(
         &mut conn,
         bot.id,
@@ -9048,9 +9483,19 @@ pub fn handle_sim_send_user_message(
     });
 
     let mut message_json = message_json;
+    if let Some(sender_chat_value) = sender_chat_json {
+        message_json["sender_chat"] = sender_chat_value;
+    }
     if let Some(reply_id) = body.reply_to_message_id {
         let reply_value = load_reply_message_for_chat(&mut conn, &bot, &chat_key, reply_id)?;
         message_json["reply_to_message"] = reply_value;
+        enrich_reply_with_linked_channel_context(
+            &mut conn,
+            bot.id,
+            &chat_key,
+            reply_id,
+            &mut message_json,
+        )?;
     }
     if let Some(entities) = parsed_entities {
         message_json["entities"] = entities;
@@ -9072,16 +9517,40 @@ pub fn handle_sim_send_user_message(
         message_json["web_app_data"] = serde_json::to_value(web_app_data).map_err(ApiError::internal)?;
     }
 
+    let is_channel_post = sim_chat.chat_type == "channel";
+    if !is_channel_post {
+        map_discussion_message_to_channel_post_if_needed(
+            &mut conn,
+            bot.id,
+            &chat_key,
+            message_id,
+            body.reply_to_message_id,
+        )?;
+        enrich_message_with_linked_channel_context(
+            &mut conn,
+            bot.id,
+            &chat_key,
+            message_id,
+            &mut message_json,
+        )?;
+    }
+
     let message: Message = serde_json::from_value(message_json).map_err(ApiError::internal)?;
-    let bot_visible = should_emit_user_generated_update_to_bot(
+    let mut bot_visible = should_emit_user_generated_update_to_bot(
         &mut conn,
         &bot,
         &sim_chat.chat_type,
         user.id,
         &message,
     )?;
-    let is_channel_post = sim_chat.chat_type == "channel";
-
+    if !bot_visible && (sim_chat.chat_type == "group" || sim_chat.chat_type == "supergroup") {
+        bot_visible = is_reply_to_linked_discussion_root_message(
+            &mut conn,
+            bot.id,
+            &chat_key,
+            body.reply_to_message_id,
+        )?;
+    }
     let update_stub = Update {
         update_id: 0,
         message: if is_channel_post {
@@ -9156,6 +9625,17 @@ pub fn handle_sim_send_user_message(
     state.ws_hub.publish_json(token, &clean_update);
     if bot_visible {
         dispatch_webhook_if_configured(&mut conn, bot.id, clean_update);
+    }
+
+    if is_channel_post {
+        ensure_linked_discussion_forward_for_channel_post(
+            state,
+            &mut conn,
+            token,
+            &bot,
+            &chat_key,
+            &message_value,
+        )?;
     }
 
     Ok(message_value)
@@ -9316,15 +9796,28 @@ pub fn handle_sim_send_user_media(
 
     let chat_id = body.chat_id.unwrap_or(user.id);
     let sim_chat = resolve_sim_chat_for_user_message(&mut conn, bot.id, chat_id, &user)?;
+    let send_kind = send_kind_from_sim_user_media_kind(media_kind.as_str());
     if sim_chat.chat_type != "private" {
         ensure_sender_can_send_in_chat(
             &mut conn,
             bot.id,
             &sim_chat.chat_key,
             user.id,
-            send_kind_from_sim_user_media_kind(media_kind.as_str()),
+            send_kind,
         )?;
     }
+    let sender_chat = resolve_sender_chat_for_sim_user_message(
+        &mut conn,
+        bot.id,
+        &sim_chat,
+        &user,
+        body.sender_chat_id,
+        send_kind,
+    )?;
+    let sender_chat_json = sender_chat
+        .as_ref()
+        .map(|chat| serde_json::to_value(chat).map_err(ApiError::internal))
+        .transpose()?;
     let resolved_thread_id = resolve_forum_message_thread_id(
         &mut conn,
         bot.id,
@@ -9352,6 +9845,10 @@ pub fn handle_sim_send_user_media(
         "from": from,
     });
 
+    if let Some(sender_chat_value) = sender_chat_json {
+        message_json["sender_chat"] = sender_chat_value;
+    }
+
     message_json[media_kind.as_str()] = media_value;
     if let Some(c) = caption {
         message_json["caption"] = Value::String(c);
@@ -9369,18 +9866,49 @@ pub fn handle_sim_send_user_media(
     if let Some(reply_id) = body.reply_to_message_id {
         let reply_value = load_reply_message_for_chat(&mut conn, &bot, &chat_key, reply_id)?;
         message_json["reply_to_message"] = reply_value;
+        enrich_reply_with_linked_channel_context(
+            &mut conn,
+            bot.id,
+            &chat_key,
+            reply_id,
+            &mut message_json,
+        )?;
+    }
+
+    let is_channel_post = sim_chat.chat_type == "channel";
+    if !is_channel_post {
+        map_discussion_message_to_channel_post_if_needed(
+            &mut conn,
+            bot.id,
+            &chat_key,
+            message_id,
+            body.reply_to_message_id,
+        )?;
+        enrich_message_with_linked_channel_context(
+            &mut conn,
+            bot.id,
+            &chat_key,
+            message_id,
+            &mut message_json,
+        )?;
     }
 
     let message: Message = serde_json::from_value(message_json).map_err(ApiError::internal)?;
-    let bot_visible = should_emit_user_generated_update_to_bot(
+    let mut bot_visible = should_emit_user_generated_update_to_bot(
         &mut conn,
         &bot,
         &sim_chat.chat_type,
         user.id,
         &message,
     )?;
-    let is_channel_post = sim_chat.chat_type == "channel";
-
+    if !bot_visible && (sim_chat.chat_type == "group" || sim_chat.chat_type == "supergroup") {
+        bot_visible = is_reply_to_linked_discussion_root_message(
+            &mut conn,
+            bot.id,
+            &chat_key,
+            body.reply_to_message_id,
+        )?;
+    }
     let update_stub = Update {
         update_id: 0,
         message: if is_channel_post {
@@ -9455,6 +9983,17 @@ pub fn handle_sim_send_user_media(
     state.ws_hub.publish_json(token, &clean_update);
     if bot_visible {
         dispatch_webhook_if_configured(&mut conn, bot.id, clean_update);
+    }
+
+    if is_channel_post {
+        ensure_linked_discussion_forward_for_channel_post(
+            state,
+            &mut conn,
+            token,
+            &bot,
+            &chat_key,
+            &message_value,
+        )?;
     }
 
     Ok(message_value)
@@ -10203,12 +10742,13 @@ pub fn handle_sim_update_group(
         Option<String>,
         i64,
         i64,
+        Option<i64>,
         i64,
         i64,
         Option<String>,
     )> = conn
         .query_row(
-            "SELECT chat_type, title, username, description, is_forum, channel_show_author_signature, message_history_visible, slow_mode_delay, permissions_json
+            "SELECT chat_type, title, username, description, is_forum, channel_show_author_signature, linked_discussion_chat_id, message_history_visible, slow_mode_delay, permissions_json
              FROM sim_chats
              WHERE bot_id = ?1 AND chat_key = ?2",
             params![bot.id, &chat_key],
@@ -10223,6 +10763,7 @@ pub fn handle_sim_update_group(
                     row.get(6)?,
                     row.get(7)?,
                     row.get(8)?,
+                    row.get(9)?,
                 ))
             },
         )
@@ -10236,6 +10777,7 @@ pub fn handle_sim_update_group(
         current_description,
         current_is_forum,
         current_show_author_signature,
+        current_linked_discussion_chat_id,
         current_message_history_visible,
         current_slow_mode_delay,
         current_permissions_json,
@@ -10326,6 +10868,50 @@ pub fn handle_sim_update_group(
         false
     };
 
+    let linked_discussion_chat_id = if chat_type == "channel" {
+        if let Some(raw_linked_chat_id) = body.linked_chat_id {
+            if raw_linked_chat_id == 0 {
+                None
+            } else {
+                if raw_linked_chat_id == body.chat_id {
+                    return Err(ApiError::bad_request("linked_chat_id must be different from channel chat_id"));
+                }
+
+                let linked_chat_key = raw_linked_chat_id.to_string();
+                let linked_chat_type: Option<String> = conn
+                    .query_row(
+                        "SELECT chat_type
+                         FROM sim_chats
+                         WHERE bot_id = ?1 AND chat_key = ?2",
+                        params![bot.id, &linked_chat_key],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .map_err(ApiError::internal)?;
+
+                match linked_chat_type.as_deref() {
+                    Some("group") | Some("supergroup") => Some(raw_linked_chat_id),
+                    Some("private") | Some("channel") => {
+                        return Err(ApiError::bad_request("linked_chat_id must reference a group or supergroup"));
+                    }
+                    Some(_) => {
+                        return Err(ApiError::bad_request("linked_chat_id has unsupported chat type"));
+                    }
+                    None => {
+                        return Err(ApiError::not_found("linked chat not found"));
+                    }
+                }
+            }
+        } else {
+            current_linked_discussion_chat_id
+        }
+    } else {
+        if body.linked_chat_id.is_some() {
+            return Err(ApiError::bad_request("linked_chat_id can only be set for channels"));
+        }
+        None
+    };
+
     let message_history_visible = body
         .message_history_visible
         .unwrap_or(current_message_history_visible == 1);
@@ -10337,6 +10923,23 @@ pub fn handle_sim_update_group(
     let permissions_json = serde_json::to_string(&permissions).map_err(ApiError::internal)?;
 
     let now = Utc::now().timestamp();
+
+    if chat_type == "channel" {
+        if let Some(linked_chat_id) = linked_discussion_chat_id {
+            conn.execute(
+                "UPDATE sim_chats
+                 SET linked_discussion_chat_id = NULL,
+                     updated_at = ?1
+                 WHERE bot_id = ?2
+                   AND chat_type = 'channel'
+                   AND chat_key <> ?3
+                   AND linked_discussion_chat_id = ?4",
+                params![now, bot.id, &chat_key, linked_chat_id],
+            )
+            .map_err(ApiError::internal)?;
+        }
+    }
+
     conn.execute(
         "UPDATE chats SET title = ?1 WHERE chat_key = ?2",
         params![&title, &chat_key],
@@ -10350,17 +10953,19 @@ pub fn handle_sim_update_group(
              description = ?3,
              is_forum = ?4,
              channel_show_author_signature = ?5,
-             message_history_visible = ?6,
-             slow_mode_delay = ?7,
-             permissions_json = ?8,
-             updated_at = ?9
-         WHERE bot_id = ?10 AND chat_key = ?11",
+             linked_discussion_chat_id = ?6,
+             message_history_visible = ?7,
+             slow_mode_delay = ?8,
+             permissions_json = ?9,
+             updated_at = ?10
+         WHERE bot_id = ?11 AND chat_key = ?12",
         params![
             title,
             username,
             description,
             if is_forum { 1 } else { 0 },
             if show_author_signature { 1 } else { 0 },
+            linked_discussion_chat_id,
             if message_history_visible { 1 } else { 0 },
             slow_mode_delay,
             permissions_json,
@@ -10411,6 +11016,7 @@ pub fn handle_sim_update_group(
         "settings": {
             "description": description,
             "show_author_signature": show_author_signature,
+            "linked_chat_id": linked_discussion_chat_id,
             "message_history_visible": message_history_visible,
             "slow_mode_delay": slow_mode_delay,
             "permissions": permissions
@@ -11921,7 +12527,14 @@ pub fn handle_sim_press_inline_button(
     let user = ensure_user(&mut conn, body.user_id, body.first_name, body.username)?;
 
     let chat_key = body.chat_id.to_string();
-    let message_value = load_message_value(&mut conn, &bot, body.message_id)?;
+    let mut message_value = load_message_value(&mut conn, &bot, body.message_id)?;
+    enrich_message_with_linked_channel_context(
+        &mut conn,
+        bot.id,
+        &chat_key,
+        body.message_id,
+        &mut message_value,
+    )?;
 
     let exists: Option<i64> = conn
         .query_row(
@@ -13132,6 +13745,7 @@ fn send_sim_user_payload_message(
     user_id: Option<i64>,
     first_name: Option<String>,
     username: Option<String>,
+    sender_chat_id: Option<i64>,
     payload: SimUserPayload,
     text: Option<String>,
     entities: Option<Value>,
@@ -13156,6 +13770,18 @@ fn send_sim_user_payload_message(
             send_kind,
         )?;
     }
+    let sender_chat = resolve_sender_chat_for_sim_user_message(
+        &mut conn,
+        bot.id,
+        &sim_chat,
+        &user,
+        sender_chat_id,
+        send_kind,
+    )?;
+    let sender_chat_json = sender_chat
+        .as_ref()
+        .map(|chat| serde_json::to_value(chat).map_err(ApiError::internal))
+        .transpose()?;
     let resolved_thread_id = resolve_forum_message_thread_id(
         &mut conn,
         bot.id,
@@ -13182,6 +13808,10 @@ fn send_sim_user_payload_message(
         "chat": chat,
         "from": from,
     });
+
+    if let Some(sender_chat_value) = sender_chat_json {
+        message_json["sender_chat"] = sender_chat_value;
+    }
 
     match payload {
         SimUserPayload::Dice(dice) => {
@@ -13216,17 +13846,49 @@ fn send_sim_user_payload_message(
     if let Some(reply_id) = reply_to_message_id {
         let reply_value = load_reply_message_for_chat(&mut conn, &bot, &chat_key, reply_id)?;
         message_json["reply_to_message"] = reply_value;
+        enrich_reply_with_linked_channel_context(
+            &mut conn,
+            bot.id,
+            &chat_key,
+            reply_id,
+            &mut message_json,
+        )?;
+    }
+
+    let is_channel_post = sim_chat.chat_type == "channel";
+    if !is_channel_post {
+        map_discussion_message_to_channel_post_if_needed(
+            &mut conn,
+            bot.id,
+            &chat_key,
+            message_id,
+            reply_to_message_id,
+        )?;
+        enrich_message_with_linked_channel_context(
+            &mut conn,
+            bot.id,
+            &chat_key,
+            message_id,
+            &mut message_json,
+        )?;
     }
 
     let message: Message = serde_json::from_value(message_json).map_err(ApiError::internal)?;
-    let bot_visible = should_emit_user_generated_update_to_bot(
+    let mut bot_visible = should_emit_user_generated_update_to_bot(
         &mut conn,
         &bot,
         &sim_chat.chat_type,
         user.id,
         &message,
     )?;
-    let is_channel_post = sim_chat.chat_type == "channel";
+    if !bot_visible && (sim_chat.chat_type == "group" || sim_chat.chat_type == "supergroup") {
+        bot_visible = is_reply_to_linked_discussion_root_message(
+            &mut conn,
+            bot.id,
+            &chat_key,
+            reply_to_message_id,
+        )?;
+    }
     let update_stub = Update {
         update_id: 0,
         message: if is_channel_post {
@@ -13303,6 +13965,17 @@ fn send_sim_user_payload_message(
         dispatch_webhook_if_configured(&mut conn, bot.id, clean_update);
     }
 
+    if is_channel_post {
+        ensure_linked_discussion_forward_for_channel_post(
+            state,
+            &mut conn,
+            token,
+            &bot,
+            &chat_key,
+            &message_value,
+        )?;
+    }
+
     Ok(message_value)
 }
 
@@ -13329,6 +14002,7 @@ pub fn handle_sim_send_user_dice(
         body.user_id,
         body.first_name,
         body.username,
+        body.sender_chat_id,
         SimUserPayload::Dice(Dice { emoji, value }),
         None,
         None,
@@ -13369,6 +14043,7 @@ pub fn handle_sim_send_user_game(
         body.user_id,
         body.first_name,
         body.username,
+        body.sender_chat_id,
         SimUserPayload::Game(game),
         None,
         None,
@@ -13405,6 +14080,7 @@ pub fn handle_sim_send_user_contact(
         body.user_id,
         body.first_name,
         body.username,
+        body.sender_chat_id,
         SimUserPayload::Contact(contact),
         None,
         None,
@@ -13435,6 +14111,7 @@ pub fn handle_sim_send_user_location(
         body.user_id,
         body.first_name,
         body.username,
+        body.sender_chat_id,
         SimUserPayload::Location(location),
         None,
         None,
@@ -13480,6 +14157,7 @@ pub fn handle_sim_send_user_venue(
         body.user_id,
         body.first_name,
         body.username,
+        body.sender_chat_id,
         SimUserPayload::Venue(venue),
         None,
         None,
@@ -14874,7 +15552,14 @@ fn apply_message_reaction_change(
         .map(|value| serde_json::from_value(value).map_err(ApiError::internal))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let reaction_update = serde_json::to_value(Update {
+    let linked_context = load_linked_discussion_mapping_for_message(
+        conn,
+        bot.id,
+        chat_key,
+        message_id,
+    )?;
+
+    let mut reaction_update = serde_json::to_value(Update {
         update_id: 0,
         message: None,
         edited_message: None,
@@ -14911,9 +15596,29 @@ fn apply_message_reaction_change(
     })
     .map_err(ApiError::internal)?;
 
+    if let Some((channel_chat_key, channel_message_id, discussion_root_message_id)) = linked_context.as_ref() {
+        if let Some(obj) = reaction_update
+            .get_mut("message_reaction")
+            .and_then(Value::as_object_mut)
+        {
+            obj.insert(
+                "linked_channel_message_id".to_string(),
+                Value::from(*channel_message_id),
+            );
+            obj.insert(
+                "linked_discussion_root_message_id".to_string(),
+                Value::from(*discussion_root_message_id),
+            );
+            obj.insert(
+                "linked_channel_chat_id".to_string(),
+                Value::String(channel_chat_key.clone()),
+            );
+        }
+    }
+
     persist_and_dispatch_update(state, conn, token, bot.id, reaction_update)?;
 
-    let reaction_count_update = serde_json::to_value(Update {
+    let mut reaction_count_update = serde_json::to_value(Update {
         update_id: 0,
         message: None,
         edited_message: None,
@@ -14947,6 +15652,26 @@ fn apply_message_reaction_change(
     })
     .map_err(ApiError::internal)?;
 
+    if let Some((channel_chat_key, channel_message_id, discussion_root_message_id)) = linked_context.as_ref() {
+        if let Some(obj) = reaction_count_update
+            .get_mut("message_reaction_count")
+            .and_then(Value::as_object_mut)
+        {
+            obj.insert(
+                "linked_channel_message_id".to_string(),
+                Value::from(*channel_message_id),
+            );
+            obj.insert(
+                "linked_discussion_root_message_id".to_string(),
+                Value::from(*discussion_root_message_id),
+            );
+            obj.insert(
+                "linked_channel_chat_id".to_string(),
+                Value::String(channel_chat_key.clone()),
+            );
+        }
+    }
+
     persist_and_dispatch_update(state, conn, token, bot.id, reaction_count_update)?;
 
     Ok(json!(true))
@@ -14978,7 +15703,43 @@ fn persist_and_dispatch_update(
 
     let clean_update = strip_nulls(update_value);
     state.ws_hub.publish_json(token, &clean_update);
-    dispatch_webhook_if_configured(conn, bot_id, clean_update);
+    dispatch_webhook_if_configured(conn, bot_id, clean_update.clone());
+
+    if let Some(channel_post_value) = clean_update.get("channel_post") {
+        let bot_record: Option<crate::database::BotInfoRecord> = conn
+            .query_row(
+                "SELECT id, first_name, username FROM bots WHERE id = ?1",
+                params![bot_id],
+                |row| {
+                    Ok(crate::database::BotInfoRecord {
+                        id: row.get(0)?,
+                        first_name: row.get(1)?,
+                        username: row.get(2)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(ApiError::internal)?;
+
+        if let Some(bot_record) = bot_record {
+            if let Some(chat_id_value) = channel_post_value
+                .get("chat")
+                .and_then(Value::as_object)
+                .and_then(|chat| chat.get("id"))
+            {
+                let channel_chat_key = value_to_chat_key(chat_id_value)?;
+                ensure_linked_discussion_forward_for_channel_post(
+                    state,
+                    conn,
+                    token,
+                    &bot_record,
+                    &channel_chat_key,
+                    channel_post_value,
+                )?;
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -15517,7 +16278,7 @@ fn normalize_legacy_request_user_payload(legacy_request_user: &Value) -> Option<
 
     let mut normalized = Map::new();
     normalized.insert("request_id".to_string(), Value::from(request_id));
-    normalized.insert("max_quantity".to_string(), Value::from(1));
+    normalized.insert("max_quantity".to_string(), Value::from(10));
 
     let mappings = [
         ("user_is_bot", "user_is_bot"),
@@ -15729,6 +16490,7 @@ struct SimChatRecord {
     username: Option<String>,
     is_forum: bool,
     channel_show_author_signature: bool,
+    linked_discussion_chat_id: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -16236,6 +16998,44 @@ fn ensure_request_actor_is_chat_admin_or_owner(
     Ok(())
 }
 
+fn ensure_request_actor_can_manage_sender_chat_in_linked_context(
+    conn: &mut rusqlite::Connection,
+    bot: &crate::database::BotInfoRecord,
+    chat_key: &str,
+    sim_chat: &SimChatRecord,
+) -> Result<(), ApiError> {
+    if ensure_request_actor_is_chat_admin_or_owner(conn, bot, chat_key).is_ok() {
+        return Ok(());
+    }
+
+    if sim_chat.chat_type != "group" && sim_chat.chat_type != "supergroup" {
+        return Err(ApiError::bad_request("not enough rights to manage chat"));
+    }
+
+    let linked_channel_chat_key: Option<String> = conn
+        .query_row(
+            "SELECT chat_key
+             FROM sim_chats
+             WHERE bot_id = ?1
+               AND chat_type = 'channel'
+               AND linked_discussion_chat_id = ?2
+             ORDER BY updated_at DESC
+             LIMIT 1",
+            params![bot.id, sim_chat.chat_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    if let Some(channel_chat_key) = linked_channel_chat_key {
+        if ensure_request_actor_is_chat_admin_or_owner(conn, bot, &channel_chat_key).is_ok() {
+            return Ok(());
+        }
+    }
+
+    Err(ApiError::bad_request("not enough rights to manage chat"))
+}
+
 fn emit_chat_member_transition_update(
     state: &Data<AppState>,
     conn: &mut rusqlite::Connection,
@@ -16437,7 +17237,7 @@ fn load_sim_chat_record(
     chat_key: &str,
 ) -> Result<Option<SimChatRecord>, ApiError> {
     conn.query_row(
-        "SELECT chat_id, chat_type, title, username, is_forum, channel_show_author_signature
+        "SELECT chat_id, chat_type, title, username, is_forum, channel_show_author_signature, linked_discussion_chat_id
          FROM sim_chats
          WHERE bot_id = ?1 AND chat_key = ?2",
         params![bot_id, chat_key],
@@ -16450,11 +17250,42 @@ fn load_sim_chat_record(
                 username: row.get(3)?,
                 is_forum: row.get::<_, i64>(4)? == 1,
                 channel_show_author_signature: row.get::<_, i64>(5)? == 1,
+                linked_discussion_chat_id: row.get(6)?,
             })
         },
     )
     .optional()
     .map_err(ApiError::internal)
+}
+
+fn resolve_linked_chat_id_for_chat(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    sim_chat: &SimChatRecord,
+) -> Result<Option<i64>, ApiError> {
+    if sim_chat.chat_type == "channel" {
+        return Ok(sim_chat.linked_discussion_chat_id);
+    }
+
+    if sim_chat.chat_type == "group" || sim_chat.chat_type == "supergroup" {
+        let linked_channel_id: Option<i64> = conn
+            .query_row(
+                "SELECT chat_id
+                 FROM sim_chats
+                 WHERE bot_id = ?1
+                   AND chat_type = 'channel'
+                   AND linked_discussion_chat_id = ?2
+                 ORDER BY updated_at DESC
+                 LIMIT 1",
+                params![bot_id, sim_chat.chat_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(ApiError::internal)?;
+        return Ok(linked_channel_id);
+    }
+
+    Ok(None)
 }
 
 fn ensure_private_sim_chat(
@@ -16484,6 +17315,7 @@ fn ensure_private_sim_chat(
         username: user.username.clone(),
         is_forum: false,
         channel_show_author_signature: false,
+        linked_discussion_chat_id: None,
     })
 }
 
@@ -16498,6 +17330,115 @@ fn resolve_sim_chat_for_user_message(
         return Ok(record);
     }
     ensure_private_sim_chat(conn, bot_id, chat_id, user)
+}
+
+fn ensure_sender_chat_not_banned(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    chat_key: &str,
+    sender_chat_id: i64,
+) -> Result<(), ApiError> {
+    let banned: Option<i64> = conn
+        .query_row(
+            "SELECT 1
+             FROM sim_banned_sender_chats
+             WHERE bot_id = ?1 AND chat_key = ?2 AND sender_chat_id = ?3",
+            params![bot_id, chat_key, sender_chat_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    if banned.is_some() {
+        return Err(ApiError::bad_request(
+            "this sender chat is banned in the destination chat",
+        ));
+    }
+
+    Ok(())
+}
+
+fn ensure_user_is_chat_admin_or_owner(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    chat_key: &str,
+    user_id: i64,
+    error_message: &'static str,
+) -> Result<(), ApiError> {
+    let status = load_chat_member_status(conn, bot_id, chat_key, user_id)?;
+    if status
+        .as_deref()
+        .map(is_group_admin_or_owner_status)
+        .unwrap_or(false)
+    {
+        return Ok(());
+    }
+
+    Err(ApiError::bad_request(error_message))
+}
+
+fn resolve_sender_chat_for_sim_user_message(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    sim_chat: &SimChatRecord,
+    sender_user: &SimUserRecord,
+    sender_chat_id: Option<i64>,
+    send_kind: ChatSendKind,
+) -> Result<Option<Chat>, ApiError> {
+    let Some(requested_sender_chat_id) = sender_chat_id else {
+        return Ok(None);
+    };
+
+    if requested_sender_chat_id == 0 {
+        return Err(ApiError::bad_request("sender_chat_id is invalid"));
+    }
+
+    if sim_chat.chat_type != "group" && sim_chat.chat_type != "supergroup" {
+        return Err(ApiError::bad_request(
+            "sender_chat_id can only be used in groups or supergroups",
+        ));
+    }
+
+    if requested_sender_chat_id == sim_chat.chat_id {
+        ensure_user_is_chat_admin_or_owner(
+            conn,
+            bot_id,
+            &sim_chat.chat_key,
+            sender_user.id,
+            "only group owner/admin can send on behalf of this chat",
+        )?;
+        ensure_sender_chat_not_banned(conn, bot_id, &sim_chat.chat_key, requested_sender_chat_id)?;
+        return Ok(Some(build_chat_from_group_record(sim_chat)));
+    }
+
+    let sender_chat_key = requested_sender_chat_id.to_string();
+    let Some(sender_chat_record) = load_sim_chat_record(conn, bot_id, &sender_chat_key)? else {
+        return Err(ApiError::bad_request("sender_chat_id chat not found"));
+    };
+
+    if sender_chat_record.chat_type != "channel" {
+        return Err(ApiError::bad_request(
+            "sender_chat_id must be the current group or its linked channel",
+        ));
+    }
+
+    let linked_channel_chat_id = resolve_linked_chat_id_for_chat(conn, bot_id, sim_chat)?;
+    if linked_channel_chat_id != Some(sender_chat_record.chat_id) {
+        return Err(ApiError::bad_request(
+            "sender_chat_id must match the linked channel for this discussion",
+        ));
+    }
+
+    ensure_sender_can_send_in_chat(
+        conn,
+        bot_id,
+        &sender_chat_key,
+        sender_user.id,
+        send_kind,
+    )?;
+    ensure_sender_chat_not_banned(conn, bot_id, &sim_chat.chat_key, requested_sender_chat_id)?;
+
+    Ok(Some(build_chat_from_group_record(&sender_chat_record)))
 }
 
 fn is_active_chat_member_status(status: &str) -> bool {

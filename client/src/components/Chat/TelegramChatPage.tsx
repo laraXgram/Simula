@@ -309,6 +309,7 @@ interface GroupChatItem {
   username?: string;
   description?: string;
   isForum?: boolean;
+  linkedDiscussionChatId?: number;
   settings?: GroupSettingsSnapshot;
 }
 
@@ -898,6 +899,110 @@ function parseForwardOriginLabel(rawOrigin: unknown): { label?: string; date?: n
   };
 }
 
+function normalizeThreadMatchText(value?: string): string {
+  if (!value) {
+    return '';
+  }
+
+  return value.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function isLikelySameChannelPost(candidate: ChatMessage, channelPost: ChatMessage): boolean {
+  const candidateText = normalizeThreadMatchText(candidate.text);
+  const channelPostText = normalizeThreadMatchText(channelPost.text);
+
+  if (candidateText && channelPostText) {
+    return candidateText === channelPostText;
+  }
+
+  if (channelPost.media?.type && candidate.media?.type) {
+    return channelPost.media.type === candidate.media.type;
+  }
+
+  return false;
+}
+
+function findFallbackDiscussionRootMessage(
+  discussionMessages: ChatMessage[],
+  channelPost: ChatMessage,
+): ChatMessage | undefined {
+  const channelChatId = channelPost.chatId;
+  const candidates = discussionMessages.filter((message) => (
+    !message.service
+    && message.senderChatId === channelChatId
+  ));
+
+  if (candidates.length === 0) {
+    return undefined;
+  }
+
+  const ranked = [...candidates].sort((a, b) => {
+    const aSamePost = isLikelySameChannelPost(a, channelPost);
+    const bSamePost = isLikelySameChannelPost(b, channelPost);
+    if (aSamePost !== bSamePost) {
+      return aSamePost ? -1 : 1;
+    }
+
+    const aDateDelta = Math.abs(a.date - channelPost.date);
+    const bDateDelta = Math.abs(b.date - channelPost.date);
+    if (aDateDelta !== bDateDelta) {
+      return aDateDelta - bDateDelta;
+    }
+
+    return a.id - b.id;
+  });
+
+  return ranked[0];
+}
+
+function collectDiscussionReplyTreeMessages(
+  discussionMessages: ChatMessage[],
+  rootMessageId: number,
+): ChatMessage[] {
+  const threadMessageIds = new Set<number>([rootMessageId]);
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    discussionMessages.forEach((message) => {
+      const replyMessageId = message.replyTo?.messageId;
+      if (
+        typeof replyMessageId === 'number'
+        && threadMessageIds.has(replyMessageId)
+        && !threadMessageIds.has(message.id)
+      ) {
+        threadMessageIds.add(message.id);
+        changed = true;
+      }
+    });
+  }
+
+  return discussionMessages.filter((message) => threadMessageIds.has(message.id));
+}
+
+function resolveRequestUsersMaxQuantity(
+  request: NonNullable<ReplyKeyboardButton['request_users']>,
+  fallbackMaxQuantity = 10,
+): number {
+  const rawMaxQuantity = Math.floor(Number(request.max_quantity));
+  if (Number.isFinite(rawMaxQuantity) && rawMaxQuantity > 0) {
+    return Math.max(1, Math.min(10, rawMaxQuantity));
+  }
+
+  // Bot API default for request_users allows selecting multiple users (up to 10).
+  // When payload omits max_quantity or sends an invalid value, keep multi-select behavior.
+  if (!Number.isFinite(rawMaxQuantity) || rawMaxQuantity <= 0) {
+    return Math.max(1, Math.min(10, fallbackMaxQuantity || 10));
+  }
+
+  const normalizedFallback = Math.floor(Number(fallbackMaxQuantity));
+  if (!Number.isFinite(normalizedFallback) || normalizedFallback <= 0) {
+    return 10;
+  }
+
+  return Math.max(1, Math.min(10, normalizedFallback));
+}
+
 function parseMenuButtonSummary(menuButton: GeneratedMenuButton): { type: string; text?: string; url?: string } {
   const raw = menuButton as Record<string, unknown>;
   const webApp = raw.web_app;
@@ -1152,6 +1257,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     subscriptionPeriod: '2592000',
     subscriptionPrice: '100',
   });
+  const [channelDiscussionLinkDraft, setChannelDiscussionLinkDraft] = useState('');
   const [groupStickerSetDraft, setGroupStickerSetDraft] = useState('');
   const [removeGroupStickerSetDraft, setRemoveGroupStickerSetDraft] = useState(false);
   const [groupPhotoDraftFile, setGroupPhotoDraftFile] = useState<File | null>(null);
@@ -1211,6 +1317,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   });
   const [composerEditTarget, setComposerEditTarget] = useState<ChatMessage | null>(null);
   const [replyTarget, setReplyTarget] = useState<ChatMessage | null>(null);
+  const [commentSourceByDiscussionChatKey, setCommentSourceByDiscussionChatKey] = useState<
+    Record<string, { channelChatId: number; channelMessageId: number; discussionRootMessageId?: number }>
+  >({});
   const [messageMenu, setMessageMenu] = useState<{ messageId: number; x: number; y: number } | null>(null);
   const [forwardMessageId, setForwardMessageId] = useState<number | null>(null);
   const [forwardTargetChatId, setForwardTargetChatId] = useState('');
@@ -1401,6 +1510,19 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     [groupChats, selectedGroupChatId],
   );
 
+  const channelDiscussionCandidates = useMemo(() => {
+    if (!selectedGroup || selectedGroup.type !== 'channel') {
+      return [] as GroupChatItem[];
+    }
+
+    return groupChats
+      .filter((group) => (
+        group.id !== selectedGroup.id
+        && (group.type === 'group' || group.type === 'supergroup')
+      ))
+      .sort((a, b) => a.title.localeCompare(b.title));
+  }, [groupChats, selectedGroup]);
+
   const groupMembershipKey = selectedGroup
     ? `${selectedBotToken}:${selectedGroup.id}:${selectedUser.id}`
     : null;
@@ -1542,6 +1664,63 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const selectedChatId = chatScopeTab === 'private'
     ? selectedUser.id
     : (selectedGroup?.id ?? 0);
+  const linkedDiscussionPairs = useMemo(() => {
+    const channelToDiscussion = new Map<number, number>();
+    const discussionToChannel = new Map<number, number>();
+
+    groupChats.forEach((chat) => {
+      const rawLinkedChatId = Math.floor(Number(chat.linkedDiscussionChatId));
+      if (!Number.isFinite(rawLinkedChatId) || rawLinkedChatId === 0) {
+        return;
+      }
+
+      if (chat.type === 'channel') {
+        channelToDiscussion.set(chat.id, rawLinkedChatId);
+        return;
+      }
+
+      if (chat.type === 'group' || chat.type === 'supergroup') {
+        discussionToChannel.set(chat.id, rawLinkedChatId);
+      }
+    });
+
+    channelToDiscussion.forEach((discussionChatId, channelChatId) => {
+      if (!discussionToChannel.has(discussionChatId)) {
+        discussionToChannel.set(discussionChatId, channelChatId);
+      }
+    });
+
+    discussionToChannel.forEach((channelChatId, discussionChatId) => {
+      if (!channelToDiscussion.has(channelChatId)) {
+        channelToDiscussion.set(channelChatId, discussionChatId);
+      }
+    });
+
+    return {
+      channelToDiscussion,
+      discussionToChannel,
+    };
+  }, [groupChats]);
+  const activeChannelLinkedDiscussionChatId = useMemo(() => {
+    if (chatScopeTab !== 'channel' || !selectedGroup || selectedGroup.type !== 'channel') {
+      return undefined;
+    }
+
+    return linkedDiscussionPairs.channelToDiscussion.get(selectedGroup.id);
+  }, [chatScopeTab, linkedDiscussionPairs, selectedGroup]);
+  const activeDiscussionLinkedChannelId = useMemo(() => {
+    if (
+      chatScopeTab !== 'group'
+      || !selectedGroup
+      || (selectedGroup.type !== 'group' && selectedGroup.type !== 'supergroup')
+    ) {
+      return undefined;
+    }
+
+    return linkedDiscussionPairs.discussionToChannel.get(selectedGroup.id);
+  }, [chatScopeTab, linkedDiscussionPairs, selectedGroup]);
+  // Keep discussion comments authored by the active user, not the linked channel identity.
+  const activeDiscussionSenderChatId: number | undefined = undefined;
   const chatKey = `${selectedBotToken}:${selectedChatId}`;
   const forwardTargetDirectory = useMemo(() => {
     const privateTargets = availableUsers.map((user) => ({
@@ -1577,6 +1756,36 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     return forwardTargetDirectory.filter((target) => target.searchKey.includes(keyword));
   }, [forwardTargetChatId, forwardTargetDirectory]);
 
+  const activeDiscussionSource = useMemo(() => {
+    if (chatScopeTab !== 'group' || !selectedGroup) {
+      return null;
+    }
+
+    const context = commentSourceByDiscussionChatKey[chatKey];
+    if (!context) {
+      return null;
+    }
+
+    if (selectedGroup.type !== 'group' && selectedGroup.type !== 'supergroup') {
+      return null;
+    }
+
+    if (
+      activeDiscussionLinkedChannelId
+      && activeDiscussionLinkedChannelId !== context.channelChatId
+    ) {
+      return null;
+    }
+
+    return context;
+  }, [
+    activeDiscussionLinkedChannelId,
+    chatKey,
+    chatScopeTab,
+    commentSourceByDiscussionChatKey,
+    selectedGroup,
+  ]);
+
   const hasStarted = chatScopeTab === 'private'
     ? Boolean(startedChats[chatKey])
     : groupMembership === 'joined';
@@ -1595,8 +1804,72 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const inlineRequestSeqRef = useRef(0);
   const channelViewAckAtRef = useRef<Record<string, number>>({});
 
-  const visibleMessages = useMemo(
-    () => messages
+  const visibleMessages = useMemo(() => {
+    if (chatScopeTab === 'group' && activeDiscussionSource) {
+      const discussionMessagesInChat = messages
+        .filter((message) => (
+          message.chatId === selectedChatId
+          && message.botToken === selectedBotToken
+        ))
+        .sort((a, b) => {
+          if (a.date === b.date) {
+            return a.id - b.id;
+          }
+          return a.date - b.date;
+        });
+
+      const relatedDiscussionMessages = discussionMessagesInChat
+        .filter((message) => (
+          message.linkedChannelChatId === activeDiscussionSource.channelChatId
+          && message.linkedChannelMessageId === activeDiscussionSource.channelMessageId
+        ))
+        .sort((a, b) => (a.id - b.id));
+
+      const explicitDiscussionRootMessageId = relatedDiscussionMessages
+        .map((message) => message.linkedDiscussionRootMessageId)
+        .find((id): id is number => typeof id === 'number' && id > 0);
+
+      const channelPost = messages.find((message) => (
+        message.botToken === selectedBotToken
+        && message.chatId === activeDiscussionSource.channelChatId
+        && message.id === activeDiscussionSource.channelMessageId
+      ));
+      const fallbackDiscussionRootMessageId = activeDiscussionSource.discussionRootMessageId
+        || (channelPost
+          ? findFallbackDiscussionRootMessage(discussionMessagesInChat, channelPost)?.id
+          : undefined);
+      const discussionRootMessageId = explicitDiscussionRootMessageId || fallbackDiscussionRootMessageId;
+
+      const threadMessages = (() => {
+        if (!discussionRootMessageId) {
+          return relatedDiscussionMessages;
+        }
+
+        const replyTreeMessages = collectDiscussionReplyTreeMessages(
+          discussionMessagesInChat,
+          discussionRootMessageId,
+        );
+        const byId = new Map<number, ChatMessage>();
+        [...relatedDiscussionMessages, ...replyTreeMessages].forEach((message) => {
+          byId.set(message.id, message);
+        });
+        return [...byId.values()].sort((a, b) => {
+          if (a.date === b.date) {
+            return a.id - b.id;
+          }
+          return a.date - b.date;
+        });
+      })();
+
+      if (!discussionRootMessageId) {
+        return threadMessages;
+      }
+
+      return threadMessages.filter((message) => message.id !== discussionRootMessageId);
+
+    }
+
+    return messages
       .filter((message) => {
         if (message.chatId !== selectedChatId || message.botToken !== selectedBotToken) {
           return false;
@@ -1615,9 +1888,293 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           return a.id - b.id;
         }
         return a.date - b.date;
-      }),
-    [activeMessageThreadId, chatScopeTab, messages, selectedBotToken, selectedChatId, selectedGroup?.isForum],
-  );
+      });
+  }, [
+    activeDiscussionSource,
+    activeMessageThreadId,
+    chatScopeTab,
+    messages,
+    selectedBotToken,
+    selectedChatId,
+    selectedGroup?.isForum,
+  ]);
+
+  const linkedDiscussionCommentsByChannelMessageId = useMemo(() => {
+    const commentsByChannelPost = new Map<number, {
+      discussionRootMessageId?: number;
+      discussionMessageThreadId?: number;
+      comments: ChatMessage[];
+    }>();
+
+    if (
+      chatScopeTab !== 'channel'
+      || !selectedGroup
+      || selectedGroup.type !== 'channel'
+      || !activeChannelLinkedDiscussionChatId
+    ) {
+      return commentsByChannelPost;
+    }
+
+    const discussionChatId = activeChannelLinkedDiscussionChatId;
+    const discussionMessages = messages
+      .filter((message) => (
+        message.botToken === selectedBotToken
+        && message.chatId === discussionChatId
+      ))
+      .sort((a, b) => {
+        if (a.date === b.date) {
+          return a.id - b.id;
+        }
+        return a.date - b.date;
+      });
+
+    const relatedDiscussionMessages = discussionMessages
+      .filter((message) => (
+        message.linkedChannelChatId === selectedGroup.id
+        && typeof message.linkedChannelMessageId === 'number'
+        && message.linkedChannelMessageId > 0
+      ));
+
+    relatedDiscussionMessages.forEach((message) => {
+      const channelMessageId = message.linkedChannelMessageId as number;
+      const existing = commentsByChannelPost.get(channelMessageId) || {
+        comments: [] as ChatMessage[],
+      };
+
+      if (!existing.discussionMessageThreadId && message.messageThreadId) {
+        existing.discussionMessageThreadId = message.messageThreadId;
+      }
+
+      if (message.linkedDiscussionRootMessageId && message.linkedDiscussionRootMessageId > 0) {
+        existing.discussionRootMessageId = existing.discussionRootMessageId || message.linkedDiscussionRootMessageId;
+      }
+
+      const isRootMessage = Boolean(
+        message.linkedDiscussionRootMessageId
+        && message.id === message.linkedDiscussionRootMessageId,
+      );
+
+      if (!isRootMessage) {
+        existing.comments.push(message);
+      }
+
+      commentsByChannelPost.set(channelMessageId, existing);
+    });
+
+    const channelPosts = messages
+      .filter((message) => (
+        message.botToken === selectedBotToken
+        && message.chatId === selectedGroup.id
+        && !message.service
+      ));
+
+    channelPosts.forEach((channelPost) => {
+      const existing = commentsByChannelPost.get(channelPost.id);
+      if (existing?.discussionRootMessageId) {
+        return;
+      }
+
+      const fallbackRoot = findFallbackDiscussionRootMessage(discussionMessages, channelPost);
+      if (!fallbackRoot) {
+        return;
+      }
+
+      const fallbackThreadMessages = collectDiscussionReplyTreeMessages(discussionMessages, fallbackRoot.id);
+      const fallbackComments = fallbackThreadMessages.filter((message) => message.id !== fallbackRoot.id);
+
+      commentsByChannelPost.set(channelPost.id, {
+        discussionRootMessageId: fallbackRoot.id,
+        discussionMessageThreadId: fallbackRoot.messageThreadId,
+        comments: fallbackComments,
+      });
+    });
+
+    commentsByChannelPost.forEach((entry, channelMessageId) => {
+      if (!entry.discussionRootMessageId || entry.discussionRootMessageId <= 0) {
+        return;
+      }
+
+      const replyTreeMessages = collectDiscussionReplyTreeMessages(
+        discussionMessages,
+        entry.discussionRootMessageId,
+      );
+      if (replyTreeMessages.length === 0) {
+        return;
+      }
+
+      const mergedCommentsById = new Map<number, ChatMessage>();
+      [...entry.comments, ...replyTreeMessages]
+        .filter((message) => message.id !== entry.discussionRootMessageId)
+        .forEach((message) => {
+          mergedCommentsById.set(message.id, message);
+        });
+
+      commentsByChannelPost.set(channelMessageId, {
+        ...entry,
+        comments: [...mergedCommentsById.values()].sort((a, b) => {
+          if (a.date === b.date) {
+            return a.id - b.id;
+          }
+          return a.date - b.date;
+        }),
+      });
+    });
+
+    return commentsByChannelPost;
+  }, [
+    activeChannelLinkedDiscussionChatId,
+    chatScopeTab,
+    messages,
+    selectedBotToken,
+    selectedGroup?.id,
+    selectedGroup?.type,
+  ]);
+
+  const activeDiscussionCommentContext = useMemo(() => {
+    if (chatScopeTab !== 'group' || !selectedGroup) {
+      return null;
+    }
+
+    const context = commentSourceByDiscussionChatKey[chatKey];
+    if (!context) {
+      return null;
+    }
+
+    if (selectedGroup.type !== 'group' && selectedGroup.type !== 'supergroup') {
+      return null;
+    }
+
+    if (
+      activeDiscussionLinkedChannelId
+      && activeDiscussionLinkedChannelId !== context.channelChatId
+    ) {
+      return null;
+    }
+
+    const discussionMessagesInChat = messages
+      .filter((message) => (
+        message.botToken === selectedBotToken
+        && message.chatId === selectedGroup.id
+      ))
+      .sort((a, b) => {
+        if (a.date === b.date) {
+          return a.id - b.id;
+        }
+        return a.date - b.date;
+      });
+
+    const relatedDiscussionMessages = discussionMessagesInChat
+      .filter((message) => (
+        message.linkedChannelChatId === context.channelChatId
+        && message.linkedChannelMessageId === context.channelMessageId
+      ));
+
+    const explicitDiscussionRootMessageId = relatedDiscussionMessages
+      .map((message) => message.linkedDiscussionRootMessageId)
+      .find((id): id is number => typeof id === 'number' && id > 0);
+
+    const channelPost = messages.find((message) => (
+      message.botToken === selectedBotToken
+      && message.chatId === context.channelChatId
+      && message.id === context.channelMessageId
+    ));
+    const fallbackDiscussionRootMessageId = context.discussionRootMessageId
+      || (channelPost
+        ? findFallbackDiscussionRootMessage(discussionMessagesInChat, channelPost)?.id
+        : undefined);
+    const discussionRootMessageId = explicitDiscussionRootMessageId || fallbackDiscussionRootMessageId;
+
+    const threadMessages = (() => {
+      if (!discussionRootMessageId) {
+        return relatedDiscussionMessages;
+      }
+
+      const replyTreeMessages = collectDiscussionReplyTreeMessages(
+        discussionMessagesInChat,
+        discussionRootMessageId,
+      );
+      const byId = new Map<number, ChatMessage>();
+      [...relatedDiscussionMessages, ...replyTreeMessages].forEach((message) => {
+        byId.set(message.id, message);
+      });
+      return [...byId.values()].sort((a, b) => {
+        if (a.date === b.date) {
+          return a.id - b.id;
+        }
+        return a.date - b.date;
+      });
+    })();
+
+    const rootMessage = discussionRootMessageId
+      ? discussionMessagesInChat.find((message) => message.id === discussionRootMessageId)
+      : undefined;
+
+    const discussionMessageThreadId = rootMessage?.messageThreadId
+      || threadMessages.find((message) => (
+        typeof message.messageThreadId === 'number'
+        && message.messageThreadId > 0
+      ))?.messageThreadId;
+
+    const commentMessages = threadMessages.filter((message) => {
+      if (!discussionRootMessageId || discussionRootMessageId <= 0) {
+        return true;
+      }
+      return message.id !== discussionRootMessageId;
+    });
+
+    return {
+      ...context,
+      discussionRootMessageId,
+      discussionMessageThreadId,
+      rootMessage,
+      commentsCount: commentMessages.length,
+      latestCommentsPreview: commentMessages.slice(-5),
+    };
+  }, [
+    activeDiscussionLinkedChannelId,
+    chatKey,
+    chatScopeTab,
+    commentSourceByDiscussionChatKey,
+    messages,
+    selectedBotToken,
+    selectedGroup,
+  ]);
+
+  const activeDiscussionChannelPost = useMemo(() => {
+    if (!activeDiscussionCommentContext) {
+      return null;
+    }
+
+    return messages.find((message) => (
+      message.botToken === selectedBotToken
+      && message.chatId === activeDiscussionCommentContext.channelChatId
+      && message.id === activeDiscussionCommentContext.channelMessageId
+    )) || null;
+  }, [activeDiscussionCommentContext, messages, selectedBotToken]);
+
+  const isDiscussionThreadView = chatScopeTab === 'group' && Boolean(activeDiscussionCommentContext);
+
+  const resolveComposerReplyTargetId = (preferredReplyToMessageId?: number): number | undefined => {
+    if (activeDiscussionCommentContext?.discussionRootMessageId
+      && activeDiscussionCommentContext.discussionRootMessageId > 0) {
+      return activeDiscussionCommentContext.discussionRootMessageId;
+    }
+
+    if (activeDiscussionSource?.discussionRootMessageId
+      && activeDiscussionSource.discussionRootMessageId > 0) {
+      return activeDiscussionSource.discussionRootMessageId;
+    }
+
+    const normalizedPreferredReply = Math.floor(Number(preferredReplyToMessageId));
+    if (Number.isFinite(normalizedPreferredReply) && normalizedPreferredReply > 0) {
+      return normalizedPreferredReply;
+    }
+
+    if (replyTarget?.id && replyTarget.id > 0) {
+      return replyTarget.id;
+    }
+    return undefined;
+  };
 
   const selectedPinnedMessages = useMemo(() => {
     if (selectedPinnedMessageIds.length === 0) {
@@ -1760,6 +2317,19 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   useEffect(() => {
     setPinnedPreviewIndex(0);
   }, [selectedGroupStateKey, selectedPinnedMessages.length]);
+
+  useEffect(() => {
+    if (!selectedGroup || selectedGroup.type !== 'channel') {
+      setChannelDiscussionLinkDraft('');
+      return;
+    }
+
+    const resolvedLinkedDiscussionChatId = activeChannelLinkedDiscussionChatId
+      ?? selectedGroup.linkedDiscussionChatId;
+    setChannelDiscussionLinkDraft(
+      resolvedLinkedDiscussionChatId ? String(resolvedLinkedDiscussionChatId) : '',
+    );
+  }, [activeChannelLinkedDiscussionChatId, selectedGroup]);
 
   useEffect(() => {
     if (!isChannelScope) {
@@ -2699,15 +3269,27 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       const parseMode = isMessageParseMode(rawParseMode)
         ? rawParseMode
         : undefined;
+      const rawLinkedChannelChatId = Math.floor(Number(payloadRecord.linked_channel_chat_id));
+      const linkedChannelChatId = Number.isFinite(rawLinkedChannelChatId) && rawLinkedChannelChatId !== 0
+        ? rawLinkedChannelChatId
+        : undefined;
+      const rawLinkedChannelMessageId = Math.floor(Number(payloadRecord.linked_channel_message_id));
+      const linkedChannelMessageId = Number.isFinite(rawLinkedChannelMessageId) && rawLinkedChannelMessageId > 0
+        ? rawLinkedChannelMessageId
+        : undefined;
+      const rawLinkedDiscussionRootMessageId = Math.floor(Number(payloadRecord.linked_discussion_root_message_id));
+      const linkedDiscussionRootMessageId = Number.isFinite(rawLinkedDiscussionRootMessageId) && rawLinkedDiscussionRootMessageId > 0
+        ? rawLinkedDiscussionRootMessageId
+        : undefined;
       const isTopicMessage = typeof payloadRecord.is_topic_message === 'boolean'
         ? payloadRecord.is_topic_message
         : (messageThreadId !== undefined ? true : undefined);
       const resolvedFromName = isChannelPayload
         ? (authorSignature || senderChatTitle || payload.from?.first_name || (payload.from?.username ? `@${payload.from.username}` : 'Channel'))
-        : (authorSignature || payload.from?.first_name || senderChatTitle || (payload.from?.username ? `@${payload.from.username}` : 'Bot'));
-      const resolvedFromUserId = payload.from?.id
+        : (authorSignature || senderChatTitle || payload.from?.first_name || (payload.from?.username ? `@${payload.from.username}` : 'Bot'));
+      const resolvedFromUserId = senderChatId
+        || payload.from?.id
         || (isChannelPayload && selectedBot ? selectedBot.id : undefined)
-        || senderChatId
         || 0;
 
       const mapped: ChatMessage = {
@@ -2722,9 +3304,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         isOutgoing: Boolean(payload.from?.is_bot),
         fromName: resolvedFromName,
         fromUserId: resolvedFromUserId,
-        views,
-        forwardedFrom: forwardOrigin.label,
-        forwardedDate: forwardOrigin.date,
+        senderChatId,
+        senderChatTitle,
+        views: serviceMessage ? undefined : views,
+        forwardedFrom: serviceMessage ? undefined : forwardOrigin.label,
+        forwardedDate: serviceMessage ? undefined : forwardOrigin.date,
         service: serviceMessage?.service,
         isInlineOrigin: Boolean(payload.via_bot?.id),
         viaBotUsername: payload.via_bot?.username,
@@ -2738,9 +3322,14 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         successfulPayment: payload.successful_payment,
         media,
         mediaGroupId: payload.media_group_id,
+        linkedChannelChatId,
+        linkedChannelMessageId,
+        linkedDiscussionRootMessageId,
         replyTo: payload.reply_to_message ? {
           messageId: payload.reply_to_message.message_id,
-          fromName: payload.reply_to_message.from?.first_name || 'Unknown',
+          fromName: payload.reply_to_message.sender_chat?.title
+            || payload.reply_to_message.from?.first_name
+            || (payload.reply_to_message.from?.username ? `@${payload.reply_to_message.from.username}` : 'Unknown'),
           text: payload.reply_to_message.text || payload.reply_to_message.caption || '',
           hasMedia: Boolean(
             payload.reply_to_message.photo?.length
@@ -2852,10 +3441,19 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           return Array.from(byId.values());
         });
 
-        const settingsByChatId = new Map<number, { description?: string; settings: GroupSettingsSnapshot }>();
+        const settingsByChatId = new Map<number, {
+          description?: string;
+          linkedChatId?: number;
+          settings: GroupSettingsSnapshot;
+        }>();
         (bootstrap.chat_settings || []).forEach((entry) => {
+          const rawLinkedChatId = Math.floor(Number(entry.linked_chat_id));
+          const linkedChatId = Number.isFinite(rawLinkedChatId) && rawLinkedChatId !== 0
+            ? rawLinkedChatId
+            : undefined;
           settingsByChatId.set(entry.chat_id, {
             description: entry.description || undefined,
+            linkedChatId,
             settings: mapServerSettingsToSnapshot(entry),
           });
         });
@@ -2869,8 +3467,34 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             username: chat.username || undefined,
             description: settingsByChatId.get(chat.id)?.description,
             isForum: chat.is_forum || false,
+            linkedDiscussionChatId: settingsByChatId.get(chat.id)?.linkedChatId,
             settings: settingsByChatId.get(chat.id)?.settings || defaultGroupSettings(),
           }));
+        const incomingGroupById = new Map<number, GroupChatItem>(incomingGroups.map((group) => [group.id, group]));
+        incomingGroups.forEach((group) => {
+          if (group.type !== 'channel') {
+            return;
+          }
+
+          const rawDiscussionChatId = Math.floor(Number(group.linkedDiscussionChatId));
+          if (!Number.isFinite(rawDiscussionChatId) || rawDiscussionChatId === 0) {
+            return;
+          }
+
+          const discussionGroup = incomingGroupById.get(rawDiscussionChatId);
+          if (!discussionGroup) {
+            return;
+          }
+
+          if (
+            (discussionGroup.type !== 'group' && discussionGroup.type !== 'supergroup')
+            || discussionGroup.linkedDiscussionChatId
+          ) {
+            return;
+          }
+
+          discussionGroup.linkedDiscussionChatId = group.id;
+        });
 
         setGroupMembershipByUser((prev) => {
           const prefix = `${selectedBotToken}:`;
@@ -3099,15 +3723,17 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     setIsSending(true);
     setErrorText('');
     try {
+      const effectiveReplyToMessageId = resolveComposerReplyTargetId(replyToMessageId);
       await sendUserMessage(selectedBotToken, {
         chat_id: selectedChatId,
         message_thread_id: activeMessageThreadId,
         user_id: selectedUser.id,
         first_name: selectedUser.first_name,
         username: selectedUser.username,
+        sender_chat_id: activeDiscussionSenderChatId,
         text,
         parse_mode: parseMode,
-        reply_to_message_id: replyToMessageId,
+        reply_to_message_id: effectiveReplyToMessageId,
       });
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'User send failed');
@@ -3356,10 +3982,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             userId: selectedUser.id,
             firstName: selectedUser.first_name,
             username: selectedUser.username,
+            senderChatId: activeDiscussionSenderChatId,
             file: selectedUploads[0],
             caption: text || undefined,
             parseMode: text && composerParseMode !== 'none' ? composerParseMode : undefined,
-            replyToMessageId: replyTarget?.id,
+            replyToMessageId: resolveComposerReplyTargetId(replyTarget?.id),
           });
         } else {
           for (let index = 0; index < selectedUploads.length; index += 1) {
@@ -3370,10 +3997,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               userId: selectedUser.id,
               firstName: selectedUser.first_name,
               username: selectedUser.username,
+              senderChatId: activeDiscussionSenderChatId,
               file,
               caption: index === 0 ? (text || undefined) : undefined,
               parseMode: index === 0 && text && composerParseMode !== 'none' ? composerParseMode : undefined,
-              replyToMessageId: index === 0 ? replyTarget?.id : undefined,
+              replyToMessageId: index === 0 ? resolveComposerReplyTargetId(replyTarget?.id) : undefined,
             });
           }
         }
@@ -3396,7 +4024,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     await sendAsUser(
       text,
       composerParseMode === 'none' ? undefined : composerParseMode,
-      replyTarget?.id,
+      resolveComposerReplyTargetId(replyTarget?.id),
     );
     setReplyTarget(null);
     dismissActiveOneTimeKeyboard();
@@ -3932,9 +4560,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         userId: selectedUser.id,
         firstName: selectedUser.first_name,
         username: selectedUser.username,
+        senderChatId: activeDiscussionSenderChatId,
         mediaKind,
         media: mediaRef,
-        replyToMessageId: replyTarget?.id,
+        replyToMessageId: resolveComposerReplyTargetId(replyTarget?.id),
       });
       setShowMediaDrawer(false);
       setReplyTarget(null);
@@ -3967,9 +4596,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         userId: selectedUser.id,
         firstName: selectedUser.first_name,
         username: selectedUser.username,
+        senderChatId: activeDiscussionSenderChatId,
         file,
         mediaKind,
-        replyToMessageId: replyTarget?.id,
+        replyToMessageId: resolveComposerReplyTargetId(replyTarget?.id),
       });
       if (mediaKind === 'animation') {
         setAnimationUploadFile(null);
@@ -6079,6 +6709,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         : draftSettings;
       const updatedDescription = result.settings?.description
         ?? (groupProfileDraft.description.trim() || undefined);
+      const rawUpdatedLinkedDiscussionId = Math.floor(Number(result.settings?.linked_chat_id));
+      const updatedLinkedDiscussionId = Number.isFinite(rawUpdatedLinkedDiscussionId) && rawUpdatedLinkedDiscussionId !== 0
+        ? rawUpdatedLinkedDiscussionId
+        : undefined;
 
       setGroupChats((prev) => prev.map((group) => (
         group.id === selectedGroup.id
@@ -6088,6 +6722,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             username: result.chat.username || undefined,
             description: updatedDescription,
             isForum: result.chat.is_forum || false,
+            linkedDiscussionChatId: selectedGroup.type === 'channel'
+              ? (updatedLinkedDiscussionId ?? group.linkedDiscussionChatId)
+              : group.linkedDiscussionChatId,
             settings: updatedSettings,
           }
           : group
@@ -6095,6 +6732,77 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       setShowGroupProfileModal(false);
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'Failed to update group profile');
+    } finally {
+      setIsGroupActionRunning(false);
+    }
+  };
+
+  const onApplyChannelDiscussionLink = async () => {
+    if (!selectedGroup || selectedGroup.type !== 'channel') {
+      return;
+    }
+    if (!canEditSelectedGroup) {
+      setErrorText('Only owner/admin can configure linked discussion group.');
+      return;
+    }
+
+    const rawLinkValue = channelDiscussionLinkDraft.trim();
+    const parsedLinkedChatId = Math.floor(Number(rawLinkValue));
+    const hasLink = rawLinkValue.length > 0;
+    if (hasLink && (!Number.isFinite(parsedLinkedChatId) || parsedLinkedChatId === 0)) {
+      setErrorText('Linked discussion chat id is invalid.');
+      return;
+    }
+    const previousLinkedDiscussionChatId = activeChannelLinkedDiscussionChatId;
+
+    setIsGroupActionRunning(true);
+    setErrorText('');
+    try {
+      const result = await updateSimulationGroup(selectedBotToken, {
+        chat_id: selectedGroup.id,
+        user_id: selectedUser.id,
+        actor_first_name: selectedUser.first_name,
+        actor_username: selectedUser.username,
+        linked_chat_id: hasLink ? parsedLinkedChatId : 0,
+      });
+
+      const rawLinkedChatId = Math.floor(Number(result.settings?.linked_chat_id));
+      const linkedChatId = Number.isFinite(rawLinkedChatId) && rawLinkedChatId !== 0
+        ? rawLinkedChatId
+        : undefined;
+
+      setGroupChats((prev) => prev.map((group) => {
+        if (group.id === selectedGroup.id) {
+          return { ...group, linkedDiscussionChatId: linkedChatId };
+        }
+
+        const isDiscussionGroup = group.type === 'group' || group.type === 'supergroup';
+        if (!isDiscussionGroup) {
+          return group;
+        }
+
+        if (linkedChatId && group.id === linkedChatId) {
+          return { ...group, linkedDiscussionChatId: selectedGroup.id };
+        }
+
+        if (
+          previousLinkedDiscussionChatId
+          && group.id === previousLinkedDiscussionChatId
+          && linkedChatId !== previousLinkedDiscussionChatId
+          && group.linkedDiscussionChatId === selectedGroup.id
+        ) {
+          return { ...group, linkedDiscussionChatId: undefined };
+        }
+
+        return group;
+      }));
+
+      setChannelDiscussionLinkDraft(linkedChatId ? String(linkedChatId) : '');
+      setErrorText(linkedChatId
+        ? `Linked discussion group set to ${linkedChatId}.`
+        : 'Linked discussion group removed.');
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Failed to update linked discussion group');
     } finally {
       setIsGroupActionRunning(false);
     }
@@ -6335,9 +7043,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         user_id: selectedUser.id,
         first_name: selectedUser.first_name,
         username: selectedUser.username,
+        sender_chat_id: activeDiscussionSenderChatId,
         text: outgoingText,
         parse_mode: composerParseMode === 'none' ? undefined : composerParseMode,
-        reply_to_message_id: replyTarget?.id,
+        reply_to_message_id: resolveComposerReplyTargetId(replyTarget?.id),
         users_shared: options.usersSharedPayload,
         chat_shared: options.chatSharedPayload,
         web_app_data: options.webAppDataPayload,
@@ -6381,8 +7090,17 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       })),
     };
 
+    const sharedUsersText = selectedCandidates
+      .map((candidate) => {
+        const identity = candidate.username ? `@${candidate.username}` : `id ${candidate.userId}`;
+        return `- ${candidate.firstName}${candidate.isBot ? ' (bot)' : ''} (${identity})`;
+      })
+      .join('\n');
+
     const sent = await sendStructuredReplyKeyboardMessage(
-      `👥 Shared ${selectedCandidates.length} user${selectedCandidates.length > 1 ? 's' : ''}`,
+      selectedCandidates.length === 1
+        ? `👤 Shared user:\n${sharedUsersText}`
+        : `👥 Shared users (${selectedCandidates.length}):\n${sharedUsersText}`,
       { usersSharedPayload },
     );
     if (sent) {
@@ -6408,8 +7126,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       username: keyboardRequestChatModal.request.request_username ? (picked.username || undefined) : undefined,
     };
 
+    const sharedChatIdentity = picked.username ? `@${picked.username}` : `id ${picked.id}`;
+
     const sent = await sendStructuredReplyKeyboardMessage(
-      `💬 Shared ${picked.type === 'channel' ? 'channel' : 'chat'} ${picked.title}`,
+      `💬 Shared ${picked.type === 'channel' ? 'channel' : 'chat'}:\n- ${picked.title} (${sharedChatIdentity}, ${picked.type})`,
       { chatSharedPayload },
     );
     if (sent) {
@@ -6452,7 +7172,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         request_id: Math.trunc(requestId),
         user_is_bot: toOptionalBool(legacy.user_is_bot),
         user_is_premium: toOptionalBool(legacy.user_is_premium),
-        max_quantity: 1,
+        max_quantity: 10,
         request_name: toOptionalBool(legacy.request_name),
         request_username: toOptionalBool(legacy.request_username),
         request_photo: toOptionalBool(legacy.request_photo),
@@ -6507,7 +7227,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       return;
     } else if (requestUsersButton) {
       const request = requestUsersButton;
-      const maxQuantity = Math.max(1, Math.min(10, Math.floor(Number(request.max_quantity ?? 1) || 1)));
       const humanCandidates = availableUsers.map((user) => ({
         userId: user.id,
         firstName: user.first_name,
@@ -6536,11 +7255,13 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         return;
       }
 
+      const maxQuantity = resolveRequestUsersMaxQuantity(request, Math.min(10, candidates.length));
+
       setKeyboardRequestUsersModal({
         buttonText: text,
         request,
         candidates,
-        selectedUserIds: candidates.slice(0, maxQuantity).map((candidate) => candidate.userId),
+        selectedUserIds: candidates.slice(0, Math.min(1, maxQuantity)).map((candidate) => candidate.userId),
       });
       setMessageMenu(null);
       return;
@@ -6628,7 +7349,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       await sendAsUser(
         outgoingText,
         composerParseMode === 'none' ? undefined : composerParseMode,
-        replyTarget?.id,
+        resolveComposerReplyTargetId(replyTarget?.id),
       );
       setReplyTarget(null);
       dismissActiveOneTimeKeyboard();
@@ -6655,6 +7376,134 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     window.setTimeout(() => {
       setHighlightedMessageId((current) => (current === messageId ? null : current));
     }, 1600);
+  };
+
+  const openLinkedChannelPost = (channelChatId: number, channelMessageId?: number) => {
+    if (!Number.isFinite(channelChatId) || channelChatId === 0) {
+      return;
+    }
+
+    setChatScopeTab('channel');
+    setSelectedGroupChatId(channelChatId);
+
+    if (channelMessageId && channelMessageId > 0) {
+      window.setTimeout(() => {
+        scrollToMessage(channelMessageId);
+      }, 150);
+    }
+  };
+
+  const clearActiveDiscussionCommentContext = () => {
+    setCommentSourceByDiscussionChatKey((prev) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, chatKey)) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[chatKey];
+      return next;
+    });
+
+    if (
+      activeDiscussionCommentContext?.discussionRootMessageId
+      && replyTarget?.id === activeDiscussionCommentContext.discussionRootMessageId
+    ) {
+      setReplyTarget(null);
+    }
+  };
+
+  const closeDiscussionThreadAndReturnToChannel = () => {
+    if (!activeDiscussionCommentContext) {
+      return;
+    }
+
+    const channelChatId = activeDiscussionCommentContext.channelChatId;
+    const channelMessageId = activeDiscussionCommentContext.channelMessageId;
+    clearActiveDiscussionCommentContext();
+    openLinkedChannelPost(channelChatId, channelMessageId);
+  };
+
+  const openLinkedDiscussionForChannelPost = (channelMessageId: number) => {
+    const discussionChatId = activeChannelLinkedDiscussionChatId;
+    if (
+      !selectedGroup
+      || selectedGroup.type !== 'channel'
+      || typeof discussionChatId !== 'number'
+      || !Number.isFinite(discussionChatId)
+      || discussionChatId === 0
+    ) {
+      return;
+    }
+
+    const discussionExists = groupChats.some((chat) => (
+      chat.id === discussionChatId && (chat.type === 'group' || chat.type === 'supergroup')
+    ));
+    if (!discussionExists) {
+      setErrorText(`Linked discussion chat ${discussionChatId} is not available.`);
+      return;
+    }
+
+    const discussionSummary = linkedDiscussionCommentsByChannelMessageId.get(channelMessageId);
+    const channelPost = messages.find((message) => (
+      message.botToken === selectedBotToken
+      && message.chatId === selectedGroup.id
+      && message.id === channelMessageId
+    ));
+    const discussionMessages = messages
+      .filter((message) => (
+        message.botToken === selectedBotToken
+        && message.chatId === discussionChatId
+      ));
+    const fallbackRootMessage = channelPost
+      ? findFallbackDiscussionRootMessage(discussionMessages, channelPost)
+      : undefined;
+    const targetRootMessageId = discussionSummary?.discussionRootMessageId
+      || fallbackRootMessage?.id;
+    const targetMessageId = targetRootMessageId
+      || discussionSummary?.comments[0]?.id;
+    const targetThreadId = discussionSummary?.discussionMessageThreadId
+      || fallbackRootMessage?.messageThreadId;
+    const discussionStateKey = `${selectedBotToken}:${discussionChatId}`;
+
+    setCommentSourceByDiscussionChatKey((prev) => ({
+      ...prev,
+      [discussionStateKey]: {
+        channelChatId: selectedGroup.id,
+        channelMessageId,
+        discussionRootMessageId: targetRootMessageId,
+      },
+    }));
+
+    if (targetMessageId && targetMessageId > 0) {
+      const targetDiscussionMessage = messages.find((message) => (
+        message.botToken === selectedBotToken
+        && message.chatId === discussionChatId
+        && message.id === targetMessageId
+      ));
+      setReplyTarget(targetDiscussionMessage || null);
+    } else {
+      setReplyTarget(null);
+    }
+
+    if (targetThreadId && targetThreadId > 0) {
+      setSelectedForumTopicByChatKey((prev) => ({
+        ...prev,
+        [discussionStateKey]: targetThreadId,
+      }));
+    }
+
+    setChatScopeTab('group');
+    setSelectedGroupChatId(discussionChatId);
+
+    const discussionMembershipKey = `${selectedBotToken}:${discussionChatId}:${selectedUser.id}`;
+    if (!isJoinedMembershipStatus(groupMembershipByUser[discussionMembershipKey])) {
+      setErrorText('Join the linked discussion group to leave comments.');
+    }
+
+    if (targetMessageId && targetMessageId > 0) {
+      window.setTimeout(() => {
+        scrollToMessage(targetMessageId);
+      }, 180);
+    }
   };
 
   const onMessagesScroll = () => {
@@ -7316,7 +8165,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               if (!hasStarted || isSending) {
                 return;
               }
-              void sendAsUser(chunk, undefined, replyTarget?.id);
+              void sendAsUser(chunk, undefined, resolveComposerReplyTargetId(replyTarget?.id));
               setReplyTarget(null);
             }}
             title="Send command"
@@ -9223,8 +10072,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                 <p className="truncate text-xs text-telegram-textSecondary">
                   @{selectedBot?.username || 'unknown'} | {chatScopeTab === 'private'
                     ? 'Private'
-                    : (selectedGroup?.title || (chatScopeTab === 'channel' ? 'Channel' : 'Group'))}
-                  {chatScopeTab === 'group' && selectedGroup?.isForum && activeForumTopic
+                    : (isDiscussionThreadView
+                      ? `Discussion · ${activeDiscussionCommentContext?.commentsCount || 0} comments`
+                      : (selectedGroup?.title || (chatScopeTab === 'channel' ? 'Channel' : 'Group')))}
+                  {chatScopeTab === 'group' && !isDiscussionThreadView && selectedGroup?.isForum && activeForumTopic
                     ? ` · Topic: ${activeForumTopic.name}`
                     : ''}
                 </p>
@@ -9324,6 +10175,43 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               </div>
             </div>
           </header>
+
+          {chatScopeTab === 'group' && activeDiscussionCommentContext ? (
+            <div className="shrink-0 border-b border-white/10 bg-[#102235]/95 px-3 py-2 backdrop-blur sm:px-4 lg:px-6">
+              <div className="mx-auto w-full max-w-3xl rounded-2xl border border-[#77b9e1]/45 bg-[#11314a]/85 px-3 py-2.5 shadow-lg">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-[#9dd8ff]">Channel discussion</p>
+                    <p className="truncate text-sm text-[#def2ff]">
+                      Post #{activeDiscussionCommentContext.channelMessageId} · {activeDiscussionCommentContext.commentsCount} comments
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={closeDiscussionThreadAndReturnToChannel}
+                      className="rounded-md border border-white/20 bg-black/20 px-2 py-1 text-[11px] text-[#d6ecff] hover:bg-black/30"
+                    >
+                      Go to channel
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-2 rounded-xl border border-white/15 bg-black/25 px-3 py-2.5">
+                  <p className="text-[10px] uppercase tracking-wide text-[#a5d5f0]">Parent message</p>
+                  <p className="mt-1 truncate text-sm text-[#e4f3ff]">
+                    {(activeDiscussionChannelPost?.text
+                      || activeDiscussionCommentContext.rootMessage?.text
+                      || (activeDiscussionChannelPost?.media
+                        ? `[${activeDiscussionChannelPost.media.type}]`
+                        : (activeDiscussionCommentContext.rootMessage?.media
+                          ? `[${activeDiscussionCommentContext.rootMessage.media.type}]`
+                          : 'Channel post')))}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           {chatScopeTab === 'group' && selectedGroup?.isForum ? (
             <div className="shrink-0 border-b border-white/10 bg-[#0f2234]/90 px-3 py-2 backdrop-blur sm:px-4 lg:px-6">
@@ -9552,7 +10440,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     const senderBadges = chatScopeTab === 'group'
                       ? resolveGroupSenderBadges(message.fromUserId)
                       : {};
-                    const commandTargetBotUsername = chatScopeTab === 'group'
+                    const commandTargetBotUsername = (chatScopeTab === 'group' || chatScopeTab === 'channel')
                       ? extractBotCommandTargetUsername(message.text, message.entities || message.captionEntities)
                       : null;
                     const isMediaOnly = Boolean(
@@ -9562,6 +10450,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       && !message.invoice
                       && !message.successfulPayment,
                     );
+                    const linkedDiscussionSummary = chatScopeTab === 'channel'
+                      ? linkedDiscussionCommentsByChannelMessageId.get(message.id)
+                      : undefined;
+                    const linkedDiscussionCommentsCount = linkedDiscussionSummary?.comments.length || 0;
                     return (
                       <div
                         key={message.id}
@@ -9606,10 +10498,49 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                             {message.fromName}
                           </div>
                         ) : null}
-                        {message.forwardedFrom ? (
+                        {chatScopeTab === 'channel' && !message.service && commandTargetBotUsername ? (
+                          <div className="mb-2 text-[11px] text-[#9dd4ff]">
+                            to @{commandTargetBotUsername}
+                          </div>
+                        ) : null}
+                        {!message.service && message.forwardedFrom ? (
                           <div className="mb-2 text-[11px] text-[#9dd4ff]">
                             Forwarded from {message.forwardedFrom}
                           </div>
+                        ) : null}
+                        {!message.service && chatScopeTab === 'channel' && activeChannelLinkedDiscussionChatId ? (
+                          <div className="mb-2 rounded-lg border border-[#7fc6ff]/30 bg-[#102a3a]/55 px-2 py-1.5">
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openLinkedDiscussionForChannelPost(message.id);
+                                }}
+                                className="min-w-0 flex-1 text-left"
+                              >
+                                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#bde5ff] hover:text-[#d6efff]">
+                                  <Reply className="h-3 w-3" />
+                                  Comments
+                                </span>
+                                <span className="block truncate text-[10px] text-[#9ecae7]">
+                                  {`${linkedDiscussionCommentsCount} comment${linkedDiscussionCommentsCount === 1 ? '' : 's'}`}
+                                </span>
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                        {!message.service && chatScopeTab === 'group' && message.linkedChannelMessageId && message.linkedChannelChatId ? (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openLinkedChannelPost(message.linkedChannelChatId!, message.linkedChannelMessageId);
+                            }}
+                            className="mb-2 rounded border border-[#7fc6ff]/35 bg-[#133145]/60 px-2 py-1 text-[11px] text-[#bde5ff] hover:bg-[#17405b]"
+                          >
+                            {`Discussion for channel post #${message.linkedChannelMessageId}`}
+                          </button>
                         ) : null}
                         {message.replyTo ? (
                           <button
@@ -9646,7 +10577,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         <div className="mt-1 flex items-center justify-end gap-2 text-[10px] text-[#a5bfd3]">
                           <span>#{message.id}</span>
                           {message.editDate && !message.isInlineOrigin ? <span>edited</span> : null}
-                          {chatScopeTab === 'channel' && typeof message.views === 'number' ? (
+                          {chatScopeTab === 'channel' && !message.service && typeof message.views === 'number' ? (
                             <span className="inline-flex items-center gap-1">
                               <Eye className="h-3 w-3" />
                               {message.views}
@@ -9663,9 +10594,13 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   const leadSenderBadges = chatScopeTab === 'group'
                     ? resolveGroupSenderBadges(lead.fromUserId)
                     : {};
-                  const leadCommandTargetBotUsername = chatScopeTab === 'group'
+                  const leadCommandTargetBotUsername = (chatScopeTab === 'group' || chatScopeTab === 'channel')
                     ? extractBotCommandTargetUsername(lead.text, lead.entities || lead.captionEntities)
                     : null;
+                  const leadLinkedDiscussionSummary = chatScopeTab === 'channel'
+                    ? linkedDiscussionCommentsByChannelMessageId.get(lead.id)
+                    : undefined;
+                  const leadLinkedDiscussionCommentsCount = leadLinkedDiscussionSummary?.comments.length || 0;
                   return (
                     <div
                       key={`album-${block.mediaGroupId}-${lead.id}`}
@@ -9708,10 +10643,49 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                           {lead.fromName}
                         </div>
                       ) : null}
-                      {lead.forwardedFrom ? (
+                      {chatScopeTab === 'channel' && !lead.service && leadCommandTargetBotUsername ? (
+                        <div className="mb-2 text-[11px] text-[#9dd4ff]">
+                          to @{leadCommandTargetBotUsername}
+                        </div>
+                      ) : null}
+                      {!lead.service && lead.forwardedFrom ? (
                         <div className="mb-2 text-[11px] text-[#9dd4ff]">
                           Forwarded from {lead.forwardedFrom}
                         </div>
+                      ) : null}
+                      {!lead.service && chatScopeTab === 'channel' && activeChannelLinkedDiscussionChatId ? (
+                        <div className="mb-2 rounded-lg border border-[#7fc6ff]/30 bg-[#102a3a]/55 px-2 py-1.5">
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openLinkedDiscussionForChannelPost(lead.id);
+                              }}
+                              className="min-w-0 flex-1 text-left"
+                            >
+                              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#bde5ff] hover:text-[#d6efff]">
+                                <Reply className="h-3 w-3" />
+                                Comments
+                              </span>
+                              <span className="block truncate text-[10px] text-[#9ecae7]">
+                                {`${leadLinkedDiscussionCommentsCount} comment${leadLinkedDiscussionCommentsCount === 1 ? '' : 's'}`}
+                              </span>
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                      {!lead.service && chatScopeTab === 'group' && lead.linkedChannelMessageId && lead.linkedChannelChatId ? (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openLinkedChannelPost(lead.linkedChannelChatId!, lead.linkedChannelMessageId);
+                          }}
+                          className="mb-2 rounded border border-[#7fc6ff]/35 bg-[#133145]/60 px-2 py-1 text-[11px] text-[#bde5ff] hover:bg-[#17405b]"
+                        >
+                          {`Discussion for channel post #${lead.linkedChannelMessageId}`}
+                        </button>
                       ) : null}
                       {lead.replyTo ? (
                         <button
@@ -9762,7 +10736,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       <div className="mt-1 flex items-center justify-end gap-2 text-[10px] text-[#a5bfd3]">
                         <span>Album {block.messages.length} items</span>
                         {lead.editDate && !lead.isInlineOrigin ? <span>edited</span> : null}
-                        {chatScopeTab === 'channel' && typeof lead.views === 'number' ? (
+                        {chatScopeTab === 'channel' && !lead.service && typeof lead.views === 'number' ? (
                           <span className="inline-flex items-center gap-1">
                             <Eye className="h-3 w-3" />
                             {lead.views}
@@ -9819,6 +10793,14 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       {activeChatAction.actorName} is {formatChatActionLabel(activeChatAction.action)}...
                     </span>
                     <span className="text-[10px] text-[#a9d2ed]">chat action</span>
+                  </div>
+                ) : null}
+                {isDiscussionThreadView && activeDiscussionCommentContext ? (
+                  <div className="flex items-center justify-between rounded-xl border border-[#79b7de]/35 bg-[#123149]/70 px-3 py-2 text-xs text-[#d2ebff]">
+                    <span className="truncate pr-2">
+                      Comment thread for channel post #{activeDiscussionCommentContext.channelMessageId}
+                    </span>
+                    <span className="text-[10px] text-[#a9d2ed]">{activeDiscussionCommentContext.commentsCount} comments</span>
                   </div>
                 ) : null}
                 {replyTarget ? (
@@ -10006,9 +10988,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       ? 'Only channel owner/admin can publish posts.'
                       : (composerEditTarget
                         ? 'Edit message...'
+                        : (isDiscussionThreadView
+                          ? 'Write a comment...'
                         : (activeReplyKeyboard?.markup.kind === 'reply'
                           ? (activeReplyKeyboard.markup.input_field_placeholder || 'Write a message...')
-                          : 'Write a message...'))}
+                            : 'Write a message...')))}
                   />
                   <button
                     type="submit"
@@ -10328,6 +11312,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                       userId: selectedUser.id,
                                       firstName: selectedUser.first_name,
                                       username: selectedUser.username,
+                                      senderChatId: activeDiscussionSenderChatId,
                                       emoji: selectedDiceEmoji,
                                     });
                                   } catch (error) {
@@ -10371,6 +11356,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                       userId: selectedUser.id,
                                       firstName: selectedUser.first_name,
                                       username: selectedUser.username,
+                                      senderChatId: activeDiscussionSenderChatId,
                                       gameShortName: shortName,
                                     });
                                   } catch (error) {
@@ -10417,6 +11403,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                       userId: selectedUser.id,
                                       firstName: selectedUser.first_name,
                                       username: selectedUser.username,
+                                      senderChatId: activeDiscussionSenderChatId,
                                       phoneNumber: shareDraft.phoneNumber.trim() || '+10000000000',
                                       contactFirstName: shareDraft.contactFirstName.trim() || selectedUser.first_name,
                                       contactLastName: shareDraft.contactLastName.trim() || undefined,
@@ -10466,6 +11453,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                       userId: selectedUser.id,
                                       firstName: selectedUser.first_name,
                                       username: selectedUser.username,
+                                      senderChatId: activeDiscussionSenderChatId,
                                       latitude: Number(shareDraft.latitude) || 35.6892,
                                       longitude: Number(shareDraft.longitude) || 51.389,
                                     });
@@ -10528,6 +11516,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                       userId: selectedUser.id,
                                       firstName: selectedUser.first_name,
                                       username: selectedUser.username,
+                                      senderChatId: activeDiscussionSenderChatId,
                                       latitude: Number(shareDraft.latitude) || 35.6892,
                                       longitude: Number(shareDraft.longitude) || 51.389,
                                       title: shareDraft.venueTitle.trim() || 'Venue',
@@ -11299,7 +12288,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
             <p className="mb-3 text-xs text-[#d7ecfb]">
               {(() => {
-                const maxQuantity = Math.max(1, Math.min(10, Math.floor(Number(keyboardRequestUsersModal.request.max_quantity ?? 1) || 1)));
+                const maxQuantity = resolveRequestUsersMaxQuantity(
+                  keyboardRequestUsersModal.request,
+                  Math.min(10, keyboardRequestUsersModal.candidates.length),
+                );
                 return maxQuantity > 1
                   ? `Pick up to ${maxQuantity} users.`
                   : 'Pick one user.';
@@ -11308,7 +12300,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
             <div className="max-h-72 space-y-1 overflow-y-auto rounded-xl border border-white/10 bg-black/20 p-2">
               {keyboardRequestUsersModal.candidates.map((candidate) => {
-                const maxQuantity = Math.max(1, Math.min(10, Math.floor(Number(keyboardRequestUsersModal.request.max_quantity ?? 1) || 1)));
+                const maxQuantity = resolveRequestUsersMaxQuantity(
+                  keyboardRequestUsersModal.request,
+                  Math.min(10, keyboardRequestUsersModal.candidates.length),
+                );
                 const isMulti = maxQuantity > 1;
                 const checked = keyboardRequestUsersModal.selectedUserIds.includes(candidate.userId);
                 return (
@@ -11326,7 +12321,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                           if (!prev) {
                             return prev;
                           }
-                          const limit = Math.max(1, Math.min(10, Math.floor(Number(prev.request.max_quantity ?? 1) || 1)));
+                          const limit = resolveRequestUsersMaxQuantity(
+                            prev.request,
+                            Math.min(10, prev.candidates.length),
+                          );
                           if (limit <= 1) {
                             return {
                               ...prev,
@@ -11660,6 +12658,61 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     </button>
                   </div>
                 </div>
+
+                {isChannelScope ? (
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                    <p className="mb-2 text-xs uppercase tracking-wide text-[#8fb7d6]">Linked discussion group</p>
+                    <p className="mb-2 text-[11px] text-[#aacce2]">
+                      Link this channel to a discussion group/supergroup to enable Telegram-style comments under channel posts.
+                    </p>
+
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <select
+                        value={channelDiscussionLinkDraft}
+                        onChange={(event) => setChannelDiscussionLinkDraft(event.target.value)}
+                        className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                      >
+                        <option value="">No linked discussion</option>
+                        {selectedGroup?.linkedDiscussionChatId && !channelDiscussionCandidates.some((chat) => chat.id === selectedGroup.linkedDiscussionChatId) ? (
+                          <option value={String(selectedGroup.linkedDiscussionChatId)}>
+                            {`chat ${selectedGroup.linkedDiscussionChatId}`}
+                          </option>
+                        ) : null}
+                        {channelDiscussionCandidates.map((chat) => (
+                          <option key={`discussion-candidate-${chat.id}`} value={String(chat.id)}>
+                            {`${chat.title} (${chat.type})`}
+                          </option>
+                        ))}
+                      </select>
+
+                      <input
+                        value={channelDiscussionLinkDraft}
+                        onChange={(event) => setChannelDiscussionLinkDraft(event.target.value)}
+                        className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                        placeholder="discussion chat_id (empty = unlink)"
+                      />
+                    </div>
+
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={() => void onApplyChannelDiscussionLink()}
+                        disabled={isGroupActionRunning || !canEditSelectedGroup}
+                        className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                      >
+                        Apply linked discussion
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setChannelDiscussionLinkDraft('')}
+                        disabled={isGroupActionRunning || !canEditSelectedGroup}
+                        className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                      >
+                        Clear draft
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
 
                 {isChannelScope ? null : (
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3">

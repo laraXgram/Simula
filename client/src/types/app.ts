@@ -67,6 +67,7 @@ export interface SimChatSettings {
   chat_id: number;
   description?: string;
   show_author_signature?: boolean;
+  linked_chat_id?: number;
   message_history_visible: boolean;
   slow_mode_delay: number;
   permissions: GeneratedChatPermissions;
@@ -108,6 +109,8 @@ export interface ChatMessage {
   isOutgoing: boolean;
   fromName: string;
   fromUserId: number;
+  senderChatId?: number;
+  senderChatTitle?: string;
   isInlineOrigin?: boolean;
   viaBotUsername?: string;
   poll?: GeneratedPoll;
@@ -133,6 +136,9 @@ export interface ChatMessage {
     hasMedia?: boolean;
     mediaType?: 'photo' | 'video' | 'audio' | 'voice' | 'document' | 'sticker' | 'animation' | 'video_note';
   };
+  linkedChannelChatId?: number;
+  linkedChannelMessageId?: number;
+  linkedDiscussionRootMessageId?: number;
   entities?: MessageEntity[];
   captionEntities?: MessageEntity[];
   replyMarkup?: BotReplyMarkup;

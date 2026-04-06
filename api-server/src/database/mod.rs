@@ -125,6 +125,7 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
             photo_file_id           TEXT,
             is_forum                INTEGER NOT NULL DEFAULT 0,
             channel_show_author_signature INTEGER NOT NULL DEFAULT 0,
+            linked_discussion_chat_id INTEGER,
             message_history_visible INTEGER NOT NULL DEFAULT 1,
             slow_mode_delay         INTEGER NOT NULL DEFAULT 0,
             permissions_json        TEXT,
@@ -237,6 +238,30 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
 
         CREATE INDEX IF NOT EXISTS idx_sim_channel_post_viewers_window
             ON sim_channel_post_viewers (bot_id, chat_key, message_id, viewed_at DESC);
+
+        CREATE TABLE IF NOT EXISTS sim_linked_discussion_messages (
+            bot_id                      INTEGER NOT NULL,
+            discussion_chat_key         TEXT NOT NULL,
+            discussion_message_id       INTEGER NOT NULL,
+            discussion_root_message_id  INTEGER NOT NULL,
+            channel_chat_key            TEXT NOT NULL,
+            channel_message_id          INTEGER NOT NULL,
+            created_at                  INTEGER NOT NULL,
+            updated_at                  INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, discussion_chat_key, discussion_message_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(discussion_chat_key) REFERENCES chats(chat_key),
+            FOREIGN KEY(channel_chat_key) REFERENCES chats(chat_key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_sim_linked_discussion_channel
+            ON sim_linked_discussion_messages (
+                bot_id,
+                channel_chat_key,
+                channel_message_id,
+                discussion_root_message_id,
+                updated_at DESC
+            );
 
         CREATE TABLE IF NOT EXISTS messages (
             message_id    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -586,6 +611,7 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
     ensure_column_exists(conn, "sim_chats", "sticker_set_name", "TEXT")?;
     ensure_column_exists(conn, "sim_chats", "pinned_message_id", "INTEGER")?;
     ensure_column_exists(conn, "sim_chats", "channel_show_author_signature", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column_exists(conn, "sim_chats", "linked_discussion_chat_id", "INTEGER")?;
     ensure_column_exists(conn, "sim_chat_members", "permissions_json", "TEXT")?;
     ensure_column_exists(conn, "sim_chat_members", "admin_rights_json", "TEXT")?;
     ensure_column_exists(conn, "sim_chat_members", "until_date", "INTEGER")?;
