@@ -931,8 +931,9 @@ function parseChannelAdminRightsDraft(member: GeneratedChatMember): ChannelAdmin
     return null;
   }
 
+  const canManageChat = Boolean(raw.can_manage_chat);
   return {
-    canManageChat: Boolean(raw.can_manage_chat),
+    canManageChat,
     canPostMessages: Boolean(raw.can_post_messages),
     canEditMessages: Boolean(raw.can_edit_messages),
     canDeleteMessages: Boolean(raw.can_delete_messages),
@@ -1807,16 +1808,12 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     && selectedGroup.isForum
     && canEditSelectedGroup,
   );
-  const canDeleteDirectMessagesTopicByActiveActor = (topic?: ForumTopicState | null): boolean => {
-    if (!selectedGroup?.isDirectMessages || !topic || topic.isGeneral) {
+  const canDeleteDirectMessagesTopicByActiveActor = (topic: ForumTopicState | null | undefined): boolean => {
+    if (!selectedGroup?.isDirectMessages || !topic) {
       return false;
     }
 
-    if (isSelectedUserDirectMessagesManager) {
-      return true;
-    }
-
-    return topic.messageThreadId === selectedUser.id;
+    return isSelectedUserDirectMessagesManager;
   };
   const selectedBotMembershipKey = selectedGroup && selectedBot
     ? `${selectedBotToken}:${selectedGroup.id}:${selectedBot.id}`
@@ -1836,11 +1833,24 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       return [] as ForumTopicState[];
     }
 
-    return normalizeForumTopics(
+    const normalizedTopics = normalizeForumTopics(
       forumTopicsByChatKey[selectedGroupStateKey] || [],
       { includeGeneralFallback: Boolean(selectedGroup?.isForum && !selectedGroup?.isDirectMessages) },
     );
-  }, [forumTopicsByChatKey, selectedGroup?.isDirectMessages, selectedGroup?.isForum, selectedGroupStateKey]);
+
+    if (selectedGroup?.isDirectMessages && isSelectedUserDirectMessagesManager) {
+      return normalizedTopics.filter((topic) => topic.messageThreadId !== selectedUser.id);
+    }
+
+    return normalizedTopics;
+  }, [
+    forumTopicsByChatKey,
+    isSelectedUserDirectMessagesManager,
+    selectedGroup?.isDirectMessages,
+    selectedGroup?.isForum,
+    selectedGroupStateKey,
+    selectedUser.id,
+  ]);
 
   const activeForumTopicThreadId = useMemo(() => {
     if (!selectedGroupStateKey || !(selectedGroup?.isForum || selectedGroup?.isDirectMessages)) {
@@ -1849,10 +1859,20 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
     const selected = selectedForumTopicByChatKey[selectedGroupStateKey];
     if (selectedGroup?.isDirectMessages) {
-      if (Number.isFinite(selected) && selected > 0) {
+      if (!isSelectedUserDirectMessagesManager) {
+        return selectedUser.id;
+      }
+
+      if (
+        Number.isFinite(selected)
+        && selected > 0
+        && selectedForumTopics.some((topic) => topic.messageThreadId === selected)
+      ) {
         return selected;
       }
-      return selectedUser.id;
+
+      const firstDirectTopic = selectedForumTopics.find((topic) => !topic.isGeneral);
+      return firstDirectTopic?.messageThreadId;
     }
 
     if (Number.isFinite(selected) && selected > 0 && selectedForumTopics.some((topic) => topic.messageThreadId === selected)) {
@@ -3208,6 +3228,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     };
   }, [
     channelAdminRightsDraftByChatKey,
+    selectedGroup?.parentChannelChatId,
     selectedBotToken,
     selectedDirectMessagesParentMembershipStatus,
     selectedDirectMessagesParentStateKey,
@@ -3314,25 +3335,25 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       }
     },
     onUpdate: (update: BotUpdate) => {
-      const businessConnection = update.business_connection;
-      if (businessConnection?.user?.id) {
-        const connectionStateKey = `${selectedBotToken}:${businessConnection.user.id}`;
-          const isRemoved = (businessConnection as unknown as { removed?: boolean }).removed === true;
-        if (isRemoved || businessConnection.is_enabled === false) {
-          setBusinessConnectionByUserKey((prev) => {
-            if (!prev[connectionStateKey]) {
+      if (update.business_connection?.user?.id) {
+        const incomingConnection = update.business_connection;
+        const connectionStateKey = `${selectedBotToken}:${incomingConnection.user.id}`;
+        setBusinessConnectionByUserKey((prev) => {
+          if (!incomingConnection.is_enabled) {
+            if (!prev[connectionStateKey] || prev[connectionStateKey].id !== incomingConnection.id) {
               return prev;
             }
+
             const next = { ...prev };
             delete next[connectionStateKey];
             return next;
-          });
-        } else {
-          setBusinessConnectionByUserKey((prev) => ({
+          }
+
+          return {
             ...prev,
-            [connectionStateKey]: businessConnection,
-          }));
-        }
+            [connectionStateKey]: incomingConnection,
+          };
+        });
       }
 
       const membershipUpdate = update.chat_member || update.my_chat_member;
@@ -5781,12 +5802,19 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       setShowGroupActionsModal(false);
       setGroupSettingsPage('home');
       setChatMenuOpen(false);
-      setChatScopeTab('group');
-      setSelectedGroupChatId(mappedChat.id);
-      setSelectedGroupByBot((prev) => ({
-        ...prev,
-        [selectedBotToken]: mappedChat.id,
-      }));
+      const applySelection = () => {
+        setChatScopeTab('group');
+        setSelectedGroupChatId(mappedChat.id);
+        setSelectedGroupByBot((prev) => ({
+          ...prev,
+          [selectedBotToken]: mappedChat.id,
+        }));
+      };
+      if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+        window.requestAnimationFrame(applySelection);
+      } else {
+        applySelection();
+      }
       setErrorText(`Opened direct messages for ${selectedGroup.title}.`);
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'Unable to open channel direct messages');
@@ -6424,15 +6452,15 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       return;
     }
 
-    if (messageThreadId === GENERAL_FORUM_TOPIC_THREAD_ID) {
-      setErrorText('General forum topic cannot be deleted.');
+    const topic = selectedForumTopics.find((item) => item.messageThreadId === messageThreadId) || null;
+    const canDeleteTopic = canManageForumTopics || canDeleteDirectMessagesTopicByActiveActor(topic);
+    if (!canDeleteTopic) {
+      setErrorText('Not enough rights to delete this topic.');
       return;
     }
 
-    const targetTopic = selectedForumTopics.find((topic) => topic.messageThreadId === messageThreadId) || null;
-    const canDeleteTopic = canManageForumTopics || canDeleteDirectMessagesTopicByActiveActor(targetTopic);
-    if (!canDeleteTopic) {
-      setErrorText('Not enough rights to delete this topic.');
+    if (messageThreadId === GENERAL_FORUM_TOPIC_THREAD_ID) {
+      setErrorText('General forum topic cannot be deleted.');
       return;
     }
 
@@ -6442,79 +6470,15 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         message_thread_id: messageThreadId,
       }, selectedUser.id);
       if (ok) {
-        const removedMessageIds = new Set(
-          messages
-            .filter((message) => (
-              message.botToken === selectedBotToken
-              && message.chatId === selectedGroup.id
-              && message.messageThreadId === messageThreadId
-            ))
-            .map((message) => message.id),
-        );
-
         updateForumTopicsForChat(selectedGroup.id, (topics) => topics.filter((topic) => topic.messageThreadId !== messageThreadId));
-        setMessages((prev) => prev.filter((message) => !(
-          message.botToken === selectedBotToken
-          && message.chatId === selectedGroup.id
-          && message.messageThreadId === messageThreadId
-        )));
-
-        if (removedMessageIds.size > 0) {
-          setInvoiceMetaByMessageKey((prev) => {
-            const next: Record<string, InvoiceMetaState> = {};
-            Object.entries(prev).forEach(([key, value]) => {
-              const parts = key.split(':');
-              const token = parts[0] || '';
-              const chatId = Number(parts[1]);
-              const messageId = Number(parts[2]);
-              if (token === selectedBotToken && chatId === selectedGroup.id && removedMessageIds.has(messageId)) {
-                return;
-              }
-              next[key] = value;
-            });
-            return next;
-          });
-
-          setPinnedMessageByChatKey((prev) => {
-            const next: Record<string, number[]> = {};
-            Object.entries(prev).forEach(([key, ids]) => {
-              const filtered = ids.filter((id) => !removedMessageIds.has(id));
-              if (filtered.length > 0) {
-                next[key] = filtered;
-              }
-            });
-            return next;
-          });
-        }
-
         if (selectedGroupStateKey) {
-          const remainingTopics = selectedForumTopics.filter((topic) => topic.messageThreadId !== messageThreadId);
           setSelectedForumTopicByChatKey((prev) => {
             if (prev[selectedGroupStateKey] !== messageThreadId) {
               return prev;
             }
-
-            let fallbackThreadId: number | undefined;
-            if (selectedGroup.isDirectMessages) {
-              if (isSelectedUserDirectMessagesManager) {
-                fallbackThreadId = remainingTopics.find((topic) => !topic.isGeneral)?.messageThreadId;
-              } else {
-                fallbackThreadId = selectedUser.id;
-              }
-            } else {
-              fallbackThreadId = GENERAL_FORUM_TOPIC_THREAD_ID;
-            }
-
-            const normalizedFallbackThreadId = Math.floor(Number(fallbackThreadId));
-            if (!Number.isFinite(normalizedFallbackThreadId) || normalizedFallbackThreadId <= 0) {
-              const next = { ...prev };
-              delete next[selectedGroupStateKey];
-              return next;
-            }
-
             return {
               ...prev,
-              [selectedGroupStateKey]: normalizedFallbackThreadId,
+              [selectedGroupStateKey]: GENERAL_FORUM_TOPIC_THREAD_ID,
             };
           });
         }
@@ -8790,20 +8754,59 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   };
 
   const onClearHistory = async () => {
+    const normalizedActiveMessageThreadId = typeof activeMessageThreadId === 'number'
+      && Number.isFinite(activeMessageThreadId)
+      && activeMessageThreadId > 0
+      ? Math.floor(activeMessageThreadId)
+      : undefined;
+    const scopedDirectMessagesThreadId = selectedGroup?.isDirectMessages
+      ? normalizedActiveMessageThreadId
+      : undefined;
+    const removedMessageIdsInScope = scopedDirectMessagesThreadId === undefined
+      ? null
+      : new Set(
+        messages
+          .filter((item) => (
+            item.botToken === selectedBotToken
+            && item.chatId === selectedChatId
+            && item.messageThreadId === scopedDirectMessagesThreadId
+          ))
+          .map((item) => item.id),
+      );
+
     try {
-      await clearSimHistory(selectedBotToken, selectedChatId);
-      setMessages((prev) => prev.filter((item) => !(item.botToken === selectedBotToken && item.chatId === selectedChatId)));
+      await clearSimHistory(selectedBotToken, selectedChatId, scopedDirectMessagesThreadId);
+      setMessages((prev) => prev.filter((item) => {
+        if (item.botToken !== selectedBotToken || item.chatId !== selectedChatId) {
+          return true;
+        }
+        if (scopedDirectMessagesThreadId === undefined) {
+          return false;
+        }
+        return item.messageThreadId !== scopedDirectMessagesThreadId;
+      }));
       setInvoiceMetaByMessageKey((prev) => {
         const prefix = `${selectedBotToken}:${selectedChatId}:`;
         const next: Record<string, InvoiceMetaState> = {};
         Object.entries(prev).forEach(([key, value]) => {
           if (!key.startsWith(prefix)) {
             next[key] = value;
+            return;
+          }
+          if (scopedDirectMessagesThreadId === undefined) {
+            return;
+          }
+
+          const messageIdRaw = Number(key.slice(prefix.length));
+          if (!Number.isFinite(messageIdRaw) || !removedMessageIdsInScope?.has(messageIdRaw)) {
+            next[key] = value;
           }
         });
         return next;
       });
-      persistStarted({ ...startedChats, [chatKey]: false });
+      if (scopedDirectMessagesThreadId === undefined) {
+        persistStarted({ ...startedChats, [chatKey]: false });
+      }
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'Clear history failed');
     }
@@ -11303,15 +11306,14 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       const isActive = topic.messageThreadId === activeMessageThreadId;
                       const badgeColor = topic.iconColor.toString(16).padStart(6, '0');
                       const isPremiumIcon = Boolean(topic.iconCustomEmojiId);
-                      const canOpenForumTopicContextActions = canManageForumTopics
-                        || Boolean(selectedGroup?.isDirectMessages);
                       return (
                         <button
                           key={`forum-topic-tab-${topic.messageThreadId}`}
                           type="button"
                           onClick={() => selectForumTopicThread(topic.messageThreadId)}
                           onContextMenu={(event) => {
-                            if (!canOpenForumTopicContextActions) {
+                            const canOpenTopicContextMenu = canManageForumTopics || Boolean(selectedGroup?.isDirectMessages);
+                            if (!canOpenTopicContextMenu) {
                               return;
                             }
                             event.preventDefault();
@@ -11323,7 +11325,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                             });
                           }}
                           className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition ${isActive ? 'border-[#8ad1ff]/70 bg-[#214865]/80 text-white' : 'border-white/15 bg-black/20 text-[#c8e4f6] hover:bg-white/10'}`}
-                          title={`thread #${topic.messageThreadId}${canOpenForumTopicContextActions ? ' (right-click for actions)' : ''}`}
+                          title={`thread #${topic.messageThreadId}${canManageForumTopics || selectedGroup?.isDirectMessages ? ' (right-click for actions)' : ''}`}
                         >
                           <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: `#${badgeColor}` }} />
                           <span className="max-w-[180px] truncate">{topic.name}</span>
@@ -13389,81 +13391,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               />
             </div>
 
-            {userModalMode === 'edit' ? (
-              <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3">
-                <p className="text-xs uppercase tracking-wide text-[#8fb7d6]">Business mode</p>
-                <p className="mt-1 text-[11px] text-[#9ec3dc]">
-                  Configure business connection for this user and choose the bot.
-                </p>
-
-                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <select
-                    value={businessDraftBotToken}
-                    onChange={(e) => setBusinessDraftBotToken(e.target.value)}
-                    className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
-                  >
-                    {availableBots.map((bot) => (
-                      <option key={`business-bot-option-${bot.token}`} value={bot.token}>
-                        {bot.first_name} (@{bot.username})
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    value={businessConnectionDraftId}
-                    onChange={(e) => setBusinessConnectionDraftId(e.target.value)}
-                    className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
-                    placeholder="business_connection_id (leave empty to clear)"
-                  />
-                </div>
-
-                <label className="mt-2 flex items-center gap-2 rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-xs text-telegram-textSecondary">
-                  <input
-                    type="checkbox"
-                    checked={businessConnectionDraftEnabled}
-                    onChange={(e) => setBusinessConnectionDraftEnabled(e.target.checked)}
-                  />
-                  enabled
-                </label>
-
-                <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-[#d7e8f5] sm:grid-cols-2">
-                  <label className="flex items-center gap-2"><input type="checkbox" checked={businessRightsDraft.canReply} onChange={(e) => setBusinessRightsDraft((prev) => ({ ...prev, canReply: e.target.checked }))} />can_reply</label>
-                  <label className="flex items-center gap-2"><input type="checkbox" checked={businessRightsDraft.canReadMessages} onChange={(e) => setBusinessRightsDraft((prev) => ({ ...prev, canReadMessages: e.target.checked }))} />can_read_messages</label>
-                  <label className="flex items-center gap-2"><input type="checkbox" checked={businessRightsDraft.canDeleteSentMessages} onChange={(e) => setBusinessRightsDraft((prev) => ({ ...prev, canDeleteSentMessages: e.target.checked }))} />can_delete_sent_messages</label>
-                  <label className="flex items-center gap-2"><input type="checkbox" checked={businessRightsDraft.canDeleteAllMessages} onChange={(e) => setBusinessRightsDraft((prev) => ({ ...prev, canDeleteAllMessages: e.target.checked }))} />can_delete_all_messages</label>
-                  <label className="flex items-center gap-2"><input type="checkbox" checked={businessRightsDraft.canEditName} onChange={(e) => setBusinessRightsDraft((prev) => ({ ...prev, canEditName: e.target.checked }))} />can_edit_name</label>
-                  <label className="flex items-center gap-2"><input type="checkbox" checked={businessRightsDraft.canEditBio} onChange={(e) => setBusinessRightsDraft((prev) => ({ ...prev, canEditBio: e.target.checked }))} />can_edit_bio</label>
-                  <label className="flex items-center gap-2"><input type="checkbox" checked={businessRightsDraft.canEditProfilePhoto} onChange={(e) => setBusinessRightsDraft((prev) => ({ ...prev, canEditProfilePhoto: e.target.checked }))} />can_edit_profile_photo</label>
-                  <label className="flex items-center gap-2"><input type="checkbox" checked={businessRightsDraft.canEditUsername} onChange={(e) => setBusinessRightsDraft((prev) => ({ ...prev, canEditUsername: e.target.checked }))} />can_edit_username</label>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => void onSaveSelectedUserBusinessConnection()}
-                  disabled={isBusinessActionRunning}
-                  className="mt-2 w-full rounded-lg border border-white/15 bg-[#1b4666] px-3 py-2 text-sm text-white hover:bg-[#245a80] disabled:opacity-40"
-                >
-                  {isBusinessActionRunning ? 'Saving...' : 'Save business connection'}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => void onRemoveSelectedUserBusinessConnection()}
-                  disabled={isBusinessActionRunning || (!(businessConnectionByUserKey[businessDraftStateKey]) && businessConnectionDraftId.trim().length === 0)}
-                  className="mt-2 w-full rounded-lg border border-[#7d3a3a]/70 bg-[#3a1f1f] px-3 py-2 text-sm text-[#ffd6d6] hover:bg-[#4b2727] disabled:opacity-40"
-                >
-                  Remove business connection
-                </button>
-
-                {businessConnectionByUserKey[businessDraftStateKey] ? (
-                  <p className="mt-2 text-[11px] text-[#b8d9ef]">
-                    Active: {businessConnectionByUserKey[businessDraftStateKey].id} · {businessConnectionByUserKey[businessDraftStateKey].is_enabled ? 'enabled' : 'disabled'}
-                  </p>
-                ) : (
-                  <p className="mt-2 text-[11px] text-[#9ec3dc]">No business connection configured for this bot+user yet.</p>
-                )}
-              </div>
-            ) : null}
-
             <div className="mt-3 flex items-center justify-end gap-2">
               <button
                 type="button"
@@ -14384,7 +14311,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                   <button
                                     type="button"
                                     onClick={() => void onDeleteForumTopicFromDraft(topic.messageThreadId)}
-                                    disabled={isGroupActionRunning || !(canManageForumTopics || canDeleteDirectMessagesTopicByActiveActor(topic))}
+                                    disabled={isGroupActionRunning || !canManageForumTopics}
                                     className="rounded-lg border border-red-300/35 bg-red-900/20 px-3 py-2 text-sm text-red-100 hover:bg-red-900/30 disabled:opacity-40"
                                   >
                                     Delete topic
@@ -14536,7 +14463,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                     <label className="flex items-center gap-2"><input type="checkbox" checked={channelAdminRightsDraftByChatKey[selectedGroupStateKey || '']?.[member.userId]?.canDeleteMessages ?? false} onChange={(event) => onUpdateChannelAdminRightsDraft(member.userId, { canDeleteMessages: event.target.checked })} />can_delete_messages</label>
                                     <label className="flex items-center gap-2"><input type="checkbox" checked={channelAdminRightsDraftByChatKey[selectedGroupStateKey || '']?.[member.userId]?.canInviteUsers ?? false} onChange={(event) => onUpdateChannelAdminRightsDraft(member.userId, { canInviteUsers: event.target.checked })} />can_invite_users</label>
                                     <label className="flex items-center gap-2"><input type="checkbox" checked={channelAdminRightsDraftByChatKey[selectedGroupStateKey || '']?.[member.userId]?.canChangeInfo ?? false} onChange={(event) => onUpdateChannelAdminRightsDraft(member.userId, { canChangeInfo: event.target.checked })} />can_change_info</label>
-                                    <label className="flex items-center gap-2"><input type="checkbox" checked={channelAdminRightsDraftByChatKey[selectedGroupStateKey || '']?.[member.userId]?.canManageDirectMessages ?? false} onChange={(event) => onUpdateChannelAdminRightsDraft(member.userId, { canManageDirectMessages: event.target.checked })} />can_manage_direct_messages</label>
                                   </div>
                                   <div className="mt-2">
                                     <button
@@ -14754,57 +14680,14 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                 placeholder={selectedGroup.type === 'channel' ? 'Channel description' : 'Group description'}
               />
               {selectedGroup.type === 'channel' ? (
-                <>
-                  <label className="flex items-center gap-2 text-sm text-telegram-textSecondary">
-                    <input
-                      type="checkbox"
-                      checked={groupProfileDraft.showAuthorSignature}
-                      onChange={(e) => setGroupProfileDraft((prev) => ({ ...prev, showAuthorSignature: e.target.checked }))}
-                    />
-                    Show publisher name on channel posts
-                  </label>
-
-                  <div className="rounded-lg border border-white/10 bg-black/20 p-3">
-                    <p className="mb-2 text-xs uppercase tracking-wide text-[#8fb7d6]">Channel direct messages</p>
-                    <label className="flex items-center gap-2 text-sm text-telegram-textSecondary">
-                      <input
-                        type="checkbox"
-                        checked={groupProfileDraft.directMessagesEnabled}
-                        onChange={(e) => setGroupProfileDraft((prev) => ({
-                          ...prev,
-                          directMessagesEnabled: e.target.checked,
-                        }))}
-                      />
-                      Enable direct messages inbox for channel admins
-                    </label>
-                    <label className="mt-2 flex items-center gap-2 text-sm text-telegram-textSecondary">
-                      <span className="min-w-[170px] text-xs uppercase tracking-wide text-[#8fb7d6]">Stars per user message</span>
-                      <input
-                        type="number"
-                        min={0}
-                        step={1}
-                        value={groupProfileDraft.directMessagesStarCount}
-                        onChange={(e) => setGroupProfileDraft((prev) => ({
-                          ...prev,
-                          directMessagesStarCount: Math.max(0, Math.floor(Number(e.target.value) || 0)),
-                        }))}
-                        className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
-                      />
-                    </label>
-                    <p className="mt-2 text-[11px] text-[#9ec3dc]">
-                      {groupProfileDraft.directMessagesStarCount > 0
-                        ? `Inbound DM messages will carry paid_message_star_count=${groupProfileDraft.directMessagesStarCount}.`
-                        : 'Inbound DM messages are free.'}
-                    </p>
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      {groupProfileDraft.directMessagesEnabled ? (
-                        <span className="text-[11px] text-[#b8d9ef]">DM status: enabled</span>
-                      ) : (
-                        <span className="text-[11px] text-[#d3b39f]">DM status: disabled</span>
-                      )}
-                    </div>
-                  </div>
-                </>
+                <label className="flex items-center gap-2 text-sm text-telegram-textSecondary">
+                  <input
+                    type="checkbox"
+                    checked={groupProfileDraft.showAuthorSignature}
+                    onChange={(e) => setGroupProfileDraft((prev) => ({ ...prev, showAuthorSignature: e.target.checked }))}
+                  />
+                  Show publisher name on channel posts
+                </label>
               ) : null}
               {selectedGroup.type !== 'channel' ? (
                 <>
@@ -15523,7 +15406,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         </div>
       ) : null}
 
-      {forumTopicContextMenu ? (
+      {forumTopicContextMenu && canManageForumTopics ? (
         <div
           className="fixed z-50 w-64 max-w-[90vw] rounded-2xl border border-white/15 bg-[#132130] p-2 shadow-2xl"
           style={{ left: forumTopicContextMenu.x, top: forumTopicContextMenu.y }}
@@ -15549,24 +15432,21 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           <button
             type="button"
             onClick={() => void onRunForumTopicContextAction('edit')}
-            disabled={!canManageForumTopics}
-            className="w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+            className="w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10"
           >
             Edit topic
           </button>
           <button
             type="button"
             onClick={() => void onRunForumTopicContextAction(forumTopicContextMenu.topic.isClosed ? 'reopen' : 'close')}
-            disabled={!canManageForumTopics}
-            className="w-full rounded-lg px-3 py-2 text-left text-sm text-orange-100 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+            className="w-full rounded-lg px-3 py-2 text-left text-sm text-orange-100 hover:bg-white/10"
           >
             {forumTopicContextMenu.topic.isClosed ? 'Reopen topic' : 'Close topic'}
           </button>
           <button
             type="button"
             onClick={() => void onRunForumTopicContextAction('unpin')}
-            disabled={!canManageForumTopics}
-            className="w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+            className="w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10"
           >
             Unpin all messages
           </button>
@@ -15574,8 +15454,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             <button
               type="button"
               onClick={() => void onRunForumTopicContextAction(forumTopicContextMenu.topic.isHidden ? 'unhide' : 'hide')}
-              disabled={!canManageForumTopics}
-              className="w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+              className="w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10"
             >
               {forumTopicContextMenu.topic.isHidden ? 'Unhide general topic' : 'Hide general topic'}
             </button>
@@ -15583,8 +15462,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             <button
               type="button"
               onClick={() => void onRunForumTopicContextAction('delete')}
-              disabled={!canManageForumTopics && !canDeleteDirectMessagesTopicByActiveActor(forumTopicContextMenu.topic)}
-              className="w-full rounded-lg px-3 py-2 text-left text-sm text-red-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+              className="w-full rounded-lg px-3 py-2 text-left text-sm text-red-200 hover:bg-white/10"
             >
               Delete topic
             </button>
