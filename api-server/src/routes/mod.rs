@@ -34,6 +34,10 @@ use crate::handlers::{
     handle_sim_send_inline_query,
     handle_sim_press_inline_button,
     handle_sim_get_privacy_mode,
+    handle_sim_open_channel_direct_messages,
+    handle_sim_remove_business_connection,
+    handle_sim_set_business_connection,
+    handle_sim_delete_user,
     handle_sim_set_user_reaction,
     handle_sim_set_privacy_mode,
     handle_sim_vote_poll,
@@ -43,7 +47,11 @@ use crate::handlers::{
     with_request_actor_user_id,
     SimChooseInlineResultRequest, SimClearHistoryRequest, SimCreateBotRequest, SimCreateGroupInviteLinkRequest, SimCreateGroupRequest, SimDeleteGroupRequest, SimJoinGroupByInviteLinkRequest, SimJoinGroupRequest, SimLeaveGroupRequest, SimMarkChannelMessageViewRequest, SimPayInvoiceRequest, SimPressInlineButtonRequest, SimResolveJoinRequestRequest, SimSendInlineQueryRequest, SimSendUserMessageRequest, SimSetBotGroupMembershipRequest, SimSetUserReactionRequest, SimUpdateBotRequest, SimUpdateGroupRequest,
     SimSendUserContactRequest, SimSendUserDiceRequest, SimSendUserGameRequest, SimSendUserLocationRequest, SimSendUserVenueRequest,
+    SimDeleteUserRequest,
     SimSetPrivacyModeRequest,
+    SimRemoveBusinessConnectionRequest,
+    SimSetBusinessConnectionRequest,
+    SimOpenChannelDirectMessagesRequest,
     SimVotePollRequest,
     SimUpsertUserRequest,
 };
@@ -156,6 +164,36 @@ pub async fn sim_set_privacy_mode(
 ) -> impl Responder {
     let token = path.into_inner();
     into_telegram_response(handle_sim_set_privacy_mode(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/business/connection")]
+pub async fn sim_set_business_connection(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimSetBusinessConnectionRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_set_business_connection(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/business/connection/remove")]
+pub async fn sim_remove_business_connection(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimRemoveBusinessConnectionRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_remove_business_connection(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/channels/direct-messages/open")]
+pub async fn sim_open_channel_direct_messages(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimOpenChannelDirectMessagesRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_open_channel_direct_messages(&state, &token, payload.into_inner()))
 }
 
 #[post("/client-api/bot{token}/sendUserMessage")]
@@ -583,6 +621,14 @@ pub async fn sim_upsert_user(
     payload: web::Json<SimUpsertUserRequest>,
 ) -> impl Responder {
     into_telegram_response(handle_sim_upsert_user(&state, payload.into_inner()))
+}
+
+#[post("/client-api/users/delete")]
+pub async fn sim_delete_user(
+    state: Data<AppState>,
+    payload: web::Json<SimDeleteUserRequest>,
+) -> impl Responder {
+    into_telegram_response(handle_sim_delete_user(&state, payload.into_inner()))
 }
 
 #[post("/client-api/bot{token}/clearHistory")]

@@ -68,6 +68,8 @@ export interface SimChatSettings {
   description?: string;
   show_author_signature?: boolean;
   linked_chat_id?: number;
+  direct_messages_enabled?: boolean;
+  direct_messages_star_count?: number;
   message_history_visible: boolean;
   slow_mode_delay: number;
   permissions: GeneratedChatPermissions;
@@ -85,10 +87,16 @@ export interface SimBootstrapForumTopic {
   updated_at?: number;
 }
 
+export interface SimBootstrapChannelDirectMessages {
+  channel_chat_id: number;
+  direct_messages_chat_id: number;
+}
+
 export interface SimBootstrapResponse {
   bot: SimBot;
   users: SimUser[];
   chats?: GeneratedChat[];
+  channel_direct_messages?: SimBootstrapChannelDirectMessages[];
   chat_settings?: SimChatSettings[];
   memberships?: SimChatMembership[];
   join_requests?: SimChatJoinRequest[];
@@ -111,6 +119,8 @@ export interface ChatMessage {
   fromUserId: number;
   senderChatId?: number;
   senderChatTitle?: string;
+  businessConnectionId?: string;
+  paidMessageStarCount?: number;
   isInlineOrigin?: boolean;
   viaBotUsername?: string;
   poll?: GeneratedPoll;

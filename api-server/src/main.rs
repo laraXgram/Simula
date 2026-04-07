@@ -15,8 +15,12 @@ use crate::routes::{
     bot_api_get, bot_api_post, file_download, health, sim_bootstrap, sim_clear_history, sim_create_bot,
     sim_create_group, sim_create_group_invite_link,
     sim_delete_group,
+    sim_delete_user,
     sim_get_privacy_mode,
+    sim_open_channel_direct_messages,
     sim_mark_channel_message_view,
+    sim_remove_business_connection,
+    sim_set_business_connection,
     sim_set_bot_group_membership,
     sim_set_privacy_mode,
     sim_join_group, sim_join_group_by_invite_link, sim_leave_group,
@@ -72,6 +76,9 @@ async fn main() -> std::io::Result<()> {
             .service(sim_bootstrap)
             .service(sim_get_privacy_mode)
             .service(sim_set_privacy_mode)
+            .service(sim_set_business_connection)
+            .service(sim_remove_business_connection)
+            .service(sim_open_channel_direct_messages)
             .service(sim_send_user_message)
             .service(sim_send_user_media)
             .service(sim_send_user_dice)
@@ -103,6 +110,7 @@ async fn main() -> std::io::Result<()> {
             .service(sim_update_group)
             .service(sim_update_bot)
             .service(sim_upsert_user)
+            .service(sim_delete_user)
             .service(sim_clear_history)
     })
     .bind((host, port))?

@@ -126,6 +126,9 @@ import {
   getInlineQueryAnswer,
   setGameScore,
   getSimulationBootstrap,
+  openSimulationChannelDirectMessages,
+  removeSimulationBusinessConnection,
+  setSimulationBusinessConnection,
   deleteSimulationGroup,
   joinSimulationGroup,
   joinSimulationGroupByInviteLink,
@@ -141,6 +144,7 @@ import {
   setUserMessageReaction,
   setSimulationBotGroupMembership,
   updateSimulationGroup,
+  deleteSimUser,
   updateSimBot,
   upsertSimUser,
 } from '../../services/botApi';
@@ -148,6 +152,8 @@ import { API_BASE_URL, DEFAULT_BOT_TOKEN } from '../../services/config';
 import { useBotUpdates } from '../../hooks/useBotUpdates';
 import type { GetChatMenuButtonRequest, SetChatMenuButtonRequest } from '../../types/generated/methods';
 import type {
+  BusinessBotRights as GeneratedBusinessBotRights,
+  BusinessConnection as GeneratedBusinessConnection,
   ChatShared as GeneratedChatShared,
   ChatMember as GeneratedChatMember,
   MenuButton as GeneratedMenuButton,
@@ -163,6 +169,7 @@ import {
   ChatMessage,
   InlineKeyboardButton,
   InlineQueryResult,
+  SimBootstrapChannelDirectMessages,
   MessageParseMode,
   MessageEntity,
   ReplyKeyboardButton,
@@ -195,8 +202,14 @@ const GROUP_PINNED_MESSAGES_KEY = 'laragram-group-pinned-messages';
 const INVOICE_META_KEY = 'laragram-invoice-meta-by-message';
 const FORUM_TOPICS_KEY = 'laragram-forum-topics-by-chat';
 const SELECTED_FORUM_TOPIC_KEY = 'laragram-selected-forum-topic-by-chat';
+const BUSINESS_CONNECTIONS_KEY = 'laragram-business-connections';
+const USER_WALLETS_KEY = 'laragram-user-wallets';
 const GENERAL_FORUM_TOPIC_THREAD_ID = 1;
 const DEFAULT_FORUM_ICON_COLOR = 0x6FB9F0;
+const DEFAULT_WALLET_STATE = {
+  fiat: 50000,
+  stars: 2500,
+};
 type SidebarTab = 'chats' | 'bots' | 'users';
 type ChatScopeTab = 'private' | 'group' | 'channel';
 type BotModalMode = 'create' | 'edit';
@@ -240,6 +253,11 @@ interface CheckoutFlowState {
   tip: string;
 }
 
+interface WalletState {
+  fiat: number;
+  stars: number;
+}
+
 const TELEGRAM_REACTION_EMOJIS = [
   '👍', '👎', '❤', '🔥', '🎉', '😁', '🤔', '😢', '😱', '👏', '🤩', '🙏', '👌', '🤣', '💯', '⚡',
   '💔', '🥰', '🤬', '🤯', '🤮', '🥱', '😈', '😎', '🗿', '🆒', '😘', '👀', '🤝', '🍾',
@@ -257,6 +275,15 @@ const FORUM_ICON_COLOR_PRESETS = [
   0x8EC5FF,
 ];
 const FORUM_TOPIC_EMOJI_PRESETS = ['😀', '😎', '🎯', '📣', '💡', '🚀', '🎮', '🛠️', '🧪', '📌'];
+
+function normalizeWalletState(raw?: Partial<WalletState>): WalletState {
+  const fiat = Math.floor(Number(raw?.fiat));
+  const stars = Math.floor(Number(raw?.stars));
+  return {
+    fiat: Number.isFinite(fiat) && fiat >= 0 ? fiat : DEFAULT_WALLET_STATE.fiat,
+    stars: Number.isFinite(stars) && stars >= 0 ? stars : DEFAULT_WALLET_STATE.stars,
+  };
+}
 
 function mapIncomingReplyMarkup(raw?: unknown): BotReplyMarkup | undefined {
   if (!raw || typeof raw !== 'object') {
@@ -309,12 +336,16 @@ interface GroupChatItem {
   username?: string;
   description?: string;
   isForum?: boolean;
+  isDirectMessages?: boolean;
+  parentChannelChatId?: number;
   linkedDiscussionChatId?: number;
   settings?: GroupSettingsSnapshot;
 }
 
 interface GroupSettingsSnapshot {
   showAuthorSignature: boolean;
+  directMessagesEnabled: boolean;
+  directMessagesStarCount: number;
   messageHistoryVisible: boolean;
   slowModeDelay: number;
   allowSendMessages: boolean;
@@ -373,6 +404,7 @@ interface ChannelAdminRightsDraft {
   canDeleteMessages: boolean;
   canInviteUsers: boolean;
   canChangeInfo: boolean;
+  canManageDirectMessages: boolean;
 }
 
 interface GroupMenuButtonDraft {
@@ -381,6 +413,17 @@ interface GroupMenuButtonDraft {
   type: 'default' | 'commands' | 'web_app';
   text: string;
   webAppUrl: string;
+}
+
+interface BusinessRightsDraft {
+  canReply: boolean;
+  canReadMessages: boolean;
+  canDeleteSentMessages: boolean;
+  canDeleteAllMessages: boolean;
+  canEditName: boolean;
+  canEditBio: boolean;
+  canEditProfilePhoto: boolean;
+  canEditUsername: boolean;
 }
 
 interface KeyboardRequestUsersModalState {
@@ -442,11 +485,24 @@ const isMessageParseMode = (value: unknown): value is MessageParseMode => (
   value === 'Markdown' || value === 'MarkdownV2' || value === 'HTML'
 );
 
-function normalizeForumTopics(topics: ForumTopicState[]): ForumTopicState[] {
+function normalizeForumTopics(
+  topics: ForumTopicState[],
+  options: { includeGeneralFallback?: boolean } = {},
+): ForumTopicState[] {
+  const includeGeneralFallback = options.includeGeneralFallback !== false;
   const byThreadId = new Map<number, ForumTopicState>();
   topics.forEach((topic) => {
     const threadId = Math.floor(Number(topic.messageThreadId));
     if (!Number.isFinite(threadId) || threadId <= 0) {
+      return;
+    }
+
+    if (
+      !includeGeneralFallback
+      && Boolean(topic.isGeneral)
+      && threadId === GENERAL_FORUM_TOPIC_THREAD_ID
+      && (!topic.updatedAt || topic.name === 'General')
+    ) {
       return;
     }
 
@@ -457,12 +513,14 @@ function normalizeForumTopics(topics: ForumTopicState[]): ForumTopicState[] {
       iconCustomEmojiId: topic.iconCustomEmojiId || undefined,
       isClosed: Boolean(topic.isClosed),
       isHidden: Boolean(topic.isHidden),
-      isGeneral: topic.isGeneral || threadId === GENERAL_FORUM_TOPIC_THREAD_ID,
+      isGeneral: includeGeneralFallback
+        ? (topic.isGeneral || threadId === GENERAL_FORUM_TOPIC_THREAD_ID)
+        : false,
       updatedAt: Number.isFinite(Number(topic.updatedAt)) ? Math.floor(Number(topic.updatedAt)) : undefined,
     });
   });
 
-  if (!byThreadId.has(GENERAL_FORUM_TOPIC_THREAD_ID)) {
+  if (includeGeneralFallback && !byThreadId.has(GENERAL_FORUM_TOPIC_THREAD_ID)) {
     byThreadId.set(GENERAL_FORUM_TOPIC_THREAD_ID, {
       messageThreadId: GENERAL_FORUM_TOPIC_THREAD_ID,
       name: 'General',
@@ -475,11 +533,13 @@ function normalizeForumTopics(topics: ForumTopicState[]): ForumTopicState[] {
   }
 
   return Array.from(byThreadId.values()).sort((a, b) => {
-    if (a.messageThreadId === GENERAL_FORUM_TOPIC_THREAD_ID) {
-      return -1;
-    }
-    if (b.messageThreadId === GENERAL_FORUM_TOPIC_THREAD_ID) {
-      return 1;
+    if (includeGeneralFallback) {
+      if (a.messageThreadId === GENERAL_FORUM_TOPIC_THREAD_ID) {
+        return -1;
+      }
+      if (b.messageThreadId === GENERAL_FORUM_TOPIC_THREAD_ID) {
+        return 1;
+      }
     }
     const left = a.updatedAt || 0;
     const right = b.updatedAt || 0;
@@ -645,6 +705,8 @@ function normalizeMembershipStatus(status?: string): string {
 function defaultGroupSettings(): GroupSettingsSnapshot {
   return {
     showAuthorSignature: false,
+    directMessagesEnabled: false,
+    directMessagesStarCount: 0,
     messageHistoryVisible: true,
     slowModeDelay: 0,
     allowSendMessages: true,
@@ -667,6 +729,8 @@ function defaultGroupSettings(): GroupSettingsSnapshot {
 
 function mapServerSettingsToSnapshot(raw?: {
   show_author_signature?: boolean;
+  direct_messages_enabled?: boolean;
+  direct_messages_star_count?: number;
   message_history_visible?: boolean;
   slow_mode_delay?: number;
   permissions?: unknown;
@@ -695,6 +759,8 @@ function mapServerSettingsToSnapshot(raw?: {
 
   return {
     showAuthorSignature: raw?.show_author_signature ?? defaults.showAuthorSignature,
+    directMessagesEnabled: raw?.direct_messages_enabled ?? defaults.directMessagesEnabled,
+    directMessagesStarCount: Math.max(0, Math.floor(Number(raw?.direct_messages_star_count ?? defaults.directMessagesStarCount) || 0)),
     messageHistoryVisible: raw?.message_history_visible ?? defaults.messageHistoryVisible,
     slowModeDelay: Math.max(0, Math.floor(Number(raw?.slow_mode_delay ?? defaults.slowModeDelay) || 0)),
     allowSendMessages: permissions['can_send_messages'] !== false,
@@ -712,6 +778,49 @@ function mapServerSettingsToSnapshot(raw?: {
     allowPinMessages: permissions['can_pin_messages'] === true,
     allowChangeInfo: permissions['can_change_info'] === true,
     allowManageTopics: permissions['can_manage_topics'] === true,
+  };
+}
+
+function defaultBusinessRightsDraft(): BusinessRightsDraft {
+  return {
+    canReply: true,
+    canReadMessages: true,
+    canDeleteSentMessages: true,
+    canDeleteAllMessages: true,
+    canEditName: true,
+    canEditBio: true,
+    canEditProfilePhoto: true,
+    canEditUsername: true,
+  };
+}
+
+function toBusinessBotRights(draft: BusinessRightsDraft): GeneratedBusinessBotRights {
+  return {
+    can_reply: draft.canReply,
+    can_read_messages: draft.canReadMessages,
+    can_delete_sent_messages: draft.canDeleteSentMessages,
+    can_delete_all_messages: draft.canDeleteAllMessages,
+    can_edit_name: draft.canEditName,
+    can_edit_bio: draft.canEditBio,
+    can_edit_profile_photo: draft.canEditProfilePhoto,
+    can_edit_username: draft.canEditUsername,
+  };
+}
+
+function mapBusinessRightsToDraft(rights?: GeneratedBusinessBotRights): BusinessRightsDraft {
+  const defaults = defaultBusinessRightsDraft();
+  if (!rights) {
+    return defaults;
+  }
+  return {
+    canReply: rights.can_reply ?? defaults.canReply,
+    canReadMessages: rights.can_read_messages ?? defaults.canReadMessages,
+    canDeleteSentMessages: rights.can_delete_sent_messages ?? defaults.canDeleteSentMessages,
+    canDeleteAllMessages: rights.can_delete_all_messages ?? defaults.canDeleteAllMessages,
+    canEditName: rights.can_edit_name ?? defaults.canEditName,
+    canEditBio: rights.can_edit_bio ?? defaults.canEditBio,
+    canEditProfilePhoto: rights.can_edit_profile_photo ?? defaults.canEditProfilePhoto,
+    canEditUsername: rights.can_edit_username ?? defaults.canEditUsername,
   };
 }
 
@@ -811,6 +920,7 @@ function defaultChannelAdminRightsDraft(): ChannelAdminRightsDraft {
     canDeleteMessages: true,
     canInviteUsers: true,
     canChangeInfo: true,
+    canManageDirectMessages: true,
   };
 }
 
@@ -828,6 +938,7 @@ function parseChannelAdminRightsDraft(member: GeneratedChatMember): ChannelAdmin
     canDeleteMessages: Boolean(raw.can_delete_messages),
     canInviteUsers: Boolean(raw.can_invite_users),
     canChangeInfo: Boolean(raw.can_change_info),
+    canManageDirectMessages: Boolean(raw.can_manage_direct_messages),
   };
 }
 
@@ -1147,6 +1258,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     description: '',
     isForum: false,
     showAuthorSignature: false,
+    directMessagesEnabled: false,
+    directMessagesStarCount: 0,
     messageHistoryVisible: true,
     slowModeDelay: 0,
     allowSendMessages: true,
@@ -1165,6 +1278,19 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     allowChangeInfo: false,
     allowManageTopics: false,
   });
+  const [businessConnectionByUserKey, setBusinessConnectionByUserKey] = useState<Record<string, GeneratedBusinessConnection>>(() => {
+    try {
+      const raw = localStorage.getItem(BUSINESS_CONNECTIONS_KEY);
+      return raw ? (JSON.parse(raw) as Record<string, GeneratedBusinessConnection>) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [businessConnectionDraftId, setBusinessConnectionDraftId] = useState('');
+  const [businessConnectionDraftEnabled, setBusinessConnectionDraftEnabled] = useState(true);
+  const [businessRightsDraft, setBusinessRightsDraft] = useState<BusinessRightsDraft>(defaultBusinessRightsDraft());
+  const [businessDraftBotToken, setBusinessDraftBotToken] = useState<string>(selectedBotToken);
+  const [isBusinessActionRunning, setIsBusinessActionRunning] = useState(false);
   const [groupMembersFilter, setGroupMembersFilter] = useState('');
   const [expandedGroupMemberId, setExpandedGroupMemberId] = useState<number | null>(null);
   const [groupMemberRestrictionDraftByChatKey, setGroupMemberRestrictionDraftByChatKey] = useState<Record<string, Record<number, GroupMemberRestrictionDraft>>>({});
@@ -1191,11 +1317,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       }
 
       const parsed = JSON.parse(raw) as Record<string, ForumTopicState[]>;
-      const normalized: Record<string, ForumTopicState[]> = {};
+      const hydrated: Record<string, ForumTopicState[]> = {};
       Object.entries(parsed).forEach(([key, topics]) => {
-        normalized[key] = normalizeForumTopics(Array.isArray(topics) ? topics : []);
+        hydrated[key] = Array.isArray(topics) ? topics : [];
       });
-      return normalized;
+      return hydrated;
     } catch {
       return {};
     }
@@ -1437,9 +1563,22 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const [paymentMethodByInvoice, setPaymentMethodByInvoice] = useState<Record<number, PaymentMethod>>({});
   const [paymentTipByInvoice, setPaymentTipByInvoice] = useState<Record<number, string>>({});
   const [checkoutFlow, setCheckoutFlow] = useState<CheckoutFlowState | null>(null);
-  const [walletState, setWalletState] = useState({
-    fiat: 50000,
-    stars: 2500,
+  const [walletByUserId, setWalletByUserId] = useState<Record<string, WalletState>>(() => {
+    try {
+      const raw = localStorage.getItem(USER_WALLETS_KEY);
+      if (!raw) {
+        return {};
+      }
+
+      const parsed = JSON.parse(raw) as Record<string, Partial<WalletState>>;
+      const normalized: Record<string, WalletState> = {};
+      Object.entries(parsed).forEach(([userId, wallet]) => {
+        normalized[userId] = normalizeWalletState(wallet);
+      });
+      return normalized;
+    } catch {
+      return {};
+    }
   });
   const [startedChats, setStartedChats] = useState<Record<string, boolean>>(() => {
     try {
@@ -1459,6 +1598,33 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     () => availableUsers.find((user) => user.id === selectedUserId) || DEFAULT_USER,
     [availableUsers, selectedUserId],
   );
+  const selectedUserWalletKey = String(selectedUser.id);
+  const walletState = walletByUserId[selectedUserWalletKey] || DEFAULT_WALLET_STATE;
+  const setWalletState = (next: WalletState | ((prev: WalletState) => WalletState)) => {
+    setWalletByUserId((prev) => {
+      const current = prev[selectedUserWalletKey] || DEFAULT_WALLET_STATE;
+      const resolved = typeof next === 'function'
+        ? (next as (value: WalletState) => WalletState)(current)
+        : next;
+      const normalized = normalizeWalletState(resolved);
+
+      if (current.fiat === normalized.fiat && current.stars === normalized.stars) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        [selectedUserWalletKey]: normalized,
+      };
+    });
+  };
+
+  const selectedBusinessConnectionStateKey = `${selectedBotToken}:${selectedUser.id}`;
+  const businessDraftStateKey = `${businessDraftBotToken}:${selectedUser.id}`;
+  const selectedBusinessConnection = businessConnectionByUserKey[selectedBusinessConnectionStateKey];
+  const activeBusinessConnectionId = chatScopeTab === 'private' && selectedBusinessConnection?.is_enabled
+    ? selectedBusinessConnection.id
+    : undefined;
 
   const inlineTrigger = useMemo(() => {
     const username = selectedBot?.username?.toLowerCase();
@@ -1519,6 +1685,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       .filter((group) => (
         group.id !== selectedGroup.id
         && (group.type === 'group' || group.type === 'supergroup')
+        && !group.isDirectMessages
       ))
       .sort((a, b) => a.title.localeCompare(b.title));
   }, [groupChats, selectedGroup]);
@@ -1531,9 +1698,71 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     : null;
   const groupMembershipStatus = groupMembershipKey ? groupMembershipByUser[groupMembershipKey] : undefined;
   const groupMembership = isJoinedMembershipStatus(groupMembershipStatus) ? 'joined' : 'left';
-  const canLeaveSelectedGroup = groupMembership === 'joined' && normalizeMembershipStatus(groupMembershipStatus) !== 'owner';
-  const canEditSelectedGroup = canEditGroupByStatus(groupMembershipStatus);
-  const canDeleteSelectedGroup = canDeleteGroupByStatus(groupMembershipStatus);
+  const isDirectMessagesGroup = Boolean(selectedGroup?.isDirectMessages);
+  const canLeaveSelectedGroup = !isDirectMessagesGroup
+    && groupMembership === 'joined'
+    && normalizeMembershipStatus(groupMembershipStatus) !== 'owner';
+  const canEditSelectedGroup = !isDirectMessagesGroup && canEditGroupByStatus(groupMembershipStatus);
+  const canDeleteSelectedGroup = !isDirectMessagesGroup && canDeleteGroupByStatus(groupMembershipStatus);
+  const selectedDirectMessagesParentStateKey = selectedGroup?.isDirectMessages && selectedGroup.parentChannelChatId
+    ? `${selectedBotToken}:${selectedGroup.parentChannelChatId}`
+    : null;
+  const selectedDirectMessagesParentMembershipStatus = selectedGroup?.isDirectMessages && selectedGroup.parentChannelChatId
+    ? normalizeMembershipStatus(groupMembershipByUser[`${selectedBotToken}:${selectedGroup.parentChannelChatId}:${selectedUser.id}`])
+    : 'left';
+  const normalizedSelectedGroupMembershipStatus = normalizeMembershipStatus(groupMembershipStatus);
+  const selectedDirectMessagesAdminRights = selectedDirectMessagesParentStateKey
+    ? channelAdminRightsDraftByChatKey[selectedDirectMessagesParentStateKey]?.[selectedUser.id]
+    : undefined;
+  const isSelectedUserDirectMessagesManager = Boolean(
+    selectedGroup?.isDirectMessages
+    && (
+      selectedDirectMessagesParentMembershipStatus === 'owner'
+      || (
+        selectedDirectMessagesParentMembershipStatus === 'admin'
+        && selectedDirectMessagesAdminRights?.canManageDirectMessages === true
+      )
+    ),
+  );
+  const selectedChannelAdminRights = selectedGroupStateKey
+    ? channelAdminRightsDraftByChatKey[selectedGroupStateKey]?.[selectedUser.id]
+    : undefined;
+  const canSelectedUserManageChannelDirectMessages = Boolean(
+    selectedGroup?.type === 'channel'
+    && !selectedGroup?.isDirectMessages
+    && (
+      normalizedSelectedGroupMembershipStatus === 'owner'
+      || (
+        normalizedSelectedGroupMembershipStatus === 'admin'
+        && selectedChannelAdminRights?.canManageDirectMessages === true
+      )
+    ),
+  );
+  const selectedDirectMessagesParentGroup = selectedGroup?.isDirectMessages && selectedGroup.parentChannelChatId
+    ? groupChats.find((chat) => chat.id === selectedGroup.parentChannelChatId)
+    : undefined;
+  const selectedDirectMessagesStarCost = selectedGroup?.isDirectMessages
+    ? Math.max(
+      0,
+      Math.floor(Number(
+        selectedDirectMessagesParentGroup?.settings?.directMessagesStarCount
+        ?? selectedGroup.settings?.directMessagesStarCount
+        ?? 0,
+      ) || 0),
+    )
+    : 0;
+  const isSelectedUserDirectMessagesAdmin = Boolean(
+    selectedGroup?.isDirectMessages
+    && (
+      selectedDirectMessagesParentMembershipStatus === 'owner'
+      || selectedDirectMessagesParentMembershipStatus === 'admin'
+    ),
+  );
+  const shouldChargeSelectedUserDirectMessages = Boolean(
+    selectedGroup?.isDirectMessages
+    && !isSelectedUserDirectMessagesAdmin
+    && selectedDirectMessagesStarCost > 0,
+  );
   const isChannelScope = chatScopeTab === 'channel';
   const canPostInSelectedChannel = !isChannelScope || canEditSelectedGroup;
   const channelPostingRestrictionReason = isChannelScope && groupMembership === 'joined' && !canEditSelectedGroup
@@ -1578,6 +1807,17 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     && selectedGroup.isForum
     && canEditSelectedGroup,
   );
+  const canDeleteDirectMessagesTopicByActiveActor = (topic?: ForumTopicState | null): boolean => {
+    if (!selectedGroup?.isDirectMessages || !topic || topic.isGeneral) {
+      return false;
+    }
+
+    if (isSelectedUserDirectMessagesManager) {
+      return true;
+    }
+
+    return topic.messageThreadId === selectedUser.id;
+  };
   const selectedBotMembershipKey = selectedGroup && selectedBot
     ? `${selectedBotToken}:${selectedGroup.id}:${selectedBot.id}`
     : null;
@@ -1592,39 +1832,79 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const selectedGroupJoinRequests = selectedGroupStateKey ? (pendingJoinRequestsByChat[selectedGroupStateKey] || []) : [];
   const selectedPinnedMessageIds = selectedGroupStateKey ? (pinnedMessageByChatKey[selectedGroupStateKey] || []) : [];
   const selectedForumTopics = useMemo(() => {
-    if (!selectedGroupStateKey || !selectedGroup?.isForum) {
+    if (!selectedGroupStateKey || !(selectedGroup?.isForum || selectedGroup?.isDirectMessages)) {
       return [] as ForumTopicState[];
     }
 
-    return normalizeForumTopics(forumTopicsByChatKey[selectedGroupStateKey] || []);
-  }, [forumTopicsByChatKey, selectedGroup?.isForum, selectedGroupStateKey]);
+    return normalizeForumTopics(
+      forumTopicsByChatKey[selectedGroupStateKey] || [],
+      { includeGeneralFallback: Boolean(selectedGroup?.isForum && !selectedGroup?.isDirectMessages) },
+    );
+  }, [forumTopicsByChatKey, selectedGroup?.isDirectMessages, selectedGroup?.isForum, selectedGroupStateKey]);
 
   const activeForumTopicThreadId = useMemo(() => {
-    if (!selectedGroupStateKey || !selectedGroup?.isForum) {
+    if (!selectedGroupStateKey || !(selectedGroup?.isForum || selectedGroup?.isDirectMessages)) {
       return undefined;
     }
 
     const selected = selectedForumTopicByChatKey[selectedGroupStateKey];
+    if (selectedGroup?.isDirectMessages) {
+      if (Number.isFinite(selected) && selected > 0) {
+        return selected;
+      }
+      return selectedUser.id;
+    }
+
     if (Number.isFinite(selected) && selected > 0 && selectedForumTopics.some((topic) => topic.messageThreadId === selected)) {
       return selected;
     }
 
-    return selectedForumTopics[0]?.messageThreadId || GENERAL_FORUM_TOPIC_THREAD_ID;
-  }, [selectedForumTopicByChatKey, selectedForumTopics, selectedGroup?.isForum, selectedGroupStateKey]);
+    const firstVisibleTopic = selectedGroup?.isDirectMessages
+      ? selectedForumTopics.find((topic) => !topic.isGeneral)
+      : selectedForumTopics[0];
+
+    if (firstVisibleTopic) {
+      return firstVisibleTopic.messageThreadId;
+    }
+
+    if (selectedGroup?.isForum) {
+      return GENERAL_FORUM_TOPIC_THREAD_ID;
+    }
+
+    return undefined;
+  }, [
+    isSelectedUserDirectMessagesManager,
+    selectedForumTopicByChatKey,
+    selectedForumTopics,
+    selectedGroup?.isDirectMessages,
+    selectedGroup?.isForum,
+    selectedGroupStateKey,
+    selectedUser.id,
+  ]);
 
   const activeForumTopic = useMemo(() => {
-    if (!selectedGroup?.isForum || activeForumTopicThreadId === undefined) {
+    if (!(selectedGroup?.isForum || selectedGroup?.isDirectMessages) || activeForumTopicThreadId === undefined) {
       return null;
     }
     return selectedForumTopics.find((topic) => topic.messageThreadId === activeForumTopicThreadId) || null;
-  }, [activeForumTopicThreadId, selectedForumTopics, selectedGroup?.isForum]);
+  }, [activeForumTopicThreadId, selectedForumTopics, selectedGroup?.isDirectMessages, selectedGroup?.isForum]);
 
-  const activeMessageThreadId = selectedGroup?.isForum
+  const activeMessageThreadId = (selectedGroup?.isForum || selectedGroup?.isDirectMessages)
     ? activeForumTopicThreadId
+    : undefined;
+  const activeDirectMessagesTopicId = selectedGroup?.isDirectMessages
+    ? (isSelectedUserDirectMessagesManager ? activeMessageThreadId : undefined)
+    : undefined;
+  const outboundMessageThreadId = selectedGroup?.isForum
+    ? activeMessageThreadId
     : undefined;
 
   const selectForumTopicThread = (threadId: number) => {
-    if (!selectedGroupStateKey || !selectedGroup?.isForum) {
+    if (!selectedGroupStateKey || !(selectedGroup?.isForum || selectedGroup?.isDirectMessages)) {
+      return;
+    }
+
+    if (selectedGroup?.isDirectMessages && !isSelectedUserDirectMessagesManager) {
       return;
     }
 
@@ -1640,7 +1920,15 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   };
 
   const ensureActiveForumTopicWritable = (): boolean => {
-    if (chatScopeTab !== 'group' || !selectedGroup?.isForum) {
+    if (chatScopeTab !== 'group' || !(selectedGroup?.isForum || selectedGroup?.isDirectMessages)) {
+      return true;
+    }
+
+    if (selectedGroup?.isDirectMessages) {
+      if (isSelectedUserDirectMessagesManager && !activeMessageThreadId) {
+        setErrorText('Select a direct messages topic first.');
+        return false;
+      }
       return true;
     }
 
@@ -1788,7 +2076,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
   const hasStarted = chatScopeTab === 'private'
     ? Boolean(startedChats[chatKey])
-    : groupMembership === 'joined';
+    : (selectedGroup?.isDirectMessages ? true : groupMembership === 'joined');
   const activeChatAction = chatActionByChatKey[chatKey] && chatActionByChatKey[chatKey].expiresAt > Date.now()
     ? chatActionByChatKey[chatKey]
     : null;
@@ -1875,9 +2163,17 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           return false;
         }
 
-        if (chatScopeTab === 'group' && selectedGroup?.isForum) {
-          const targetThreadId = activeMessageThreadId || GENERAL_FORUM_TOPIC_THREAD_ID;
-          const messageThreadId = message.messageThreadId || GENERAL_FORUM_TOPIC_THREAD_ID;
+        const isDirectMessagesView = Boolean(selectedGroup?.isDirectMessages || selectedGroup?.parentChannelChatId);
+        if (chatScopeTab === 'group' && (selectedGroup?.isForum || isDirectMessagesView)) {
+          const targetThreadId = selectedGroup?.isForum
+            ? (activeMessageThreadId || GENERAL_FORUM_TOPIC_THREAD_ID)
+            : (isSelectedUserDirectMessagesManager ? activeMessageThreadId : selectedUser.id);
+          if (!targetThreadId) {
+            return false;
+          }
+          const messageThreadId = selectedGroup?.isForum
+            ? (message.messageThreadId || GENERAL_FORUM_TOPIC_THREAD_ID)
+            : message.messageThreadId;
           return messageThreadId === targetThreadId;
         }
 
@@ -1896,7 +2192,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     messages,
     selectedBotToken,
     selectedChatId,
+    selectedUser.id,
+    isSelectedUserDirectMessagesManager,
+    selectedGroup?.isDirectMessages,
     selectedGroup?.isForum,
+    selectedGroup?.parentChannelChatId,
   ]);
 
   const linkedDiscussionCommentsByChannelMessageId = useMemo(() => {
@@ -2347,6 +2647,16 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
 
     if (chatScopeTab === 'group') {
+      if (selectedGroup?.isDirectMessages) {
+        if (isSelectedUserDirectMessagesManager) {
+          const parentChannelChatId = Number(selectedGroup.parentChannelChatId);
+          if (!Number.isFinite(parentChannelChatId) || parentChannelChatId === 0) {
+            return false;
+          }
+          return message.senderChatId === parentChannelChatId;
+        }
+        return message.fromUserId === selectedUser.id;
+      }
       return message.fromUserId === selectedUser.id;
     }
 
@@ -2765,8 +3075,145 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   }, [selectedForumTopicByChatKey]);
 
   useEffect(() => {
+    localStorage.setItem(BUSINESS_CONNECTIONS_KEY, JSON.stringify(businessConnectionByUserKey));
+  }, [businessConnectionByUserKey]);
+
+  useEffect(() => {
+    localStorage.setItem(USER_WALLETS_KEY, JSON.stringify(walletByUserId));
+  }, [walletByUserId]);
+
+  useEffect(() => {
     localStorage.setItem(SELECTED_GROUP_BY_BOT_KEY, JSON.stringify(selectedGroupByBot));
   }, [selectedGroupByBot]);
+
+  useEffect(() => {
+    const current = businessConnectionByUserKey[businessDraftStateKey];
+    setBusinessConnectionDraftId(current?.id || '');
+    setBusinessConnectionDraftEnabled(current?.is_enabled ?? true);
+    setBusinessRightsDraft(mapBusinessRightsToDraft(current?.rights));
+  }, [businessConnectionByUserKey, businessDraftStateKey]);
+
+  useEffect(() => {
+    if (availableBots.length === 0) {
+      return;
+    }
+
+    if (availableBots.some((bot) => bot.token === businessDraftBotToken)) {
+      return;
+    }
+
+    const fallbackBotToken = availableBots.some((bot) => bot.token === selectedBotToken)
+      ? selectedBotToken
+      : availableBots[0].token;
+    setBusinessDraftBotToken(fallbackBotToken);
+  }, [availableBots, businessDraftBotToken, selectedBotToken]);
+
+  useEffect(() => {
+    if (!selectedGroup || selectedGroup.type !== 'channel' || selectedGroup.isDirectMessages || !selectedGroupStateKey) {
+      return;
+    }
+
+    if (normalizeMembershipStatus(groupMembershipStatus) !== 'admin') {
+      return;
+    }
+
+    if (channelAdminRightsDraftByChatKey[selectedGroupStateKey]?.[selectedUser.id]) {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const member = await getChatMember(selectedBotToken, {
+          chat_id: selectedGroup.id,
+          user_id: selectedUser.id,
+        }, selectedUser.id);
+        if (cancelled) {
+          return;
+        }
+
+        const parsed = parseChannelAdminRightsDraft(member);
+        if (!parsed) {
+          return;
+        }
+
+        setChannelAdminRightsDraftByChatKey((prev) => ({
+          ...prev,
+          [selectedGroupStateKey]: {
+            ...(prev[selectedGroupStateKey] || {}),
+            [selectedUser.id]: parsed,
+          },
+        }));
+      } catch {
+        // Keep UI responsive; permission checks are also enforced server-side.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    channelAdminRightsDraftByChatKey,
+    groupMembershipStatus,
+    selectedBotToken,
+    selectedGroup,
+    selectedGroupStateKey,
+    selectedUser.id,
+  ]);
+
+  useEffect(() => {
+    const parentChannelChatId = selectedGroup?.parentChannelChatId;
+    if (!selectedGroup?.isDirectMessages || parentChannelChatId === undefined || !selectedDirectMessagesParentStateKey) {
+      return;
+    }
+
+    if (selectedDirectMessagesParentMembershipStatus !== 'admin') {
+      return;
+    }
+
+    if (channelAdminRightsDraftByChatKey[selectedDirectMessagesParentStateKey]?.[selectedUser.id]) {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const member = await getChatMember(selectedBotToken, {
+          chat_id: parentChannelChatId,
+          user_id: selectedUser.id,
+        }, selectedUser.id);
+        if (cancelled) {
+          return;
+        }
+
+        const parsed = parseChannelAdminRightsDraft(member);
+        if (!parsed) {
+          return;
+        }
+
+        setChannelAdminRightsDraftByChatKey((prev) => ({
+          ...prev,
+          [selectedDirectMessagesParentStateKey]: {
+            ...(prev[selectedDirectMessagesParentStateKey] || {}),
+            [selectedUser.id]: parsed,
+          },
+        }));
+      } catch {
+        // Keep UI responsive; permission checks are also enforced server-side.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    channelAdminRightsDraftByChatKey,
+    selectedBotToken,
+    selectedDirectMessagesParentMembershipStatus,
+    selectedDirectMessagesParentStateKey,
+    selectedGroup,
+    selectedUser.id,
+  ]);
 
   useEffect(() => {
     const saved = selectedGroupByBot[selectedBotToken];
@@ -2867,6 +3314,27 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       }
     },
     onUpdate: (update: BotUpdate) => {
+      const businessConnection = update.business_connection;
+      if (businessConnection?.user?.id) {
+        const connectionStateKey = `${selectedBotToken}:${businessConnection.user.id}`;
+          const isRemoved = (businessConnection as unknown as { removed?: boolean }).removed === true;
+        if (isRemoved || businessConnection.is_enabled === false) {
+          setBusinessConnectionByUserKey((prev) => {
+            if (!prev[connectionStateKey]) {
+              return prev;
+            }
+            const next = { ...prev };
+            delete next[connectionStateKey];
+            return next;
+          });
+        } else {
+          setBusinessConnectionByUserKey((prev) => ({
+            ...prev,
+            [connectionStateKey]: businessConnection,
+          }));
+        }
+      }
+
       const membershipUpdate = update.chat_member || update.my_chat_member;
       if (membershipUpdate) {
         const oldMember = membershipUpdate.old_chat_member as Record<string, unknown> | undefined;
@@ -2980,7 +3448,12 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         }));
       }
 
-      const payload = update.edited_channel_post || update.edited_message || update.channel_post || update.message;
+      const payload = update.edited_business_message
+        || update.edited_channel_post
+        || update.edited_message
+        || update.business_message
+        || update.channel_post
+        || update.message;
       if (update.poll) {
         setMessages((prev) => prev.map((message) => {
           if (!message.poll || message.poll.id !== update.poll!.id) {
@@ -3246,6 +3719,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       const senderChat = senderChatRaw && typeof senderChatRaw === 'object'
         ? senderChatRaw as Record<string, unknown>
         : undefined;
+      const directTopicRaw = payloadRecord.direct_messages_topic;
+      const directTopic = directTopicRaw && typeof directTopicRaw === 'object'
+        ? (directTopicRaw as Record<string, unknown>)
+        : undefined;
       const isChannelPayload = payload.chat?.type === 'channel';
       const authorSignature = typeof payloadRecord.author_signature === 'string'
         ? payloadRecord.author_signature
@@ -3262,12 +3739,25 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         ? Math.floor(normalizedViews)
         : undefined;
       const rawMessageThreadId = Math.floor(Number(payloadRecord.message_thread_id));
+      const fallbackDirectTopicId = Number.isFinite(Number(directTopic?.topic_id))
+        ? Math.floor(Number(directTopic?.topic_id))
+        : undefined;
       const messageThreadId = Number.isFinite(rawMessageThreadId) && rawMessageThreadId > 0
         ? rawMessageThreadId
-        : undefined;
+        : (Number.isFinite(fallbackDirectTopicId) && (fallbackDirectTopicId || 0) > 0
+          ? fallbackDirectTopicId
+          : undefined);
       const rawParseMode = payloadRecord.sim_parse_mode;
       const parseMode = isMessageParseMode(rawParseMode)
         ? rawParseMode
+        : undefined;
+      const rawBusinessConnectionId = typeof payloadRecord.business_connection_id === 'string'
+        ? payloadRecord.business_connection_id.trim()
+        : '';
+      const businessConnectionId = rawBusinessConnectionId || undefined;
+      const rawPaidMessageStarCount = Math.floor(Number(payloadRecord.paid_message_star_count));
+      const paidMessageStarCount = Number.isFinite(rawPaidMessageStarCount) && rawPaidMessageStarCount > 0
+        ? rawPaidMessageStarCount
         : undefined;
       const rawLinkedChannelChatId = Math.floor(Number(payloadRecord.linked_channel_chat_id));
       const linkedChannelChatId = Number.isFinite(rawLinkedChannelChatId) && rawLinkedChannelChatId !== 0
@@ -3306,6 +3796,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         fromUserId: resolvedFromUserId,
         senderChatId,
         senderChatTitle,
+        businessConnectionId,
+        paidMessageStarCount,
         views: serviceMessage ? undefined : views,
         forwardedFrom: serviceMessage ? undefined : forwardOrigin.label,
         forwardedDate: serviceMessage ? undefined : forwardOrigin.date,
@@ -3364,8 +3856,24 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         if (existingIndex >= 0) {
           const next = [...prev];
           const existing = next[existingIndex];
+          const resolvedMessageThreadId = mapped.messageThreadId ?? existing.messageThreadId;
+          const resolvedIsTopicMessage = mapped.isTopicMessage ?? existing.isTopicMessage;
+          const resolvedSenderChatId = mapped.senderChatId ?? existing.senderChatId;
+          const resolvedSenderChatTitle = mapped.senderChatTitle ?? existing.senderChatTitle;
+          const resolvedFromUserId = resolvedSenderChatId
+            || (mapped.fromUserId !== 0 ? mapped.fromUserId : existing.fromUserId);
+          const resolvedFromName = resolvedSenderChatId
+            ? (resolvedSenderChatTitle || mapped.fromName || existing.fromName)
+            : (mapped.fromName || existing.fromName);
           next[existingIndex] = {
+            ...existing,
             ...mapped,
+            messageThreadId: resolvedMessageThreadId,
+            isTopicMessage: resolvedIsTopicMessage,
+            senderChatId: resolvedSenderChatId,
+            senderChatTitle: resolvedSenderChatTitle,
+            fromUserId: resolvedFromUserId,
+            fromName: resolvedFromName,
             isInlineOrigin: Boolean(existing.isInlineOrigin || mapped.isInlineOrigin),
             reactionCounts: existing.reactionCounts,
             actorReactions: existing.actorReactions,
@@ -3375,6 +3883,74 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
         return [...prev, mapped];
       });
+
+      const isDirectMessagesPayload = Boolean(payload.chat?.is_direct_messages);
+      if (isDirectMessagesPayload && messageThreadId && messageThreadId > 0) {
+        const directTopicUserRaw = directTopic?.user;
+        const directTopicUser = directTopicUserRaw && typeof directTopicUserRaw === 'object'
+          ? (directTopicUserRaw as Record<string, unknown>)
+          : undefined;
+        const directTopicUserId = Number.isFinite(Number(directTopicUser?.id))
+          ? Math.floor(Number(directTopicUser?.id))
+          : undefined;
+        const directTopicUserFirstName = typeof directTopicUser?.first_name === 'string'
+          ? directTopicUser.first_name.trim()
+          : '';
+        const directTopicUsername = typeof directTopicUser?.username === 'string'
+          ? directTopicUser.username.trim()
+          : '';
+        const directTopicName = directTopicUserFirstName
+          || (directTopicUsername ? `@${directTopicUsername}` : `User ${directTopicUserId || messageThreadId}`);
+        const directTopicStateKey = `${selectedBotToken}:${payload.chat.id}`;
+        const directTopicUpdatedAt = Number.isFinite(Number(payload.date))
+          ? Math.floor(Number(payload.date))
+          : undefined;
+
+        setForumTopicsByChatKey((prev) => {
+          const current = prev[directTopicStateKey] || [];
+          const next = [
+            ...current.filter((topic) => topic.messageThreadId !== messageThreadId),
+            {
+              messageThreadId,
+              name: directTopicName,
+              iconColor: DEFAULT_FORUM_ICON_COLOR,
+              iconCustomEmojiId: undefined,
+              isClosed: false,
+              isHidden: false,
+              isGeneral: false,
+              updatedAt: directTopicUpdatedAt,
+            } as ForumTopicState,
+          ];
+
+          return {
+            ...prev,
+            [directTopicStateKey]: normalizeForumTopics(next, { includeGeneralFallback: false }),
+          };
+        });
+
+        setSelectedForumTopicByChatKey((prev) => {
+          const selectedThreadId = prev[directTopicStateKey];
+
+          if (isSelectedUserDirectMessagesManager) {
+            if (Number.isFinite(selectedThreadId) && selectedThreadId > 0) {
+              return prev;
+            }
+            return {
+              ...prev,
+              [directTopicStateKey]: messageThreadId,
+            };
+          }
+
+          if (selectedThreadId === selectedUser.id) {
+            return prev;
+          }
+
+          return {
+            ...prev,
+            [directTopicStateKey]: selectedUser.id,
+          };
+        });
+      }
 
       const pinnedMessageIdFromPayload = payload.pinned_message?.message_id;
       if (Number.isFinite(pinnedMessageIdFromPayload) && payload.chat?.id) {
@@ -3458,18 +4034,34 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           });
         });
 
+        const directMessagesParentByChatId = new Map<number, number>();
+        (bootstrap.channel_direct_messages || []).forEach((entry: SimBootstrapChannelDirectMessages) => {
+          const directMessagesChatId = Math.floor(Number(entry.direct_messages_chat_id));
+          const channelChatId = Math.floor(Number(entry.channel_chat_id));
+          if (!Number.isFinite(directMessagesChatId) || !Number.isFinite(channelChatId)) {
+            return;
+          }
+          directMessagesParentByChatId.set(directMessagesChatId, channelChatId);
+        });
+
         const incomingGroups: GroupChatItem[] = (bootstrap.chats || [])
           .filter((chat) => chat.type === 'group' || chat.type === 'supergroup' || chat.type === 'channel')
-          .map((chat) => ({
-            id: chat.id,
-            type: chat.type as 'group' | 'supergroup' | 'channel',
-            title: chat.title || `Group ${Math.abs(chat.id)}`,
-            username: chat.username || undefined,
-            description: settingsByChatId.get(chat.id)?.description,
-            isForum: chat.is_forum || false,
-            linkedDiscussionChatId: settingsByChatId.get(chat.id)?.linkedChatId,
-            settings: settingsByChatId.get(chat.id)?.settings || defaultGroupSettings(),
-          }));
+          .map((chat) => {
+            const isDirectMessages = Boolean(chat.is_direct_messages);
+            const parentChannelChatId = directMessagesParentByChatId.get(chat.id);
+            return {
+              id: chat.id,
+              type: chat.type as 'group' | 'supergroup' | 'channel',
+              title: chat.title || (isDirectMessages ? `Direct Messages ${Math.abs(chat.id)}` : `Group ${Math.abs(chat.id)}`),
+              username: chat.username || undefined,
+              description: settingsByChatId.get(chat.id)?.description,
+              isForum: Boolean(chat.is_forum) && !isDirectMessages,
+              isDirectMessages,
+              parentChannelChatId,
+              linkedDiscussionChatId: settingsByChatId.get(chat.id)?.linkedChatId,
+              settings: settingsByChatId.get(chat.id)?.settings || defaultGroupSettings(),
+            };
+          });
         const incomingGroupById = new Map<number, GroupChatItem>(incomingGroups.map((group) => [group.id, group]));
         incomingGroups.forEach((group) => {
           if (group.type !== 'channel') {
@@ -3488,6 +4080,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
           if (
             (discussionGroup.type !== 'group' && discussionGroup.type !== 'supergroup')
+            || discussionGroup.isDirectMessages
             || discussionGroup.linkedDiscussionChatId
           ) {
             return;
@@ -3599,12 +4192,19 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           incomingForumTopicsByChat[key] = [...(incomingForumTopicsByChat[key] || []), topic];
         });
 
+        const normalizeTopicsForChat = (chatId: number, topics: ForumTopicState[]) => {
+          const chat = incomingGroupById.get(chatId);
+          return normalizeForumTopics(topics, {
+            includeGeneralFallback: Boolean(chat?.isForum && !chat?.isDirectMessages),
+          });
+        };
+
         incomingGroups
           .filter((group) => group.type === 'supergroup' && group.isForum)
           .forEach((group) => {
             const key = `${selectedBotToken}:${group.id}`;
             const topics = incomingForumTopicsByChat[key] || [];
-            incomingForumTopicsByChat[key] = normalizeForumTopics(topics);
+            incomingForumTopicsByChat[key] = normalizeTopicsForChat(group.id, topics);
           });
 
         setForumTopicsByChatKey((prev) => {
@@ -3618,7 +4218,12 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           });
 
           Object.entries(incomingForumTopicsByChat).forEach(([key, value]) => {
-            next[key] = normalizeForumTopics(value);
+            const chatId = Math.floor(Number(key.slice(key.lastIndexOf(':') + 1)));
+            if (!Number.isFinite(chatId)) {
+              next[key] = normalizeForumTopics(value);
+              return;
+            }
+            next[key] = normalizeTopicsForChat(chatId, value);
           });
 
           return next;
@@ -3635,8 +4240,21 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           });
 
           Object.entries(incomingForumTopicsByChat).forEach(([key, topics]) => {
-            const normalized = normalizeForumTopics(topics);
+            const chatId = Math.floor(Number(key.slice(key.lastIndexOf(':') + 1)));
+            if (!Number.isFinite(chatId)) {
+              return;
+            }
+
+            const normalized = normalizeTopicsForChat(chatId, topics);
             if (normalized.length === 0) {
+              return;
+            }
+
+            const chat = incomingGroupById.get(chatId);
+            const fallbackTopic = chat?.isDirectMessages
+              ? normalized.find((topic) => !topic.isGeneral)
+              : normalized[0];
+            if (!fallbackTopic) {
               return;
             }
 
@@ -3646,28 +4264,50 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               && normalized.some((topic) => topic.messageThreadId === previousThreadId);
             next[key] = hasPrevious
               ? previousThreadId
-              : normalized[0].messageThreadId;
+              : fallbackTopic.messageThreadId;
           });
 
           return next;
         });
 
-        if (incomingGroups.length > 0) {
-          setGroupChats((prev) => {
-            const byId = new Map<number, GroupChatItem>();
-            [...prev, ...incomingGroups].forEach((group) => {
-              byId.set(group.id, group);
-            });
-            return Array.from(byId.values()).sort((a, b) => a.title.localeCompare(b.title));
-          });
+        const sortedIncomingGroups = [...incomingGroups].sort((a, b) => a.title.localeCompare(b.title));
+        if (sortedIncomingGroups.length > 0) {
+          setGroupChats(sortedIncomingGroups);
           setSelectedGroupChatId((current) => {
-            if (current && incomingGroups.some((group) => group.id === current)) {
+            if (current && sortedIncomingGroups.some((group) => group.id === current)) {
               return current;
             }
-            return incomingGroups[0].id;
+            return sortedIncomingGroups[0].id;
+          });
+          setSelectedGroupByBot((prev) => {
+            const savedGroupId = Number(prev[selectedBotToken]);
+            const hasSavedGroup = Number.isFinite(savedGroupId)
+              && sortedIncomingGroups.some((group) => group.id === savedGroupId);
+            if (hasSavedGroup) {
+              return prev;
+            }
+
+            const fallbackGroupId = sortedIncomingGroups[0].id;
+            if (prev[selectedBotToken] === fallbackGroupId) {
+              return prev;
+            }
+
+            return {
+              ...prev,
+              [selectedBotToken]: fallbackGroupId,
+            };
           });
         } else {
+          setGroupChats([]);
           setSelectedGroupChatId(null);
+          setSelectedGroupByBot((prev) => {
+            if (prev[selectedBotToken] === undefined) {
+              return prev;
+            }
+            const next = { ...prev };
+            delete next[selectedBotToken];
+            return next;
+          });
         }
       } catch (error) {
         if (mounted) {
@@ -3708,6 +4348,32 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     localStorage.setItem(START_KEY, JSON.stringify(next));
   };
 
+  const ensureDirectMessagesStarsAvailable = (messageCount = 1): boolean => {
+    if (!shouldChargeSelectedUserDirectMessages) {
+      return true;
+    }
+
+    const requiredStars = selectedDirectMessagesStarCost * Math.max(1, Math.floor(messageCount));
+    if (walletState.stars < requiredStars) {
+      setErrorText(`Not enough stars. You need ${requiredStars}⭐ for this DM action.`);
+      return false;
+    }
+
+    return true;
+  };
+
+  const consumeDirectMessagesStars = (messageCount = 1) => {
+    if (!shouldChargeSelectedUserDirectMessages) {
+      return;
+    }
+
+    const debit = selectedDirectMessagesStarCost * Math.max(1, Math.floor(messageCount));
+    setWalletState((prev) => ({
+      ...prev,
+      stars: Math.max(prev.stars - debit, 0),
+    }));
+  };
+
   const sendAsUser = async (
     text: string,
     parseMode?: Exclude<ComposerParseMode, 'none'>,
@@ -3719,6 +4385,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     if (!ensureActiveForumTopicWritable()) {
       return;
     }
+    if (!ensureDirectMessagesStarsAvailable(1)) {
+      return;
+    }
 
     setIsSending(true);
     setErrorText('');
@@ -3726,7 +4395,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       const effectiveReplyToMessageId = resolveComposerReplyTargetId(replyToMessageId);
       await sendUserMessage(selectedBotToken, {
         chat_id: selectedChatId,
-        message_thread_id: activeMessageThreadId,
+        message_thread_id: outboundMessageThreadId,
+        direct_messages_topic_id: activeDirectMessagesTopicId,
+        business_connection_id: activeBusinessConnectionId,
         user_id: selectedUser.id,
         first_name: selectedUser.first_name,
         username: selectedUser.username,
@@ -3735,6 +4406,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         parse_mode: parseMode,
         reply_to_message_id: effectiveReplyToMessageId,
       });
+      consumeDirectMessagesStars(1);
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'User send failed');
     } finally {
@@ -3795,7 +4467,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       try {
         await sendPoll(selectedBotToken, {
           chat_id: selectedChatId,
-          message_thread_id: activeMessageThreadId,
+          message_thread_id: outboundMessageThreadId,
           question: pollTrigger.question,
           options: pollTrigger.options.map((option) => ({ text: option })),
           is_anonymous: false,
@@ -3974,11 +4646,18 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
 
     if (selectedUploads.length > 0) {
+      if (!ensureDirectMessagesStarsAvailable(selectedUploads.length)) {
+        return;
+      }
+
+      let sentCount = 0;
       try {
         if (selectedUploads.length === 1) {
           await sendUserMedia(selectedBotToken, {
             chatId: selectedChatId,
-            messageThreadId: activeMessageThreadId,
+            messageThreadId: outboundMessageThreadId,
+            directMessagesTopicId: activeDirectMessagesTopicId,
+            businessConnectionId: activeBusinessConnectionId,
             userId: selectedUser.id,
             firstName: selectedUser.first_name,
             username: selectedUser.username,
@@ -3988,12 +4667,15 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             parseMode: text && composerParseMode !== 'none' ? composerParseMode : undefined,
             replyToMessageId: resolveComposerReplyTargetId(replyTarget?.id),
           });
+          sentCount += 1;
         } else {
           for (let index = 0; index < selectedUploads.length; index += 1) {
             const file = selectedUploads[index];
             await sendUserMedia(selectedBotToken, {
               chatId: selectedChatId,
-              messageThreadId: activeMessageThreadId,
+              messageThreadId: outboundMessageThreadId,
+              directMessagesTopicId: activeDirectMessagesTopicId,
+              businessConnectionId: activeBusinessConnectionId,
               userId: selectedUser.id,
               firstName: selectedUser.first_name,
               username: selectedUser.username,
@@ -4003,7 +4685,12 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               parseMode: index === 0 && text && composerParseMode !== 'none' ? composerParseMode : undefined,
               replyToMessageId: index === 0 ? resolveComposerReplyTargetId(replyTarget?.id) : undefined,
             });
+            sentCount += 1;
           }
+        }
+
+        if (sentCount > 0) {
+          consumeDirectMessagesStars(sentCount);
         }
 
         setComposerText('');
@@ -4015,6 +4702,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
         }, 0);
       } catch (error) {
+        if (sentCount > 0) {
+          consumeDirectMessagesStars(sentCount);
+        }
         setErrorText(error instanceof Error ? error.message : 'Media upload failed');
       }
       return;
@@ -4085,7 +4775,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     try {
       await sendPoll(selectedBotToken, {
         chat_id: selectedChatId,
-        message_thread_id: activeMessageThreadId,
+        message_thread_id: outboundMessageThreadId,
         question,
         question_parse_mode: parseOrUndefined(pollBuilder.questionParseMode),
         options: options.map((text) => ({
@@ -4200,7 +4890,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     try {
       await sendInvoice(selectedBotToken, {
         chat_id: selectedChatId,
-        message_thread_id: activeMessageThreadId,
+        message_thread_id: outboundMessageThreadId,
         title,
         description,
         payload,
@@ -4552,11 +5242,16 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     if (!ensureActiveForumTopicWritable()) {
       return;
     }
+    if (!ensureDirectMessagesStarsAvailable(1)) {
+      return;
+    }
 
     try {
       await sendUserMediaByReference(selectedBotToken, {
         chatId: selectedChatId,
-        messageThreadId: activeMessageThreadId,
+        messageThreadId: outboundMessageThreadId,
+        directMessagesTopicId: activeDirectMessagesTopicId,
+        businessConnectionId: activeBusinessConnectionId,
         userId: selectedUser.id,
         firstName: selectedUser.first_name,
         username: selectedUser.username,
@@ -4565,6 +5260,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         media: mediaRef,
         replyToMessageId: resolveComposerReplyTargetId(replyTarget?.id),
       });
+      consumeDirectMessagesStars(1);
       setShowMediaDrawer(false);
       setReplyTarget(null);
       isNearBottomRef.current = true;
@@ -4588,11 +5284,16 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       setErrorText('Select a file first.');
       return;
     }
+    if (!ensureDirectMessagesStarsAvailable(1)) {
+      return;
+    }
 
     try {
       await sendUserMedia(selectedBotToken, {
         chatId: selectedChatId,
-        messageThreadId: activeMessageThreadId,
+        messageThreadId: outboundMessageThreadId,
+        directMessagesTopicId: activeDirectMessagesTopicId,
+        businessConnectionId: activeBusinessConnectionId,
         userId: selectedUser.id,
         firstName: selectedUser.first_name,
         username: selectedUser.username,
@@ -4601,6 +5302,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         mediaKind,
         replyToMessageId: resolveComposerReplyTargetId(replyTarget?.id),
       });
+      consumeDirectMessagesStars(1);
       if (mediaKind === 'animation') {
         setAnimationUploadFile(null);
       }
@@ -4890,6 +5592,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         username: chat.username || undefined,
         description: groupDraft.description.trim() || undefined,
         isForum: chat.is_forum || false,
+        isDirectMessages: Boolean(chat.is_direct_messages),
+        parentChannelChatId: undefined,
         settings,
       };
 
@@ -4977,6 +5681,117 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       setErrorText(error instanceof Error ? error.message : `Failed to leave ${fallbackLabel}`);
     } finally {
       setIsBootstrapping(false);
+    }
+  };
+
+  const onOpenChannelDirectMessages = async () => {
+    if (!selectedGroup || selectedGroup.type !== 'channel') {
+      return;
+    }
+    if (!selectedGroup.settings?.directMessagesEnabled) {
+      setErrorText('Enable channel direct messages in Channel Info and save first.');
+      return;
+    }
+
+    setIsGroupActionRunning(true);
+    setErrorText('');
+    try {
+      const result = await openSimulationChannelDirectMessages(selectedBotToken, {
+        channel_chat_id: selectedGroup.id,
+        user_id: selectedUser.id,
+        first_name: selectedUser.first_name,
+        username: selectedUser.username,
+      });
+
+      const mappedChat: GroupChatItem = {
+        id: result.chat.id,
+        type: result.chat.type as 'group' | 'supergroup' | 'channel',
+        title: result.chat.title || `${selectedGroup.title} Direct Messages`,
+        username: result.chat.username || undefined,
+        description: undefined,
+        isForum: false,
+        isDirectMessages: Boolean(result.chat.is_direct_messages),
+        parentChannelChatId: result.parent_chat.id,
+        linkedDiscussionChatId: undefined,
+        settings: defaultGroupSettings(),
+      };
+
+      setGroupChats((prev) => {
+        const byId = new Map<number, GroupChatItem>();
+        [...prev, mappedChat].forEach((chat) => {
+          byId.set(chat.id, chat.id === mappedChat.id ? mappedChat : chat);
+        });
+        return Array.from(byId.values()).sort((a, b) => a.title.localeCompare(b.title));
+      });
+
+      const dmChatStateKey = `${selectedBotToken}:${mappedChat.id}`;
+      const dmTopics = (result.topics || [])
+        .map((topic): ForumTopicState | null => {
+          const topicId = Math.floor(Number(topic.topic_id));
+          if (!Number.isFinite(topicId) || topicId <= 0) {
+            return null;
+          }
+
+          return {
+            messageThreadId: topicId,
+            name: topic.name || `User ${topicId}`,
+            iconColor: DEFAULT_FORUM_ICON_COLOR,
+            iconCustomEmojiId: undefined,
+            isClosed: false,
+            isHidden: false,
+            isGeneral: false,
+            updatedAt: Number.isFinite(Number(topic.updated_at)) ? Math.floor(Number(topic.updated_at)) : undefined,
+          };
+        })
+        .filter((topic): topic is ForumTopicState => topic !== null);
+
+      setForumTopicsByChatKey((prev) => ({
+        ...prev,
+        [dmChatStateKey]: normalizeForumTopics(dmTopics, { includeGeneralFallback: false }),
+      }));
+
+      setSelectedForumTopicByChatKey((prev) => {
+        const existing = prev[dmChatStateKey];
+        if (!canSelectedUserManageChannelDirectMessages) {
+          if (existing === selectedUser.id) {
+            return prev;
+          }
+          return {
+            ...prev,
+            [dmChatStateKey]: selectedUser.id,
+          };
+        }
+
+        if (Number.isFinite(existing) && existing > 0 && dmTopics.some((topic) => topic.messageThreadId === existing)) {
+          return prev;
+        }
+
+        const fallbackTopic = dmTopics[0]?.messageThreadId;
+        if (!fallbackTopic) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          [dmChatStateKey]: fallbackTopic,
+        };
+      });
+
+      setShowGroupProfileModal(false);
+      setShowGroupActionsModal(false);
+      setGroupSettingsPage('home');
+      setChatMenuOpen(false);
+      setChatScopeTab('group');
+      setSelectedGroupChatId(mappedChat.id);
+      setSelectedGroupByBot((prev) => ({
+        ...prev,
+        [selectedBotToken]: mappedChat.id,
+      }));
+      setErrorText(`Opened direct messages for ${selectedGroup.title}.`);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Unable to open channel direct messages');
+    } finally {
+      setIsGroupActionRunning(false);
     }
   };
 
@@ -5600,7 +6415,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   };
 
   const onDeleteForumTopicFromDraft = async (threadIdOverride?: number) => {
-    if (!selectedGroup || !canManageForumTopics) {
+    if (!selectedGroup) {
       return;
     }
 
@@ -5614,21 +6429,92 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       return;
     }
 
+    const targetTopic = selectedForumTopics.find((topic) => topic.messageThreadId === messageThreadId) || null;
+    const canDeleteTopic = canManageForumTopics || canDeleteDirectMessagesTopicByActiveActor(targetTopic);
+    if (!canDeleteTopic) {
+      setErrorText('Not enough rights to delete this topic.');
+      return;
+    }
+
     await runGroupAction(async () => {
       const ok = await deleteForumTopic(selectedBotToken, {
         chat_id: selectedGroup.id,
         message_thread_id: messageThreadId,
       }, selectedUser.id);
       if (ok) {
+        const removedMessageIds = new Set(
+          messages
+            .filter((message) => (
+              message.botToken === selectedBotToken
+              && message.chatId === selectedGroup.id
+              && message.messageThreadId === messageThreadId
+            ))
+            .map((message) => message.id),
+        );
+
         updateForumTopicsForChat(selectedGroup.id, (topics) => topics.filter((topic) => topic.messageThreadId !== messageThreadId));
+        setMessages((prev) => prev.filter((message) => !(
+          message.botToken === selectedBotToken
+          && message.chatId === selectedGroup.id
+          && message.messageThreadId === messageThreadId
+        )));
+
+        if (removedMessageIds.size > 0) {
+          setInvoiceMetaByMessageKey((prev) => {
+            const next: Record<string, InvoiceMetaState> = {};
+            Object.entries(prev).forEach(([key, value]) => {
+              const parts = key.split(':');
+              const token = parts[0] || '';
+              const chatId = Number(parts[1]);
+              const messageId = Number(parts[2]);
+              if (token === selectedBotToken && chatId === selectedGroup.id && removedMessageIds.has(messageId)) {
+                return;
+              }
+              next[key] = value;
+            });
+            return next;
+          });
+
+          setPinnedMessageByChatKey((prev) => {
+            const next: Record<string, number[]> = {};
+            Object.entries(prev).forEach(([key, ids]) => {
+              const filtered = ids.filter((id) => !removedMessageIds.has(id));
+              if (filtered.length > 0) {
+                next[key] = filtered;
+              }
+            });
+            return next;
+          });
+        }
+
         if (selectedGroupStateKey) {
+          const remainingTopics = selectedForumTopics.filter((topic) => topic.messageThreadId !== messageThreadId);
           setSelectedForumTopicByChatKey((prev) => {
             if (prev[selectedGroupStateKey] !== messageThreadId) {
               return prev;
             }
+
+            let fallbackThreadId: number | undefined;
+            if (selectedGroup.isDirectMessages) {
+              if (isSelectedUserDirectMessagesManager) {
+                fallbackThreadId = remainingTopics.find((topic) => !topic.isGeneral)?.messageThreadId;
+              } else {
+                fallbackThreadId = selectedUser.id;
+              }
+            } else {
+              fallbackThreadId = GENERAL_FORUM_TOPIC_THREAD_ID;
+            }
+
+            const normalizedFallbackThreadId = Math.floor(Number(fallbackThreadId));
+            if (!Number.isFinite(normalizedFallbackThreadId) || normalizedFallbackThreadId <= 0) {
+              const next = { ...prev };
+              delete next[selectedGroupStateKey];
+              return next;
+            }
+
             return {
               ...prev,
-              [selectedGroupStateKey]: GENERAL_FORUM_TOPIC_THREAD_ID,
+              [selectedGroupStateKey]: normalizedFallbackThreadId,
             };
           });
         }
@@ -5732,6 +6618,18 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   ) => {
     const topic = forumTopicContextMenu?.topic;
     if (!topic) {
+      return;
+    }
+
+    const canDeleteTopic = canManageForumTopics || canDeleteDirectMessagesTopicByActiveActor(topic);
+    if (action === 'delete' && !canDeleteTopic) {
+      setErrorText('Not enough rights to delete this topic.');
+      setForumTopicContextMenu(null);
+      return;
+    }
+
+    if (action !== 'delete' && !canManageForumTopics) {
+      setForumTopicContextMenu(null);
       return;
     }
 
@@ -5913,6 +6811,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             id: result.chat_id,
             type: joinedChatType,
             title: `${joinedChatType === 'channel' ? 'Channel' : 'Group'} ${Math.abs(result.chat_id)}`,
+            isDirectMessages: false,
+            parentChannelChatId: undefined,
           },
         ].sort((a, b) => a.title.localeCompare(b.title));
       });
@@ -6081,6 +6981,100 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
   };
 
+  const onSaveSelectedUserBusinessConnection = async () => {
+    setIsBusinessActionRunning(true);
+    setErrorText('');
+    try {
+      const normalizedBusinessConnectionId = businessConnectionDraftId.trim();
+      if (!normalizedBusinessConnectionId) {
+        const existingConnection = businessConnectionByUserKey[businessDraftStateKey];
+        if (existingConnection) {
+          await removeSimulationBusinessConnection(businessDraftBotToken, {
+            user_id: selectedUser.id,
+            business_connection_id: existingConnection.id,
+          });
+
+          setBusinessConnectionByUserKey((prev) => {
+            const next = { ...prev };
+            delete next[businessDraftStateKey];
+            return next;
+          });
+          setBusinessConnectionDraftId('');
+          setBusinessConnectionDraftEnabled(true);
+          setBusinessRightsDraft(defaultBusinessRightsDraft());
+          setErrorText(`Business connection ${existingConnection.id} cleared.`);
+        } else {
+          setErrorText('Business connection id is empty. Nothing to clear.');
+        }
+        return;
+      }
+
+      const connection = await setSimulationBusinessConnection(businessDraftBotToken, {
+        user_id: selectedUser.id,
+        first_name: selectedUser.first_name,
+        username: selectedUser.username,
+        business_connection_id: normalizedBusinessConnectionId,
+        enabled: businessConnectionDraftEnabled,
+        rights: toBusinessBotRights(businessRightsDraft),
+      });
+
+      const stateKey = `${businessDraftBotToken}:${connection.user.id}`;
+      setBusinessConnectionByUserKey((prev) => ({
+        ...prev,
+        [stateKey]: connection,
+      }));
+      setBusinessConnectionDraftId(connection.id);
+      setBusinessConnectionDraftEnabled(connection.is_enabled);
+      setBusinessRightsDraft(mapBusinessRightsToDraft(connection.rights));
+      setErrorText(connection.is_enabled
+        ? `Business connection ${connection.id} is active for ${connection.user.first_name}.`
+        : `Business connection ${connection.id} is disabled.`);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Unable to configure business connection');
+    } finally {
+      setIsBusinessActionRunning(false);
+    }
+  };
+
+  const onRemoveSelectedUserBusinessConnection = async () => {
+    const explicitConnectionId = businessConnectionDraftId.trim();
+    const current = businessConnectionByUserKey[businessDraftStateKey];
+    const targetConnectionId = explicitConnectionId || current?.id;
+    if (!targetConnectionId) {
+      setErrorText('No business connection to remove for this bot/user pair.');
+      return;
+    }
+
+    setIsBusinessActionRunning(true);
+    setErrorText('');
+    try {
+      await removeSimulationBusinessConnection(businessDraftBotToken, {
+        user_id: selectedUser.id,
+        business_connection_id: targetConnectionId,
+      });
+
+      setBusinessConnectionByUserKey((prev) => {
+        const next: Record<string, GeneratedBusinessConnection> = {};
+        Object.entries(prev).forEach(([key, value]) => {
+          const isSameBot = key.startsWith(`${businessDraftBotToken}:`);
+          const shouldDelete = isSameBot && value.id === targetConnectionId;
+          if (!shouldDelete) {
+            next[key] = value;
+          }
+        });
+        return next;
+      });
+      setBusinessConnectionDraftId('');
+      setBusinessConnectionDraftEnabled(true);
+      setBusinessRightsDraft(defaultBusinessRightsDraft());
+      setErrorText(`Business connection ${targetConnectionId} removed.`);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Unable to remove business connection');
+    } finally {
+      setIsBusinessActionRunning(false);
+    }
+  };
+
   const onOpenGroupProfile = () => {
     if (!selectedGroup) {
       return;
@@ -6097,6 +7091,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       description: selectedGroup.description || '',
       isForum: Boolean(selectedGroup.isForum),
       showAuthorSignature: currentSettings.showAuthorSignature,
+      directMessagesEnabled: currentSettings.directMessagesEnabled,
+      directMessagesStarCount: currentSettings.directMessagesStarCount,
       messageHistoryVisible: currentSettings.messageHistoryVisible,
       slowModeDelay: currentSettings.slowModeDelay,
       allowSendMessages: currentSettings.allowSendMessages ?? true,
@@ -6313,6 +7309,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           can_delete_messages: promote && rightsDraft.canDeleteMessages,
           can_invite_users: promote && rightsDraft.canInviteUsers,
           can_change_info: promote && rightsDraft.canChangeInfo,
+          can_manage_direct_messages: promote && rightsDraft.canManageDirectMessages,
           can_pin_messages: promote,
         }, selectedUser.id);
       } else {
@@ -6381,6 +7378,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         can_delete_messages: rightsDraft.canDeleteMessages,
         can_invite_users: rightsDraft.canInviteUsers,
         can_change_info: rightsDraft.canChangeInfo,
+        can_manage_direct_messages: rightsDraft.canManageDirectMessages,
         can_pin_messages: true,
       }, selectedUser.id);
       setGroupMembershipByUser((prev) => ({
@@ -6631,6 +7629,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       const normalizedSlowModeDelay = Math.max(0, Math.floor(Number(groupProfileDraft.slowModeDelay) || 0));
       const draftSettings: GroupSettingsSnapshot = {
         showAuthorSignature: groupProfileDraft.showAuthorSignature,
+        directMessagesEnabled: groupProfileDraft.directMessagesEnabled,
+        directMessagesStarCount: Math.max(0, Math.floor(Number(groupProfileDraft.directMessagesStarCount) || 0)),
         messageHistoryVisible: groupProfileDraft.messageHistoryVisible,
         slowModeDelay: normalizedSlowModeDelay,
         allowSendMessages: groupProfileDraft.allowSendMessages,
@@ -6700,6 +7700,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         username: groupProfileDraft.username.trim() || undefined,
         is_forum: selectedGroup.type === 'supergroup' ? groupProfileDraft.isForum : undefined,
         show_author_signature: selectedGroup.type === 'channel' ? groupProfileDraft.showAuthorSignature : undefined,
+        direct_messages_enabled: selectedGroup.type === 'channel' ? groupProfileDraft.directMessagesEnabled : undefined,
+        direct_messages_star_count: selectedGroup.type === 'channel'
+          ? Math.max(0, Math.floor(Number(groupProfileDraft.directMessagesStarCount) || 0))
+          : undefined,
         message_history_visible: selectedGroup.type === 'channel' ? undefined : draftSettings.messageHistoryVisible,
         slow_mode_delay: selectedGroup.type === 'channel' ? undefined : draftSettings.slowModeDelay,
       });
@@ -6714,21 +7718,29 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         ? rawUpdatedLinkedDiscussionId
         : undefined;
 
-      setGroupChats((prev) => prev.map((group) => (
-        group.id === selectedGroup.id
-          ? {
-            ...group,
-            title: result.chat.title || group.title,
-            username: result.chat.username || undefined,
-            description: updatedDescription,
-            isForum: result.chat.is_forum || false,
-            linkedDiscussionChatId: selectedGroup.type === 'channel'
-              ? (updatedLinkedDiscussionId ?? group.linkedDiscussionChatId)
-              : group.linkedDiscussionChatId,
-            settings: updatedSettings,
-          }
-          : group
-      )));
+      setGroupChats((prev) => {
+        const updated = prev.map((group) => (
+          group.id === selectedGroup.id
+            ? {
+              ...group,
+              title: result.chat.title || group.title,
+              username: result.chat.username || undefined,
+              description: updatedDescription,
+              isForum: result.chat.is_forum || false,
+              linkedDiscussionChatId: selectedGroup.type === 'channel'
+                ? (updatedLinkedDiscussionId ?? group.linkedDiscussionChatId)
+                : group.linkedDiscussionChatId,
+              settings: updatedSettings,
+            }
+            : group
+        ));
+
+        if (selectedGroup.type === 'channel' && !updatedSettings.directMessagesEnabled) {
+          return updated.filter((group) => !(group.isDirectMessages && group.parentChannelChatId === selectedGroup.id));
+        }
+
+        return updated;
+      });
       setShowGroupProfileModal(false);
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'Failed to update group profile');
@@ -6832,6 +7844,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       username: `test_user_${Math.random().toString(36).slice(2, 7)}`,
       id: String(randomId),
     });
+    setBusinessDraftBotToken(selectedBotToken);
+    setBusinessConnectionDraftId('');
+    setBusinessConnectionDraftEnabled(true);
+    setBusinessRightsDraft(defaultBusinessRightsDraft());
     setShowUserModal(true);
   };
 
@@ -6855,6 +7871,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   };
 
   const openEditUserModal = (user: SimUser) => {
+    const businessStateKey = `${selectedBotToken}:${user.id}`;
+    const connection = businessConnectionByUserKey[businessStateKey];
     setUserModalMode('edit');
     setUserDraft({
       first_name: user.first_name,
@@ -6862,6 +7880,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       id: String(user.id),
     });
     setSelectedUserId(user.id);
+    setBusinessDraftBotToken(selectedBotToken);
+    setBusinessConnectionDraftId(connection?.id || '');
+    setBusinessConnectionDraftEnabled(connection?.is_enabled ?? true);
+    setBusinessRightsDraft(mapBusinessRightsToDraft(connection?.rights));
     setShowUserModal(true);
   };
 
@@ -7039,7 +8061,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     try {
       await sendUserMessage(selectedBotToken, {
         chat_id: selectedChatId,
-        message_thread_id: activeMessageThreadId,
+        message_thread_id: outboundMessageThreadId,
+        direct_messages_topic_id: activeDirectMessagesTopicId,
+        business_connection_id: activeBusinessConnectionId,
         user_id: selectedUser.id,
         first_name: selectedUser.first_name,
         username: selectedUser.username,
@@ -7690,7 +8714,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       await deleteBotMessage(selectedBotToken, {
         chat_id: selectedChatId,
         message_id: message.id,
-      });
+      }, selectedUser.id);
 
       setMessages((prev) => prev.filter((item) => !(
         item.botToken === selectedBotToken && item.chatId === selectedChatId && item.id === message.id
@@ -7722,7 +8746,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       await deleteBotMessages(selectedBotToken, {
         chat_id: selectedChatId,
         message_ids: [...selectedMessageIds].sort((a, b) => a - b),
-      });
+      }, selectedUser.id);
 
       setMessages((prev) => prev.filter((item) => !(
         item.botToken === selectedBotToken &&
@@ -7850,16 +8874,40 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
   };
 
-  const removeUser = (id: number) => {
+  const removeUser = async (id: number) => {
     if (availableUsers.length <= 1) {
       setErrorText('At least one user must remain in simulator.');
       return;
     }
 
-    const next = availableUsers.filter((user) => user.id !== id);
-    setAvailableUsers(next);
-    if (selectedUserId === id) {
-      setSelectedUserId(next[0].id);
+    setIsBootstrapping(true);
+    setErrorText('');
+    try {
+      await deleteSimUser({ id });
+
+      const next = availableUsers.filter((user) => user.id !== id);
+      setAvailableUsers(next);
+      if (selectedUserId === id) {
+        setSelectedUserId(next[0].id);
+      }
+
+      setBusinessConnectionByUserKey((prev) => Object.fromEntries(
+        Object.entries(prev).filter(([key]) => !key.endsWith(`:${id}`)),
+      ));
+      setGroupMembershipByUser((prev) => Object.fromEntries(
+        Object.entries(prev).filter(([key]) => !key.endsWith(`:${id}`)),
+      ));
+      setPendingJoinRequestsByChat((prev) => Object.fromEntries(
+        Object.entries(prev).map(([key, requests]) => [
+          key,
+          requests.filter((request) => request.userId !== id),
+        ]),
+      ));
+      setErrorText(`User ${id} deleted.`);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Unable to delete user');
+    } finally {
+      setIsBootstrapping(false);
     }
   };
 
@@ -9953,11 +11001,14 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       >
                         <div className="flex items-center justify-between">
                           <p className="font-medium text-white truncate">{group.title}</p>
-                          <span className="text-[10px] text-[#b5cfdf]">{group.type}</span>
+                          <span className="text-[10px] text-[#b5cfdf]">{group.isDirectMessages ? 'direct-messages' : group.type}</span>
                         </div>
                         <p className="text-xs text-telegram-textSecondary truncate">
                           {group.username ? `@${group.username}` : `id ${group.id}`}
                         </p>
+                        {group.isDirectMessages && group.parentChannelChatId ? (
+                          <p className="text-[10px] text-[#9ec6df]">channel #{group.parentChannelChatId}</p>
+                        ) : null}
                         <p className="text-[10px] text-telegram-textSecondary">membership: {memberState}</p>
                       </button>
                     );
@@ -10021,6 +11072,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               <div className="space-y-2">
                 {availableUsers.map((user) => {
                   const isActive = user.id === selectedUserId;
+                  const userBusinessConnection = businessConnectionByUserKey[`${selectedBotToken}:${user.id}`];
                   return (
                     <div
                       key={user.id}
@@ -10045,7 +11097,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         </button>
                         <button
                           type="button"
-                          onClick={() => removeUser(user.id)}
+                          onClick={() => void removeUser(user.id)}
                           className="rounded-full p-1 text-telegram-textSecondary hover:bg-white/10 hover:text-white"
                           title="Delete user"
                         >
@@ -10053,6 +11105,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         </button>
                       </div>
                       <p className="mt-1 text-[11px] text-[#aac4d7]">id: {user.id}</p>
+                      {userBusinessConnection ? (
+                        <p className="mt-1 text-[11px] text-[#9ec3dc]">
+                          business: {userBusinessConnection.id} · {userBusinessConnection.is_enabled ? 'enabled' : 'disabled'}
+                        </p>
+                      ) : null}
                     </div>
                   );
                 })}
@@ -10075,8 +11132,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     : (isDiscussionThreadView
                       ? `Discussion · ${activeDiscussionCommentContext?.commentsCount || 0} comments`
                       : (selectedGroup?.title || (chatScopeTab === 'channel' ? 'Channel' : 'Group')))}
-                  {chatScopeTab === 'group' && !isDiscussionThreadView && selectedGroup?.isForum && activeForumTopic
-                    ? ` · Topic: ${activeForumTopic.name}`
+                  {chatScopeTab === 'group' && !isDiscussionThreadView && (selectedGroup?.isForum || selectedGroup?.isDirectMessages) && activeForumTopic
+                    ? ` · ${selectedGroup?.isDirectMessages ? 'DM Topic' : 'Topic'}: ${activeForumTopic.name}`
                     : ''}
                 </p>
               </div>
@@ -10094,6 +11151,24 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   </option>
                 ))}
               </select>
+              {chatScopeTab === 'channel'
+                && selectedGroup
+                && selectedGroup.type === 'channel'
+                && !selectedGroup.isDirectMessages
+                && selectedGroup.settings?.directMessagesEnabled
+                && groupMembership === 'joined' ? (
+                <button
+                  type="button"
+                  onClick={() => void onOpenChannelDirectMessages()}
+                  disabled={isGroupActionRunning}
+                  className="rounded-full border border-white/15 bg-black/20 px-3 py-1.5 text-xs text-white hover:bg-white/10 disabled:opacity-40"
+                  title={canSelectedUserManageChannelDirectMessages
+                    ? 'Open inbox topics.'
+                    : 'Open your direct message thread.'}
+                >
+                  {canSelectedUserManageChannelDirectMessages ? 'Inbox' : 'Open DM'}
+                </button>
+              ) : null}
               {selectionMode ? (
                 <button
                   type="button"
@@ -10131,7 +11206,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   >
                     Delete selected ({selectedMessageIds.length})
                   </button>
-                  {(chatScopeTab === 'group' || chatScopeTab === 'channel') ? (
+                  {(chatScopeTab === 'group' || chatScopeTab === 'channel') && !selectedGroup?.isDirectMessages ? (
                     <button
                       type="button"
                       onClick={() => {
@@ -10150,7 +11225,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       Open {chatScopeTab === 'channel' ? 'channel' : 'group'} controls
                     </button>
                   ) : null}
-                  {(chatScopeTab === 'group' || chatScopeTab === 'channel') ? (
+                  {(chatScopeTab === 'group' || chatScopeTab === 'channel') && !selectedGroup?.isDirectMessages ? (
                     <button
                       type="button"
                       onClick={() => {
@@ -10213,23 +11288,30 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             </div>
           ) : null}
 
-          {chatScopeTab === 'group' && selectedGroup?.isForum ? (
+          {chatScopeTab === 'group' && (selectedGroup?.isForum || selectedGroup?.isDirectMessages) ? (
             <div className="shrink-0 border-b border-white/10 bg-[#0f2234]/90 px-3 py-2 backdrop-blur sm:px-4 lg:px-6">
               <div className="mx-auto w-full max-w-3xl">
                 <div className="flex items-center gap-2 overflow-x-auto pb-1">
                   {selectedForumTopics
                     .filter((topic) => !topic.isHidden || topic.messageThreadId === activeMessageThreadId)
+                    .filter((topic) => (
+                      !selectedGroup?.isDirectMessages
+                      || isSelectedUserDirectMessagesManager
+                      || topic.messageThreadId === selectedUser.id
+                    ))
                     .map((topic) => {
                       const isActive = topic.messageThreadId === activeMessageThreadId;
                       const badgeColor = topic.iconColor.toString(16).padStart(6, '0');
                       const isPremiumIcon = Boolean(topic.iconCustomEmojiId);
+                      const canOpenForumTopicContextActions = canManageForumTopics
+                        || Boolean(selectedGroup?.isDirectMessages);
                       return (
                         <button
                           key={`forum-topic-tab-${topic.messageThreadId}`}
                           type="button"
                           onClick={() => selectForumTopicThread(topic.messageThreadId)}
                           onContextMenu={(event) => {
-                            if (!canManageForumTopics) {
+                            if (!canOpenForumTopicContextActions) {
                               return;
                             }
                             event.preventDefault();
@@ -10241,7 +11323,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                             });
                           }}
                           className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition ${isActive ? 'border-[#8ad1ff]/70 bg-[#214865]/80 text-white' : 'border-white/15 bg-black/20 text-[#c8e4f6] hover:bg-white/10'}`}
-                          title={`thread #${topic.messageThreadId}${canManageForumTopics ? ' (right-click for actions)' : ''}`}
+                          title={`thread #${topic.messageThreadId}${canOpenForumTopicContextActions ? ' (right-click for actions)' : ''}`}
                         >
                           <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: `#${badgeColor}` }} />
                           <span className="max-w-[180px] truncate">{topic.name}</span>
@@ -10263,9 +11345,23 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                 </div>
                 <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#9ac4df]">
                   <span>
-                    active thread #{activeMessageThreadId || GENERAL_FORUM_TOPIC_THREAD_ID}
+                    active thread #{activeMessageThreadId || (selectedGroup?.isForum ? GENERAL_FORUM_TOPIC_THREAD_ID : '-')}
                   </span>
-                  {canManageForumTopics ? <span>right-click on a topic chip for quick actions</span> : null}
+                  {selectedGroup?.isDirectMessages
+                    ? (
+                      isSelectedUserDirectMessagesManager
+                        ? <span>Select a user topic to reply as the channel</span>
+                        : <span>Your topic is created automatically when you send a message</span>
+                    )
+                    : (canManageForumTopics ? <span>right-click on a topic chip for quick actions</span> : null)}
+                  {selectedGroup?.isDirectMessages && selectedDirectMessagesStarCost > 0 ? (
+                    <span className="inline-flex items-center gap-1 text-amber-200">
+                      <Star className="h-3 w-3" />
+                      {isSelectedUserDirectMessagesManager
+                        ? `Inbound DM cost: ${selectedDirectMessagesStarCost}⭐`
+                        : `Cost: ${selectedDirectMessagesStarCost}⭐ per message · Wallet: ${walletState.stars}⭐`}
+                    </span>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -10576,6 +11672,15 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         {renderReactionChips(message)}
                         <div className="mt-1 flex items-center justify-end gap-2 text-[10px] text-[#a5bfd3]">
                           <span>#{message.id}</span>
+                          {message.businessConnectionId ? (
+                            <span>business</span>
+                          ) : null}
+                          {typeof message.paidMessageStarCount === 'number' && message.paidMessageStarCount > 0 ? (
+                            <span className="inline-flex items-center gap-1 text-amber-200">
+                              <Star className="h-3 w-3" />
+                              {message.paidMessageStarCount}
+                            </span>
+                          ) : null}
                           {message.editDate && !message.isInlineOrigin ? <span>edited</span> : null}
                           {chatScopeTab === 'channel' && !message.service && typeof message.views === 'number' ? (
                             <span className="inline-flex items-center gap-1">
@@ -10735,6 +11840,15 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       {renderReactionChips(lead)}
                       <div className="mt-1 flex items-center justify-end gap-2 text-[10px] text-[#a5bfd3]">
                         <span>Album {block.messages.length} items</span>
+                        {lead.businessConnectionId ? (
+                          <span>business</span>
+                        ) : null}
+                        {typeof lead.paidMessageStarCount === 'number' && lead.paidMessageStarCount > 0 ? (
+                          <span className="inline-flex items-center gap-1 text-amber-200">
+                            <Star className="h-3 w-3" />
+                            {lead.paidMessageStarCount}
+                          </span>
+                        ) : null}
                         {lead.editDate && !lead.isInlineOrigin ? <span>edited</span> : null}
                         {chatScopeTab === 'channel' && !lead.service && typeof lead.views === 'number' ? (
                           <span className="inline-flex items-center gap-1">
@@ -11304,17 +12418,22 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                   if (!ensureActiveForumTopicWritable()) {
                                     return;
                                   }
+                                  if (!ensureDirectMessagesStarsAvailable(1)) {
+                                    return;
+                                  }
 
                                   try {
                                     await sendUserDice(selectedBotToken, {
                                       chatId: selectedChatId,
-                                      messageThreadId: activeMessageThreadId,
+                                      messageThreadId: outboundMessageThreadId,
+                                      directMessagesTopicId: activeDirectMessagesTopicId,
                                       userId: selectedUser.id,
                                       firstName: selectedUser.first_name,
                                       username: selectedUser.username,
                                       senderChatId: activeDiscussionSenderChatId,
                                       emoji: selectedDiceEmoji,
                                     });
+                                    consumeDirectMessagesStars(1);
                                   } catch (error) {
                                     setErrorText(error instanceof Error ? error.message : 'Send dice failed');
                                   }
@@ -11347,18 +12466,23 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                   if (!ensureActiveForumTopicWritable()) {
                                     return;
                                   }
+                                  if (!ensureDirectMessagesStarsAvailable(1)) {
+                                    return;
+                                  }
 
                                   try {
                                     const shortName = gameShortNameDraft.trim() || `game_${Math.floor(Date.now() / 1000)}`;
                                     await sendUserGame(selectedBotToken, {
                                       chatId: selectedChatId,
-                                      messageThreadId: activeMessageThreadId,
+                                      messageThreadId: outboundMessageThreadId,
+                                      directMessagesTopicId: activeDirectMessagesTopicId,
                                       userId: selectedUser.id,
                                       firstName: selectedUser.first_name,
                                       username: selectedUser.username,
                                       senderChatId: activeDiscussionSenderChatId,
                                       gameShortName: shortName,
                                     });
+                                    consumeDirectMessagesStars(1);
                                   } catch (error) {
                                     setErrorText(error instanceof Error ? error.message : 'Send game failed');
                                   }
@@ -11395,11 +12519,15 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                   if (!ensureActiveForumTopicWritable()) {
                                     return;
                                   }
+                                  if (!ensureDirectMessagesStarsAvailable(1)) {
+                                    return;
+                                  }
 
                                   try {
                                     await sendUserContact(selectedBotToken, {
                                       chatId: selectedChatId,
-                                      messageThreadId: activeMessageThreadId,
+                                      messageThreadId: outboundMessageThreadId,
+                                      directMessagesTopicId: activeDirectMessagesTopicId,
                                       userId: selectedUser.id,
                                       firstName: selectedUser.first_name,
                                       username: selectedUser.username,
@@ -11408,6 +12536,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                       contactFirstName: shareDraft.contactFirstName.trim() || selectedUser.first_name,
                                       contactLastName: shareDraft.contactLastName.trim() || undefined,
                                     });
+                                    consumeDirectMessagesStars(1);
                                   } catch (error) {
                                     setErrorText(error instanceof Error ? error.message : 'Send contact failed');
                                   }
@@ -11445,11 +12574,15 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                   if (!ensureActiveForumTopicWritable()) {
                                     return;
                                   }
+                                  if (!ensureDirectMessagesStarsAvailable(1)) {
+                                    return;
+                                  }
 
                                   try {
                                     await sendUserLocation(selectedBotToken, {
                                       chatId: selectedChatId,
-                                      messageThreadId: activeMessageThreadId,
+                                      messageThreadId: outboundMessageThreadId,
+                                      directMessagesTopicId: activeDirectMessagesTopicId,
                                       userId: selectedUser.id,
                                       firstName: selectedUser.first_name,
                                       username: selectedUser.username,
@@ -11457,6 +12590,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                       latitude: Number(shareDraft.latitude) || 35.6892,
                                       longitude: Number(shareDraft.longitude) || 51.389,
                                     });
+                                    consumeDirectMessagesStars(1);
                                   } catch (error) {
                                     setErrorText(error instanceof Error ? error.message : 'Send location failed');
                                   }
@@ -11508,11 +12642,15 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                   if (!ensureActiveForumTopicWritable()) {
                                     return;
                                   }
+                                  if (!ensureDirectMessagesStarsAvailable(1)) {
+                                    return;
+                                  }
 
                                   try {
                                     await sendUserVenue(selectedBotToken, {
                                       chatId: selectedChatId,
-                                      messageThreadId: activeMessageThreadId,
+                                      messageThreadId: outboundMessageThreadId,
+                                      directMessagesTopicId: activeDirectMessagesTopicId,
                                       userId: selectedUser.id,
                                       firstName: selectedUser.first_name,
                                       username: selectedUser.username,
@@ -11522,6 +12660,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                       title: shareDraft.venueTitle.trim() || 'Venue',
                                       address: shareDraft.venueAddress.trim() || 'Unknown address',
                                     });
+                                    consumeDirectMessagesStars(1);
                                   } catch (error) {
                                     setErrorText(error instanceof Error ? error.message : 'Send venue failed');
                                   }
@@ -12249,6 +13388,81 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                 placeholder="user id (optional)"
               />
             </div>
+
+            {userModalMode === 'edit' ? (
+              <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3">
+                <p className="text-xs uppercase tracking-wide text-[#8fb7d6]">Business mode</p>
+                <p className="mt-1 text-[11px] text-[#9ec3dc]">
+                  Configure business connection for this user and choose the bot.
+                </p>
+
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <select
+                    value={businessDraftBotToken}
+                    onChange={(e) => setBusinessDraftBotToken(e.target.value)}
+                    className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                  >
+                    {availableBots.map((bot) => (
+                      <option key={`business-bot-option-${bot.token}`} value={bot.token}>
+                        {bot.first_name} (@{bot.username})
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    value={businessConnectionDraftId}
+                    onChange={(e) => setBusinessConnectionDraftId(e.target.value)}
+                    className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                    placeholder="business_connection_id (leave empty to clear)"
+                  />
+                </div>
+
+                <label className="mt-2 flex items-center gap-2 rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-xs text-telegram-textSecondary">
+                  <input
+                    type="checkbox"
+                    checked={businessConnectionDraftEnabled}
+                    onChange={(e) => setBusinessConnectionDraftEnabled(e.target.checked)}
+                  />
+                  enabled
+                </label>
+
+                <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-[#d7e8f5] sm:grid-cols-2">
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={businessRightsDraft.canReply} onChange={(e) => setBusinessRightsDraft((prev) => ({ ...prev, canReply: e.target.checked }))} />can_reply</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={businessRightsDraft.canReadMessages} onChange={(e) => setBusinessRightsDraft((prev) => ({ ...prev, canReadMessages: e.target.checked }))} />can_read_messages</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={businessRightsDraft.canDeleteSentMessages} onChange={(e) => setBusinessRightsDraft((prev) => ({ ...prev, canDeleteSentMessages: e.target.checked }))} />can_delete_sent_messages</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={businessRightsDraft.canDeleteAllMessages} onChange={(e) => setBusinessRightsDraft((prev) => ({ ...prev, canDeleteAllMessages: e.target.checked }))} />can_delete_all_messages</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={businessRightsDraft.canEditName} onChange={(e) => setBusinessRightsDraft((prev) => ({ ...prev, canEditName: e.target.checked }))} />can_edit_name</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={businessRightsDraft.canEditBio} onChange={(e) => setBusinessRightsDraft((prev) => ({ ...prev, canEditBio: e.target.checked }))} />can_edit_bio</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={businessRightsDraft.canEditProfilePhoto} onChange={(e) => setBusinessRightsDraft((prev) => ({ ...prev, canEditProfilePhoto: e.target.checked }))} />can_edit_profile_photo</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={businessRightsDraft.canEditUsername} onChange={(e) => setBusinessRightsDraft((prev) => ({ ...prev, canEditUsername: e.target.checked }))} />can_edit_username</label>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => void onSaveSelectedUserBusinessConnection()}
+                  disabled={isBusinessActionRunning}
+                  className="mt-2 w-full rounded-lg border border-white/15 bg-[#1b4666] px-3 py-2 text-sm text-white hover:bg-[#245a80] disabled:opacity-40"
+                >
+                  {isBusinessActionRunning ? 'Saving...' : 'Save business connection'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => void onRemoveSelectedUserBusinessConnection()}
+                  disabled={isBusinessActionRunning || (!(businessConnectionByUserKey[businessDraftStateKey]) && businessConnectionDraftId.trim().length === 0)}
+                  className="mt-2 w-full rounded-lg border border-[#7d3a3a]/70 bg-[#3a1f1f] px-3 py-2 text-sm text-[#ffd6d6] hover:bg-[#4b2727] disabled:opacity-40"
+                >
+                  Remove business connection
+                </button>
+
+                {businessConnectionByUserKey[businessDraftStateKey] ? (
+                  <p className="mt-2 text-[11px] text-[#b8d9ef]">
+                    Active: {businessConnectionByUserKey[businessDraftStateKey].id} · {businessConnectionByUserKey[businessDraftStateKey].is_enabled ? 'enabled' : 'disabled'}
+                  </p>
+                ) : (
+                  <p className="mt-2 text-[11px] text-[#9ec3dc]">No business connection configured for this bot+user yet.</p>
+                )}
+              </div>
+            ) : null}
 
             <div className="mt-3 flex items-center justify-end gap-2">
               <button
@@ -13170,7 +14384,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                   <button
                                     type="button"
                                     onClick={() => void onDeleteForumTopicFromDraft(topic.messageThreadId)}
-                                    disabled={isGroupActionRunning || !canManageForumTopics}
+                                    disabled={isGroupActionRunning || !(canManageForumTopics || canDeleteDirectMessagesTopicByActiveActor(topic))}
                                     className="rounded-lg border border-red-300/35 bg-red-900/20 px-3 py-2 text-sm text-red-100 hover:bg-red-900/30 disabled:opacity-40"
                                   >
                                     Delete topic
@@ -13322,6 +14536,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                     <label className="flex items-center gap-2"><input type="checkbox" checked={channelAdminRightsDraftByChatKey[selectedGroupStateKey || '']?.[member.userId]?.canDeleteMessages ?? false} onChange={(event) => onUpdateChannelAdminRightsDraft(member.userId, { canDeleteMessages: event.target.checked })} />can_delete_messages</label>
                                     <label className="flex items-center gap-2"><input type="checkbox" checked={channelAdminRightsDraftByChatKey[selectedGroupStateKey || '']?.[member.userId]?.canInviteUsers ?? false} onChange={(event) => onUpdateChannelAdminRightsDraft(member.userId, { canInviteUsers: event.target.checked })} />can_invite_users</label>
                                     <label className="flex items-center gap-2"><input type="checkbox" checked={channelAdminRightsDraftByChatKey[selectedGroupStateKey || '']?.[member.userId]?.canChangeInfo ?? false} onChange={(event) => onUpdateChannelAdminRightsDraft(member.userId, { canChangeInfo: event.target.checked })} />can_change_info</label>
+                                    <label className="flex items-center gap-2"><input type="checkbox" checked={channelAdminRightsDraftByChatKey[selectedGroupStateKey || '']?.[member.userId]?.canManageDirectMessages ?? false} onChange={(event) => onUpdateChannelAdminRightsDraft(member.userId, { canManageDirectMessages: event.target.checked })} />can_manage_direct_messages</label>
                                   </div>
                                   <div className="mt-2">
                                     <button
@@ -13539,14 +14754,57 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                 placeholder={selectedGroup.type === 'channel' ? 'Channel description' : 'Group description'}
               />
               {selectedGroup.type === 'channel' ? (
-                <label className="flex items-center gap-2 text-sm text-telegram-textSecondary">
-                  <input
-                    type="checkbox"
-                    checked={groupProfileDraft.showAuthorSignature}
-                    onChange={(e) => setGroupProfileDraft((prev) => ({ ...prev, showAuthorSignature: e.target.checked }))}
-                  />
-                  Show publisher name on channel posts
-                </label>
+                <>
+                  <label className="flex items-center gap-2 text-sm text-telegram-textSecondary">
+                    <input
+                      type="checkbox"
+                      checked={groupProfileDraft.showAuthorSignature}
+                      onChange={(e) => setGroupProfileDraft((prev) => ({ ...prev, showAuthorSignature: e.target.checked }))}
+                    />
+                    Show publisher name on channel posts
+                  </label>
+
+                  <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                    <p className="mb-2 text-xs uppercase tracking-wide text-[#8fb7d6]">Channel direct messages</p>
+                    <label className="flex items-center gap-2 text-sm text-telegram-textSecondary">
+                      <input
+                        type="checkbox"
+                        checked={groupProfileDraft.directMessagesEnabled}
+                        onChange={(e) => setGroupProfileDraft((prev) => ({
+                          ...prev,
+                          directMessagesEnabled: e.target.checked,
+                        }))}
+                      />
+                      Enable direct messages inbox for channel admins
+                    </label>
+                    <label className="mt-2 flex items-center gap-2 text-sm text-telegram-textSecondary">
+                      <span className="min-w-[170px] text-xs uppercase tracking-wide text-[#8fb7d6]">Stars per user message</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={groupProfileDraft.directMessagesStarCount}
+                        onChange={(e) => setGroupProfileDraft((prev) => ({
+                          ...prev,
+                          directMessagesStarCount: Math.max(0, Math.floor(Number(e.target.value) || 0)),
+                        }))}
+                        className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                      />
+                    </label>
+                    <p className="mt-2 text-[11px] text-[#9ec3dc]">
+                      {groupProfileDraft.directMessagesStarCount > 0
+                        ? `Inbound DM messages will carry paid_message_star_count=${groupProfileDraft.directMessagesStarCount}.`
+                        : 'Inbound DM messages are free.'}
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      {groupProfileDraft.directMessagesEnabled ? (
+                        <span className="text-[11px] text-[#b8d9ef]">DM status: enabled</span>
+                      ) : (
+                        <span className="text-[11px] text-[#d3b39f]">DM status: disabled</span>
+                      )}
+                    </div>
+                  </div>
+                </>
               ) : null}
               {selectedGroup.type !== 'channel' ? (
                 <>
@@ -14265,7 +15523,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         </div>
       ) : null}
 
-      {forumTopicContextMenu && canManageForumTopics ? (
+      {forumTopicContextMenu ? (
         <div
           className="fixed z-50 w-64 max-w-[90vw] rounded-2xl border border-white/15 bg-[#132130] p-2 shadow-2xl"
           style={{ left: forumTopicContextMenu.x, top: forumTopicContextMenu.y }}
@@ -14291,21 +15549,24 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           <button
             type="button"
             onClick={() => void onRunForumTopicContextAction('edit')}
-            className="w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10"
+            disabled={!canManageForumTopics}
+            className="w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Edit topic
           </button>
           <button
             type="button"
             onClick={() => void onRunForumTopicContextAction(forumTopicContextMenu.topic.isClosed ? 'reopen' : 'close')}
-            className="w-full rounded-lg px-3 py-2 text-left text-sm text-orange-100 hover:bg-white/10"
+            disabled={!canManageForumTopics}
+            className="w-full rounded-lg px-3 py-2 text-left text-sm text-orange-100 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {forumTopicContextMenu.topic.isClosed ? 'Reopen topic' : 'Close topic'}
           </button>
           <button
             type="button"
             onClick={() => void onRunForumTopicContextAction('unpin')}
-            className="w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10"
+            disabled={!canManageForumTopics}
+            className="w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Unpin all messages
           </button>
@@ -14313,7 +15574,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             <button
               type="button"
               onClick={() => void onRunForumTopicContextAction(forumTopicContextMenu.topic.isHidden ? 'unhide' : 'hide')}
-              className="w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10"
+              disabled={!canManageForumTopics}
+              className="w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {forumTopicContextMenu.topic.isHidden ? 'Unhide general topic' : 'Hide general topic'}
             </button>
@@ -14321,7 +15583,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             <button
               type="button"
               onClick={() => void onRunForumTopicContextAction('delete')}
-              className="w-full rounded-lg px-3 py-2 text-left text-sm text-red-200 hover:bg-white/10"
+              disabled={!canManageForumTopics && !canDeleteDirectMessagesTopicByActiveActor(forumTopicContextMenu.topic)}
+              className="w-full rounded-lg px-3 py-2 text-left text-sm text-red-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Delete topic
             </button>

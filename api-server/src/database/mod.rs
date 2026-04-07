@@ -124,6 +124,10 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
             description             TEXT,
             photo_file_id           TEXT,
             is_forum                INTEGER NOT NULL DEFAULT 0,
+            is_direct_messages      INTEGER NOT NULL DEFAULT 0,
+            parent_channel_chat_id  INTEGER,
+            direct_messages_enabled INTEGER NOT NULL DEFAULT 0,
+            direct_messages_star_count INTEGER NOT NULL DEFAULT 0,
             channel_show_author_signature INTEGER NOT NULL DEFAULT 0,
             linked_discussion_chat_id INTEGER,
             message_history_visible INTEGER NOT NULL DEFAULT 1,
@@ -262,6 +266,77 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
                 discussion_root_message_id,
                 updated_at DESC
             );
+
+        CREATE TABLE IF NOT EXISTS sim_business_connections (
+            bot_id              INTEGER NOT NULL,
+            connection_id       TEXT NOT NULL,
+            user_id             INTEGER NOT NULL,
+            user_chat_id        INTEGER NOT NULL,
+            rights_json         TEXT NOT NULL,
+            is_enabled          INTEGER NOT NULL DEFAULT 1,
+            gift_settings_show_button INTEGER NOT NULL DEFAULT 1,
+            gift_settings_types_json  TEXT,
+            star_balance        INTEGER NOT NULL DEFAULT 0,
+            created_at          INTEGER NOT NULL,
+            updated_at          INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, connection_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_sim_business_connections_user
+            ON sim_business_connections (bot_id, user_id);
+
+        CREATE TABLE IF NOT EXISTS sim_business_account_profiles (
+            bot_id                          INTEGER NOT NULL,
+            user_id                         INTEGER NOT NULL,
+            last_name                       TEXT,
+            bio                             TEXT,
+            profile_photo_file_id           TEXT,
+            public_profile_photo_file_id    TEXT,
+            updated_at                      INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, user_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS sim_business_read_messages (
+            bot_id              INTEGER NOT NULL,
+            connection_id       TEXT NOT NULL,
+            chat_id             INTEGER NOT NULL,
+            message_id          INTEGER NOT NULL,
+            read_at             INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, connection_id, chat_id, message_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS sim_direct_message_topics (
+            bot_id              INTEGER NOT NULL,
+            chat_key            TEXT NOT NULL,
+            topic_id            INTEGER NOT NULL,
+            user_id             INTEGER NOT NULL,
+            created_at          INTEGER NOT NULL,
+            updated_at          INTEGER NOT NULL,
+            last_message_id     INTEGER,
+            last_message_date   INTEGER,
+            PRIMARY KEY (bot_id, chat_key, topic_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_sim_direct_message_topics_user
+            ON sim_direct_message_topics (bot_id, chat_key, user_id);
+
+        CREATE TABLE IF NOT EXISTS sim_message_drafts (
+            bot_id              INTEGER NOT NULL,
+            chat_key            TEXT NOT NULL,
+            message_thread_id   INTEGER NOT NULL,
+            draft_id            INTEGER NOT NULL,
+            message_id          INTEGER NOT NULL,
+            updated_at          INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, chat_key, message_thread_id, draft_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key),
+            FOREIGN KEY(message_id) REFERENCES messages(message_id)
+        );
 
         CREATE TABLE IF NOT EXISTS messages (
             message_id    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -610,6 +685,10 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
     ensure_column_exists(conn, "poll_metadata", "description_entities_json", "TEXT")?;
     ensure_column_exists(conn, "sim_chats", "sticker_set_name", "TEXT")?;
     ensure_column_exists(conn, "sim_chats", "pinned_message_id", "INTEGER")?;
+    ensure_column_exists(conn, "sim_chats", "is_direct_messages", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column_exists(conn, "sim_chats", "parent_channel_chat_id", "INTEGER")?;
+    ensure_column_exists(conn, "sim_chats", "direct_messages_enabled", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column_exists(conn, "sim_chats", "direct_messages_star_count", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column_exists(conn, "sim_chats", "channel_show_author_signature", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column_exists(conn, "sim_chats", "linked_discussion_chat_id", "INTEGER")?;
     ensure_column_exists(conn, "sim_chat_members", "permissions_json", "TEXT")?;
@@ -620,6 +699,9 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
     ensure_column_exists(conn, "sim_chat_invite_links", "is_primary", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column_exists(conn, "sim_chat_invite_links", "subscription_period", "INTEGER")?;
     ensure_column_exists(conn, "sim_chat_invite_links", "subscription_price", "INTEGER")?;
+    ensure_column_exists(conn, "sim_business_connections", "gift_settings_show_button", "INTEGER NOT NULL DEFAULT 1")?;
+    ensure_column_exists(conn, "sim_business_connections", "gift_settings_types_json", "TEXT")?;
+    ensure_column_exists(conn, "sim_business_connections", "star_balance", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column_exists(conn, "updates", "bot_visible", "INTEGER NOT NULL DEFAULT 1")?;
 
     Ok(())

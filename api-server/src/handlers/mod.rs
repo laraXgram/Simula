@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -29,18 +29,25 @@ use crate::generated::methods::{
     GetChatMemberRequest, GetChatMenuButtonRequest, GetForumTopicIconStickersRequest,
     GetGameHighScoresRequest, GetMeRequest, GetMyStarBalanceRequest,
     GetStarTransactionsRequest, GetStickerSetRequest, GetUpdatesRequest, LeaveChatRequest,
+    GetBusinessConnectionRequest,
     ForwardMessageRequest, ForwardMessagesRequest,
     PinChatMessageRequest, PromoteChatMemberRequest, RefundStarPaymentRequest,
     RevokeChatInviteLinkRequest,
     ReplaceStickerInSetRequest, RestrictChatMemberRequest, SendAnimationRequest,
     SendAudioRequest, SendContactRequest, SendDiceRequest, SendDocumentRequest,
     SendChatActionRequest, SendGameRequest, SendInvoiceRequest, SendLocationRequest, SendMediaGroupRequest,
-    SendMessageRequest, SendPhotoRequest, SendPollRequest, SendStickerRequest,
+    SendMessageDraftRequest, SendMessageRequest, SendPhotoRequest, SendPollRequest, SendStickerRequest,
     SendVenueRequest, SendVideoNoteRequest, SendVideoRequest, SendVoiceRequest,
     SetChatAdministratorCustomTitleRequest, SetChatDescriptionRequest,
     SetChatMemberTagRequest, SetChatPermissionsRequest, SetChatStickerSetRequest,
     SetChatMenuButtonRequest, SetChatTitleRequest, SetCustomEmojiStickerSetThumbnailRequest, SetGameScoreRequest,
     SetMessageReactionRequest, SetStickerEmojiListRequest, SetStickerKeywordsRequest,
+    SetBusinessAccountNameRequest, SetBusinessAccountUsernameRequest,
+    SetBusinessAccountBioRequest, SetBusinessAccountProfilePhotoRequest,
+    RemoveBusinessAccountProfilePhotoRequest, ReadBusinessMessageRequest,
+    DeleteBusinessMessagesRequest, SetBusinessAccountGiftSettingsRequest,
+    GetBusinessAccountStarBalanceRequest, TransferBusinessAccountStarsRequest,
+    GetBusinessAccountGiftsRequest,
     SetStickerMaskPositionRequest, SetStickerPositionInSetRequest,
     SetStickerSetThumbnailRequest, SetStickerSetTitleRequest, SetWebhookRequest,
     StopMessageLiveLocationRequest, StopPollRequest, UnbanChatMemberRequest,
@@ -51,7 +58,7 @@ use crate::generated::methods::{
     ReopenGeneralForumTopicRequest, HideGeneralForumTopicRequest,
     UnhideGeneralForumTopicRequest, UnpinAllGeneralForumTopicMessagesRequest,
 };
-use crate::generated::types::{AcceptedGiftTypes, Animation, Audio, CallbackQuery, Chat, ChatFullInfo, ChatInviteLink, ChatJoinRequest, ChatMember, ChatMemberAdministrator, ChatMemberBanned, ChatMemberLeft, ChatMemberMember, ChatMemberOwner, ChatMemberRestricted, ChatMemberUpdated, ChatPermissions, ChatPhoto, ChatShared, ChosenInlineResult, Contact, Dice, Document, File, ForumTopic, Game, GameHighScore, InlineKeyboardMarkup, InlineQuery, InputSticker, Invoice, Location, MaskPosition, MaybeInaccessibleMessage, MenuButton, Message, MessageEntity, MessageReactionCountUpdated, MessageReactionUpdated, OrderInfo, PhotoSize, Poll, PollAnswer, PollOption, PreCheckoutQuery, ReactionCount, ReactionType, ReplyKeyboardMarkup, ReplyKeyboardRemove, ShippingAddress, ShippingQuery, Sticker, StickerSet, SuccessfulPayment, Update, User, UsersShared, Venue, Video, VideoNote, Voice, WebAppData};
+use crate::generated::types::{AcceptedGiftTypes, Animation, Audio, BusinessBotRights, BusinessConnection, BusinessMessagesDeleted, CallbackQuery, Chat, ChatFullInfo, ChatInviteLink, ChatJoinRequest, ChatMember, ChatMemberAdministrator, ChatMemberBanned, ChatMemberLeft, ChatMemberMember, ChatMemberOwner, ChatMemberRestricted, ChatMemberUpdated, ChatPermissions, ChatPhoto, ChatShared, ChosenInlineResult, Contact, Dice, DirectMessagesTopic, Document, File, ForumTopic, Game, GameHighScore, InlineKeyboardMarkup, InlineQuery, InputSticker, Invoice, Location, MaskPosition, MaybeInaccessibleMessage, MenuButton, Message, MessageEntity, MessageReactionCountUpdated, MessageReactionUpdated, OrderInfo, OwnedGift, OwnedGifts, PhotoSize, Poll, PollAnswer, PollOption, PreCheckoutQuery, ReactionCount, ReactionType, ReplyKeyboardMarkup, ReplyKeyboardRemove, ShippingAddress, ShippingQuery, StarAmount, Sticker, StickerSet, SuccessfulPayment, Update, User, UsersShared, Venue, Video, VideoNote, Voice, WebAppData};
 use crate::types::{strip_nulls, ApiError, ApiResult};
 
 thread_local! {
@@ -75,10 +82,12 @@ fn current_request_actor_user_id() -> Option<i64> {
 pub struct SimSendUserMessageRequest {
     pub chat_id: Option<i64>,
     pub message_thread_id: Option<i64>,
+    pub direct_messages_topic_id: Option<i64>,
     pub user_id: Option<i64>,
     pub first_name: Option<String>,
     pub username: Option<String>,
     pub sender_chat_id: Option<i64>,
+    pub business_connection_id: Option<String>,
     pub text: String,
     pub parse_mode: Option<String>,
     pub reply_to_message_id: Option<i64>,
@@ -91,10 +100,12 @@ pub struct SimSendUserMessageRequest {
 pub struct SimSendUserMediaRequest {
     pub chat_id: Option<i64>,
     pub message_thread_id: Option<i64>,
+    pub direct_messages_topic_id: Option<i64>,
     pub user_id: Option<i64>,
     pub first_name: Option<String>,
     pub username: Option<String>,
     pub sender_chat_id: Option<i64>,
+    pub business_connection_id: Option<String>,
     pub media_kind: String,
     pub media: Value,
     pub caption: Option<String>,
@@ -130,10 +141,39 @@ pub struct SimSetPrivacyModeRequest {
 }
 
 #[derive(Deserialize)]
+pub struct SimSetBusinessConnectionRequest {
+    pub user_id: Option<i64>,
+    pub first_name: Option<String>,
+    pub username: Option<String>,
+    pub business_connection_id: Option<String>,
+    pub enabled: Option<bool>,
+    pub rights: Option<BusinessBotRights>,
+}
+
+#[derive(Deserialize)]
+pub struct SimRemoveBusinessConnectionRequest {
+    pub user_id: Option<i64>,
+    pub business_connection_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct SimOpenChannelDirectMessagesRequest {
+    pub channel_chat_id: i64,
+    pub user_id: Option<i64>,
+    pub first_name: Option<String>,
+    pub username: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub struct SimUpsertUserRequest {
     pub id: Option<i64>,
     pub first_name: Option<String>,
     pub username: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct SimDeleteUserRequest {
+    pub id: i64,
 }
 
 #[derive(Deserialize)]
@@ -189,6 +229,8 @@ pub struct SimUpdateGroupRequest {
     pub is_forum: Option<bool>,
     pub show_author_signature: Option<bool>,
     pub linked_chat_id: Option<i64>,
+    pub direct_messages_enabled: Option<bool>,
+    pub direct_messages_star_count: Option<i64>,
     pub message_history_visible: Option<bool>,
     pub slow_mode_delay: Option<i64>,
     pub permissions: Option<ChatPermissions>,
@@ -243,6 +285,7 @@ pub struct SimSetBotGroupMembershipRequest {
 #[derive(Deserialize)]
 pub struct SimClearHistoryRequest {
     pub chat_id: i64,
+    pub message_thread_id: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -295,6 +338,7 @@ pub struct SimVotePollRequest {
 pub struct SimSendUserDiceRequest {
     pub chat_id: Option<i64>,
     pub message_thread_id: Option<i64>,
+    pub direct_messages_topic_id: Option<i64>,
     pub user_id: Option<i64>,
     pub first_name: Option<String>,
     pub username: Option<String>,
@@ -307,6 +351,7 @@ pub struct SimSendUserDiceRequest {
 pub struct SimSendUserGameRequest {
     pub chat_id: Option<i64>,
     pub message_thread_id: Option<i64>,
+    pub direct_messages_topic_id: Option<i64>,
     pub user_id: Option<i64>,
     pub first_name: Option<String>,
     pub username: Option<String>,
@@ -319,6 +364,7 @@ pub struct SimSendUserGameRequest {
 pub struct SimSendUserContactRequest {
     pub chat_id: Option<i64>,
     pub message_thread_id: Option<i64>,
+    pub direct_messages_topic_id: Option<i64>,
     pub user_id: Option<i64>,
     pub first_name: Option<String>,
     pub username: Option<String>,
@@ -334,6 +380,7 @@ pub struct SimSendUserContactRequest {
 pub struct SimSendUserLocationRequest {
     pub chat_id: Option<i64>,
     pub message_thread_id: Option<i64>,
+    pub direct_messages_topic_id: Option<i64>,
     pub user_id: Option<i64>,
     pub first_name: Option<String>,
     pub username: Option<String>,
@@ -351,6 +398,7 @@ pub struct SimSendUserLocationRequest {
 pub struct SimSendUserVenueRequest {
     pub chat_id: Option<i64>,
     pub message_thread_id: Option<i64>,
+    pub direct_messages_topic_id: Option<i64>,
     pub user_id: Option<i64>,
     pub first_name: Option<String>,
     pub username: Option<String>,
@@ -480,6 +528,7 @@ pub fn dispatch_method(
         "sendpoll" => handle_send_poll(state, token, &params),
         "sendinvoice" => handle_send_invoice(state, token, &params),
         "sendmediagroup" => handle_send_media_group(state, token, &params),
+        "sendmessagedraft" => handle_send_message_draft(state, token, &params),
         "editmessagetext" => handle_edit_message_text(state, token, &params),
         "editmessagecaption" => handle_edit_message_caption(state, token, &params),
         "editmessagemedia" => handle_edit_message_media(state, token, &params),
@@ -509,6 +558,7 @@ pub fn dispatch_method(
         "getchatadministrators" => handle_get_chat_administrators(state, token, &params),
         "getchatmembercount" => handle_get_chat_member_count(state, token, &params),
         "getchatmember" => handle_get_chat_member(state, token, &params),
+        "getbusinessconnection" => handle_get_business_connection(state, token, &params),
         "setchatmenubutton" => handle_set_chat_menu_button(state, token, &params),
         "getchatmenubutton" => handle_get_chat_menu_button(state, token, &params),
         "setchatphoto" => handle_set_chat_photo(state, token, &params),
@@ -563,6 +613,25 @@ pub fn dispatch_method(
         "replacestickerinset" => handle_replace_sticker_in_set(state, token, &params),
         "setgamescore" => handle_set_game_score(state, token, &params),
         "getgamehighscores" => handle_get_game_high_scores(state, token, &params),
+        "readbusinessmessage" => handle_read_business_message(state, token, &params),
+        "deletebusinessmessages" => handle_delete_business_messages(state, token, &params),
+        "setbusinessaccountname" => handle_set_business_account_name(state, token, &params),
+        "setbusinessaccountusername" => handle_set_business_account_username(state, token, &params),
+        "setbusinessaccountbio" => handle_set_business_account_bio(state, token, &params),
+        "setbusinessaccountprofilephoto" => handle_set_business_account_profile_photo(state, token, &params),
+        "removebusinessaccountprofilephoto" => {
+            handle_remove_business_account_profile_photo(state, token, &params)
+        }
+        "setbusinessaccountgiftsettings" => {
+            handle_set_business_account_gift_settings(state, token, &params)
+        }
+        "getbusinessaccountstarbalance" => {
+            handle_get_business_account_star_balance(state, token, &params)
+        }
+        "transferbusinessaccountstars" => {
+            handle_transfer_business_account_stars(state, token, &params)
+        }
+        "getbusinessaccountgifts" => handle_get_business_account_gifts(state, token, &params),
         "setstickeremojilist" => handle_set_sticker_emoji_list(state, token, &params),
         "setstickerkeywords" => handle_set_sticker_keywords(state, token, &params),
         "setstickermaskposition" => handle_set_sticker_mask_position(state, token, &params),
@@ -1975,13 +2044,30 @@ fn handle_get_chat(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
 
-    let chat_key = value_to_chat_key(&request.chat_id)?;
-    let Some(sim_chat) = load_sim_chat_record(&mut conn, bot.id, &chat_key)? else {
+    let requested_chat_key = value_to_chat_key(&request.chat_id)?;
+    let requested_chat_id = chat_id_as_i64(&request.chat_id, &requested_chat_key);
+    let Some(sim_chat) = load_sim_chat_record(&mut conn, bot.id, &requested_chat_key)?
+        .or(load_sim_chat_record_by_chat_id(&mut conn, bot.id, requested_chat_id)?) else {
         return Err(ApiError::not_found("chat not found"));
     };
+    let chat_key = sim_chat.chat_key.clone();
+    let is_direct_messages = is_direct_messages_chat(&sim_chat);
 
     if sim_chat.chat_type != "private" {
-        ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
+        if is_direct_messages {
+            let actor_user_id = current_request_actor_user_id().unwrap_or(bot.id);
+            let parent_channel_chat_id = sim_chat
+                .parent_channel_chat_id
+                .ok_or_else(|| ApiError::bad_request("direct messages chat parent channel is missing"))?;
+            ensure_channel_member_can_manage_direct_messages(
+                &mut conn,
+                bot.id,
+                &parent_channel_chat_id.to_string(),
+                actor_user_id,
+            )?;
+        } else {
+            ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
+        }
     }
 
     let row: Option<(Option<String>, Option<String>, i64, i64, Option<String>, Option<String>, Option<i64>)> = conn
@@ -2040,7 +2126,7 @@ fn handle_get_chat(
         None
     };
 
-    let permissions = if sim_chat.chat_type == "private" {
+    let permissions = if sim_chat.chat_type == "private" || is_direct_messages {
         None
     } else {
         Some(
@@ -2064,7 +2150,19 @@ fn handle_get_chat(
         .optional()
         .map_err(ApiError::internal)?;
 
-    let linked_chat_id = resolve_linked_chat_id_for_chat(&mut conn, bot.id, &sim_chat)?;
+    let linked_chat_id = if is_direct_messages {
+        None
+    } else {
+        resolve_linked_chat_id_for_chat(&mut conn, bot.id, &sim_chat)?
+    };
+    let parent_chat = if is_direct_messages {
+        let parent_channel_chat_id = sim_chat.parent_channel_chat_id.unwrap_or_default();
+        let parent_channel_chat = load_sim_chat_record(&mut conn, bot.id, &parent_channel_chat_id.to_string())?
+            .ok_or_else(|| ApiError::not_found("parent channel not found"))?;
+        Some(build_chat_from_group_record(&parent_channel_chat))
+    } else {
+        None
+    };
 
     let chat_full = ChatFullInfo {
         id: sim_chat.chat_id,
@@ -2073,12 +2171,12 @@ fn handle_get_chat(
         username: sim_chat.username.clone(),
         first_name: None,
         last_name: None,
-        is_forum: if sim_chat.chat_type == "supergroup" {
+        is_forum: if sim_chat.chat_type == "supergroup" && !is_direct_messages {
             Some(sim_chat.is_forum)
         } else {
             None
         },
-        is_direct_messages: None,
+        is_direct_messages: if is_direct_messages { Some(true) } else { None },
         accent_color_id: 0,
         max_reaction_count: 11,
         photo,
@@ -2088,7 +2186,7 @@ fn handle_get_chat(
         business_location: None,
         business_opening_hours: None,
         personal_chat: None,
-        parent_chat: None,
+        parent_chat,
         available_reactions: None,
         background_custom_emoji_id: None,
         profile_accent_color_id: None,
@@ -2112,7 +2210,7 @@ fn handle_get_chat(
             gifts_from_channels: true,
         },
         can_send_paid_media: None,
-        slow_mode_delay: if sim_chat.chat_type == "private" {
+        slow_mode_delay: if sim_chat.chat_type == "private" || is_direct_messages {
             None
         } else {
             Some(slow_mode_delay.max(0))
@@ -2122,7 +2220,7 @@ fn handle_get_chat(
         has_aggressive_anti_spam_enabled: None,
         has_hidden_members: None,
         has_protected_content: None,
-        has_visible_history: if sim_chat.chat_type == "private" {
+        has_visible_history: if sim_chat.chat_type == "private" || is_direct_messages {
             None
         } else {
             Some(message_history_visible != 0)
@@ -2293,6 +2391,15 @@ fn resolve_forum_message_thread_id(
     sim_chat: &SimChatRecord,
     requested_message_thread_id: Option<i64>,
 ) -> Result<Option<i64>, ApiError> {
+    if is_direct_messages_chat(sim_chat) {
+        if requested_message_thread_id.is_some() {
+            return Err(ApiError::bad_request(
+                "message_thread_id is not available in channel direct messages chats",
+            ));
+        }
+        return Ok(None);
+    }
+
     if sim_chat.chat_type != "supergroup" || !sim_chat.is_forum {
         if requested_message_thread_id.is_some() {
             return Err(ApiError::bad_request(
@@ -2780,8 +2887,78 @@ fn handle_delete_forum_topic(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, _sim_chat, _chat, _actor) =
-        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+
+    if is_direct_messages_chat(&sim_chat) {
+        if request.message_thread_id <= 0 {
+            return Err(ApiError::bad_request("message_thread_id is invalid"));
+        }
+
+        let _topic = load_direct_messages_topic_record(
+            &mut conn,
+            bot.id,
+            &chat_key,
+            request.message_thread_id,
+        )?
+        .ok_or_else(|| ApiError::not_found("direct messages topic not found"))?;
+
+        let actor_user_id = current_request_actor_user_id().unwrap_or(bot.id);
+        let parent_channel_chat_id = sim_chat
+            .parent_channel_chat_id
+            .ok_or_else(|| ApiError::bad_request("direct messages chat parent channel is missing"))?;
+        let parent_channel_chat_key = parent_channel_chat_id.to_string();
+        let actor_can_manage_direct_messages = ensure_channel_member_can_manage_direct_messages(
+            &mut conn,
+            bot.id,
+            &parent_channel_chat_key,
+            actor_user_id,
+        )
+        .is_ok();
+
+        if !actor_can_manage_direct_messages {
+            return Err(ApiError::bad_request(
+                "not enough rights to delete this direct messages topic",
+            ));
+        }
+
+        let topic_message_ids = collect_message_ids_for_thread(
+            &mut conn,
+            bot.id,
+            &chat_key,
+            request.message_thread_id,
+        )?;
+        let _ = delete_messages_with_dependencies(
+            &mut conn,
+            bot.id,
+            &chat_key,
+            sim_chat.chat_id,
+            &topic_message_ids,
+        )?;
+
+        conn.execute(
+            "DELETE FROM sim_direct_message_topics
+             WHERE bot_id = ?1 AND chat_key = ?2 AND topic_id = ?3",
+            params![bot.id, &chat_key, request.message_thread_id],
+        )
+        .map_err(ApiError::internal)?;
+
+        conn.execute(
+            "DELETE FROM sim_message_drafts
+             WHERE bot_id = ?1 AND chat_key = ?2 AND message_thread_id = ?3",
+            params![bot.id, &chat_key, request.message_thread_id],
+        )
+        .map_err(ApiError::internal)?;
+
+        return Ok(Value::Bool(true));
+    }
+
+    if sim_chat.chat_type != "supergroup" || !sim_chat.is_forum {
+        return Err(ApiError::bad_request(
+            "forum topics are available only in forum supergroups",
+        ));
+    }
+
+    let _actor = resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
 
     let deleted = conn
         .execute(
@@ -2793,6 +2970,20 @@ fn handle_delete_forum_topic(
     if deleted == 0 {
         return Err(ApiError::not_found("forum topic not found"));
     }
+
+    let topic_message_ids = collect_message_ids_for_thread(
+        &mut conn,
+        bot.id,
+        &chat_key,
+        request.message_thread_id,
+    )?;
+    let _ = delete_messages_with_dependencies(
+        &mut conn,
+        bot.id,
+        &chat_key,
+        sim_chat.chat_id,
+        &topic_message_ids,
+    )?;
 
     Ok(Value::Bool(true))
 }
@@ -4097,6 +4288,572 @@ fn handle_get_me(state: &Data<AppState>, token: &str, params: &HashMap<String, V
     Ok(serde_json::to_value(user).map_err(ApiError::internal)?)
 }
 
+fn extract_business_profile_photo_media_input(raw: &Value) -> Result<Value, ApiError> {
+    let Some(obj) = raw.as_object() else {
+        return Err(ApiError::bad_request("photo must be a valid InputProfilePhoto object"));
+    };
+
+    if let Some(photo) = obj.get("photo").and_then(Value::as_str) {
+        let trimmed = photo.trim();
+        if trimmed.is_empty() {
+            return Err(ApiError::bad_request("photo is empty"));
+        }
+        return Ok(Value::String(trimmed.to_string()));
+    }
+
+    if let Some(animation) = obj.get("animation").and_then(Value::as_str) {
+        let trimmed = animation.trim();
+        if trimmed.is_empty() {
+            return Err(ApiError::bad_request("animation is empty"));
+        }
+        return Ok(Value::String(trimmed.to_string()));
+    }
+
+    Err(ApiError::bad_request("photo must contain photo or animation"))
+}
+
+fn load_business_connection_or_404(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    business_connection_id: &str,
+) -> Result<SimBusinessConnectionRecord, ApiError> {
+    let normalized = normalize_business_connection_id(Some(business_connection_id))
+        .ok_or_else(|| ApiError::bad_request("business_connection_id is empty"))?;
+    load_sim_business_connection_by_id(conn, bot_id, &normalized)?
+        .ok_or_else(|| ApiError::not_found("business connection not found"))
+}
+
+fn resolve_outbound_business_connection_for_bot_message(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    chat: &Chat,
+    raw_business_connection_id: Option<&str>,
+) -> Result<Option<String>, ApiError> {
+    let Some(connection_id) = normalize_business_connection_id(raw_business_connection_id) else {
+        return Ok(None);
+    };
+
+    let record = load_business_connection_or_404(conn, bot_id, &connection_id)?;
+    if !record.is_enabled {
+        return Err(ApiError::bad_request("business connection is disabled"));
+    }
+
+    if chat.r#type != "private" || chat.id != record.user_chat_id {
+        return Err(ApiError::bad_request(
+            "business connection does not match target private chat",
+        ));
+    }
+
+    let connection = build_business_connection(conn, bot_id, &record)?;
+    ensure_business_right(
+        &connection,
+        |rights| rights.can_reply,
+        "not enough rights to send business messages",
+    )?;
+
+    Ok(Some(record.connection_id))
+}
+
+fn handle_get_business_connection(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: GetBusinessConnectionRequest = parse_request(params)?;
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = build_business_connection(&mut conn, bot.id, &record)?;
+    serde_json::to_value(connection).map_err(ApiError::internal)
+}
+
+fn handle_read_business_message(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: ReadBusinessMessageRequest = parse_request(params)?;
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = build_business_connection(&mut conn, bot.id, &record)?;
+    ensure_business_right(
+        &connection,
+        |rights| rights.can_read_messages,
+        "not enough rights to read business messages",
+    )?;
+
+    if request.chat_id != record.user_chat_id {
+        return Err(ApiError::bad_request("chat_id does not belong to the business connection"));
+    }
+
+    let chat_key = request.chat_id.to_string();
+    let exists: Option<i64> = conn
+        .query_row(
+            "SELECT 1 FROM messages WHERE bot_id = ?1 AND chat_key = ?2 AND message_id = ?3",
+            params![bot.id, &chat_key, request.message_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    if exists.is_none() {
+        return Err(ApiError::not_found("message not found"));
+    }
+
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO sim_business_read_messages (bot_id, connection_id, chat_id, message_id, read_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(bot_id, connection_id, chat_id, message_id)
+         DO UPDATE SET read_at = excluded.read_at",
+        params![bot.id, record.connection_id, request.chat_id, request.message_id, now],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_delete_business_messages(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: DeleteBusinessMessagesRequest = parse_request(params)?;
+    if request.message_ids.is_empty() {
+        return Err(ApiError::bad_request("message_ids must not be empty"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = build_business_connection(&mut conn, bot.id, &record)?;
+
+    let can_delete_sent = business_right_enabled(&connection.rights, |rights| rights.can_delete_sent_messages);
+    let can_delete_all = business_right_enabled(&connection.rights, |rights| rights.can_delete_all_messages);
+    if !can_delete_sent && !can_delete_all {
+        return Err(ApiError::bad_request("not enough rights to delete business messages"));
+    }
+
+    let chat_key = record.user_chat_id.to_string();
+    let mut deleted_ids: Vec<i64> = Vec::new();
+    for message_id in &request.message_ids {
+        conn.execute(
+            "DELETE FROM sim_message_drafts WHERE bot_id = ?1 AND message_id = ?2",
+            params![bot.id, message_id],
+        )
+        .map_err(ApiError::internal)?;
+
+        let deleted = conn
+            .execute(
+                "DELETE FROM messages WHERE bot_id = ?1 AND chat_key = ?2 AND message_id = ?3",
+                params![bot.id, &chat_key, message_id],
+            )
+            .map_err(ApiError::internal)?;
+        if deleted > 0 {
+            deleted_ids.push(*message_id);
+        }
+    }
+
+    if !deleted_ids.is_empty() {
+        let user_record = ensure_sim_user_record(&mut conn, record.user_id)?;
+        let chat = Chat {
+            id: record.user_chat_id,
+            r#type: "private".to_string(),
+            title: None,
+            username: user_record.username.clone(),
+            first_name: Some(user_record.first_name.clone()),
+            last_name: None,
+            is_forum: None,
+            is_direct_messages: None,
+        };
+        let deleted_payload = BusinessMessagesDeleted {
+            business_connection_id: record.connection_id.clone(),
+            chat,
+            message_ids: deleted_ids,
+        };
+
+        let update_value = serde_json::to_value(Update {
+            update_id: 0,
+            message: None,
+            edited_message: None,
+            channel_post: None,
+            edited_channel_post: None,
+            business_connection: None,
+            business_message: None,
+            edited_business_message: None,
+            deleted_business_messages: Some(deleted_payload),
+            message_reaction: None,
+            message_reaction_count: None,
+            inline_query: None,
+            chosen_inline_result: None,
+            callback_query: None,
+            shipping_query: None,
+            pre_checkout_query: None,
+            purchased_paid_media: None,
+            poll: None,
+            poll_answer: None,
+            my_chat_member: None,
+            chat_member: None,
+            chat_join_request: None,
+            chat_boost: None,
+            removed_chat_boost: None,
+            managed_bot: None,
+        })
+        .map_err(ApiError::internal)?;
+        persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
+    }
+
+    Ok(json!(true))
+}
+
+fn handle_set_business_account_name(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: SetBusinessAccountNameRequest = parse_request(params)?;
+    let first_name = request.first_name.trim();
+    if first_name.is_empty() {
+        return Err(ApiError::bad_request("first_name is empty"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = build_business_connection(&mut conn, bot.id, &record)?;
+    ensure_business_right(
+        &connection,
+        |rights| rights.can_edit_name,
+        "not enough rights to edit business account name",
+    )?;
+
+    conn.execute(
+        "UPDATE users SET first_name = ?1 WHERE id = ?2",
+        params![first_name, record.user_id],
+    )
+    .map_err(ApiError::internal)?;
+
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO sim_business_account_profiles (bot_id, user_id, last_name, bio, profile_photo_file_id, public_profile_photo_file_id, updated_at)
+         VALUES (?1, ?2, ?3, NULL, NULL, NULL, ?4)
+         ON CONFLICT(bot_id, user_id)
+         DO UPDATE SET last_name = excluded.last_name, updated_at = excluded.updated_at",
+        params![bot.id, record.user_id, request.last_name, now],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_set_business_account_username(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: SetBusinessAccountUsernameRequest = parse_request(params)?;
+    if let Some(username) = request.username.as_deref() {
+        if username.trim().is_empty() {
+            return Err(ApiError::bad_request("username is empty"));
+        }
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = build_business_connection(&mut conn, bot.id, &record)?;
+    ensure_business_right(
+        &connection,
+        |rights| rights.can_edit_username,
+        "not enough rights to edit business account username",
+    )?;
+
+    conn.execute(
+        "UPDATE users SET username = ?1 WHERE id = ?2",
+        params![request.username, record.user_id],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_set_business_account_bio(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: SetBusinessAccountBioRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = build_business_connection(&mut conn, bot.id, &record)?;
+    ensure_business_right(
+        &connection,
+        |rights| rights.can_edit_bio,
+        "not enough rights to edit business account bio",
+    )?;
+
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO sim_business_account_profiles (bot_id, user_id, last_name, bio, profile_photo_file_id, public_profile_photo_file_id, updated_at)
+         VALUES (?1, ?2, NULL, ?3, NULL, NULL, ?4)
+         ON CONFLICT(bot_id, user_id)
+         DO UPDATE SET bio = excluded.bio, updated_at = excluded.updated_at",
+        params![bot.id, record.user_id, request.bio, now],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_set_business_account_profile_photo(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: SetBusinessAccountProfilePhotoRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = build_business_connection(&mut conn, bot.id, &record)?;
+    ensure_business_right(
+        &connection,
+        |rights| rights.can_edit_profile_photo,
+        "not enough rights to edit business account profile photo",
+    )?;
+
+    let photo_input = extract_business_profile_photo_media_input(&request.photo.extra)?;
+    let file = resolve_media_file_with_conn(&mut conn, bot.id, &photo_input, "photo")?;
+    let is_public = request.is_public.unwrap_or(false);
+    let private_photo_file_id = if is_public {
+        None
+    } else {
+        Some(file.file_id.clone())
+    };
+    let public_photo_file_id = if is_public {
+        Some(file.file_id.clone())
+    } else {
+        None
+    };
+    let now = Utc::now().timestamp();
+
+    conn.execute(
+        "INSERT INTO sim_business_account_profiles (bot_id, user_id, last_name, bio, profile_photo_file_id, public_profile_photo_file_id, updated_at)
+         VALUES (?1, ?2, NULL, NULL, ?3, ?4, ?5)
+         ON CONFLICT(bot_id, user_id)
+         DO UPDATE SET
+            profile_photo_file_id = CASE WHEN ?6 = 1 THEN sim_business_account_profiles.profile_photo_file_id ELSE excluded.profile_photo_file_id END,
+            public_profile_photo_file_id = CASE WHEN ?6 = 1 THEN excluded.public_profile_photo_file_id ELSE sim_business_account_profiles.public_profile_photo_file_id END,
+            updated_at = excluded.updated_at",
+        params![
+            bot.id,
+            record.user_id,
+            private_photo_file_id,
+            public_photo_file_id,
+            now,
+            if is_public { 1 } else { 0 },
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_remove_business_account_profile_photo(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: RemoveBusinessAccountProfilePhotoRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = build_business_connection(&mut conn, bot.id, &record)?;
+    ensure_business_right(
+        &connection,
+        |rights| rights.can_edit_profile_photo,
+        "not enough rights to edit business account profile photo",
+    )?;
+
+    let is_public = request.is_public.unwrap_or(false);
+    let now = Utc::now().timestamp();
+    if is_public {
+        conn.execute(
+            "INSERT INTO sim_business_account_profiles (bot_id, user_id, last_name, bio, profile_photo_file_id, public_profile_photo_file_id, updated_at)
+             VALUES (?1, ?2, NULL, NULL, NULL, NULL, ?3)
+             ON CONFLICT(bot_id, user_id)
+             DO UPDATE SET public_profile_photo_file_id = NULL, updated_at = excluded.updated_at",
+            params![bot.id, record.user_id, now],
+        )
+        .map_err(ApiError::internal)?;
+    } else {
+        conn.execute(
+            "INSERT INTO sim_business_account_profiles (bot_id, user_id, last_name, bio, profile_photo_file_id, public_profile_photo_file_id, updated_at)
+             VALUES (?1, ?2, NULL, NULL, NULL, NULL, ?3)
+             ON CONFLICT(bot_id, user_id)
+             DO UPDATE SET profile_photo_file_id = NULL, updated_at = excluded.updated_at",
+            params![bot.id, record.user_id, now],
+        )
+        .map_err(ApiError::internal)?;
+    }
+
+    Ok(json!(true))
+}
+
+fn handle_set_business_account_gift_settings(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: SetBusinessAccountGiftSettingsRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = build_business_connection(&mut conn, bot.id, &record)?;
+    ensure_business_right(
+        &connection,
+        |rights| rights.can_change_gift_settings,
+        "not enough rights to edit business gift settings",
+    )?;
+
+    let accepted_types_json = serde_json::to_string(&request.accepted_gift_types).map_err(ApiError::internal)?;
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "UPDATE sim_business_connections
+         SET gift_settings_show_button = ?1,
+             gift_settings_types_json = ?2,
+             updated_at = ?3
+         WHERE bot_id = ?4 AND connection_id = ?5",
+        params![
+            if request.show_gift_button { 1 } else { 0 },
+            accepted_types_json,
+            now,
+            bot.id,
+            record.connection_id,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_get_business_account_star_balance(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: GetBusinessAccountStarBalanceRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = build_business_connection(&mut conn, bot.id, &record)?;
+    ensure_business_right(
+        &connection,
+        |rights| rights.can_view_gifts_and_stars,
+        "not enough rights to view business stars",
+    )?;
+
+    let result = StarAmount {
+        amount: record.star_balance.max(0),
+        nanostar_amount: None,
+    };
+
+    serde_json::to_value(result).map_err(ApiError::internal)
+}
+
+fn handle_transfer_business_account_stars(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: TransferBusinessAccountStarsRequest = parse_request(params)?;
+    if request.star_count <= 0 {
+        return Err(ApiError::bad_request("star_count must be greater than zero"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = build_business_connection(&mut conn, bot.id, &record)?;
+    ensure_business_right(
+        &connection,
+        |rights| rights.can_transfer_stars,
+        "not enough rights to transfer business stars",
+    )?;
+
+    if request.star_count > record.star_balance {
+        return Err(ApiError::bad_request("not enough stars in business account balance"));
+    }
+
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "UPDATE sim_business_connections
+         SET star_balance = star_balance - ?1,
+             updated_at = ?2
+         WHERE bot_id = ?3 AND connection_id = ?4",
+        params![request.star_count, now, bot.id, record.connection_id],
+    )
+    .map_err(ApiError::internal)?;
+
+    let transfer_charge_id = format!(
+        "business_transfer_{}_{}",
+        request.business_connection_id,
+        generate_telegram_numeric_id(),
+    );
+    conn.execute(
+        "INSERT INTO star_transactions_ledger
+         (id, bot_id, user_id, telegram_payment_charge_id, amount, date, kind)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'business_transfer')",
+        params![
+            format!("business_transfer_{}", generate_telegram_numeric_id()),
+            bot.id,
+            record.user_id,
+            transfer_charge_id,
+            request.star_count,
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_get_business_account_gifts(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: GetBusinessAccountGiftsRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = build_business_connection(&mut conn, bot.id, &record)?;
+    ensure_business_right(
+        &connection,
+        |rights| rights.can_view_gifts_and_stars,
+        "not enough rights to view business gifts",
+    )?;
+
+    let _gift_types = parse_business_accepted_gift_types_json(record.gift_settings_types_json.as_deref());
+    let _show_gift_button = record.gift_settings_show_button;
+
+    let result = OwnedGifts {
+        total_count: 0,
+        gifts: Vec::<OwnedGift>::new(),
+        next_offset: None,
+    };
+    serde_json::to_value(result).map_err(ApiError::internal)
+}
+
 fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: SendMessageRequest = parse_request(params)?;
     let sim_parse_mode = normalize_sim_parse_mode(request.parse_mode.as_deref());
@@ -4124,6 +4881,12 @@ fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap<Str
         bot.id,
         &request.chat_id,
         ChatSendKind::Text,
+    )?;
+    let business_connection_id = resolve_outbound_business_connection_for_bot_message(
+        &mut conn,
+        bot.id,
+        &chat,
+        request.business_connection_id.as_deref(),
     )?;
     let message_thread_id = resolve_forum_message_thread_for_chat_key(
         &mut conn,
@@ -4184,15 +4947,19 @@ fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap<Str
         base_message_json["message_thread_id"] = Value::from(thread_id);
         base_message_json["is_topic_message"] = Value::Bool(true);
     }
+    if let Some(connection_id) = business_connection_id.as_ref() {
+        base_message_json["business_connection_id"] = Value::String(connection_id.clone());
+    }
     if let Some(mode) = sim_parse_mode {
         base_message_json["sim_parse_mode"] = Value::String(mode);
     }
     let message: Message = serde_json::from_value(base_message_json).map_err(ApiError::internal)?;
     let is_channel_post = chat.r#type == "channel";
+    let is_business_message = business_connection_id.is_some();
 
     let update_stub = Update {
         update_id: 0,
-        message: if is_channel_post {
+        message: if is_channel_post || is_business_message {
             None
         } else {
             Some(message.clone())
@@ -4205,7 +4972,11 @@ fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap<Str
         },
         edited_channel_post: None,
         business_connection: None,
-        business_message: None,
+        business_message: if is_business_message {
+            Some(message.clone())
+        } else {
+            None
+        },
         edited_business_message: None,
         deleted_business_messages: None,
         message_reaction: None,
@@ -4241,7 +5012,9 @@ fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap<Str
     if let Some(markup) = reply_markup {
         message_value["reply_markup"] = markup;
     }
-    if is_channel_post {
+    if is_business_message {
+        update_value["business_message"] = message_value.clone();
+    } else if is_channel_post {
         update_value["channel_post"] = message_value.clone();
     } else {
         update_value["message"] = message_value.clone();
@@ -4276,6 +5049,228 @@ fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap<Str
     }
 
     Ok(message_value)
+}
+
+fn handle_send_message_draft(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let mut normalized_params = params.clone();
+    if let Some(raw_text) = normalized_params.get("text").cloned() {
+        if !raw_text.is_string() {
+            if let Some(text) = value_to_optional_string(&raw_text) {
+                normalized_params.insert("text".to_string(), Value::String(text));
+            }
+        }
+    }
+
+    let request: SendMessageDraftRequest = parse_request(&normalized_params)?;
+    if request.draft_id <= 0 {
+        return Err(ApiError::bad_request("draft_id is invalid"));
+    }
+
+    let chat_id_value = Value::from(request.chat_id);
+    let (chat_key, resolved_message_thread_id, existing_message_id) = {
+        let mut conn = lock_db(state)?;
+        let bot = ensure_bot(&mut conn, token)?;
+
+        let (chat_key, chat) = resolve_bot_outbound_chat(
+            &mut conn,
+            bot.id,
+            &chat_id_value,
+            ChatSendKind::Text,
+        )?;
+        if chat.r#type != "private" {
+            return Err(ApiError::bad_request(
+                "sendMessageDraft is available only in private chats",
+            ));
+        }
+        let resolved_message_thread_id = resolve_forum_message_thread_for_chat_key(
+            &mut conn,
+            bot.id,
+            &chat_key,
+            request.message_thread_id,
+        )?;
+        let message_thread_scope = resolved_message_thread_id.unwrap_or(0);
+
+        let existing_message_id: Option<i64> = conn
+            .query_row(
+                "SELECT message_id
+                 FROM sim_message_drafts
+                 WHERE bot_id = ?1
+                   AND chat_key = ?2
+                   AND message_thread_id = ?3
+                   AND draft_id = ?4",
+                params![bot.id, &chat_key, message_thread_scope, request.draft_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(ApiError::internal)?;
+
+        (chat_key, resolved_message_thread_id, existing_message_id)
+    };
+
+    let message_thread_scope = resolved_message_thread_id.unwrap_or(0);
+
+    if let Some(message_id) = existing_message_id {
+        let sim_parse_mode = normalize_sim_parse_mode(request.parse_mode.as_deref());
+        let explicit_entities = request
+            .entities
+            .as_ref()
+            .and_then(|v| serde_json::to_value(v).ok());
+        let should_auto_detect_entities = explicit_entities.is_none();
+        let (parsed_text, parsed_entities) = parse_formatted_text(
+            &request.text,
+            request.parse_mode.as_deref(),
+            explicit_entities,
+        );
+        let parsed_entities = if should_auto_detect_entities {
+            merge_auto_message_entities(&parsed_text, parsed_entities)
+        } else {
+            parsed_entities
+        };
+
+        if parsed_text.trim().is_empty() {
+            return Err(ApiError::bad_request("text is empty"));
+        }
+
+        let mut conn = lock_db(state)?;
+        let bot = ensure_bot(&mut conn, token)?;
+        let updated = conn
+            .execute(
+                "UPDATE messages SET text = ?1 WHERE bot_id = ?2 AND chat_key = ?3 AND message_id = ?4",
+                params![parsed_text, bot.id, &chat_key, message_id],
+            )
+            .map_err(ApiError::internal)?;
+
+        if updated == 0 {
+            conn.execute(
+                "DELETE FROM sim_message_drafts
+                 WHERE bot_id = ?1
+                   AND chat_key = ?2
+                   AND message_thread_id = ?3
+                   AND draft_id = ?4",
+                params![bot.id, &chat_key, message_thread_scope, request.draft_id],
+            )
+            .map_err(ApiError::internal)?;
+        } else {
+            let mut streamed_message = load_message_value(&mut conn, &bot, message_id)?;
+            if let Some(entities) = parsed_entities {
+                streamed_message["entities"] = entities;
+            } else {
+                streamed_message.as_object_mut().map(|obj| obj.remove("entities"));
+            }
+            if let Some(mode) = sim_parse_mode {
+                streamed_message["sim_parse_mode"] = Value::String(mode);
+            } else {
+                streamed_message
+                    .as_object_mut()
+                    .map(|obj| obj.remove("sim_parse_mode"));
+            }
+            streamed_message.as_object_mut().map(|obj| obj.remove("edit_date"));
+
+            let update_value = serde_json::to_value(Update {
+                update_id: 0,
+                message: Some(
+                    serde_json::from_value(streamed_message.clone()).map_err(ApiError::internal)?,
+                ),
+                edited_message: None,
+                channel_post: None,
+                edited_channel_post: None,
+                business_connection: None,
+                business_message: None,
+                edited_business_message: None,
+                deleted_business_messages: None,
+                message_reaction: None,
+                message_reaction_count: None,
+                inline_query: None,
+                chosen_inline_result: None,
+                callback_query: None,
+                shipping_query: None,
+                pre_checkout_query: None,
+                purchased_paid_media: None,
+                poll: None,
+                poll_answer: None,
+                my_chat_member: None,
+                chat_member: None,
+                chat_join_request: None,
+                chat_boost: None,
+                removed_chat_boost: None,
+                managed_bot: None,
+            })
+            .map_err(ApiError::internal)?;
+            persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
+
+            let now = Utc::now().timestamp();
+            conn.execute(
+                "UPDATE sim_message_drafts
+                 SET updated_at = ?1
+                 WHERE bot_id = ?2
+                   AND chat_key = ?3
+                   AND message_thread_id = ?4
+                   AND draft_id = ?5",
+                params![
+                    now,
+                    bot.id,
+                    &chat_key,
+                    message_thread_scope,
+                    request.draft_id,
+                ],
+            )
+            .map_err(ApiError::internal)?;
+
+            return Ok(Value::Bool(true));
+        }
+    }
+
+    let mut send_params = HashMap::<String, Value>::new();
+    send_params.insert("chat_id".to_string(), chat_id_value);
+    if let Some(thread_id) = resolved_message_thread_id {
+        send_params.insert("message_thread_id".to_string(), Value::from(thread_id));
+    }
+    send_params.insert("text".to_string(), Value::String(request.text));
+
+    if let Some(parse_mode) = request.parse_mode {
+        send_params.insert("parse_mode".to_string(), Value::String(parse_mode));
+    }
+
+    if let Some(entities) = request.entities {
+        send_params.insert(
+            "entities".to_string(),
+            serde_json::to_value(entities).map_err(ApiError::internal)?,
+        );
+    }
+
+    let created_message = handle_send_message(state, token, &send_params)?;
+    let message_id = created_message
+        .get("message_id")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| ApiError::internal("sendMessageDraft failed to return a message_id"))?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO sim_message_drafts
+         (bot_id, chat_key, message_thread_id, draft_id, message_id, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(bot_id, chat_key, message_thread_id, draft_id)
+         DO UPDATE SET
+            message_id = excluded.message_id,
+            updated_at = excluded.updated_at",
+        params![
+            bot.id,
+            &chat_key,
+            message_thread_scope,
+            request.draft_id,
+            message_id,
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(Value::Bool(true))
 }
 
 fn handle_forward_message(
@@ -9185,10 +10180,18 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
 
     let mut chats_stmt = conn
         .prepare(
-            "SELECT chat_id, chat_type, title, username, is_forum
-             FROM sim_chats
-             WHERE bot_id = ?1
-             ORDER BY chat_id ASC",
+                        "SELECT c.chat_id, c.chat_type, c.title, c.username, c.is_forum, c.is_direct_messages
+                         FROM sim_chats c
+                         LEFT JOIN sim_chats parent
+                             ON parent.bot_id = c.bot_id
+                            AND parent.chat_type = 'channel'
+                            AND c.parent_channel_chat_id = parent.chat_id
+                         WHERE c.bot_id = ?1
+                             AND (
+                                        COALESCE(c.is_direct_messages, 0) = 0
+                                        OR COALESCE(parent.direct_messages_enabled, 0) = 1
+                             )
+                         ORDER BY c.chat_id ASC",
         )
         .map_err(ApiError::internal)?;
     let chats_rows = chats_stmt
@@ -9201,7 +10204,11 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
                 first_name: None,
                 last_name: None,
                 is_forum: Some(row.get::<_, i64>(4)? == 1),
-                is_direct_messages: None,
+                is_direct_messages: if row.get::<_, i64>(5)? == 1 {
+                    Some(true)
+                } else {
+                    None
+                },
             })
         })
         .map_err(ApiError::internal)?;
@@ -9210,9 +10217,37 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
         chats.push(row.map_err(ApiError::internal)?);
     }
 
+    let mut channel_direct_messages_stmt = conn
+        .prepare(
+                        "SELECT c.parent_channel_chat_id, c.chat_id
+                         FROM sim_chats c
+                         INNER JOIN sim_chats parent
+                             ON parent.bot_id = c.bot_id
+                            AND parent.chat_type = 'channel'
+                            AND c.parent_channel_chat_id = parent.chat_id
+                         WHERE c.bot_id = ?1
+                             AND c.is_direct_messages = 1
+                             AND c.parent_channel_chat_id IS NOT NULL
+                             AND parent.direct_messages_enabled = 1
+                         ORDER BY c.chat_id ASC",
+        )
+        .map_err(ApiError::internal)?;
+    let channel_direct_messages_rows = channel_direct_messages_stmt
+        .query_map(params![bot.id], |row| {
+            Ok(json!({
+                "channel_chat_id": row.get::<_, i64>(0)?,
+                "direct_messages_chat_id": row.get::<_, i64>(1)?,
+            }))
+        })
+        .map_err(ApiError::internal)?;
+    let mut channel_direct_messages = Vec::<Value>::new();
+    for row in channel_direct_messages_rows {
+        channel_direct_messages.push(row.map_err(ApiError::internal)?);
+    }
+
     let mut chat_settings_stmt = conn
         .prepare(
-            "SELECT chat_id, description, channel_show_author_signature, linked_discussion_chat_id, message_history_visible, slow_mode_delay, permissions_json
+            "SELECT chat_id, description, channel_show_author_signature, linked_discussion_chat_id, message_history_visible, slow_mode_delay, permissions_json, direct_messages_enabled, direct_messages_star_count
              FROM sim_chats
              WHERE bot_id = ?1 AND chat_type IN ('group', 'supergroup', 'channel')
              ORDER BY chat_id ASC",
@@ -9232,6 +10267,8 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
                 "linked_chat_id": row.get::<_, Option<i64>>(3)?,
                 "message_history_visible": row.get::<_, i64>(4)? == 1,
                 "slow_mode_delay": row.get::<_, i64>(5)?,
+                "direct_messages_enabled": row.get::<_, i64>(7)? == 1,
+                "direct_messages_star_count": row.get::<_, i64>(8)?,
                 "permissions": permissions,
             }))
         })
@@ -9339,7 +10376,10 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
              FROM sim_chats c
              LEFT JOIN forum_topic_general_states g
                ON g.bot_id = c.bot_id AND g.chat_key = c.chat_key
-             WHERE c.bot_id = ?1 AND c.chat_type = 'supergroup' AND c.is_forum = 1
+                         WHERE c.bot_id = ?1
+                             AND c.chat_type = 'supergroup'
+                             AND c.is_forum = 1
+                             AND COALESCE(c.is_direct_messages, 0) = 0
              ORDER BY c.chat_id ASC",
         )
         .map_err(ApiError::internal)?;
@@ -9362,6 +10402,59 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
         forum_topics.push(row.map_err(ApiError::internal)?);
     }
 
+    let mut direct_topics_stmt = conn
+        .prepare(
+            "SELECT c.chat_id, t.topic_id, u.first_name, u.username, t.updated_at
+             FROM sim_direct_message_topics t
+             INNER JOIN sim_chats c
+               ON c.bot_id = t.bot_id AND c.chat_key = t.chat_key
+                         INNER JOIN sim_chats parent
+                             ON parent.bot_id = c.bot_id
+                            AND parent.chat_type = 'channel'
+                            AND c.parent_channel_chat_id = parent.chat_id
+             LEFT JOIN users u
+               ON u.id = t.user_id
+                         WHERE t.bot_id = ?1
+                             AND parent.direct_messages_enabled = 1
+             ORDER BY c.chat_id ASC, t.updated_at DESC, t.topic_id ASC",
+        )
+        .map_err(ApiError::internal)?;
+    let direct_topics_rows = direct_topics_stmt
+        .query_map(params![bot.id], |row| {
+            let topic_id: i64 = row.get(1)?;
+            let first_name: Option<String> = row.get(2)?;
+            let username: Option<String> = row.get(3)?;
+            let label = first_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    username
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(|value| format!("@{}", value))
+                        .unwrap_or_else(|| format!("User {}", topic_id))
+                });
+
+            Ok(json!({
+                "chat_id": row.get::<_, i64>(0)?,
+                "message_thread_id": topic_id,
+                "name": label,
+                "icon_color": forum_topic_default_icon_color(),
+                "icon_custom_emoji_id": Value::Null,
+                "is_closed": false,
+                "is_hidden": false,
+                "is_general": false,
+                "updated_at": row.get::<_, i64>(4)?,
+            }))
+        })
+        .map_err(ApiError::internal)?;
+    for row in direct_topics_rows {
+        forum_topics.push(row.map_err(ApiError::internal)?);
+    }
+
     Ok(json!({
         "bot": {
             "id": bot.id,
@@ -9371,6 +10464,7 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
         },
         "users": users,
         "chats": chats,
+        "channel_direct_messages": channel_direct_messages,
         "chat_settings": chat_settings,
         "memberships": memberships,
         "join_requests": join_requests,
@@ -9405,6 +10499,221 @@ pub fn handle_sim_set_privacy_mode(
     }))
 }
 
+pub fn handle_sim_set_business_connection(
+    state: &Data<AppState>,
+    token: &str,
+    body: SimSetBusinessConnectionRequest,
+) -> ApiResult {
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let user = ensure_user(&mut conn, body.user_id, body.first_name, body.username)?;
+
+    let connection_id = normalize_business_connection_id(body.business_connection_id.as_deref())
+        .unwrap_or_else(|| default_business_connection_id(bot.id, user.id));
+    let rights = body.rights.unwrap_or_else(default_business_bot_rights);
+    let enabled = body.enabled.unwrap_or(true);
+
+    let record = upsert_sim_business_connection(
+        &mut conn,
+        bot.id,
+        &connection_id,
+        user.id,
+        user.id,
+        &rights,
+        enabled,
+    )?;
+
+    let connection = build_business_connection(&mut conn, bot.id, &record)?;
+    let update_value = serde_json::to_value(Update {
+        update_id: 0,
+        message: None,
+        edited_message: None,
+        channel_post: None,
+        edited_channel_post: None,
+        business_connection: Some(connection.clone()),
+        business_message: None,
+        edited_business_message: None,
+        deleted_business_messages: None,
+        message_reaction: None,
+        message_reaction_count: None,
+        inline_query: None,
+        chosen_inline_result: None,
+        callback_query: None,
+        shipping_query: None,
+        pre_checkout_query: None,
+        purchased_paid_media: None,
+        poll: None,
+        poll_answer: None,
+        my_chat_member: None,
+        chat_member: None,
+        chat_join_request: None,
+        chat_boost: None,
+        removed_chat_boost: None,
+        managed_bot: None,
+    })
+    .map_err(ApiError::internal)?;
+
+    persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
+    serde_json::to_value(connection).map_err(ApiError::internal)
+}
+
+pub fn handle_sim_remove_business_connection(
+    state: &Data<AppState>,
+    token: &str,
+    body: SimRemoveBusinessConnectionRequest,
+) -> ApiResult {
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let requested_connection_id = normalize_business_connection_id(body.business_connection_id.as_deref());
+    let record = if let Some(connection_id) = requested_connection_id.as_deref() {
+        if let Some(found) = load_sim_business_connection_by_id(&mut conn, bot.id, connection_id)? {
+            found
+        } else if let Some(user_id) = body.user_id {
+            load_sim_business_connection_for_user(&mut conn, bot.id, user_id)?
+                .ok_or_else(|| ApiError::not_found("business connection not found"))?
+        } else {
+            return Err(ApiError::not_found("business connection not found"));
+        }
+    } else {
+        let user_id = body
+            .user_id
+            .ok_or_else(|| ApiError::bad_request("user_id is required when business_connection_id is omitted"))?;
+        load_sim_business_connection_for_user(&mut conn, bot.id, user_id)?
+            .ok_or_else(|| ApiError::not_found("business connection not found"))?
+    };
+
+    if let Some(user_id) = body.user_id {
+        if record.user_id != user_id {
+            return Err(ApiError::bad_request(
+                "business connection does not belong to the provided user_id",
+            ));
+        }
+    }
+
+    let connection = build_business_connection(&mut conn, bot.id, &record)?;
+
+    conn.execute(
+        "DELETE FROM sim_business_read_messages WHERE bot_id = ?1 AND connection_id = ?2",
+        params![bot.id, &record.connection_id],
+    )
+    .map_err(ApiError::internal)?;
+    conn.execute(
+        "DELETE FROM sim_business_connections WHERE bot_id = ?1 AND connection_id = ?2",
+        params![bot.id, &record.connection_id],
+    )
+    .map_err(ApiError::internal)?;
+
+    let mut disabled_connection = connection;
+    disabled_connection.is_enabled = false;
+
+    let update_value = serde_json::to_value(Update {
+        update_id: 0,
+        message: None,
+        edited_message: None,
+        channel_post: None,
+        edited_channel_post: None,
+        business_connection: Some(disabled_connection),
+        business_message: None,
+        edited_business_message: None,
+        deleted_business_messages: None,
+        message_reaction: None,
+        message_reaction_count: None,
+        inline_query: None,
+        chosen_inline_result: None,
+        callback_query: None,
+        shipping_query: None,
+        pre_checkout_query: None,
+        purchased_paid_media: None,
+        poll: None,
+        poll_answer: None,
+        my_chat_member: None,
+        chat_member: None,
+        chat_join_request: None,
+        chat_boost: None,
+        removed_chat_boost: None,
+        managed_bot: None,
+    })
+    .map_err(ApiError::internal)?;
+    persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
+
+    Ok(json!({
+        "deleted": true,
+        "business_connection_id": record.connection_id,
+        "user_id": record.user_id,
+    }))
+}
+
+pub fn handle_sim_open_channel_direct_messages(
+    state: &Data<AppState>,
+    token: &str,
+    body: SimOpenChannelDirectMessagesRequest,
+) -> ApiResult {
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let actor_user = ensure_user(&mut conn, body.user_id, body.first_name, body.username)?;
+
+    let channel_chat_key = body.channel_chat_id.to_string();
+    let channel_chat = load_sim_chat_record(&mut conn, bot.id, &channel_chat_key)?
+        .ok_or_else(|| ApiError::not_found("channel not found"))?;
+    if channel_chat.chat_type != "channel" {
+        return Err(ApiError::bad_request("channel_chat_id must point to a channel"));
+    }
+    if !channel_chat.direct_messages_enabled {
+        return Err(ApiError::bad_request("channel direct messages are disabled"));
+    }
+
+    let channel_member = load_chat_member_record(&mut conn, bot.id, &channel_chat_key, actor_user.id)?
+        .ok_or_else(|| ApiError::bad_request("join channel first to open direct messages"))?;
+    if !is_active_chat_member_status(&channel_member.status) {
+        return Err(ApiError::bad_request("join channel first to open direct messages"));
+    }
+
+    let can_manage_inbox = channel_member.status == "owner"
+        || (
+            channel_member.status == "admin"
+                && channel_admin_has_direct_messages_permission(
+                    channel_member.admin_rights_json.as_deref(),
+                )
+        );
+
+    let dm_chat = ensure_channel_direct_messages_chat(&mut conn, bot.id, &channel_chat)?;
+    let now = Utc::now().timestamp();
+    upsert_chat_member_record(
+        &mut conn,
+        bot.id,
+        &dm_chat.chat_key,
+        actor_user.id,
+        if can_manage_inbox { "admin" } else { "member" },
+        if can_manage_inbox { "admin" } else { "member" },
+        Some(now),
+        None,
+        None,
+        None,
+        None,
+        now,
+    )?;
+
+    if !can_manage_inbox {
+        upsert_direct_messages_topic(
+            &mut conn,
+            bot.id,
+            &dm_chat.chat_key,
+            actor_user.id,
+            actor_user.id,
+            None,
+            None,
+        )?;
+    }
+
+    let dm_topics = load_direct_messages_topics_for_chat_json(&mut conn, bot.id, &dm_chat.chat_key)?;
+    Ok(json!({
+        "chat": build_chat_from_group_record(&dm_chat),
+        "parent_chat": build_chat_from_group_record(&channel_chat),
+        "topics": dm_topics,
+    }))
+}
+
 pub fn handle_sim_send_user_message(
     state: &Data<AppState>,
     token: &str,
@@ -9433,7 +10742,8 @@ pub fn handle_sim_send_user_message(
 
     let chat_id = body.chat_id.unwrap_or(user.id);
     let sim_chat = resolve_sim_chat_for_user_message(&mut conn, bot.id, chat_id, &user)?;
-    if sim_chat.chat_type != "private" {
+    let is_direct_messages = is_direct_messages_chat(&sim_chat);
+    if !is_direct_messages && sim_chat.chat_type != "private" {
         ensure_sender_can_send_in_chat(
             &mut conn,
             bot.id,
@@ -9442,25 +10752,87 @@ pub fn handle_sim_send_user_message(
             ChatSendKind::Text,
         )?;
     }
-    let sender_chat = resolve_sender_chat_for_sim_user_message(
-        &mut conn,
-        bot.id,
-        &sim_chat,
-        &user,
-        body.sender_chat_id,
-        ChatSendKind::Text,
-    )?;
-    let sender_chat_json = sender_chat
-        .as_ref()
-        .map(|chat| serde_json::to_value(chat).map_err(ApiError::internal))
+
+    let mut sender_chat_json: Option<Value> = None;
+    let resolved_thread_id: Option<i64>;
+    let mut direct_messages_topic_json: Option<Value> = None;
+
+    if is_direct_messages {
+        if body.message_thread_id.is_some() {
+            return Err(ApiError::bad_request(
+                "message_thread_id is not supported in channel direct messages simulation",
+            ));
+        }
+        if body.sender_chat_id.is_some() {
+            return Err(ApiError::bad_request(
+                "sender_chat_id is not supported in channel direct messages simulation",
+            ));
+        }
+
+        let (topic_id, topic_value, forced_sender_chat) = resolve_direct_messages_topic_for_sender(
+            &mut conn,
+            bot.id,
+            &sim_chat,
+            &user,
+            body.direct_messages_topic_id,
+        )?;
+        resolved_thread_id = Some(topic_id);
+        direct_messages_topic_json = Some(topic_value);
+        if let Some(forced_sender_chat) = forced_sender_chat {
+            sender_chat_json = Some(serde_json::to_value(forced_sender_chat).map_err(ApiError::internal)?);
+        }
+    } else {
+        if body.direct_messages_topic_id.is_some() {
+            return Err(ApiError::bad_request(
+                "direct_messages_topic_id is available only in channel direct messages chats",
+            ));
+        }
+        let sender_chat = resolve_sender_chat_for_sim_user_message(
+            &mut conn,
+            bot.id,
+            &sim_chat,
+            &user,
+            body.sender_chat_id,
+            ChatSendKind::Text,
+        )?;
+        sender_chat_json = sender_chat
+            .as_ref()
+            .map(|chat| serde_json::to_value(chat).map_err(ApiError::internal))
+            .transpose()?;
+        resolved_thread_id = resolve_forum_message_thread_id(
+            &mut conn,
+            bot.id,
+            &sim_chat,
+            body.message_thread_id,
+        )?;
+    }
+
+    let business_connection_record = normalize_business_connection_id(body.business_connection_id.as_deref())
+        .map(|connection_id| load_business_connection_or_404(&mut conn, bot.id, &connection_id))
         .transpose()?;
-    let resolved_thread_id = resolve_forum_message_thread_id(
-        &mut conn,
-        bot.id,
-        &sim_chat,
-        body.message_thread_id,
-    )?;
+    let business_connection_id = if let Some(record) = business_connection_record.as_ref() {
+        if is_direct_messages {
+            return Err(ApiError::bad_request(
+                "business_connection_id is not supported in channel direct messages simulation",
+            ));
+        }
+        if !record.is_enabled {
+            return Err(ApiError::bad_request("business connection is disabled"));
+        }
+        if sim_chat.chat_type != "private" || sim_chat.chat_id != record.user_chat_id || user.id != record.user_id {
+            return Err(ApiError::bad_request("business connection does not match chat/user"));
+        }
+        Some(record.connection_id.clone())
+    } else {
+        None
+    };
+
     let chat_key = sim_chat.chat_key.clone();
+    let direct_messages_star_count = if is_direct_messages {
+        direct_messages_star_count_for_chat(&mut conn, bot.id, &sim_chat)?
+    } else {
+        0
+    };
 
     let now = Utc::now().timestamp();
     conn.execute(
@@ -9470,6 +10842,23 @@ pub fn handle_sim_send_user_message(
     .map_err(ApiError::internal)?;
 
     let message_id = conn.last_insert_rowid();
+
+    if is_direct_messages {
+        if let Some(topic_id) = resolved_thread_id {
+            let topic_owner_user_id = load_direct_messages_topic_record(&mut conn, bot.id, &chat_key, topic_id)?
+                .map(|record| record.user_id)
+                .unwrap_or(user.id);
+            upsert_direct_messages_topic(
+                &mut conn,
+                bot.id,
+                &chat_key,
+                topic_id,
+                topic_owner_user_id,
+                Some(message_id),
+                Some(now),
+            )?;
+        }
+    }
 
     let from = build_user_from_sim_record(&user, false);
     let chat = chat_from_sim_record(&sim_chat, &user);
@@ -9504,6 +10893,15 @@ pub fn handle_sim_send_user_message(
         message_json["message_thread_id"] = Value::from(thread_id);
         message_json["is_topic_message"] = Value::Bool(true);
     }
+    if let Some(direct_messages_topic) = direct_messages_topic_json {
+        message_json["direct_messages_topic"] = direct_messages_topic;
+    }
+    if let Some(connection_id) = business_connection_id.as_ref() {
+        message_json["business_connection_id"] = Value::String(connection_id.clone());
+    }
+    if is_direct_messages && direct_messages_star_count > 0 {
+        message_json["paid_message_star_count"] = Value::from(direct_messages_star_count);
+    }
     if let Some(mode) = sim_parse_mode {
         message_json["sim_parse_mode"] = Value::String(mode);
     }
@@ -9518,7 +10916,7 @@ pub fn handle_sim_send_user_message(
     }
 
     let is_channel_post = sim_chat.chat_type == "channel";
-    if !is_channel_post {
+    if !is_channel_post && !is_direct_messages {
         map_discussion_message_to_channel_post_if_needed(
             &mut conn,
             bot.id,
@@ -9536,14 +10934,19 @@ pub fn handle_sim_send_user_message(
     }
 
     let message: Message = serde_json::from_value(message_json).map_err(ApiError::internal)?;
-    let mut bot_visible = should_emit_user_generated_update_to_bot(
-        &mut conn,
-        &bot,
-        &sim_chat.chat_type,
-        user.id,
-        &message,
-    )?;
-    if !bot_visible && (sim_chat.chat_type == "group" || sim_chat.chat_type == "supergroup") {
+    let is_business_message = business_connection_id.is_some();
+    let mut bot_visible = if is_direct_messages || is_business_message {
+        true
+    } else {
+        should_emit_user_generated_update_to_bot(
+            &mut conn,
+            &bot,
+            &sim_chat.chat_type,
+            user.id,
+            &message,
+        )?
+    };
+    if !bot_visible && !is_direct_messages && (sim_chat.chat_type == "group" || sim_chat.chat_type == "supergroup") {
         bot_visible = is_reply_to_linked_discussion_root_message(
             &mut conn,
             bot.id,
@@ -9553,7 +10956,7 @@ pub fn handle_sim_send_user_message(
     }
     let update_stub = Update {
         update_id: 0,
-        message: if is_channel_post {
+        message: if is_channel_post || is_business_message {
             None
         } else {
             Some(message.clone())
@@ -9566,7 +10969,11 @@ pub fn handle_sim_send_user_message(
         },
         edited_channel_post: None,
         business_connection: None,
-        business_message: None,
+        business_message: if is_business_message {
+            Some(message.clone())
+        } else {
+            None
+        },
         edited_business_message: None,
         deleted_business_messages: None,
         message_reaction: None,
@@ -9602,7 +11009,12 @@ pub fn handle_sim_send_user_message(
     update_value["update_id"] = json!(update_id);
 
     let mut message_value = serde_json::to_value(&message).map_err(ApiError::internal)?;
-    if is_channel_post {
+    if is_direct_messages && direct_messages_star_count > 0 {
+        message_value["paid_message_star_count"] = Value::from(direct_messages_star_count);
+    }
+    if is_business_message {
+        update_value["business_message"] = message_value.clone();
+    } else if is_channel_post {
         update_value["channel_post"] = message_value.clone();
     } else {
         update_value["message"] = message_value.clone();
@@ -9797,7 +11209,8 @@ pub fn handle_sim_send_user_media(
     let chat_id = body.chat_id.unwrap_or(user.id);
     let sim_chat = resolve_sim_chat_for_user_message(&mut conn, bot.id, chat_id, &user)?;
     let send_kind = send_kind_from_sim_user_media_kind(media_kind.as_str());
-    if sim_chat.chat_type != "private" {
+    let is_direct_messages = is_direct_messages_chat(&sim_chat);
+    if !is_direct_messages && sim_chat.chat_type != "private" {
         ensure_sender_can_send_in_chat(
             &mut conn,
             bot.id,
@@ -9806,25 +11219,86 @@ pub fn handle_sim_send_user_media(
             send_kind,
         )?;
     }
-    let sender_chat = resolve_sender_chat_for_sim_user_message(
-        &mut conn,
-        bot.id,
-        &sim_chat,
-        &user,
-        body.sender_chat_id,
-        send_kind,
-    )?;
-    let sender_chat_json = sender_chat
-        .as_ref()
-        .map(|chat| serde_json::to_value(chat).map_err(ApiError::internal))
+
+    let mut sender_chat_json: Option<Value> = None;
+    let resolved_thread_id: Option<i64>;
+    let mut direct_messages_topic_json: Option<Value> = None;
+
+    if is_direct_messages {
+        if body.message_thread_id.is_some() {
+            return Err(ApiError::bad_request(
+                "message_thread_id is not supported in channel direct messages simulation",
+            ));
+        }
+        if body.sender_chat_id.is_some() {
+            return Err(ApiError::bad_request(
+                "sender_chat_id is not supported in channel direct messages simulation",
+            ));
+        }
+        let (topic_id, topic_value, forced_sender_chat) = resolve_direct_messages_topic_for_sender(
+            &mut conn,
+            bot.id,
+            &sim_chat,
+            &user,
+            body.direct_messages_topic_id,
+        )?;
+        resolved_thread_id = Some(topic_id);
+        direct_messages_topic_json = Some(topic_value);
+        if let Some(forced_sender_chat) = forced_sender_chat {
+            sender_chat_json = Some(serde_json::to_value(forced_sender_chat).map_err(ApiError::internal)?);
+        }
+    } else {
+        if body.direct_messages_topic_id.is_some() {
+            return Err(ApiError::bad_request(
+                "direct_messages_topic_id is available only in channel direct messages chats",
+            ));
+        }
+        let sender_chat = resolve_sender_chat_for_sim_user_message(
+            &mut conn,
+            bot.id,
+            &sim_chat,
+            &user,
+            body.sender_chat_id,
+            send_kind,
+        )?;
+        sender_chat_json = sender_chat
+            .as_ref()
+            .map(|chat| serde_json::to_value(chat).map_err(ApiError::internal))
+            .transpose()?;
+        resolved_thread_id = resolve_forum_message_thread_id(
+            &mut conn,
+            bot.id,
+            &sim_chat,
+            body.message_thread_id,
+        )?;
+    }
+
+    let business_connection_record = normalize_business_connection_id(body.business_connection_id.as_deref())
+        .map(|connection_id| load_business_connection_or_404(&mut conn, bot.id, &connection_id))
         .transpose()?;
-    let resolved_thread_id = resolve_forum_message_thread_id(
-        &mut conn,
-        bot.id,
-        &sim_chat,
-        body.message_thread_id,
-    )?;
+    let business_connection_id = if let Some(record) = business_connection_record.as_ref() {
+        if is_direct_messages {
+            return Err(ApiError::bad_request(
+                "business_connection_id is not supported in channel direct messages simulation",
+            ));
+        }
+        if !record.is_enabled {
+            return Err(ApiError::bad_request("business connection is disabled"));
+        }
+        if sim_chat.chat_type != "private" || sim_chat.chat_id != record.user_chat_id || user.id != record.user_id {
+            return Err(ApiError::bad_request("business connection does not match chat/user"));
+        }
+        Some(record.connection_id.clone())
+    } else {
+        None
+    };
+
     let chat_key = sim_chat.chat_key.clone();
+    let direct_messages_star_count = if is_direct_messages {
+        direct_messages_star_count_for_chat(&mut conn, bot.id, &sim_chat)?
+    } else {
+        0
+    };
 
     let now = Utc::now().timestamp();
     conn.execute(
@@ -9834,6 +11308,23 @@ pub fn handle_sim_send_user_media(
     .map_err(ApiError::internal)?;
 
     let message_id = conn.last_insert_rowid();
+
+    if is_direct_messages {
+        if let Some(topic_id) = resolved_thread_id {
+            let topic_owner_user_id = load_direct_messages_topic_record(&mut conn, bot.id, &chat_key, topic_id)?
+                .map(|record| record.user_id)
+                .unwrap_or(user.id);
+            upsert_direct_messages_topic(
+                &mut conn,
+                bot.id,
+                &chat_key,
+                topic_id,
+                topic_owner_user_id,
+                Some(message_id),
+                Some(now),
+            )?;
+        }
+    }
 
     let from = build_user_from_sim_record(&user, false);
     let chat = chat_from_sim_record(&sim_chat, &user);
@@ -9860,6 +11351,15 @@ pub fn handle_sim_send_user_media(
         message_json["message_thread_id"] = Value::from(thread_id);
         message_json["is_topic_message"] = Value::Bool(true);
     }
+    if let Some(direct_messages_topic) = direct_messages_topic_json {
+        message_json["direct_messages_topic"] = direct_messages_topic;
+    }
+    if let Some(connection_id) = business_connection_id.as_ref() {
+        message_json["business_connection_id"] = Value::String(connection_id.clone());
+    }
+    if is_direct_messages && direct_messages_star_count > 0 {
+        message_json["paid_message_star_count"] = Value::from(direct_messages_star_count);
+    }
     if let Some(mode) = sim_parse_mode {
         message_json["sim_parse_mode"] = Value::String(mode);
     }
@@ -9876,7 +11376,7 @@ pub fn handle_sim_send_user_media(
     }
 
     let is_channel_post = sim_chat.chat_type == "channel";
-    if !is_channel_post {
+    if !is_channel_post && !is_direct_messages {
         map_discussion_message_to_channel_post_if_needed(
             &mut conn,
             bot.id,
@@ -9894,14 +11394,19 @@ pub fn handle_sim_send_user_media(
     }
 
     let message: Message = serde_json::from_value(message_json).map_err(ApiError::internal)?;
-    let mut bot_visible = should_emit_user_generated_update_to_bot(
-        &mut conn,
-        &bot,
-        &sim_chat.chat_type,
-        user.id,
-        &message,
-    )?;
-    if !bot_visible && (sim_chat.chat_type == "group" || sim_chat.chat_type == "supergroup") {
+    let is_business_message = business_connection_id.is_some();
+    let mut bot_visible = if is_direct_messages || is_business_message {
+        true
+    } else {
+        should_emit_user_generated_update_to_bot(
+            &mut conn,
+            &bot,
+            &sim_chat.chat_type,
+            user.id,
+            &message,
+        )?
+    };
+    if !bot_visible && !is_direct_messages && (sim_chat.chat_type == "group" || sim_chat.chat_type == "supergroup") {
         bot_visible = is_reply_to_linked_discussion_root_message(
             &mut conn,
             bot.id,
@@ -9911,7 +11416,7 @@ pub fn handle_sim_send_user_media(
     }
     let update_stub = Update {
         update_id: 0,
-        message: if is_channel_post {
+        message: if is_channel_post || is_business_message {
             None
         } else {
             Some(message.clone())
@@ -9924,7 +11429,11 @@ pub fn handle_sim_send_user_media(
         },
         edited_channel_post: None,
         business_connection: None,
-        business_message: None,
+        business_message: if is_business_message {
+            Some(message.clone())
+        } else {
+            None
+        },
         edited_business_message: None,
         deleted_business_messages: None,
         message_reaction: None,
@@ -9960,7 +11469,12 @@ pub fn handle_sim_send_user_media(
     update_value["update_id"] = json!(update_id);
 
     let mut message_value = serde_json::to_value(&message).map_err(ApiError::internal)?;
-    if is_channel_post {
+    if is_direct_messages && direct_messages_star_count > 0 {
+        message_value["paid_message_star_count"] = Value::from(direct_messages_star_count);
+    }
+    if is_business_message {
+        update_value["business_message"] = message_value.clone();
+    } else if is_channel_post {
         update_value["channel_post"] = message_value.clone();
     } else {
         update_value["message"] = message_value.clone();
@@ -10377,6 +11891,86 @@ pub fn handle_sim_upsert_user(state: &Data<AppState>, body: SimUpsertUserRequest
     }))
 }
 
+pub fn handle_sim_delete_user(state: &Data<AppState>, body: SimDeleteUserRequest) -> ApiResult {
+    if body.id <= 0 {
+        return Err(ApiError::bad_request("user id is invalid"));
+    }
+
+    let conn = lock_db(state)?;
+    let user_exists: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM users WHERE id = ?1",
+            params![body.id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    if user_exists.is_none() {
+        return Err(ApiError::not_found("user not found"));
+    }
+
+    let user_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))
+        .map_err(ApiError::internal)?;
+    if user_count <= 1 {
+        return Err(ApiError::bad_request("at least one user must remain in simulator"));
+    }
+
+    conn.execute(
+        "DELETE FROM sim_business_read_messages
+         WHERE connection_id IN (
+             SELECT connection_id
+             FROM sim_business_connections
+             WHERE user_id = ?1
+         )",
+        params![body.id],
+    )
+    .map_err(ApiError::internal)?;
+    conn.execute("DELETE FROM sim_business_connections WHERE user_id = ?1", params![body.id])
+        .map_err(ApiError::internal)?;
+    conn.execute(
+        "DELETE FROM sim_business_account_profiles WHERE user_id = ?1",
+        params![body.id],
+    )
+    .map_err(ApiError::internal)?;
+    conn.execute("DELETE FROM sim_chat_members WHERE user_id = ?1", params![body.id])
+        .map_err(ApiError::internal)?;
+    conn.execute(
+        "DELETE FROM sim_chat_join_requests WHERE user_id = ?1",
+        params![body.id],
+    )
+    .map_err(ApiError::internal)?;
+    conn.execute(
+        "DELETE FROM sim_direct_message_topics WHERE user_id = ?1",
+        params![body.id],
+    )
+    .map_err(ApiError::internal)?;
+    conn.execute("DELETE FROM poll_votes WHERE voter_user_id = ?1", params![body.id])
+        .map_err(ApiError::internal)?;
+    conn.execute("DELETE FROM game_scores WHERE user_id = ?1", params![body.id])
+        .map_err(ApiError::internal)?;
+    conn.execute("DELETE FROM star_transactions_ledger WHERE user_id = ?1", params![body.id])
+        .map_err(ApiError::internal)?;
+    conn.execute("DELETE FROM star_subscriptions WHERE user_id = ?1", params![body.id])
+        .map_err(ApiError::internal)?;
+    conn.execute("DELETE FROM callback_queries WHERE from_user_id = ?1", params![body.id])
+        .map_err(ApiError::internal)?;
+    conn.execute("DELETE FROM inline_queries WHERE from_user_id = ?1", params![body.id])
+        .map_err(ApiError::internal)?;
+    conn.execute("DELETE FROM shipping_queries WHERE from_user_id = ?1", params![body.id])
+        .map_err(ApiError::internal)?;
+    conn.execute(
+        "DELETE FROM pre_checkout_queries WHERE from_user_id = ?1",
+        params![body.id],
+    )
+    .map_err(ApiError::internal)?;
+    conn.execute("DELETE FROM users WHERE id = ?1", params![body.id])
+        .map_err(ApiError::internal)?;
+
+    Ok(json!({ "deleted": true, "id": body.id }))
+}
+
 pub fn handle_sim_create_group(
     state: &Data<AppState>,
     token: &str,
@@ -10745,10 +12339,12 @@ pub fn handle_sim_update_group(
         Option<i64>,
         i64,
         i64,
+        i64,
+        i64,
         Option<String>,
     )> = conn
         .query_row(
-            "SELECT chat_type, title, username, description, is_forum, channel_show_author_signature, linked_discussion_chat_id, message_history_visible, slow_mode_delay, permissions_json
+            "SELECT chat_type, title, username, description, is_forum, channel_show_author_signature, linked_discussion_chat_id, direct_messages_enabled, direct_messages_star_count, message_history_visible, slow_mode_delay, permissions_json
              FROM sim_chats
              WHERE bot_id = ?1 AND chat_key = ?2",
             params![bot.id, &chat_key],
@@ -10764,6 +12360,8 @@ pub fn handle_sim_update_group(
                     row.get(7)?,
                     row.get(8)?,
                     row.get(9)?,
+                    row.get(10)?,
+                    row.get(11)?,
                 ))
             },
         )
@@ -10778,6 +12376,8 @@ pub fn handle_sim_update_group(
         current_is_forum,
         current_show_author_signature,
         current_linked_discussion_chat_id,
+        current_direct_messages_enabled,
+        current_direct_messages_star_count,
         current_message_history_visible,
         current_slow_mode_delay,
         current_permissions_json,
@@ -10912,6 +12512,27 @@ pub fn handle_sim_update_group(
         None
     };
 
+    let direct_messages_enabled = if chat_type == "channel" {
+        body.direct_messages_enabled
+            .unwrap_or(current_direct_messages_enabled == 1)
+    } else {
+        if body.direct_messages_enabled.is_some() {
+            return Err(ApiError::bad_request("direct_messages_enabled can only be set for channels"));
+        }
+        false
+    };
+
+    let direct_messages_star_count = if chat_type == "channel" {
+        body.direct_messages_star_count
+            .unwrap_or(current_direct_messages_star_count)
+            .max(0)
+    } else {
+        if body.direct_messages_star_count.is_some() {
+            return Err(ApiError::bad_request("direct_messages_star_count can only be set for channels"));
+        }
+        0
+    };
+
     let message_history_visible = body
         .message_history_visible
         .unwrap_or(current_message_history_visible == 1);
@@ -10954,11 +12575,13 @@ pub fn handle_sim_update_group(
              is_forum = ?4,
              channel_show_author_signature = ?5,
              linked_discussion_chat_id = ?6,
-             message_history_visible = ?7,
-             slow_mode_delay = ?8,
-             permissions_json = ?9,
-             updated_at = ?10
-         WHERE bot_id = ?11 AND chat_key = ?12",
+             direct_messages_enabled = ?7,
+             direct_messages_star_count = ?8,
+             message_history_visible = ?9,
+             slow_mode_delay = ?10,
+             permissions_json = ?11,
+             updated_at = ?12
+         WHERE bot_id = ?13 AND chat_key = ?14",
         params![
             title,
             username,
@@ -10966,6 +12589,8 @@ pub fn handle_sim_update_group(
             if is_forum { 1 } else { 0 },
             if show_author_signature { 1 } else { 0 },
             linked_discussion_chat_id,
+            if direct_messages_enabled { 1 } else { 0 },
+            direct_messages_star_count,
             if message_history_visible { 1 } else { 0 },
             slow_mode_delay,
             permissions_json,
@@ -11017,6 +12642,8 @@ pub fn handle_sim_update_group(
             "description": description,
             "show_author_signature": show_author_signature,
             "linked_chat_id": linked_discussion_chat_id,
+            "direct_messages_enabled": direct_messages_enabled,
+            "direct_messages_star_count": direct_messages_star_count,
             "message_history_visible": message_history_visible,
             "slow_mode_delay": slow_mode_delay,
             "permissions": permissions
@@ -11131,6 +12758,12 @@ pub fn handle_sim_delete_group(
     }
     conn.execute(
         "DELETE FROM polls WHERE bot_id = ?1 AND chat_key = ?2",
+        params![bot.id, &chat_key],
+    )
+    .map_err(ApiError::internal)?;
+
+    conn.execute(
+        "DELETE FROM sim_message_drafts WHERE bot_id = ?1 AND chat_key = ?2",
         params![bot.id, &chat_key],
     )
     .map_err(ApiError::internal)?;
@@ -12397,25 +14030,104 @@ pub fn handle_sim_clear_history(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
 
-    let deleted = conn
-        .execute(
-            "DELETE FROM messages WHERE bot_id = ?1 AND chat_key = ?2",
-            params![bot.id, body.chat_id.to_string()],
+    let (chat_key, chat_id) =
+        resolve_chat_key_and_id(&mut conn, bot.id, &Value::from(body.chat_id))?;
+
+    let sim_chat = load_sim_chat_record(&mut conn, bot.id, &chat_key)?;
+    let scoped_thread_id = body.message_thread_id;
+
+    let message_ids: Vec<i64> = if let Some(message_thread_id) = scoped_thread_id {
+        if message_thread_id <= 0 {
+            return Err(ApiError::bad_request("message_thread_id is invalid"));
+        }
+
+        let sim_chat = sim_chat.as_ref().ok_or_else(|| {
+            ApiError::bad_request(
+                "message_thread_id is available only in forum supergroups and channel direct messages chats",
+            )
+        })?;
+
+        if is_direct_messages_chat(sim_chat) {
+            let topic_exists = load_direct_messages_topic_record(
+                &mut conn,
+                bot.id,
+                &chat_key,
+                message_thread_id,
+            )?
+            .is_some();
+            if !topic_exists {
+                return Err(ApiError::not_found("direct messages topic not found"));
+            }
+        } else if sim_chat.chat_type == "supergroup" && sim_chat.is_forum {
+            if message_thread_id == 1 {
+                let _ = ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
+            } else if load_forum_topic(&mut conn, bot.id, &chat_key, message_thread_id)?.is_none() {
+                return Err(ApiError::not_found("forum topic not found"));
+            }
+        } else {
+            return Err(ApiError::bad_request(
+                "message_thread_id is available only in forum supergroups and channel direct messages chats",
+            ));
+        }
+
+        collect_message_ids_for_thread(&mut conn, bot.id, &chat_key, message_thread_id)?
+    } else {
+        let mut message_stmt = conn
+            .prepare(
+                "SELECT message_id
+                 FROM messages
+                 WHERE bot_id = ?1 AND chat_key = ?2
+                 ORDER BY message_id ASC",
+            )
+            .map_err(ApiError::internal)?;
+        let message_rows = message_stmt
+            .query_map(params![bot.id, &chat_key], |row| row.get::<_, i64>(0))
+            .map_err(ApiError::internal)?;
+        let message_ids = message_rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(ApiError::internal)?;
+        drop(message_stmt);
+        message_ids
+    };
+
+    let mut deleted = 0usize;
+    for chunk in message_ids.chunks(300) {
+        deleted += delete_messages_with_dependencies(
+            &mut conn,
+            bot.id,
+            &chat_key,
+            chat_id,
+            chunk,
+        )?;
+    }
+
+    if let Some(message_thread_id) = scoped_thread_id {
+        conn.execute(
+            "DELETE FROM sim_message_drafts
+             WHERE bot_id = ?1 AND chat_key = ?2 AND message_thread_id = ?3",
+            params![bot.id, &chat_key, message_thread_id],
+        )
+        .map_err(ApiError::internal)?;
+    } else {
+        conn.execute(
+            "DELETE FROM sim_message_drafts WHERE bot_id = ?1 AND chat_key = ?2",
+            params![bot.id, &chat_key],
         )
         .map_err(ApiError::internal)?;
 
-    let chat_fragment = format!("\"chat\":{{\"id\":{}", body.chat_id);
-    conn.execute(
-        "DELETE FROM updates WHERE bot_id = ?1 AND update_json LIKE ?2",
-        params![bot.id, format!("%{}%", chat_fragment)],
-    )
-    .map_err(ApiError::internal)?;
+        let chat_fragment = format!("\"chat\":{{\"id\":{}", chat_id);
+        conn.execute(
+            "DELETE FROM updates WHERE bot_id = ?1 AND update_json LIKE ?2",
+            params![bot.id, format!("%{}%", chat_fragment)],
+        )
+        .map_err(ApiError::internal)?;
 
-    conn.execute(
-        "DELETE FROM invoices WHERE bot_id = ?1 AND chat_key = ?2",
-        params![bot.id, body.chat_id.to_string()],
-    )
-    .map_err(ApiError::internal)?;
+        conn.execute(
+            "DELETE FROM invoices WHERE bot_id = ?1 AND chat_key = ?2",
+            params![bot.id, &chat_key],
+        )
+        .map_err(ApiError::internal)?;
+    }
 
     Ok(json!({"deleted_count": deleted}))
 }
@@ -13261,8 +14973,27 @@ fn resolve_edit_target(
         return Err(ApiError::bad_request("message_id is required"));
     };
 
-    let chat_key = value_to_chat_key(&chat)?;
+    let (chat_key, _) = resolve_chat_key_and_id(conn, bot_id, &chat)?;
     Ok((chat_key, msg_id, false))
+}
+
+fn resolve_chat_key_and_id(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    chat_id: &Value,
+) -> Result<(String, i64), ApiError> {
+    let requested_chat_key = value_to_chat_key(chat_id)?;
+    let requested_chat_id = chat_id_as_i64(chat_id, &requested_chat_key);
+
+    if let Some(sim_chat) = load_sim_chat_record(conn, bot_id, &requested_chat_key)? {
+        return Ok((sim_chat.chat_key, sim_chat.chat_id));
+    }
+
+    if let Some(sim_chat) = load_sim_chat_record_by_chat_id(conn, bot_id, requested_chat_id)? {
+        return Ok((sim_chat.chat_key, sim_chat.chat_id));
+    }
+
+    Ok((requested_chat_key, requested_chat_id))
 }
 
 fn publish_edited_message_update(
@@ -13279,24 +15010,34 @@ fn publish_edited_message_update(
         .and_then(|chat| chat.get("type"))
         .and_then(Value::as_str)
         == Some("channel");
+    let is_business_message = edited_with_timestamp
+        .get("business_connection_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some();
 
     let update_value = serde_json::to_value(Update {
         update_id: 0,
         message: None,
-        edited_message: if is_channel_post {
+        edited_message: if is_channel_post || is_business_message {
             None
         } else {
             Some(serde_json::from_value(edited_with_timestamp.clone()).map_err(ApiError::internal)?)
         },
         channel_post: None,
         edited_channel_post: if is_channel_post {
-            Some(serde_json::from_value(edited_with_timestamp).map_err(ApiError::internal)?)
+            Some(serde_json::from_value(edited_with_timestamp.clone()).map_err(ApiError::internal)?)
         } else {
             None
         },
         business_connection: None,
         business_message: None,
-        edited_business_message: None,
+        edited_business_message: if is_business_message {
+            Some(serde_json::from_value(edited_with_timestamp.clone()).map_err(ApiError::internal)?)
+        } else {
+            None
+        },
         deleted_business_messages: None,
         message_reaction: None,
         message_reaction_count: None,
@@ -13365,6 +15106,275 @@ fn ensure_message_can_be_edited_by_bot(
     }
 
     Ok(())
+}
+
+fn ensure_message_can_be_deleted_by_actor(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    chat_key: &str,
+    message_id: i64,
+) -> Result<(), ApiError> {
+    let owner_user_id: Option<i64> = conn
+        .query_row(
+            "SELECT from_user_id FROM messages WHERE bot_id = ?1 AND chat_key = ?2 AND message_id = ?3",
+            params![bot_id, chat_key, message_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    let Some(owner_user_id) = owner_user_id else {
+        return Err(ApiError::not_found("message to delete was not found"));
+    };
+
+    let actor_user_id = current_request_actor_user_id().unwrap_or(bot_id);
+    if actor_user_id == bot_id || owner_user_id == actor_user_id {
+        return Ok(());
+    }
+
+    let Some(sim_chat) = load_sim_chat_record(conn, bot_id, chat_key)? else {
+        return Err(ApiError::bad_request("message can't be deleted"));
+    };
+
+    if sim_chat.chat_type == "private" {
+        return Ok(());
+    }
+
+    if is_direct_messages_chat(&sim_chat) {
+        return Err(ApiError::bad_request("message can't be deleted"));
+    }
+
+    if sim_chat.chat_type == "group" || sim_chat.chat_type == "supergroup" {
+        let actor_status = load_chat_member_status(conn, bot_id, chat_key, actor_user_id)?;
+        if actor_status
+            .as_deref()
+            .map(is_group_admin_or_owner_status)
+            .unwrap_or(false)
+        {
+            return Ok(());
+        }
+
+        return Err(ApiError::bad_request("message can't be deleted"));
+    }
+
+    if sim_chat.chat_type == "channel" {
+        let Some(actor_record) = load_chat_member_record(conn, bot_id, chat_key, actor_user_id)? else {
+            return Err(ApiError::bad_request("message can't be deleted"));
+        };
+
+        if actor_record.status == "owner" {
+            return Ok(());
+        }
+
+        if actor_record.status == "admin" {
+            let rights = parse_channel_admin_rights_json(actor_record.admin_rights_json.as_deref());
+            if rights.can_manage_chat
+                || rights.can_delete_messages
+                || rights.can_post_messages
+                || rights.can_edit_messages
+            {
+                return Ok(());
+            }
+        }
+
+        return Err(ApiError::bad_request("message can't be deleted"));
+    }
+
+    Err(ApiError::bad_request("message can't be deleted"))
+}
+
+fn delete_messages_with_dependencies(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    chat_key: &str,
+    chat_id: i64,
+    message_ids: &[i64],
+) -> Result<usize, ApiError> {
+    if message_ids.is_empty() {
+        return Ok(0);
+    }
+
+    let placeholders = std::iter::repeat("?")
+        .take(message_ids.len())
+        .collect::<Vec<_>>()
+        .join(",");
+
+    let drafts_sql = format!(
+        "DELETE FROM sim_message_drafts WHERE bot_id = ? AND message_id IN ({})",
+        placeholders,
+    );
+    let mut drafts_bind_values = Vec::with_capacity(1 + message_ids.len());
+    drafts_bind_values.push(Value::from(bot_id));
+    for id in message_ids {
+        drafts_bind_values.push(Value::from(*id));
+    }
+    let mut drafts_stmt = conn.prepare(&drafts_sql).map_err(ApiError::internal)?;
+    drafts_stmt
+        .execute(rusqlite::params_from_iter(
+            drafts_bind_values.iter().map(sql_value_to_rusqlite),
+        ))
+        .map_err(ApiError::internal)?;
+
+    let messages_sql = format!(
+        "DELETE FROM messages WHERE bot_id = ? AND chat_key = ? AND message_id IN ({})",
+        placeholders,
+    );
+    let mut messages_bind_values = Vec::with_capacity(2 + message_ids.len());
+    messages_bind_values.push(Value::from(bot_id));
+    messages_bind_values.push(Value::from(chat_key.to_string()));
+    for id in message_ids {
+        messages_bind_values.push(Value::from(*id));
+    }
+    let mut messages_stmt = conn.prepare(&messages_sql).map_err(ApiError::internal)?;
+    let deleted = messages_stmt
+        .execute(rusqlite::params_from_iter(
+            messages_bind_values.iter().map(sql_value_to_rusqlite),
+        ))
+        .map_err(ApiError::internal)?;
+
+    if deleted > 0 {
+        let chat_id_fragment = format!("\"chat\":{{\"id\":{}", chat_id);
+        for message_id in message_ids {
+            let message_id_fragment = format!("\"message_id\":{}", message_id);
+            conn.execute(
+                "DELETE FROM updates WHERE bot_id = ?1 AND update_json LIKE ?2 AND update_json LIKE ?3",
+                params![
+                    bot_id,
+                    format!("%{}%", chat_id_fragment),
+                    format!("%{}%", message_id_fragment),
+                ],
+            )
+            .map_err(ApiError::internal)?;
+        }
+
+        let invoices_sql = format!(
+            "DELETE FROM invoices WHERE bot_id = ? AND chat_key = ? AND message_id IN ({})",
+            placeholders,
+        );
+        let mut invoice_bind_values = Vec::with_capacity(2 + message_ids.len());
+        invoice_bind_values.push(Value::from(bot_id));
+        invoice_bind_values.push(Value::from(chat_key.to_string()));
+        for id in message_ids {
+            invoice_bind_values.push(Value::from(*id));
+        }
+        let mut invoice_stmt = conn.prepare(&invoices_sql).map_err(ApiError::internal)?;
+        invoice_stmt
+            .execute(rusqlite::params_from_iter(
+                invoice_bind_values.iter().map(sql_value_to_rusqlite),
+            ))
+            .map_err(ApiError::internal)?;
+    }
+
+    Ok(deleted)
+}
+
+fn collect_message_ids_for_thread(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    chat_key: &str,
+    message_thread_id: i64,
+) -> Result<Vec<i64>, ApiError> {
+    let chat_id = chat_key
+        .parse::<i64>()
+        .unwrap_or_else(|_| fallback_chat_id(chat_key));
+
+    let value_as_i64 = |value: Option<&Value>| -> Option<i64> {
+        value.and_then(|raw| {
+            raw.as_i64()
+                .or_else(|| raw.as_str().and_then(|text| text.trim().parse::<i64>().ok()))
+        })
+    };
+
+    let mut thread_message_ids = HashSet::<i64>::new();
+    let mut update_stmt = conn
+        .prepare(
+            "SELECT update_json
+             FROM updates
+             WHERE bot_id = ?1
+             ORDER BY update_id DESC",
+        )
+        .map_err(ApiError::internal)?;
+    let update_rows = update_stmt
+        .query_map(params![bot_id], |row| row.get::<_, String>(0))
+        .map_err(ApiError::internal)?;
+
+    for row in update_rows {
+        let raw = row.map_err(ApiError::internal)?;
+        let Ok(update_value) = serde_json::from_str::<Value>(&raw) else {
+            continue;
+        };
+
+        for field in [
+            "edited_business_message",
+            "business_message",
+            "edited_channel_post",
+            "channel_post",
+            "edited_message",
+            "message",
+        ] {
+            let Some(message_obj) = update_value.get(field).and_then(Value::as_object) else {
+                continue;
+            };
+
+            let belongs_to_chat = value_as_i64(
+                message_obj
+                    .get("chat")
+                    .and_then(Value::as_object)
+                    .and_then(|chat| chat.get("id")),
+            ) == Some(chat_id);
+            if !belongs_to_chat {
+                continue;
+            }
+
+            let belongs_to_thread = value_as_i64(message_obj.get("message_thread_id"))
+                == Some(message_thread_id)
+                || value_as_i64(
+                    message_obj
+                        .get("direct_messages_topic")
+                        .and_then(Value::as_object)
+                        .and_then(|topic| topic.get("topic_id")),
+                ) == Some(message_thread_id);
+            if !belongs_to_thread {
+                continue;
+            }
+
+            if let Some(message_id) = value_as_i64(message_obj.get("message_id")) {
+                thread_message_ids.insert(message_id);
+            }
+        }
+    }
+    drop(update_stmt);
+
+    if thread_message_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT message_id
+             FROM messages
+             WHERE bot_id = ?1 AND chat_key = ?2
+             ORDER BY message_id ASC",
+        )
+        .map_err(ApiError::internal)?;
+
+    let rows = stmt
+        .query_map(params![bot_id, chat_key], |row| row.get::<_, i64>(0))
+        .map_err(ApiError::internal)?;
+
+    let message_ids: Vec<i64> = rows
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(ApiError::internal)?;
+    drop(stmt);
+
+    let mut result = Vec::new();
+    for message_id in message_ids {
+        if thread_message_ids.contains(&message_id) {
+            result.push(message_id);
+        }
+    }
+
+    Ok(result)
 }
 
 fn handle_edit_message_text(
@@ -13742,10 +15752,12 @@ fn send_sim_user_payload_message(
     token: &str,
     chat_id: Option<i64>,
     message_thread_id: Option<i64>,
+    direct_messages_topic_id: Option<i64>,
     user_id: Option<i64>,
     first_name: Option<String>,
     username: Option<String>,
     sender_chat_id: Option<i64>,
+    business_connection_id: Option<String>,
     payload: SimUserPayload,
     text: Option<String>,
     entities: Option<Value>,
@@ -13761,7 +15773,8 @@ fn send_sim_user_payload_message(
 
     let resolved_chat_id = chat_id.unwrap_or(user.id);
     let sim_chat = resolve_sim_chat_for_user_message(&mut conn, bot.id, resolved_chat_id, &user)?;
-    if sim_chat.chat_type != "private" {
+    let is_direct_messages = is_direct_messages_chat(&sim_chat);
+    if !is_direct_messages && sim_chat.chat_type != "private" {
         ensure_sender_can_send_in_chat(
             &mut conn,
             bot.id,
@@ -13770,25 +15783,88 @@ fn send_sim_user_payload_message(
             send_kind,
         )?;
     }
-    let sender_chat = resolve_sender_chat_for_sim_user_message(
-        &mut conn,
-        bot.id,
-        &sim_chat,
-        &user,
-        sender_chat_id,
-        send_kind,
-    )?;
-    let sender_chat_json = sender_chat
-        .as_ref()
-        .map(|chat| serde_json::to_value(chat).map_err(ApiError::internal))
+
+    let mut sender_chat_json: Option<Value> = None;
+    let resolved_thread_id: Option<i64>;
+    let mut direct_messages_topic_json: Option<Value> = None;
+
+    if is_direct_messages {
+        if message_thread_id.is_some() {
+            return Err(ApiError::bad_request(
+                "message_thread_id is not supported in channel direct messages simulation",
+            ));
+        }
+        if sender_chat_id.is_some() {
+            return Err(ApiError::bad_request(
+                "sender_chat_id is not supported in channel direct messages simulation",
+            ));
+        }
+
+        let (topic_id, topic_value, forced_sender_chat) = resolve_direct_messages_topic_for_sender(
+            &mut conn,
+            bot.id,
+            &sim_chat,
+            &user,
+            direct_messages_topic_id,
+        )?;
+        resolved_thread_id = Some(topic_id);
+        direct_messages_topic_json = Some(topic_value);
+        if let Some(forced_sender_chat) = forced_sender_chat {
+            sender_chat_json = Some(serde_json::to_value(forced_sender_chat).map_err(ApiError::internal)?);
+        }
+    } else {
+        if direct_messages_topic_id.is_some() {
+            return Err(ApiError::bad_request(
+                "direct_messages_topic_id is available only in channel direct messages chats",
+            ));
+        }
+
+        let sender_chat = resolve_sender_chat_for_sim_user_message(
+            &mut conn,
+            bot.id,
+            &sim_chat,
+            &user,
+            sender_chat_id,
+            send_kind,
+        )?;
+        sender_chat_json = sender_chat
+            .as_ref()
+            .map(|chat| serde_json::to_value(chat).map_err(ApiError::internal))
+            .transpose()?;
+        resolved_thread_id = resolve_forum_message_thread_id(
+            &mut conn,
+            bot.id,
+            &sim_chat,
+            message_thread_id,
+        )?;
+    }
+
+    let business_connection_record = normalize_business_connection_id(business_connection_id.as_deref())
+        .map(|connection_id| load_business_connection_or_404(&mut conn, bot.id, &connection_id))
         .transpose()?;
-    let resolved_thread_id = resolve_forum_message_thread_id(
-        &mut conn,
-        bot.id,
-        &sim_chat,
-        message_thread_id,
-    )?;
+    let business_connection_id = if let Some(record) = business_connection_record.as_ref() {
+        if is_direct_messages {
+            return Err(ApiError::bad_request(
+                "business_connection_id is not supported in channel direct messages simulation",
+            ));
+        }
+        if !record.is_enabled {
+            return Err(ApiError::bad_request("business connection is disabled"));
+        }
+        if sim_chat.chat_type != "private" || sim_chat.chat_id != record.user_chat_id || user.id != record.user_id {
+            return Err(ApiError::bad_request("business connection does not match chat/user"));
+        }
+        Some(record.connection_id.clone())
+    } else {
+        None
+    };
+
     let chat_key = sim_chat.chat_key.clone();
+    let direct_messages_star_count = if is_direct_messages {
+        direct_messages_star_count_for_chat(&mut conn, bot.id, &sim_chat)?
+    } else {
+        0
+    };
 
     let now = Utc::now().timestamp();
     conn.execute(
@@ -13798,6 +15874,23 @@ fn send_sim_user_payload_message(
     .map_err(ApiError::internal)?;
 
     let message_id = conn.last_insert_rowid();
+
+    if is_direct_messages {
+        if let Some(topic_id) = resolved_thread_id {
+            let topic_owner_user_id = load_direct_messages_topic_record(&mut conn, bot.id, &chat_key, topic_id)?
+                .map(|record| record.user_id)
+                .unwrap_or(user.id);
+            upsert_direct_messages_topic(
+                &mut conn,
+                bot.id,
+                &chat_key,
+                topic_id,
+                topic_owner_user_id,
+                Some(message_id),
+                Some(now),
+            )?;
+        }
+    }
 
     let from = build_user_from_sim_record(&user, false);
     let chat = chat_from_sim_record(&sim_chat, &user);
@@ -13840,6 +15933,15 @@ fn send_sim_user_payload_message(
         message_json["message_thread_id"] = Value::from(thread_id);
         message_json["is_topic_message"] = Value::Bool(true);
     }
+    if let Some(direct_messages_topic) = direct_messages_topic_json {
+        message_json["direct_messages_topic"] = direct_messages_topic;
+    }
+    if let Some(connection_id) = business_connection_id.as_ref() {
+        message_json["business_connection_id"] = Value::String(connection_id.clone());
+    }
+    if is_direct_messages && direct_messages_star_count > 0 {
+        message_json["paid_message_star_count"] = Value::from(direct_messages_star_count);
+    }
     if let Some(mode) = sim_parse_mode {
         message_json["sim_parse_mode"] = Value::String(mode);
     }
@@ -13856,7 +15958,7 @@ fn send_sim_user_payload_message(
     }
 
     let is_channel_post = sim_chat.chat_type == "channel";
-    if !is_channel_post {
+    if !is_channel_post && !is_direct_messages {
         map_discussion_message_to_channel_post_if_needed(
             &mut conn,
             bot.id,
@@ -13874,14 +15976,19 @@ fn send_sim_user_payload_message(
     }
 
     let message: Message = serde_json::from_value(message_json).map_err(ApiError::internal)?;
-    let mut bot_visible = should_emit_user_generated_update_to_bot(
-        &mut conn,
-        &bot,
-        &sim_chat.chat_type,
-        user.id,
-        &message,
-    )?;
-    if !bot_visible && (sim_chat.chat_type == "group" || sim_chat.chat_type == "supergroup") {
+    let is_business_message = business_connection_id.is_some();
+    let mut bot_visible = if is_direct_messages || is_business_message {
+        true
+    } else {
+        should_emit_user_generated_update_to_bot(
+            &mut conn,
+            &bot,
+            &sim_chat.chat_type,
+            user.id,
+            &message,
+        )?
+    };
+    if !bot_visible && !is_direct_messages && (sim_chat.chat_type == "group" || sim_chat.chat_type == "supergroup") {
         bot_visible = is_reply_to_linked_discussion_root_message(
             &mut conn,
             bot.id,
@@ -13891,7 +15998,7 @@ fn send_sim_user_payload_message(
     }
     let update_stub = Update {
         update_id: 0,
-        message: if is_channel_post {
+        message: if is_channel_post || is_business_message {
             None
         } else {
             Some(message.clone())
@@ -13904,7 +16011,11 @@ fn send_sim_user_payload_message(
         },
         edited_channel_post: None,
         business_connection: None,
-        business_message: None,
+        business_message: if is_business_message {
+            Some(message.clone())
+        } else {
+            None
+        },
         edited_business_message: None,
         deleted_business_messages: None,
         message_reaction: None,
@@ -13940,7 +16051,12 @@ fn send_sim_user_payload_message(
     update_value["update_id"] = json!(update_id);
 
     let mut message_value = serde_json::to_value(&message).map_err(ApiError::internal)?;
-    if is_channel_post {
+    if is_direct_messages && direct_messages_star_count > 0 {
+        message_value["paid_message_star_count"] = Value::from(direct_messages_star_count);
+    }
+    if is_business_message {
+        update_value["business_message"] = message_value.clone();
+    } else if is_channel_post {
         update_value["channel_post"] = message_value.clone();
     } else {
         update_value["message"] = message_value.clone();
@@ -13999,10 +16115,12 @@ pub fn handle_sim_send_user_dice(
         token,
         body.chat_id,
         body.message_thread_id,
+        body.direct_messages_topic_id,
         body.user_id,
         body.first_name,
         body.username,
         body.sender_chat_id,
+        None,
         SimUserPayload::Dice(Dice { emoji, value }),
         None,
         None,
@@ -14040,10 +16158,12 @@ pub fn handle_sim_send_user_game(
         token,
         body.chat_id,
         body.message_thread_id,
+        body.direct_messages_topic_id,
         body.user_id,
         body.first_name,
         body.username,
         body.sender_chat_id,
+        None,
         SimUserPayload::Game(game),
         None,
         None,
@@ -14077,10 +16197,12 @@ pub fn handle_sim_send_user_contact(
         token,
         body.chat_id,
         body.message_thread_id,
+        body.direct_messages_topic_id,
         body.user_id,
         body.first_name,
         body.username,
         body.sender_chat_id,
+        None,
         SimUserPayload::Contact(contact),
         None,
         None,
@@ -14108,10 +16230,12 @@ pub fn handle_sim_send_user_location(
         token,
         body.chat_id,
         body.message_thread_id,
+        body.direct_messages_topic_id,
         body.user_id,
         body.first_name,
         body.username,
         body.sender_chat_id,
+        None,
         SimUserPayload::Location(location),
         None,
         None,
@@ -14154,10 +16278,12 @@ pub fn handle_sim_send_user_venue(
         token,
         body.chat_id,
         body.message_thread_id,
+        body.direct_messages_topic_id,
         body.user_id,
         body.first_name,
         body.username,
         body.sender_chat_id,
+        None,
         SimUserPayload::Venue(venue),
         None,
         None,
@@ -14319,34 +16445,21 @@ fn handle_delete_message(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let chat_key = value_to_chat_key(&request.chat_id)?;
+    let (chat_key, chat_id) = resolve_chat_key_and_id(&mut conn, bot.id, &request.chat_id)?;
 
-    let deleted = conn
-        .execute(
-            "DELETE FROM messages WHERE bot_id = ?1 AND chat_key = ?2 AND message_id = ?3",
-            params![bot.id, chat_key, request.message_id],
-        )
-        .map_err(ApiError::internal)?;
-
-    if deleted > 0 {
-        let chat_id_fragment = format!("\"chat\":{{\"id\":{}", chat_key);
-        let message_id_fragment = format!("\"message_id\":{}", request.message_id);
-        conn.execute(
-            "DELETE FROM updates WHERE bot_id = ?1 AND update_json LIKE ?2 AND update_json LIKE ?3",
-            params![
-                bot.id,
-                format!("%{}%", chat_id_fragment),
-                format!("%{}%", message_id_fragment),
-            ],
-        )
-        .map_err(ApiError::internal)?;
-
-        conn.execute(
-            "DELETE FROM invoices WHERE bot_id = ?1 AND chat_key = ?2 AND message_id = ?3",
-            params![bot.id, chat_key, request.message_id],
-        )
-        .map_err(ApiError::internal)?;
+    match ensure_message_can_be_deleted_by_actor(&mut conn, bot.id, &chat_key, request.message_id) {
+        Ok(()) => {}
+        Err(err) if err.code == 404 => return Ok(Value::Bool(false)),
+        Err(err) => return Err(err),
     }
+
+    let deleted = delete_messages_with_dependencies(
+        &mut conn,
+        bot.id,
+        &chat_key,
+        chat_id,
+        &[request.message_id],
+    )?;
 
     Ok(Value::Bool(deleted > 0))
 }
@@ -14365,64 +16478,49 @@ fn handle_delete_messages(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let chat_key = value_to_chat_key(&request.chat_id)?;
+    let (chat_key, chat_id) = resolve_chat_key_and_id(&mut conn, bot.id, &request.chat_id)?;
 
     let placeholders = std::iter::repeat("?")
         .take(message_ids.len())
         .collect::<Vec<_>>()
         .join(",");
-    let sql = format!(
-        "DELETE FROM messages WHERE bot_id = ? AND chat_key = ? AND message_id IN ({})",
-        placeholders
+    let existing_sql = format!(
+        "SELECT message_id
+         FROM messages
+         WHERE bot_id = ? AND chat_key = ? AND message_id IN ({})",
+        placeholders,
     );
-
-    let mut bind_values = Vec::with_capacity(2 + message_ids.len());
-    bind_values.push(Value::from(bot.id));
-    bind_values.push(Value::from(chat_key.clone()));
+    let mut existing_bind_values = Vec::with_capacity(2 + message_ids.len());
+    existing_bind_values.push(Value::from(bot.id));
+    existing_bind_values.push(Value::from(chat_key.clone()));
     for id in &message_ids {
-        bind_values.push(Value::from(*id));
+        existing_bind_values.push(Value::from(*id));
     }
 
-    let mut stmt = conn.prepare(&sql).map_err(ApiError::internal)?;
-    let deleted = stmt
-        .execute(rusqlite::params_from_iter(bind_values.iter().map(sql_value_to_rusqlite)))
+    let mut existing_stmt = conn.prepare(&existing_sql).map_err(ApiError::internal)?;
+    let existing_rows = existing_stmt
+        .query_map(
+            rusqlite::params_from_iter(existing_bind_values.iter().map(sql_value_to_rusqlite)),
+            |row| row.get::<_, i64>(0),
+        )
         .map_err(ApiError::internal)?;
 
-    if deleted > 0 {
-        for message_id in &message_ids {
-            let chat_id_fragment = format!("\"chat\":{{\"id\":{}", chat_key);
-            let message_id_fragment = format!("\"message_id\":{}", message_id);
-            conn.execute(
-                "DELETE FROM updates WHERE bot_id = ?1 AND update_json LIKE ?2 AND update_json LIKE ?3",
-                params![
-                    bot.id,
-                    format!("%{}%", chat_id_fragment),
-                    format!("%{}%", message_id_fragment),
-                ],
-            )
-            .map_err(ApiError::internal)?;
-        }
+    let existing_ids: Vec<i64> = existing_rows
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(ApiError::internal)?;
+    drop(existing_stmt);
 
-        let placeholders = std::iter::repeat("?")
-            .take(message_ids.len())
-            .collect::<Vec<_>>()
-            .join(",");
-        let invoices_sql = format!(
-            "DELETE FROM invoices WHERE bot_id = ? AND chat_key = ? AND message_id IN ({})",
-            placeholders,
-        );
-        let mut invoice_bind_values = Vec::with_capacity(2 + message_ids.len());
-        invoice_bind_values.push(Value::from(bot.id));
-        invoice_bind_values.push(Value::from(chat_key));
-        for id in &message_ids {
-            invoice_bind_values.push(Value::from(*id));
-        }
-
-        let mut invoice_stmt = conn.prepare(&invoices_sql).map_err(ApiError::internal)?;
-        invoice_stmt
-            .execute(rusqlite::params_from_iter(invoice_bind_values.iter().map(sql_value_to_rusqlite)))
-            .map_err(ApiError::internal)?;
+    for message_id in &existing_ids {
+        ensure_message_can_be_deleted_by_actor(&mut conn, bot.id, &chat_key, *message_id)?;
     }
+
+    let deleted = delete_messages_with_dependencies(
+        &mut conn,
+        bot.id,
+        &chat_key,
+        chat_id,
+        &existing_ids,
+    )?;
 
     Ok(Value::Bool(deleted > 0))
 }
@@ -16411,20 +18509,36 @@ fn resolve_bot_outbound_chat(
     chat_id_value: &Value,
     send_kind: ChatSendKind,
 ) -> Result<(String, Chat), ApiError> {
-    let chat_key = value_to_chat_key(chat_id_value)?;
-    ensure_chat(conn, &chat_key)?;
-    let chat_id = chat_id_as_i64(chat_id_value, &chat_key);
+    let requested_chat_key = value_to_chat_key(chat_id_value)?;
+    ensure_chat(conn, &requested_chat_key)?;
+    let chat_id = chat_id_as_i64(chat_id_value, &requested_chat_key);
 
-    if let Some(sim_chat) = load_sim_chat_record(conn, bot_id, &chat_key)? {
+    let sim_chat = load_sim_chat_record(conn, bot_id, &requested_chat_key)?
+        .or(load_sim_chat_record_by_chat_id(conn, bot_id, chat_id)?);
+
+    if let Some(sim_chat) = sim_chat {
+        let sim_chat_key = sim_chat.chat_key.clone();
         if sim_chat.chat_type != "private" {
-            if sim_chat.chat_type == "channel" {
-                ensure_bot_is_chat_admin_or_owner(conn, bot_id, &chat_key)?;
-                ensure_request_actor_can_publish_to_channel(conn, bot_id, &chat_key)?;
+            if is_direct_messages_chat(&sim_chat) {
+                let actor_user_id = current_request_actor_user_id().unwrap_or(bot_id);
+                let parent_channel_chat_id = sim_chat
+                    .parent_channel_chat_id
+                    .ok_or_else(|| ApiError::bad_request("direct messages chat parent channel is missing"))?;
+                ensure_channel_member_can_manage_direct_messages(
+                    conn,
+                    bot_id,
+                    &parent_channel_chat_id.to_string(),
+                    actor_user_id,
+                )?;
+                let _ = direct_messages_star_count_for_chat(conn, bot_id, &sim_chat)?;
+            } else if sim_chat.chat_type == "channel" {
+                ensure_bot_is_chat_admin_or_owner(conn, bot_id, &sim_chat_key)?;
+                ensure_request_actor_can_publish_to_channel(conn, bot_id, &sim_chat_key)?;
             }
-            ensure_sender_can_send_in_chat(conn, bot_id, &chat_key, bot_id, send_kind)?;
+            ensure_sender_can_send_in_chat(conn, bot_id, &sim_chat_key, bot_id, send_kind)?;
             let is_supergroup = sim_chat.chat_type == "supergroup";
             return Ok((
-                chat_key,
+                sim_chat_key,
                 Chat {
                     id: sim_chat.chat_id,
                     r#type: sim_chat.chat_type,
@@ -16432,19 +18546,23 @@ fn resolve_bot_outbound_chat(
                     username: sim_chat.username,
                     first_name: None,
                     last_name: None,
-                    is_forum: if is_supergroup {
+                    is_forum: if is_supergroup && !sim_chat.is_direct_messages {
                         Some(sim_chat.is_forum)
                     } else {
                         None
                     },
-                    is_direct_messages: None,
+                    is_direct_messages: if sim_chat.is_direct_messages {
+                        Some(true)
+                    } else {
+                        None
+                    },
                 },
             ));
         }
 
         let recipient = load_sim_user_record(conn, sim_chat.chat_id)?;
         return Ok((
-            chat_key,
+            sim_chat_key,
             Chat {
                 id: sim_chat.chat_id,
                 r#type: "private".to_string(),
@@ -16460,7 +18578,7 @@ fn resolve_bot_outbound_chat(
 
     let recipient = load_sim_user_record(conn, chat_id)?;
     Ok((
-        chat_key,
+        requested_chat_key,
         Chat {
             id: chat_id,
             r#type: "private".to_string(),
@@ -16489,6 +18607,10 @@ struct SimChatRecord {
     title: Option<String>,
     username: Option<String>,
     is_forum: bool,
+    is_direct_messages: bool,
+    parent_channel_chat_id: Option<i64>,
+    direct_messages_enabled: bool,
+    direct_messages_star_count: i64,
     channel_show_author_signature: bool,
     linked_discussion_chat_id: Option<i64>,
 }
@@ -16503,6 +18625,38 @@ struct SimChatMemberRecord {
     custom_title: Option<String>,
     tag: Option<String>,
     joined_at: Option<i64>,
+}
+
+#[derive(Debug, Clone)]
+struct SimBusinessConnectionRecord {
+    connection_id: String,
+    user_id: i64,
+    user_chat_id: i64,
+    rights_json: String,
+    is_enabled: bool,
+    gift_settings_show_button: bool,
+    gift_settings_types_json: Option<String>,
+    star_balance: i64,
+    created_at: i64,
+    updated_at: i64,
+}
+
+#[derive(Debug, Clone)]
+struct SimBusinessProfileRecord {
+    last_name: Option<String>,
+    bio: Option<String>,
+    profile_photo_file_id: Option<String>,
+    public_profile_photo_file_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct SimDirectMessagesTopicRecord {
+    topic_id: i64,
+    user_id: i64,
+    created_at: i64,
+    updated_at: i64,
+    last_message_id: Option<i64>,
+    last_message_date: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -16793,7 +18947,7 @@ fn chat_from_sim_record(record: &SimChatRecord, user: &SimUserRecord) -> Chat {
             first_name: Some(user.first_name.clone()),
             last_name: None,
             is_forum: None,
-            is_direct_messages: None,
+            is_direct_messages: if record.is_direct_messages { Some(true) } else { None },
         }
     } else {
         Chat {
@@ -16808,7 +18962,7 @@ fn chat_from_sim_record(record: &SimChatRecord, user: &SimUserRecord) -> Chat {
             } else {
                 None
             },
-            is_direct_messages: None,
+            is_direct_messages: if record.is_direct_messages { Some(true) } else { None },
         }
     }
 }
@@ -16826,7 +18980,7 @@ fn build_chat_from_group_record(record: &SimChatRecord) -> Chat {
         } else {
             None
         },
-        is_direct_messages: None,
+        is_direct_messages: if record.is_direct_messages { Some(true) } else { None },
     }
 }
 
@@ -16851,8 +19005,10 @@ fn resolve_non_private_sim_chat(
     bot_id: i64,
     chat_id: &Value,
 ) -> Result<(String, SimChatRecord), ApiError> {
-    let chat_key = value_to_chat_key(chat_id)?;
-    let Some(sim_chat) = load_sim_chat_record(conn, bot_id, &chat_key)? else {
+    let requested_chat_key = value_to_chat_key(chat_id)?;
+    let requested_chat_id = chat_id_as_i64(chat_id, &requested_chat_key);
+    let Some(sim_chat) = load_sim_chat_record(conn, bot_id, &requested_chat_key)?
+        .or(load_sim_chat_record_by_chat_id(conn, bot_id, requested_chat_id)?) else {
         return Err(ApiError::not_found("chat not found"));
     };
     if sim_chat.chat_type == "private" {
@@ -16861,7 +19017,7 @@ fn resolve_non_private_sim_chat(
         ));
     }
 
-    Ok((chat_key, sim_chat))
+    Ok((sim_chat.chat_key.clone(), sim_chat))
 }
 
 fn ensure_bot_is_chat_admin_or_owner(
@@ -16996,6 +19152,584 @@ fn ensure_request_actor_is_chat_admin_or_owner(
 ) -> Result<(), ApiError> {
     let _ = resolve_chat_admin_actor(conn, bot, chat_key)?;
     Ok(())
+}
+
+fn normalize_business_connection_id(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn default_business_connection_id(bot_id: i64, user_id: i64) -> String {
+    use sha2::{Digest, Sha256};
+
+    let raw = format!("business:{}:{}", bot_id, user_id);
+    let mut hasher = Sha256::new();
+    hasher.update(raw.as_bytes());
+    let digest = hasher.finalize();
+    let hexed = hex::encode(digest);
+    format!("AQAD{}", &hexed[..28])
+}
+
+fn default_business_accepted_gift_types() -> AcceptedGiftTypes {
+    AcceptedGiftTypes {
+        unlimited_gifts: true,
+        limited_gifts: true,
+        unique_gifts: true,
+        premium_subscription: true,
+        gifts_from_channels: true,
+    }
+}
+
+fn parse_business_accepted_gift_types_json(raw: Option<&str>) -> AcceptedGiftTypes {
+    raw.and_then(|value| serde_json::from_str::<AcceptedGiftTypes>(value).ok())
+        .unwrap_or_else(default_business_accepted_gift_types)
+}
+
+fn default_business_bot_rights() -> BusinessBotRights {
+    BusinessBotRights {
+        can_reply: Some(true),
+        can_read_messages: Some(true),
+        can_delete_sent_messages: Some(true),
+        can_delete_all_messages: Some(true),
+        can_edit_name: Some(true),
+        can_edit_bio: Some(true),
+        can_edit_profile_photo: Some(true),
+        can_edit_username: Some(true),
+        can_change_gift_settings: Some(true),
+        can_view_gifts_and_stars: Some(true),
+        can_convert_gifts_to_stars: Some(true),
+        can_transfer_and_upgrade_gifts: Some(true),
+        can_transfer_stars: Some(true),
+        can_manage_stories: Some(true),
+    }
+}
+
+fn parse_business_bot_rights_json(raw: &str) -> BusinessBotRights {
+    serde_json::from_str::<BusinessBotRights>(raw).unwrap_or_else(|_| default_business_bot_rights())
+}
+
+fn load_sim_business_connection_by_id(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    connection_id: &str,
+) -> Result<Option<SimBusinessConnectionRecord>, ApiError> {
+    conn.query_row(
+        "SELECT connection_id, user_id, user_chat_id, rights_json, is_enabled,
+                gift_settings_show_button, gift_settings_types_json, star_balance,
+                created_at, updated_at
+         FROM sim_business_connections
+         WHERE bot_id = ?1 AND LOWER(connection_id) = LOWER(?2)",
+        params![bot_id, connection_id],
+        |row| {
+            Ok(SimBusinessConnectionRecord {
+                connection_id: row.get(0)?,
+                user_id: row.get(1)?,
+                user_chat_id: row.get(2)?,
+                rights_json: row.get(3)?,
+                is_enabled: row.get::<_, i64>(4)? == 1,
+                gift_settings_show_button: row.get::<_, i64>(5)? == 1,
+                gift_settings_types_json: row.get(6)?,
+                star_balance: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(ApiError::internal)
+}
+
+fn load_sim_business_connection_for_user(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    user_id: i64,
+) -> Result<Option<SimBusinessConnectionRecord>, ApiError> {
+    conn.query_row(
+        "SELECT connection_id, user_id, user_chat_id, rights_json, is_enabled,
+                gift_settings_show_button, gift_settings_types_json, star_balance,
+                created_at, updated_at
+         FROM sim_business_connections
+         WHERE bot_id = ?1 AND user_id = ?2
+         ORDER BY updated_at DESC
+         LIMIT 1",
+        params![bot_id, user_id],
+        |row| {
+            Ok(SimBusinessConnectionRecord {
+                connection_id: row.get(0)?,
+                user_id: row.get(1)?,
+                user_chat_id: row.get(2)?,
+                rights_json: row.get(3)?,
+                is_enabled: row.get::<_, i64>(4)? == 1,
+                gift_settings_show_button: row.get::<_, i64>(5)? == 1,
+                gift_settings_types_json: row.get(6)?,
+                star_balance: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(ApiError::internal)
+}
+
+fn upsert_sim_business_connection(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    connection_id: &str,
+    user_id: i64,
+    user_chat_id: i64,
+    rights: &BusinessBotRights,
+    is_enabled: bool,
+) -> Result<SimBusinessConnectionRecord, ApiError> {
+    let now = Utc::now().timestamp();
+    let rights_json = serde_json::to_string(rights).map_err(ApiError::internal)?;
+
+    if let Some(existing) = load_sim_business_connection_for_user(conn, bot_id, user_id)? {
+        conn.execute(
+            "UPDATE sim_business_connections
+             SET connection_id = ?1,
+                 user_chat_id = ?2,
+                 rights_json = ?3,
+                 is_enabled = ?4,
+                 updated_at = ?5
+             WHERE bot_id = ?6 AND connection_id = ?7",
+            params![
+                connection_id,
+                user_chat_id,
+                rights_json,
+                if is_enabled { 1 } else { 0 },
+                now,
+                bot_id,
+                existing.connection_id,
+            ],
+        )
+        .map_err(ApiError::internal)?;
+    } else {
+        conn.execute(
+            "INSERT INTO sim_business_connections
+             (bot_id, connection_id, user_id, user_chat_id, rights_json, is_enabled, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+            params![
+                bot_id,
+                connection_id,
+                user_id,
+                user_chat_id,
+                rights_json,
+                if is_enabled { 1 } else { 0 },
+                now,
+            ],
+        )
+        .map_err(ApiError::internal)?;
+    }
+
+    load_sim_business_connection_by_id(conn, bot_id, connection_id)?
+        .ok_or_else(|| ApiError::internal("failed to persist business connection"))
+}
+
+fn load_sim_business_profile(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    user_id: i64,
+) -> Result<Option<SimBusinessProfileRecord>, ApiError> {
+    conn.query_row(
+        "SELECT last_name, bio, profile_photo_file_id, public_profile_photo_file_id
+         FROM sim_business_account_profiles
+         WHERE bot_id = ?1 AND user_id = ?2",
+        params![bot_id, user_id],
+        |row| {
+            Ok(SimBusinessProfileRecord {
+                last_name: row.get(0)?,
+                bio: row.get(1)?,
+                profile_photo_file_id: row.get(2)?,
+                public_profile_photo_file_id: row.get(3)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(ApiError::internal)
+}
+
+fn build_business_connection(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    record: &SimBusinessConnectionRecord,
+) -> Result<BusinessConnection, ApiError> {
+    let user_record = ensure_sim_user_record(conn, record.user_id)?;
+    let profile = load_sim_business_profile(conn, bot_id, record.user_id)?;
+
+    let user = User {
+        id: user_record.id,
+        is_bot: false,
+        first_name: user_record.first_name,
+        last_name: profile.as_ref().and_then(|item| item.last_name.clone()),
+        username: user_record.username,
+        language_code: None,
+        is_premium: None,
+        added_to_attachment_menu: None,
+        can_join_groups: None,
+        can_read_all_group_messages: None,
+        supports_inline_queries: None,
+        can_connect_to_business: None,
+        has_main_web_app: None,
+        has_topics_enabled: None,
+        allows_users_to_create_topics: None,
+        can_manage_bots: None,
+    };
+
+    Ok(BusinessConnection {
+        id: record.connection_id.clone(),
+        user,
+        user_chat_id: record.user_chat_id,
+        date: record.created_at,
+        rights: Some(parse_business_bot_rights_json(&record.rights_json)),
+        is_enabled: record.is_enabled,
+    })
+}
+
+fn business_right_enabled(
+    rights: &Option<BusinessBotRights>,
+    resolver: impl Fn(&BusinessBotRights) -> Option<bool>,
+) -> bool {
+    rights
+        .as_ref()
+        .and_then(resolver)
+        .unwrap_or(false)
+}
+
+fn ensure_business_right(
+    connection: &BusinessConnection,
+    resolver: impl Fn(&BusinessBotRights) -> Option<bool>,
+    message: &str,
+) -> Result<(), ApiError> {
+    if business_right_enabled(&connection.rights, resolver) {
+        return Ok(());
+    }
+
+    Err(ApiError::bad_request(message))
+}
+
+fn is_direct_messages_chat(sim_chat: &SimChatRecord) -> bool {
+    sim_chat.is_direct_messages && sim_chat.parent_channel_chat_id.is_some()
+}
+
+fn direct_messages_star_count_for_chat(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    sim_chat: &SimChatRecord,
+) -> Result<i64, ApiError> {
+    if !is_direct_messages_chat(sim_chat) {
+        return Ok(0);
+    }
+
+    let parent_channel_chat_id = sim_chat
+        .parent_channel_chat_id
+        .ok_or_else(|| ApiError::bad_request("direct messages chat parent channel is missing"))?;
+    let parent_channel_chat = load_sim_chat_record(conn, bot_id, &parent_channel_chat_id.to_string())?
+        .ok_or_else(|| ApiError::not_found("parent channel not found"))?;
+    if !parent_channel_chat.direct_messages_enabled {
+        return Err(ApiError::bad_request("channel direct messages are disabled"));
+    }
+
+    Ok(parent_channel_chat.direct_messages_star_count.max(0))
+}
+
+fn direct_messages_chat_key(channel_chat_id: i64) -> String {
+    format!("dm:{}", channel_chat_id)
+}
+
+fn direct_messages_chat_id_for_channel(channel_chat_id: i64) -> i64 {
+    let channel_abs = channel_chat_id.saturating_abs();
+    -(1_000_000_000_000_000i64.saturating_add(channel_abs))
+}
+
+fn ensure_channel_member_can_manage_direct_messages(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    channel_chat_key: &str,
+    user_id: i64,
+) -> Result<(), ApiError> {
+    let Some(member) = load_chat_member_record(conn, bot_id, channel_chat_key, user_id)? else {
+        return Err(ApiError::bad_request(
+            "only channel owner/admin with direct-messages rights can access channel direct messages",
+        ));
+    };
+
+    if member.status == "owner" {
+        return Ok(());
+    }
+
+    if member.status != "admin" {
+        return Err(ApiError::bad_request(
+            "only channel owner/admin with direct-messages rights can access channel direct messages",
+        ));
+    }
+
+    if channel_admin_has_direct_messages_permission(member.admin_rights_json.as_deref()) {
+        return Ok(());
+    }
+
+    Err(ApiError::bad_request(
+        "not enough rights to manage channel direct messages",
+    ))
+}
+
+fn ensure_channel_direct_messages_chat(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    channel_chat: &SimChatRecord,
+) -> Result<SimChatRecord, ApiError> {
+    if channel_chat.chat_type != "channel" {
+        return Err(ApiError::bad_request("channel direct messages are available only for channels"));
+    }
+
+    let chat_key = direct_messages_chat_key(channel_chat.chat_id);
+    ensure_chat(conn, &chat_key)?;
+    let now = Utc::now().timestamp();
+    let chat_id = direct_messages_chat_id_for_channel(channel_chat.chat_id);
+    let channel_title = channel_chat
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("Channel");
+    let dm_title = format!("{} Direct Messages", channel_title);
+
+    conn.execute(
+        "INSERT INTO sim_chats
+         (bot_id, chat_key, chat_id, chat_type, title, username, description, photo_file_id,
+          is_forum, is_direct_messages, parent_channel_chat_id, channel_show_author_signature,
+          linked_discussion_chat_id, message_history_visible, slow_mode_delay, permissions_json,
+          sticker_set_name, pinned_message_id, owner_user_id, created_at, updated_at)
+         VALUES (?1, ?2, ?3, 'supergroup', ?4, NULL, NULL, NULL,
+             0, 1, ?5, 0,
+                 NULL, 1, 0, NULL,
+                 NULL, NULL, NULL, ?6, ?6)
+         ON CONFLICT(bot_id, chat_key)
+         DO UPDATE SET
+                chat_id = excluded.chat_id,
+            title = excluded.title,
+            is_forum = 0,
+            is_direct_messages = 1,
+            parent_channel_chat_id = excluded.parent_channel_chat_id,
+            updated_at = excluded.updated_at",
+        params![bot_id, &chat_key, chat_id, dm_title, channel_chat.chat_id, now],
+    )
+    .map_err(ApiError::internal)?;
+
+    upsert_chat_member_record(
+        conn,
+        bot_id,
+        &chat_key,
+        bot_id,
+        "admin",
+        "admin",
+        Some(now),
+        None,
+        None,
+        None,
+        None,
+        now,
+    )?;
+
+    load_sim_chat_record(conn, bot_id, &chat_key)?
+        .ok_or_else(|| ApiError::internal("failed to create channel direct messages chat"))
+}
+
+fn load_direct_messages_topic_record(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    chat_key: &str,
+    topic_id: i64,
+) -> Result<Option<SimDirectMessagesTopicRecord>, ApiError> {
+    conn.query_row(
+        "SELECT topic_id, user_id, created_at, updated_at, last_message_id, last_message_date
+         FROM sim_direct_message_topics
+         WHERE bot_id = ?1 AND chat_key = ?2 AND topic_id = ?3",
+        params![bot_id, chat_key, topic_id],
+        |row| {
+            Ok(SimDirectMessagesTopicRecord {
+                topic_id: row.get(0)?,
+                user_id: row.get(1)?,
+                created_at: row.get(2)?,
+                updated_at: row.get(3)?,
+                last_message_id: row.get(4)?,
+                last_message_date: row.get(5)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(ApiError::internal)
+}
+
+fn upsert_direct_messages_topic(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    chat_key: &str,
+    topic_id: i64,
+    user_id: i64,
+    last_message_id: Option<i64>,
+    last_message_date: Option<i64>,
+) -> Result<(), ApiError> {
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO sim_direct_message_topics
+         (bot_id, chat_key, topic_id, user_id, created_at, updated_at, last_message_id, last_message_date)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7)
+         ON CONFLICT(bot_id, chat_key, topic_id)
+         DO UPDATE SET
+            user_id = excluded.user_id,
+            updated_at = excluded.updated_at,
+            last_message_id = COALESCE(excluded.last_message_id, sim_direct_message_topics.last_message_id),
+            last_message_date = COALESCE(excluded.last_message_date, sim_direct_message_topics.last_message_date)",
+        params![
+            bot_id,
+            chat_key,
+            topic_id,
+            user_id,
+            now,
+            last_message_id,
+            last_message_date,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+    Ok(())
+}
+
+fn direct_messages_topic_value(
+    conn: &mut rusqlite::Connection,
+    user_id: i64,
+    topic_id: i64,
+) -> Result<Value, ApiError> {
+    let user = load_sim_user_record(conn, user_id)?
+        .map(|record| build_user_from_sim_record(&record, false));
+    let topic = DirectMessagesTopic {
+        topic_id,
+        user,
+    };
+    serde_json::to_value(topic).map_err(ApiError::internal)
+}
+
+fn load_direct_messages_topics_for_chat_json(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    chat_key: &str,
+) -> Result<Vec<Value>, ApiError> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.topic_id, t.user_id, t.updated_at, u.first_name, u.username
+             FROM sim_direct_message_topics t
+             LEFT JOIN users u ON u.id = t.user_id
+             WHERE t.bot_id = ?1 AND t.chat_key = ?2
+             ORDER BY t.updated_at DESC, t.topic_id ASC",
+        )
+        .map_err(ApiError::internal)?;
+
+    let rows = stmt
+        .query_map(params![bot_id, chat_key], |row| {
+            let topic_id: i64 = row.get(0)?;
+            let user_id: i64 = row.get(1)?;
+            let updated_at: i64 = row.get(2)?;
+            let first_name: Option<String> = row.get(3)?;
+            let username: Option<String> = row.get(4)?;
+            let label = first_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    username
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(|value| format!("@{}", value))
+                        .unwrap_or_else(|| format!("User {}", user_id))
+                });
+
+            Ok(json!({
+                "topic_id": topic_id,
+                "user_id": user_id,
+                "name": label,
+                "updated_at": updated_at,
+            }))
+        })
+        .map_err(ApiError::internal)?;
+
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row.map_err(ApiError::internal)?);
+    }
+
+    Ok(result)
+}
+
+fn resolve_direct_messages_topic_for_sender(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    sim_chat: &SimChatRecord,
+    sender: &SimUserRecord,
+    requested_topic_id: Option<i64>,
+) -> Result<(i64, Value, Option<Chat>), ApiError> {
+    let parent_channel_chat_id = sim_chat
+        .parent_channel_chat_id
+        .ok_or_else(|| ApiError::bad_request("direct messages chat parent channel is missing"))?;
+    let parent_channel_key = parent_channel_chat_id.to_string();
+    let parent_channel_chat = load_sim_chat_record(conn, bot_id, &parent_channel_key)?
+        .ok_or_else(|| ApiError::not_found("parent channel not found"))?;
+
+    let manager_allowed = load_chat_member_record(conn, bot_id, &parent_channel_key, sender.id)?
+        .map(|record| {
+            if record.status == "owner" {
+                true
+            } else if record.status == "admin" {
+                channel_admin_has_direct_messages_permission(record.admin_rights_json.as_deref())
+            } else {
+                false
+            }
+        })
+        .unwrap_or(false);
+
+    if manager_allowed {
+        let topic_id = requested_topic_id.unwrap_or(sender.id);
+        if topic_id <= 0 {
+            return Err(ApiError::bad_request("direct_messages_topic_id is invalid"));
+        }
+
+        let topic_record = load_direct_messages_topic_record(conn, bot_id, &sim_chat.chat_key, topic_id)?
+            .ok_or_else(|| ApiError::not_found("direct messages topic not found"))?;
+        if topic_record.user_id == sender.id {
+            return Err(ApiError::bad_request(
+                "direct-messages managers can't send messages to their own topic",
+            ));
+        }
+        let topic_user_id = topic_record.user_id;
+
+        let topic_value = direct_messages_topic_value(conn, topic_user_id, topic_id)?;
+        return Ok((
+            topic_id,
+            topic_value,
+            Some(build_chat_from_group_record(&parent_channel_chat)),
+        ));
+    }
+
+    let topic_id = requested_topic_id.unwrap_or(sender.id);
+    if topic_id != sender.id {
+        return Err(ApiError::bad_request(
+            "only channel admins with direct-messages rights can select direct_messages_topic_id",
+        ));
+    }
+
+    let existing = load_direct_messages_topic_record(conn, bot_id, &sim_chat.chat_key, topic_id)?;
+    if let Some(record) = existing {
+        if record.user_id != sender.id {
+            return Err(ApiError::bad_request("direct messages topic does not belong to sender"));
+        }
+    } else {
+        upsert_direct_messages_topic(conn, bot_id, &sim_chat.chat_key, topic_id, sender.id, None, None)?;
+    }
+
+    let topic_value = direct_messages_topic_value(conn, sender.id, topic_id)?;
+    Ok((topic_id, topic_value, None))
 }
 
 fn ensure_request_actor_can_manage_sender_chat_in_linked_context(
@@ -17237,7 +19971,7 @@ fn load_sim_chat_record(
     chat_key: &str,
 ) -> Result<Option<SimChatRecord>, ApiError> {
     conn.query_row(
-        "SELECT chat_id, chat_type, title, username, is_forum, channel_show_author_signature, linked_discussion_chat_id
+        "SELECT chat_id, chat_type, title, username, is_forum, is_direct_messages, parent_channel_chat_id, direct_messages_enabled, direct_messages_star_count, channel_show_author_signature, linked_discussion_chat_id
          FROM sim_chats
          WHERE bot_id = ?1 AND chat_key = ?2",
         params![bot_id, chat_key],
@@ -17249,8 +19983,45 @@ fn load_sim_chat_record(
                 title: row.get(2)?,
                 username: row.get(3)?,
                 is_forum: row.get::<_, i64>(4)? == 1,
-                channel_show_author_signature: row.get::<_, i64>(5)? == 1,
-                linked_discussion_chat_id: row.get(6)?,
+                is_direct_messages: row.get::<_, i64>(5)? == 1,
+                parent_channel_chat_id: row.get(6)?,
+                direct_messages_enabled: row.get::<_, i64>(7)? == 1,
+                direct_messages_star_count: row.get::<_, i64>(8)?,
+                channel_show_author_signature: row.get::<_, i64>(9)? == 1,
+                linked_discussion_chat_id: row.get(10)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(ApiError::internal)
+}
+
+fn load_sim_chat_record_by_chat_id(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    chat_id: i64,
+) -> Result<Option<SimChatRecord>, ApiError> {
+    conn.query_row(
+        "SELECT chat_key, chat_type, title, username, is_forum, is_direct_messages, parent_channel_chat_id, direct_messages_enabled, direct_messages_star_count, channel_show_author_signature, linked_discussion_chat_id
+         FROM sim_chats
+         WHERE bot_id = ?1 AND chat_id = ?2
+         ORDER BY updated_at DESC
+         LIMIT 1",
+        params![bot_id, chat_id],
+        |row| {
+            Ok(SimChatRecord {
+                chat_key: row.get(0)?,
+                chat_id,
+                chat_type: row.get(1)?,
+                title: row.get(2)?,
+                username: row.get(3)?,
+                is_forum: row.get::<_, i64>(4)? == 1,
+                is_direct_messages: row.get::<_, i64>(5)? == 1,
+                parent_channel_chat_id: row.get(6)?,
+                direct_messages_enabled: row.get::<_, i64>(7)? == 1,
+                direct_messages_star_count: row.get::<_, i64>(8)?,
+                channel_show_author_signature: row.get::<_, i64>(9)? == 1,
+                linked_discussion_chat_id: row.get(10)?,
             })
         },
     )
@@ -17300,8 +20071,8 @@ fn ensure_private_sim_chat(
     let now = Utc::now().timestamp();
     conn.execute(
         "INSERT INTO sim_chats
-         (bot_id, chat_key, chat_id, chat_type, title, username, description, photo_file_id, is_forum, message_history_visible, slow_mode_delay, permissions_json, owner_user_id, created_at, updated_at)
-         VALUES (?1, ?2, ?3, 'private', NULL, ?4, NULL, NULL, 0, 1, 0, NULL, NULL, ?5, ?5)
+         (bot_id, chat_key, chat_id, chat_type, title, username, description, photo_file_id, is_forum, is_direct_messages, parent_channel_chat_id, message_history_visible, slow_mode_delay, permissions_json, owner_user_id, created_at, updated_at)
+         VALUES (?1, ?2, ?3, 'private', NULL, ?4, NULL, NULL, 0, 0, NULL, 1, 0, NULL, NULL, ?5, ?5)
          ON CONFLICT(bot_id, chat_key) DO UPDATE SET updated_at = excluded.updated_at",
         params![bot_id, chat_key, chat_id, user.username, now],
     )
@@ -17314,6 +20085,10 @@ fn ensure_private_sim_chat(
         title: None,
         username: user.username.clone(),
         is_forum: false,
+        is_direct_messages: false,
+        parent_channel_chat_id: None,
+        direct_messages_enabled: false,
+        direct_messages_star_count: 0,
         channel_show_author_signature: false,
         linked_discussion_chat_id: None,
     })
@@ -17327,6 +20102,9 @@ fn resolve_sim_chat_for_user_message(
 ) -> Result<SimChatRecord, ApiError> {
     let chat_key = chat_id.to_string();
     if let Some(record) = load_sim_chat_record(conn, bot_id, &chat_key)? {
+        return Ok(record);
+    }
+    if let Some(record) = load_sim_chat_record_by_chat_id(conn, bot_id, chat_id)? {
         return Ok(record);
     }
     ensure_private_sim_chat(conn, bot_id, chat_id, user)
@@ -17734,6 +20512,7 @@ struct ChannelAdminRights {
     can_delete_messages: bool,
     can_invite_users: bool,
     can_change_info: bool,
+    can_manage_direct_messages: bool,
 }
 
 impl Default for ChannelAdminRights {
@@ -17750,12 +20529,19 @@ fn channel_admin_rights_full_access() -> ChannelAdminRights {
         can_delete_messages: true,
         can_invite_users: true,
         can_change_info: true,
+        can_manage_direct_messages: true,
     }
 }
 
 fn parse_channel_admin_rights_json(raw: Option<&str>) -> ChannelAdminRights {
     raw.and_then(|value| serde_json::from_str::<ChannelAdminRights>(value).ok())
         .unwrap_or_else(channel_admin_rights_full_access)
+}
+
+fn channel_admin_has_direct_messages_permission(raw: Option<&str>) -> bool {
+    raw.and_then(|value| serde_json::from_str::<ChannelAdminRights>(value).ok())
+        .map(|rights| rights.can_manage_direct_messages)
+        .unwrap_or(false)
 }
 
 fn channel_admin_rights_from_promote_request(request: &PromoteChatMemberRequest) -> ChannelAdminRights {
@@ -17766,6 +20552,7 @@ fn channel_admin_rights_from_promote_request(request: &PromoteChatMemberRequest)
         can_delete_messages: request.can_delete_messages.unwrap_or(false),
         can_invite_users: request.can_invite_users.unwrap_or(false),
         can_change_info: request.can_change_info.unwrap_or(false),
+        can_manage_direct_messages: request.can_manage_direct_messages.unwrap_or(false),
     }
 }
 
@@ -18078,7 +20865,11 @@ fn chat_member_from_status_with_details(
                 can_edit_messages: if is_channel { Some(rights.can_edit_messages) } else { None },
                 can_pin_messages: if is_channel { None } else { Some(true) },
                 can_manage_topics: if is_channel { None } else { Some(false) },
-                can_manage_direct_messages: None,
+                can_manage_direct_messages: if is_channel {
+                    Some(rights.can_manage_direct_messages)
+                } else {
+                    None
+                },
                 can_manage_tags: None,
                 custom_title: if is_channel { None } else { custom_title },
             })

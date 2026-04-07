@@ -88,7 +88,7 @@ import type {
   UnpinChatMessageRequest,
   UploadStickerFileRequest,
 } from '../types/generated/methods';
-import type { Chat as GeneratedChat, ChatFullInfo, ChatInviteLink, ChatMember, ChatPermissions, ChatShared, File as TgFile, ForumTopic, GameHighScore, InlineQueryResult, InlineQueryResultsButton, MenuButton, Message, Sticker, StickerSet, User as GeneratedUser, UsersShared, WebAppData } from '../types/generated/types';
+import type { BusinessBotRights, BusinessConnection as GeneratedBusinessConnection, Chat as GeneratedChat, ChatFullInfo, ChatInviteLink, ChatMember, ChatPermissions, ChatShared, File as TgFile, ForumTopic, GameHighScore, InlineQueryResult, InlineQueryResultsButton, MenuButton, Message, Sticker, StickerSet, User as GeneratedUser, UsersShared, WebAppData } from '../types/generated/types';
 
 export interface SimCreateGroupResult {
   chat: GeneratedChat;
@@ -221,6 +221,98 @@ export async function createSimulationGroup(token: string, payload: {
   return data.result as SimCreateGroupResult;
 }
 
+export async function openSimulationChannelDirectMessages(token: string, payload: {
+  channel_chat_id: number;
+  user_id?: number;
+  first_name?: string;
+  username?: string;
+}): Promise<{
+  chat: GeneratedChat;
+  parent_chat: GeneratedChat;
+  topics: Array<{
+    topic_id: number;
+    user_id: number;
+    name: string;
+    updated_at?: number;
+  }>;
+}> {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/channels/direct-messages/open`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to open channel direct messages');
+  }
+
+  return data.result as {
+    chat: GeneratedChat;
+    parent_chat: GeneratedChat;
+    topics: Array<{
+      topic_id: number;
+      user_id: number;
+      name: string;
+      updated_at?: number;
+    }>;
+  };
+}
+
+export async function setSimulationBusinessConnection(token: string, payload: {
+  user_id?: number;
+  first_name?: string;
+  username?: string;
+  business_connection_id?: string;
+  enabled?: boolean;
+  rights?: BusinessBotRights;
+}): Promise<GeneratedBusinessConnection> {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/business/connection`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to configure business connection');
+  }
+
+  return data.result as GeneratedBusinessConnection;
+}
+
+export async function removeSimulationBusinessConnection(token: string, payload: {
+  user_id?: number;
+  business_connection_id?: string;
+}): Promise<{
+  deleted: boolean;
+  business_connection_id?: string;
+  user_id?: number;
+}> {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/business/connection/remove`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to remove business connection');
+  }
+
+  return data.result as {
+    deleted: boolean;
+    business_connection_id?: string;
+    user_id?: number;
+  };
+}
+
 export async function joinSimulationGroup(token: string, payload: {
   chat_id: number;
   user_id?: number;
@@ -276,6 +368,8 @@ export async function updateSimulationGroup(token: string, payload: {
   is_forum?: boolean;
   show_author_signature?: boolean;
   linked_chat_id?: number;
+  direct_messages_enabled?: boolean;
+  direct_messages_star_count?: number;
   message_history_visible?: boolean;
   slow_mode_delay?: number;
   permissions?: ChatPermissions;
@@ -285,6 +379,8 @@ export async function updateSimulationGroup(token: string, payload: {
     description?: string;
     show_author_signature?: boolean;
     linked_chat_id?: number;
+    direct_messages_enabled?: boolean;
+    direct_messages_star_count?: number;
     message_history_visible: boolean;
     slow_mode_delay: number;
     permissions: ChatPermissions;
@@ -309,6 +405,8 @@ export async function updateSimulationGroup(token: string, payload: {
       description?: string;
       show_author_signature?: boolean;
       linked_chat_id?: number;
+      direct_messages_enabled?: boolean;
+      direct_messages_star_count?: number;
       message_history_visible: boolean;
       slow_mode_delay: number;
       permissions: ChatPermissions;
@@ -786,10 +884,12 @@ export async function declineSimulationGroupJoinRequest(token: string, payload: 
 export async function sendUserMessage(token: string, payload: {
   chat_id: number;
   message_thread_id?: number;
+  direct_messages_topic_id?: number;
   user_id: number;
   first_name: string;
   username?: string;
   sender_chat_id?: number;
+  business_connection_id?: string;
   text: string;
   parse_mode?: 'HTML' | 'Markdown' | 'MarkdownV2';
   reply_to_message_id?: number;
@@ -1025,10 +1125,12 @@ export async function getCallbackQueryAnswer(token: string, callbackQueryId: str
 export async function sendUserMedia(token: string, payload: {
   chatId: number;
   messageThreadId?: number;
+  directMessagesTopicId?: number;
   userId: number;
   firstName: string;
   username?: string;
   senderChatId?: number;
+  businessConnectionId?: string;
   file: globalThis.File;
   mediaKind?: 'photo' | 'video' | 'audio' | 'voice' | 'document' | 'sticker' | 'animation' | 'video_note';
   caption?: string;
@@ -1057,6 +1159,9 @@ export async function sendUserMedia(token: string, payload: {
   if (typeof payload.messageThreadId === 'number' && Number.isFinite(payload.messageThreadId)) {
     formData.append('message_thread_id', String(Math.trunc(payload.messageThreadId)));
   }
+  if (typeof payload.directMessagesTopicId === 'number' && Number.isFinite(payload.directMessagesTopicId) && payload.directMessagesTopicId > 0) {
+    formData.append('direct_messages_topic_id', String(Math.trunc(payload.directMessagesTopicId)));
+  }
   formData.append('user_id', String(payload.userId));
   formData.append('first_name', payload.firstName);
   if (payload.username) {
@@ -1064,6 +1169,9 @@ export async function sendUserMedia(token: string, payload: {
   }
   if (typeof payload.senderChatId === 'number' && Number.isFinite(payload.senderChatId) && payload.senderChatId > 0) {
     formData.append('sender_chat_id', String(Math.trunc(payload.senderChatId)));
+  }
+  if (payload.businessConnectionId?.trim()) {
+    formData.append('business_connection_id', payload.businessConnectionId.trim());
   }
   if (payload.replyToMessageId) {
     formData.append('reply_to_message_id', String(payload.replyToMessageId));
@@ -1096,10 +1204,12 @@ export async function sendUserMedia(token: string, payload: {
 export async function sendUserMediaByReference(token: string, payload: {
   chatId: number;
   messageThreadId?: number;
+  directMessagesTopicId?: number;
   userId: number;
   firstName: string;
   username?: string;
   senderChatId?: number;
+  businessConnectionId?: string;
   mediaKind: 'sticker' | 'animation' | 'video_note' | 'voice';
   media: string;
   caption?: string;
@@ -1114,10 +1224,12 @@ export async function sendUserMediaByReference(token: string, payload: {
     body: JSON.stringify({
       chat_id: payload.chatId,
       message_thread_id: payload.messageThreadId,
+      direct_messages_topic_id: payload.directMessagesTopicId,
       user_id: payload.userId,
       first_name: payload.firstName,
       username: payload.username,
       sender_chat_id: payload.senderChatId,
+      business_connection_id: payload.businessConnectionId,
       media_kind: payload.mediaKind,
       media: payload.media,
       caption: payload.caption,
@@ -1137,6 +1249,7 @@ export async function sendUserMediaByReference(token: string, payload: {
 export async function sendUserDice(token: string, payload: {
   chatId: number;
   messageThreadId?: number;
+  directMessagesTopicId?: number;
   userId: number;
   firstName: string;
   username?: string;
@@ -1152,6 +1265,7 @@ export async function sendUserDice(token: string, payload: {
     body: JSON.stringify({
       chat_id: payload.chatId,
       message_thread_id: payload.messageThreadId,
+      direct_messages_topic_id: payload.directMessagesTopicId,
       user_id: payload.userId,
       first_name: payload.firstName,
       username: payload.username,
@@ -1171,6 +1285,7 @@ export async function sendUserDice(token: string, payload: {
 export async function sendUserGame(token: string, payload: {
   chatId: number;
   messageThreadId?: number;
+  directMessagesTopicId?: number;
   userId: number;
   firstName: string;
   username?: string;
@@ -1186,6 +1301,7 @@ export async function sendUserGame(token: string, payload: {
     body: JSON.stringify({
       chat_id: payload.chatId,
       message_thread_id: payload.messageThreadId,
+      direct_messages_topic_id: payload.directMessagesTopicId,
       user_id: payload.userId,
       first_name: payload.firstName,
       username: payload.username,
@@ -1205,6 +1321,7 @@ export async function sendUserGame(token: string, payload: {
 export async function sendUserContact(token: string, payload: {
   chatId: number;
   messageThreadId?: number;
+  directMessagesTopicId?: number;
   userId: number;
   firstName: string;
   username?: string;
@@ -1223,6 +1340,7 @@ export async function sendUserContact(token: string, payload: {
     body: JSON.stringify({
       chat_id: payload.chatId,
       message_thread_id: payload.messageThreadId,
+      direct_messages_topic_id: payload.directMessagesTopicId,
       user_id: payload.userId,
       first_name: payload.firstName,
       username: payload.username,
@@ -1245,6 +1363,7 @@ export async function sendUserContact(token: string, payload: {
 export async function sendUserLocation(token: string, payload: {
   chatId: number;
   messageThreadId?: number;
+  directMessagesTopicId?: number;
   userId: number;
   firstName: string;
   username?: string;
@@ -1265,6 +1384,7 @@ export async function sendUserLocation(token: string, payload: {
     body: JSON.stringify({
       chat_id: payload.chatId,
       message_thread_id: payload.messageThreadId,
+      direct_messages_topic_id: payload.directMessagesTopicId,
       user_id: payload.userId,
       first_name: payload.firstName,
       username: payload.username,
@@ -1289,6 +1409,7 @@ export async function sendUserLocation(token: string, payload: {
 export async function sendUserVenue(token: string, payload: {
   chatId: number;
   messageThreadId?: number;
+  directMessagesTopicId?: number;
   userId: number;
   firstName: string;
   username?: string;
@@ -1307,6 +1428,7 @@ export async function sendUserVenue(token: string, payload: {
     body: JSON.stringify({
       chat_id: payload.chatId,
       message_thread_id: payload.messageThreadId,
+      direct_messages_topic_id: payload.directMessagesTopicId,
       user_id: payload.userId,
       first_name: payload.firstName,
       username: payload.username,
@@ -1390,13 +1512,39 @@ export async function upsertSimUser(payload: {
   return data.result;
 }
 
-export async function clearSimHistory(token: string, chatId: number) {
+export async function deleteSimUser(payload: {
+  id: number;
+}) {
+  const response = await fetch(`${API_BASE_URL}/client-api/users/delete`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to delete user');
+  }
+
+  return data.result as { deleted: boolean; id: number };
+}
+
+export async function clearSimHistory(token: string, chatId: number, messageThreadId?: number) {
+  const payload: Record<string, number> = {
+    chat_id: chatId,
+  };
+  if (typeof messageThreadId === 'number' && Number.isFinite(messageThreadId) && messageThreadId > 0) {
+    payload.message_thread_id = Math.floor(messageThreadId);
+  }
+
   const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/clearHistory`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ chat_id: chatId }),
+    body: JSON.stringify(payload),
   });
 
   const data = await response.json();
@@ -1536,15 +1684,15 @@ export async function editUserMessageMedia(token: string, payload: {
 export async function deleteBotMessage(token: string, payload: {
   chat_id: number;
   message_id: number;
-}) {
-  return callBotMethod<boolean>(token, 'deleteMessage', payload);
+}, actorUserId?: number) {
+  return callBotMethod<boolean>(token, 'deleteMessage', payload, { actorUserId });
 }
 
 export async function deleteBotMessages(token: string, payload: {
   chat_id: number;
   message_ids: number[];
-}) {
-  return callBotMethod<boolean>(token, 'deleteMessages', payload);
+}, actorUserId?: number) {
+  return callBotMethod<boolean>(token, 'deleteMessages', payload, { actorUserId });
 }
 
 export async function getBotFile(token: string, fileId: string): Promise<{
