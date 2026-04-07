@@ -105,6 +105,15 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             username    TEXT,
             first_name  TEXT NOT NULL,
+            last_name   TEXT,
+            phone_number TEXT,
+            photo_url   TEXT,
+            bio         TEXT,
+            is_premium  INTEGER NOT NULL DEFAULT 0,
+            business_name TEXT,
+            business_intro TEXT,
+            business_location TEXT,
+            gift_count  INTEGER NOT NULL DEFAULT 0,
             created_at  INTEGER NOT NULL
         );
 
@@ -683,6 +692,15 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
     ensure_column_exists(conn, "polls", "correct_option_ids_json", "TEXT")?;
     ensure_column_exists(conn, "polls", "description", "TEXT")?;
     ensure_column_exists(conn, "poll_metadata", "description_entities_json", "TEXT")?;
+    ensure_column_exists(conn, "users", "last_name", "TEXT")?;
+    ensure_column_exists(conn, "users", "phone_number", "TEXT")?;
+    ensure_column_exists(conn, "users", "photo_url", "TEXT")?;
+    ensure_column_exists(conn, "users", "bio", "TEXT")?;
+    ensure_column_exists(conn, "users", "is_premium", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column_exists(conn, "users", "business_name", "TEXT")?;
+    ensure_column_exists(conn, "users", "business_intro", "TEXT")?;
+    ensure_column_exists(conn, "users", "business_location", "TEXT")?;
+    ensure_column_exists(conn, "users", "gift_count", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column_exists(conn, "sim_chats", "sticker_set_name", "TEXT")?;
     ensure_column_exists(conn, "sim_chats", "pinned_message_id", "INTEGER")?;
     ensure_column_exists(conn, "sim_chats", "is_direct_messages", "INTEGER NOT NULL DEFAULT 0")?;

@@ -8,6 +8,7 @@ import {
   Contact,
   Dice5,
   Eye,
+  Gift,
   Gamepad2,
   MapPin,
   MapPinned,
@@ -183,6 +184,8 @@ const DEFAULT_USER: SimUser = {
   id: 10001,
   first_name: 'Test User',
   username: 'test_user',
+  is_premium: false,
+  gift_count: 0,
 };
 
 const START_KEY = 'laragram-started-chats';
@@ -220,6 +223,7 @@ type PaymentMethod = 'wallet' | 'card' | 'stars';
 type CheckoutStep = 1 | 2 | 3;
 type MediaDrawerTab =
   | 'stickers'
+  | 'gifts'
   | 'animations'
   | 'voice'
   | 'video_note'
@@ -229,8 +233,22 @@ type MediaDrawerTab =
   | 'location'
   | 'venue'
   | 'poll'
-  | 'invoice'
-  | 'studio';
+  | 'invoice';
+
+interface UserDraftState {
+  first_name: string;
+  last_name: string;
+  username: string;
+  id: string;
+  phone_number: string;
+  photo_url: string;
+  bio: string;
+  is_premium: boolean;
+  business_name: string;
+  business_intro: string;
+  business_location: string;
+  gift_count: string;
+}
 
 interface StickerShelfSet {
   name: string;
@@ -275,6 +293,113 @@ const FORUM_ICON_COLOR_PRESETS = [
   0x8EC5FF,
 ];
 const FORUM_TOPIC_EMOJI_PRESETS = ['😀', '😎', '🎯', '📣', '💡', '🚀', '🎮', '🛠️', '🧪', '📌'];
+
+function optionalTrimmedText(value?: string | null): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function nonNegativeInteger(value: unknown, fallback = 0): number {
+  const parsed = Math.floor(Number(value));
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function normalizeSimUser(raw?: Partial<SimUser> | null): SimUser {
+  const id = nonNegativeInteger(raw?.id, DEFAULT_USER.id) || DEFAULT_USER.id;
+  const firstName = optionalTrimmedText(raw?.first_name) || `User ${id}`;
+
+  return {
+    id,
+    first_name: firstName,
+    username: optionalTrimmedText(raw?.username),
+    last_name: optionalTrimmedText(raw?.last_name),
+    phone_number: optionalTrimmedText(raw?.phone_number),
+    photo_url: optionalTrimmedText(raw?.photo_url),
+    bio: optionalTrimmedText(raw?.bio),
+    is_premium: typeof raw?.is_premium === 'boolean' ? raw.is_premium : false,
+    business_name: optionalTrimmedText(raw?.business_name),
+    business_intro: optionalTrimmedText(raw?.business_intro),
+    business_location: optionalTrimmedText(raw?.business_location),
+    gift_count: nonNegativeInteger(raw?.gift_count, 0),
+  };
+}
+
+function formatSimUserDisplayName(user: SimUser): string {
+  const lastName = optionalTrimmedText(user.last_name);
+  return lastName ? `${user.first_name} ${lastName}` : user.first_name;
+}
+
+function simUserAvatarInitials(user: SimUser): string {
+  const parts = [user.first_name, optionalTrimmedText(user.last_name) || '']
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (parts.length === 0) {
+    return 'U';
+  }
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+}
+
+function emptyUserDraft(): UserDraftState {
+  return {
+    first_name: '',
+    last_name: '',
+    username: '',
+    id: '',
+    phone_number: '',
+    photo_url: '',
+    bio: '',
+    is_premium: false,
+    business_name: '',
+    business_intro: '',
+    business_location: '',
+    gift_count: '0',
+  };
+}
+
+function buildUserDraftFromSimUser(user: SimUser): UserDraftState {
+  const normalized = normalizeSimUser(user);
+  return {
+    first_name: normalized.first_name,
+    last_name: normalized.last_name || '',
+    username: normalized.username || '',
+    id: String(normalized.id),
+    phone_number: normalized.phone_number || '',
+    photo_url: normalized.photo_url || '',
+    bio: normalized.bio || '',
+    is_premium: Boolean(normalized.is_premium),
+    business_name: normalized.business_name || '',
+    business_intro: normalized.business_intro || '',
+    business_location: normalized.business_location || '',
+    gift_count: String(nonNegativeInteger(normalized.gift_count, 0)),
+  };
+}
+
+function randomUserDraft(nextId: number): UserDraftState {
+  const seed = Math.random().toString(36).slice(2, 7);
+  return {
+    first_name: `Test User ${Math.floor(Math.random() * 900 + 100)}`,
+    last_name: `Profile ${Math.floor(Math.random() * 900 + 100)}`,
+    username: `test_user_${seed}`,
+    id: String(nextId),
+    phone_number: `+1000${Math.floor(Math.random() * 9000000 + 1000000)}`,
+    photo_url: '',
+    bio: 'Telegram-like simulator user profile.',
+    is_premium: false,
+    business_name: '',
+    business_intro: '',
+    business_location: '',
+    gift_count: '0',
+  };
+}
 
 function normalizeWalletState(raw?: Partial<WalletState>): WalletState {
   const fiat = Math.floor(Number(raw?.fiat));
@@ -1177,10 +1302,16 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const [availableUsers, setAvailableUsers] = useState<SimUser[]>(() => {
     try {
       const raw = localStorage.getItem(USERS_KEY);
-      const parsed = raw ? (JSON.parse(raw) as SimUser[]) : [];
-      return parsed.length > 0 ? parsed : [DEFAULT_USER];
+      const parsed = raw ? (JSON.parse(raw) as Partial<SimUser>[]) : [];
+      const byId = new Map<number, SimUser>();
+      parsed.forEach((user) => {
+        const normalized = normalizeSimUser(user);
+        byId.set(normalized.id, normalized);
+      });
+      const hydrated = Array.from(byId.values());
+      return hydrated.length > 0 ? hydrated : [normalizeSimUser(DEFAULT_USER)];
     } catch {
-      return [DEFAULT_USER];
+      return [normalizeSimUser(DEFAULT_USER)];
     }
   });
   const [selectedUserId, setSelectedUserId] = useState<number>(() => {
@@ -1431,17 +1562,14 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const [errorText, setErrorText] = useState('');
   const [showBotModal, setShowBotModal] = useState(false);
   const [showUserModal, setShowUserModal] = useState(false);
+  const [showUserProfileModal, setShowUserProfileModal] = useState(false);
   const [botModalMode, setBotModalMode] = useState<BotModalMode>('create');
   const [userModalMode, setUserModalMode] = useState<UserModalMode>('create');
   const [botDraft, setBotDraft] = useState({
     first_name: '',
     username: '',
   });
-  const [userDraft, setUserDraft] = useState({
-    first_name: '',
-    username: '',
-    id: '',
-  });
+  const [userDraft, setUserDraft] = useState<UserDraftState>(() => emptyUserDraft());
   const [composerEditTarget, setComposerEditTarget] = useState<ChatMessage | null>(null);
   const [replyTarget, setReplyTarget] = useState<ChatMessage | null>(null);
   const [commentSourceByDiscussionChatKey, setCommentSourceByDiscussionChatKey] = useState<
@@ -1564,6 +1692,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const [paymentMethodByInvoice, setPaymentMethodByInvoice] = useState<Record<number, PaymentMethod>>({});
   const [paymentTipByInvoice, setPaymentTipByInvoice] = useState<Record<number, string>>({});
   const [checkoutFlow, setCheckoutFlow] = useState<CheckoutFlowState | null>(null);
+  const [showStickerStudioPanel, setShowStickerStudioPanel] = useState(false);
   const [walletByUserId, setWalletByUserId] = useState<Record<string, WalletState>>(() => {
     try {
       const raw = localStorage.getItem(USER_WALLETS_KEY);
@@ -1599,6 +1728,15 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     () => availableUsers.find((user) => user.id === selectedUserId) || DEFAULT_USER,
     [availableUsers, selectedUserId],
   );
+  const selectedUserDisplayName = useMemo(() => formatSimUserDisplayName(selectedUser), [selectedUser]);
+  const selectedUserSecondaryLine = useMemo(() => {
+    const identity = selectedUser.username ? `@${selectedUser.username}` : `id ${selectedUser.id}`;
+    const phone = optionalTrimmedText(selectedUser.phone_number);
+    if (phone) {
+      return `${identity} · ${phone}`;
+    }
+    return identity;
+  }, [selectedUser]);
   const selectedUserWalletKey = String(selectedUser.id);
   const walletState = walletByUserId[selectedUserWalletKey] || DEFAULT_WALLET_STATE;
   const setWalletState = (next: WalletState | ((prev: WalletState) => WalletState)) => {
@@ -1623,9 +1761,21 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const selectedBusinessConnectionStateKey = `${selectedBotToken}:${selectedUser.id}`;
   const businessDraftStateKey = `${businessDraftBotToken}:${selectedUser.id}`;
   const selectedBusinessConnection = businessConnectionByUserKey[selectedBusinessConnectionStateKey];
+  const selectedBusinessRights = useMemo(
+    () => Object.entries(selectedBusinessConnection?.rights || {})
+      .filter(([, value]) => value === true)
+      .map(([key]) => key.replace(/^can_/, '')),
+    [selectedBusinessConnection],
+  );
   const activeBusinessConnectionId = chatScopeTab === 'private' && selectedBusinessConnection?.is_enabled
     ? selectedBusinessConnection.id
     : undefined;
+
+  useEffect(() => {
+    if (chatScopeTab !== 'private') {
+      setShowUserProfileModal(false);
+    }
+  }, [chatScopeTab]);
 
   const inlineTrigger = useMemo(() => {
     const username = selectedBot?.username?.toLowerCase();
@@ -4029,11 +4179,12 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           return [...prev, bot];
         });
 
-        const bootstrapUsers = bootstrap.users.length > 0 ? bootstrap.users : [DEFAULT_USER];
+        const bootstrapUsers = (bootstrap.users.length > 0 ? bootstrap.users : [DEFAULT_USER]).map((user) => normalizeSimUser(user));
         setAvailableUsers((prev) => {
           const byId = new Map<number, SimUser>();
-          [...bootstrapUsers, ...prev].forEach((user) => {
-            byId.set(user.id, user);
+          [...prev, ...bootstrapUsers].forEach((user) => {
+            const normalized = normalizeSimUser(user);
+            byId.set(normalized.id, normalized);
           });
           return Array.from(byId.values());
         });
@@ -7803,11 +7954,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const openCreateUserModal = () => {
     const randomId = Math.floor(Math.random() * 900000 + 10000);
     setUserModalMode('create');
-    setUserDraft({
-      first_name: `Test User ${Math.floor(Math.random() * 900 + 100)}`,
-      username: `test_user_${Math.random().toString(36).slice(2, 7)}`,
-      id: String(randomId),
-    });
+    setUserDraft(randomUserDraft(randomId));
     setBusinessDraftBotToken(selectedBotToken);
     setBusinessConnectionDraftId('');
     setBusinessConnectionDraftEnabled(true);
@@ -7816,12 +7963,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   };
 
   const randomizeUserDraft = () => {
-    const randomId = Math.floor(Math.random() * 900000 + 10000);
-    setUserDraft({
-      first_name: `Test User ${Math.floor(Math.random() * 900 + 100)}`,
-      username: `test_user_${Math.random().toString(36).slice(2, 7)}`,
-      id: String(randomId),
-    });
+    const parsedId = Math.floor(Number(userDraft.id));
+    const randomId = userModalMode === 'edit' && Number.isFinite(parsedId) && parsedId > 0
+      ? parsedId
+      : Math.floor(Math.random() * 900000 + 10000);
+    setUserDraft(randomUserDraft(randomId));
   };
 
   const openEditBotModal = (bot: SimBot) => {
@@ -7838,11 +7984,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     const businessStateKey = `${selectedBotToken}:${user.id}`;
     const connection = businessConnectionByUserKey[businessStateKey];
     setUserModalMode('edit');
-    setUserDraft({
-      first_name: user.first_name,
-      username: user.username || '',
-      id: String(user.id),
-    });
+    setUserDraft(buildUserDraftFromSimUser(user));
     setSelectedUserId(user.id);
     setBusinessDraftBotToken(selectedBotToken);
     setBusinessConnectionDraftId(connection?.id || '');
@@ -7909,17 +8051,23 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
 
     try {
+      const parsedGiftCount = Math.floor(Number(userDraft.gift_count));
       const saved = await upsertSimUser({
         id,
         first_name: userDraft.first_name,
+        last_name: optionalTrimmedText(userDraft.last_name),
         username: userDraft.username,
+        phone_number: optionalTrimmedText(userDraft.phone_number),
+        photo_url: optionalTrimmedText(userDraft.photo_url),
+        bio: optionalTrimmedText(userDraft.bio),
+        is_premium: userDraft.is_premium,
+        business_name: optionalTrimmedText(userDraft.business_name),
+        business_intro: optionalTrimmedText(userDraft.business_intro),
+        business_location: optionalTrimmedText(userDraft.business_location),
+        gift_count: Number.isFinite(parsedGiftCount) && parsedGiftCount >= 0 ? parsedGiftCount : 0,
       });
 
-      const normalized: SimUser = {
-        id: saved.id,
-        first_name: saved.first_name,
-        username: saved.username,
-      };
+      const normalized = normalizeSimUser(saved as SimUser);
 
       setAvailableUsers((prev) => {
         const existingIndex = prev.findIndex((item) => item.id === normalized.id);
@@ -7932,7 +8080,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       });
 
       setSelectedUserId(normalized.id);
-      setUserDraft({ first_name: '', username: '', id: '' });
+      setUserDraft(emptyUserDraft());
       setShowUserModal(false);
       setActiveTab('users');
     } catch (error) {
@@ -11087,7 +11235,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                           onClick={() => setSelectedUserId(user.id)}
                           className="min-w-0 flex-1 text-left"
                         >
-                          <p className="truncate font-medium text-white">{user.first_name}</p>
+                          <p className="truncate font-medium text-white">
+                            {formatSimUserDisplayName(user)}
+                            {user.is_premium ? ' · Premium' : ''}
+                          </p>
                           <p className="truncate text-xs text-telegram-textSecondary">@{user.username || `user_${user.id}`}</p>
                         </button>
                         <button
@@ -11124,22 +11275,43 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         <section className="flex min-w-0 flex-1 flex-col bg-[#0f1e2d]/70">
           <header className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-[#1a2a3b]/70 px-3 py-3 sm:px-4 lg:px-5">
             <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#2b5278]">
-                <Bot className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <h2 className="truncate font-semibold">{selectedBot?.first_name || 'Bot'}</h2>
-                <p className="truncate text-xs text-telegram-textSecondary">
-                  @{selectedBot?.username || 'unknown'} | {chatScopeTab === 'private'
-                    ? 'Private'
-                    : (isDiscussionThreadView
-                      ? `Discussion · ${activeDiscussionCommentContext?.commentsCount || 0} comments`
-                      : (selectedGroup?.title || (chatScopeTab === 'channel' ? 'Channel' : 'Group')))}
-                  {chatScopeTab === 'group' && !isDiscussionThreadView && (selectedGroup?.isForum || selectedGroup?.isDirectMessages) && activeForumTopic
-                    ? ` · ${selectedGroup?.isDirectMessages ? 'DM Topic' : 'Topic'}: ${activeForumTopic.name}`
-                    : ''}
-                </p>
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (chatScopeTab === 'private') {
+                    setShowUserProfileModal(true);
+                  }
+                }}
+                className={`flex min-w-0 items-center gap-3 rounded-xl px-1 py-1 text-left ${chatScopeTab === 'private' ? 'hover:bg-white/5' : ''}`}
+                title={chatScopeTab === 'private' ? 'Open user profile' : 'Current chat info'}
+              >
+                <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-[#2b5278]">
+                  {chatScopeTab === 'private' && selectedUser.photo_url ? (
+                    <img src={selectedUser.photo_url} alt={selectedUserDisplayName} className="h-full w-full object-cover" />
+                  ) : chatScopeTab === 'private' ? (
+                    <span className="text-sm font-semibold text-[#d7edff]">{simUserAvatarInitials(selectedUser)}</span>
+                  ) : (
+                    <Bot className="h-5 w-5" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <h2 className="truncate font-semibold">
+                    {chatScopeTab === 'private'
+                      ? selectedUserDisplayName
+                      : (selectedGroup?.title || (chatScopeTab === 'channel' ? 'Channel' : 'Group'))}
+                  </h2>
+                  <p className="truncate text-xs text-telegram-textSecondary">
+                    {chatScopeTab === 'private'
+                      ? `${selectedUserSecondaryLine}${selectedUser.is_premium ? ' · Premium' : ''}`
+                      : `@${selectedBot?.username || 'unknown'} · ${isDiscussionThreadView
+                        ? `Discussion · ${activeDiscussionCommentContext?.commentsCount || 0} comments`
+                        : (chatScopeTab === 'channel' ? 'Channel chat' : 'Group chat')}`}
+                    {chatScopeTab === 'group' && !isDiscussionThreadView && (selectedGroup?.isForum || selectedGroup?.isDirectMessages) && activeForumTopic
+                      ? ` · ${selectedGroup?.isDirectMessages ? 'DM Topic' : 'Topic'}: ${activeForumTopic.name}`
+                      : ''}
+                  </p>
+                </div>
+              </button>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
               <select
@@ -11150,7 +11322,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               >
                 {availableUsers.map((user) => (
                   <option key={user.id} value={user.id}>
-                    {user.first_name} ({user.id})
+                    {formatSimUserDisplayName(user)} ({user.id})
                   </option>
                 ))}
               </select>
@@ -12154,11 +12326,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       <button
                         type="button"
                         onClick={() => {
-                          setMediaDrawerTab('studio');
+                          setMediaDrawerTab('gifts');
                         }}
-                        className={`rounded-lg px-2 py-1 text-[11px] ${mediaDrawerTab === 'studio' ? 'bg-[#2b5278] text-white' : 'bg-black/20 text-[#d8ecfb]'}`}
+                        className={`rounded-lg px-2 py-1 text-[11px] ${mediaDrawerTab === 'gifts' ? 'bg-[#2b5278] text-white' : 'bg-black/20 text-[#d8ecfb]'}`}
                       >
-                        <span className="inline-flex items-center gap-1"><Wrench className="h-3.5 w-3.5" />Studio</span>
+                        <span className="inline-flex items-center gap-1"><Gift className="h-3.5 w-3.5" />Gifts</span>
                       </button>
                       <button
                         type="button"
@@ -12228,7 +12400,17 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     <div className="max-h-[44vh] overflow-y-auto pr-1">
                       {mediaDrawerTab === 'stickers' ? (
                         <div className="space-y-2">
-                          <p className="text-[11px] text-[#9fc6df]">Sticker sets are auto-discovered from conversation and kept updated.</p>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-[11px] text-[#9fc6df]">Sticker sets are auto-discovered from conversation and kept updated.</p>
+                            <button
+                              type="button"
+                              onClick={() => setShowStickerStudioPanel((prev) => !prev)}
+                              className="inline-flex items-center gap-1 rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-2 py-1 text-[11px] text-white hover:bg-[#245a80]"
+                            >
+                              <Wrench className="h-3.5 w-3.5" />
+                              {showStickerStudioPanel ? 'Hide Studio' : 'Open Studio'}
+                            </button>
+                          </div>
                           {stickerShelf.length > 0 ? (
                             <div className="flex flex-wrap gap-1">
                               {stickerShelf.map((set) => (
@@ -12281,6 +12463,36 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                           ) : (
                             <p className="text-xs text-[#a6cbe4]">No discovered sticker set yet. Send/receive a sticker to populate this panel.</p>
                           )}
+                        </div>
+                      ) : null}
+
+                      {mediaDrawerTab === 'gifts' ? (
+                        <div className="space-y-2 text-xs text-[#d7ecfb]">
+                          <div className="rounded-xl border border-white/15 bg-black/20 px-3 py-2">
+                            <p className="text-[11px] uppercase tracking-wide text-[#8fb7d6]">Gifts Lab</p>
+                            <p className="mt-1 text-[#d0e8f8]">Phase 6.2 foundation is ready. Next incremental steps wire Telegram gift APIs and paid media handlers.</p>
+                          </div>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <div className="rounded-xl border border-white/15 bg-black/20 px-3 py-2">
+                              <p className="text-[11px] text-[#9fc6df]">Selected user</p>
+                              <p className="mt-1 text-sm text-white">{selectedUserDisplayName}</p>
+                              <p className="mt-1 text-[11px] text-[#c8e4f6]">Stored gifts: {nonNegativeInteger(selectedUser.gift_count, 0)}</p>
+                            </div>
+                            <div className="rounded-xl border border-white/15 bg-black/20 px-3 py-2">
+                              <p className="text-[11px] text-[#9fc6df]">Wallet</p>
+                              <p className="mt-1 text-[11px] text-[#c8e4f6]">Stars: {walletState.stars}</p>
+                              <p className="mt-1 text-[11px] text-[#c8e4f6]">Fiat: {walletState.fiat}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setShowUserProfileModal(true)}
+                              className="rounded-md border border-white/20 bg-white/10 px-3 py-1.5 text-[11px] text-white hover:bg-white/15"
+                            >
+                              Open profile
+                            </button>
+                          </div>
                         </div>
                       ) : null}
 
@@ -13052,8 +13264,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         </div>
                       ) : null}
 
-                      {mediaDrawerTab === 'studio' ? (
+                      {mediaDrawerTab === 'stickers' && showStickerStudioPanel ? (
                         <div className="space-y-2 text-[11px] text-[#d7ecfb]">
+                          <p className="text-[11px] uppercase tracking-wide text-[#9fc6df]">Sticker Studio</p>
                           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                             <input
                               value={stickerStudio.userId}
@@ -13350,6 +13563,87 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         </div>
       ) : null}
 
+      {showUserProfileModal && chatScopeTab === 'private' ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/10 bg-[#152434] p-4 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-base font-semibold text-white">Profile</h3>
+              <button
+                type="button"
+                onClick={() => setShowUserProfileModal(false)}
+                className="rounded-full p-1 text-white hover:bg-white/10"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+              <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-[#2b5278]">
+                {selectedUser.photo_url ? (
+                  <img src={selectedUser.photo_url} alt={selectedUserDisplayName} className="h-full w-full object-cover" />
+                ) : (
+                  <span className="text-lg font-semibold text-[#d7edff]">{simUserAvatarInitials(selectedUser)}</span>
+                )}
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-base font-semibold text-white">{selectedUserDisplayName}</p>
+                <p className="truncate text-xs text-[#a7cae0]">{selectedUserSecondaryLine}</p>
+                <p className="mt-1 text-[11px] text-[#8fb7d6]">id: {selectedUser.id}</p>
+              </div>
+            </div>
+
+            <div className="mt-3 space-y-2 text-xs text-[#d4e9f7]">
+              <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                <p className="text-[11px] uppercase tracking-wide text-[#8fb7d6]">About</p>
+                <p className="mt-1 whitespace-pre-wrap break-words">{selectedUser.bio || 'No bio set.'}</p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-[#8fb7d6]">Account</p>
+                  <p className="mt-1">Premium: {selectedUser.is_premium ? 'Yes' : 'No'}</p>
+                  <p className="mt-1">Gifts: {nonNegativeInteger(selectedUser.gift_count, 0)}</p>
+                  <p className="mt-1">Stars wallet: {walletState.stars}</p>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-[#8fb7d6]">Business</p>
+                  <p className="mt-1 truncate">Name: {selectedUser.business_name || '-'}</p>
+                  <p className="mt-1 truncate">Location: {selectedUser.business_location || '-'}</p>
+                  <p className="mt-1 truncate">Connection: {selectedBusinessConnection?.id || 'none'}</p>
+                  <p className="mt-1">Rights: {selectedBusinessRights.length > 0 ? selectedBusinessRights.join(', ') : 'none'}</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                <p className="text-[11px] uppercase tracking-wide text-[#8fb7d6]">Business Intro</p>
+                <p className="mt-1 whitespace-pre-wrap break-words">{selectedUser.business_intro || 'No business intro set.'}</p>
+              </div>
+            </div>
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowUserProfileModal(false)}
+                className="rounded-lg border border-white/15 px-3 py-2 text-sm text-white hover:bg-white/10"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowUserProfileModal(false);
+                  openEditUserModal(selectedUser);
+                }}
+                className="rounded-lg bg-[#2b5278] px-3 py-2 text-sm font-medium text-white hover:bg-[#366892]"
+              >
+                Edit User
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {showUserModal ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
           <form
@@ -13357,7 +13651,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               event.preventDefault();
               void commitUserModal();
             }}
-            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-white/10 bg-[#152434] p-4 shadow-2xl"
+            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-[#152434] p-4 shadow-2xl"
           >
             <div className="mb-3 flex items-center justify-between">
               <h3 className="flex items-center gap-2 text-lg font-semibold">
@@ -13369,12 +13663,18 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               </button>
             </div>
 
-            <div className="space-y-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <input
                 value={userDraft.first_name}
                 onChange={(e) => setUserDraft((prev) => ({ ...prev, first_name: e.target.value }))}
                 className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
                 placeholder="First name"
+              />
+              <input
+                value={userDraft.last_name}
+                onChange={(e) => setUserDraft((prev) => ({ ...prev, last_name: e.target.value }))}
+                className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                placeholder="Last name"
               />
               <input
                 value={userDraft.username}
@@ -13383,12 +13683,100 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                 placeholder="username (optional)"
               />
               <input
+                value={userDraft.phone_number}
+                onChange={(e) => setUserDraft((prev) => ({ ...prev, phone_number: e.target.value }))}
+                className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                placeholder="Phone number"
+              />
+              <input
                 value={userDraft.id}
                 onChange={(e) => setUserDraft((prev) => ({ ...prev, id: e.target.value }))}
                 disabled={userModalMode === 'edit'}
                 className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
                 placeholder="user id (optional)"
               />
+              <input
+                value={userDraft.gift_count}
+                onChange={(e) => setUserDraft((prev) => ({ ...prev, gift_count: e.target.value }))}
+                className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                placeholder="Gift count"
+              />
+              <input
+                value={userDraft.photo_url}
+                onChange={(e) => setUserDraft((prev) => ({ ...prev, photo_url: e.target.value }))}
+                className="sm:col-span-2 w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                placeholder="Photo URL"
+              />
+              <textarea
+                value={userDraft.bio}
+                onChange={(e) => setUserDraft((prev) => ({ ...prev, bio: e.target.value }))}
+                className="sm:col-span-2 min-h-[72px] w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                placeholder="Bio"
+              />
+              <input
+                value={userDraft.business_name}
+                onChange={(e) => setUserDraft((prev) => ({ ...prev, business_name: e.target.value }))}
+                className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                placeholder="Business name"
+              />
+              <input
+                value={userDraft.business_location}
+                onChange={(e) => setUserDraft((prev) => ({ ...prev, business_location: e.target.value }))}
+                className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                placeholder="Business location"
+              />
+              <textarea
+                value={userDraft.business_intro}
+                onChange={(e) => setUserDraft((prev) => ({ ...prev, business_intro: e.target.value }))}
+                className="sm:col-span-2 min-h-[64px] w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                placeholder="Business intro"
+              />
+              <label className="sm:col-span-2 inline-flex items-center gap-2 rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm text-[#d7ecfb]">
+                <input
+                  type="checkbox"
+                  checked={userDraft.is_premium}
+                  onChange={(e) => setUserDraft((prev) => ({ ...prev, is_premium: e.target.checked }))}
+                />
+                Premium account
+              </label>
+
+              <div className="sm:col-span-2 rounded-xl border border-white/15 bg-[#0f1c28] p-3 text-xs text-[#cfe7f8]">
+                <p className="text-[11px] uppercase tracking-wide text-[#8fb7d6]">Business Connection</p>
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <input
+                    value={businessConnectionDraftId}
+                    onChange={(e) => setBusinessConnectionDraftId(e.target.value)}
+                    className="w-full rounded-lg border border-white/15 bg-[#0b1722] px-3 py-2 text-xs text-white outline-none"
+                    placeholder="business connection id"
+                  />
+                  <label className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-[#0b1722] px-3 py-2 text-xs text-[#d7ecfb]">
+                    <input
+                      type="checkbox"
+                      checked={businessConnectionDraftEnabled}
+                      onChange={(e) => setBusinessConnectionDraftEnabled(e.target.checked)}
+                    />
+                    enabled
+                  </label>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void onRemoveSelectedUserBusinessConnection()}
+                    disabled={userModalMode === 'create' || isBusinessActionRunning}
+                    className="rounded-md border border-red-300/40 bg-red-700/25 px-2.5 py-1 text-[11px] text-red-100 hover:bg-red-700/35 disabled:opacity-50"
+                  >
+                    Remove
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void onSaveSelectedUserBusinessConnection()}
+                    disabled={userModalMode === 'create' || isBusinessActionRunning}
+                    className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-2.5 py-1 text-[11px] text-white hover:bg-[#245a80] disabled:opacity-50"
+                  >
+                    {isBusinessActionRunning ? 'Saving...' : 'Save connection'}
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="mt-3 flex items-center justify-end gap-2">

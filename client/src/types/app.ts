@@ -42,6 +42,15 @@ export interface SimUser {
   id: number;
   username?: string;
   first_name: string;
+  last_name?: string;
+  phone_number?: string;
+  photo_url?: string;
+  bio?: string;
+  is_premium?: boolean;
+  business_name?: string;
+  business_intro?: string;
+  business_location?: string;
+  gift_count?: number;
 }
 
 export interface SimChatMembership {

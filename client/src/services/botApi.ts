@@ -1494,7 +1494,16 @@ export async function updateSimBot(
 export async function upsertSimUser(payload: {
   id?: number;
   first_name?: string;
+  last_name?: string;
   username?: string;
+  phone_number?: string;
+  photo_url?: string;
+  bio?: string;
+  is_premium?: boolean;
+  business_name?: string;
+  business_intro?: string;
+  business_location?: string;
+  gift_count?: number;
 }) {
   const response = await fetch(`${API_BASE_URL}/client-api/users/upsert`, {
     method: 'POST',

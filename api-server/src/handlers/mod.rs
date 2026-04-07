@@ -168,7 +168,16 @@ pub struct SimOpenChannelDirectMessagesRequest {
 pub struct SimUpsertUserRequest {
     pub id: Option<i64>,
     pub first_name: Option<String>,
+    pub last_name: Option<String>,
     pub username: Option<String>,
+    pub phone_number: Option<String>,
+    pub photo_url: Option<String>,
+    pub bio: Option<String>,
+    pub is_premium: Option<bool>,
+    pub business_name: Option<String>,
+    pub business_intro: Option<String>,
+    pub business_location: Option<String>,
+    pub gift_count: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -10159,7 +10168,8 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
 
     let mut users_stmt = conn
         .prepare(
-            "SELECT id, username, first_name
+            "SELECT id, username, first_name, last_name, phone_number, photo_url, bio, is_premium,
+                    business_name, business_intro, business_location, gift_count
              FROM users
              ORDER BY id ASC",
         )
@@ -10170,6 +10180,15 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
                 "id": row.get::<_, i64>(0)?,
                 "username": row.get::<_, Option<String>>(1)?,
                 "first_name": row.get::<_, String>(2)?,
+                "last_name": row.get::<_, Option<String>>(3)?,
+                "phone_number": row.get::<_, Option<String>>(4)?,
+                "photo_url": row.get::<_, Option<String>>(5)?,
+                "bio": row.get::<_, Option<String>>(6)?,
+                "is_premium": row.get::<_, i64>(7)? == 1,
+                "business_name": row.get::<_, Option<String>>(8)?,
+                "business_intro": row.get::<_, Option<String>>(9)?,
+                "business_location": row.get::<_, Option<String>>(10)?,
+                "gift_count": row.get::<_, i64>(11)?,
             }))
         })
         .map_err(ApiError::internal)?;
@@ -11861,33 +11880,139 @@ pub fn handle_sim_update_bot(
 pub fn handle_sim_upsert_user(state: &Data<AppState>, body: SimUpsertUserRequest) -> ApiResult {
     let conn = lock_db(state)?;
 
+    struct ExistingSimUserProfile {
+        first_name: String,
+        username: Option<String>,
+        last_name: Option<String>,
+        phone_number: Option<String>,
+        photo_url: Option<String>,
+        bio: Option<String>,
+        is_premium: bool,
+        business_name: Option<String>,
+        business_intro: Option<String>,
+        business_location: Option<String>,
+        gift_count: i64,
+    }
+
+    let normalize_optional_text = |input: Option<String>| {
+        input
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    };
+
     let id = body
         .id
         .unwrap_or_else(|| (Utc::now().timestamp_millis() % 9_000_000) + 10_000);
-    let first_name = body
-        .first_name
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
+
+    let existing = conn
+        .query_row(
+            "SELECT first_name, username, last_name, phone_number, photo_url, bio, is_premium,
+                    business_name, business_intro, business_location, gift_count
+             FROM users
+             WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok(ExistingSimUserProfile {
+                    first_name: row.get(0)?,
+                    username: row.get(1)?,
+                    last_name: row.get(2)?,
+                    phone_number: row.get(3)?,
+                    photo_url: row.get(4)?,
+                    bio: row.get(5)?,
+                    is_premium: row.get::<_, i64>(6)? == 1,
+                    business_name: row.get(7)?,
+                    business_intro: row.get(8)?,
+                    business_location: row.get(9)?,
+                    gift_count: row.get(10)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    let first_name = normalize_optional_text(body.first_name)
+        .or_else(|| existing.as_ref().map(|profile| profile.first_name.clone()))
         .unwrap_or_else(|| format!("User {}", id));
     let username = body
         .username
-        .map(|v| sanitize_username(&v))
-        .filter(|v| !v.is_empty())
+        .as_deref()
+        .map(sanitize_username)
+        .filter(|value| !value.is_empty())
+        .or_else(|| existing.as_ref().and_then(|profile| profile.username.clone()))
         .unwrap_or_else(|| format!("user_{}", id));
+    let last_name = normalize_optional_text(body.last_name)
+        .or_else(|| existing.as_ref().and_then(|profile| profile.last_name.clone()));
+    let phone_number = normalize_optional_text(body.phone_number)
+        .or_else(|| existing.as_ref().and_then(|profile| profile.phone_number.clone()));
+    let photo_url = normalize_optional_text(body.photo_url)
+        .or_else(|| existing.as_ref().and_then(|profile| profile.photo_url.clone()));
+    let bio = normalize_optional_text(body.bio)
+        .or_else(|| existing.as_ref().and_then(|profile| profile.bio.clone()));
+    let business_name = normalize_optional_text(body.business_name)
+        .or_else(|| existing.as_ref().and_then(|profile| profile.business_name.clone()));
+    let business_intro = normalize_optional_text(body.business_intro)
+        .or_else(|| existing.as_ref().and_then(|profile| profile.business_intro.clone()));
+    let business_location = normalize_optional_text(body.business_location)
+        .or_else(|| existing.as_ref().and_then(|profile| profile.business_location.clone()));
+    let is_premium = body
+        .is_premium
+        .or_else(|| existing.as_ref().map(|profile| profile.is_premium))
+        .unwrap_or(false);
+    let gift_count = body
+        .gift_count
+        .or_else(|| existing.as_ref().map(|profile| profile.gift_count))
+        .unwrap_or(0)
+        .max(0);
 
     let now = Utc::now().timestamp();
     conn.execute(
-        "INSERT INTO users (id, username, first_name, created_at)
-         VALUES (?1, ?2, ?3, ?4)
-         ON CONFLICT(id) DO UPDATE SET username = excluded.username, first_name = excluded.first_name",
-        params![id, username, first_name, now],
+        "INSERT INTO users
+         (id, username, first_name, last_name, phone_number, photo_url, bio, is_premium,
+          business_name, business_intro, business_location, gift_count, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+         ON CONFLICT(id) DO UPDATE SET
+            username = excluded.username,
+            first_name = excluded.first_name,
+            last_name = excluded.last_name,
+            phone_number = excluded.phone_number,
+            photo_url = excluded.photo_url,
+            bio = excluded.bio,
+            is_premium = excluded.is_premium,
+            business_name = excluded.business_name,
+            business_intro = excluded.business_intro,
+            business_location = excluded.business_location,
+            gift_count = excluded.gift_count",
+        params![
+            id,
+            username,
+            first_name,
+            last_name,
+            phone_number,
+            photo_url,
+            bio,
+            if is_premium { 1 } else { 0 },
+            business_name,
+            business_intro,
+            business_location,
+            gift_count,
+            now,
+        ],
     )
     .map_err(ApiError::internal)?;
 
     Ok(json!({
         "id": id,
         "username": username,
-        "first_name": first_name
+        "first_name": first_name,
+        "last_name": last_name,
+        "phone_number": phone_number,
+        "photo_url": photo_url,
+        "bio": bio,
+        "is_premium": is_premium,
+        "business_name": business_name,
+        "business_intro": business_intro,
+        "business_location": business_location,
+        "gift_count": gift_count
     }))
 }
 
@@ -18231,6 +18356,8 @@ fn load_message_value(
             id: from_user_id,
             first_name: first_name.clone(),
             username: username.clone(),
+            last_name: None,
+            is_premium: false,
         };
         chat_from_sim_record(&sim_chat, &sender)
     } else {
@@ -18597,6 +18724,8 @@ struct SimUserRecord {
     id: i64,
     first_name: String,
     username: Option<String>,
+    last_name: Option<String>,
+    is_premium: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -19362,10 +19491,13 @@ fn build_business_connection(
         id: user_record.id,
         is_bot: false,
         first_name: user_record.first_name,
-        last_name: profile.as_ref().and_then(|item| item.last_name.clone()),
+        last_name: profile
+            .as_ref()
+            .and_then(|item| item.last_name.clone())
+            .or(user_record.last_name),
         username: user_record.username,
         language_code: None,
-        is_premium: None,
+        is_premium: Some(user_record.is_premium),
         added_to_attachment_menu: None,
         can_join_groups: None,
         can_read_all_group_messages: None,
@@ -20252,13 +20384,15 @@ fn load_sim_user_record(
     user_id: i64,
 ) -> Result<Option<SimUserRecord>, ApiError> {
     conn.query_row(
-        "SELECT id, first_name, username FROM users WHERE id = ?1",
+        "SELECT id, first_name, username, last_name, is_premium FROM users WHERE id = ?1",
         params![user_id],
         |row| {
             Ok(SimUserRecord {
                 id: row.get(0)?,
                 first_name: row.get(1)?,
                 username: row.get(2)?,
+                last_name: row.get(3)?,
+                is_premium: row.get::<_, i64>(4)? == 1,
             })
         },
     )
@@ -20780,10 +20914,10 @@ fn build_user_from_sim_record(record: &SimUserRecord, is_bot: bool) -> User {
         id: record.id,
         is_bot,
         first_name: record.first_name.clone(),
-        last_name: None,
+        last_name: record.last_name.clone(),
         username: record.username.clone(),
         language_code: None,
-        is_premium: None,
+        is_premium: Some(record.is_premium),
         added_to_attachment_menu: None,
         can_join_groups: None,
         can_read_all_group_messages: None,
@@ -20971,13 +21105,15 @@ fn ensure_user(
     .map_err(ApiError::internal)?;
 
     conn.query_row(
-        "SELECT id, first_name, username FROM users WHERE id = ?1",
+        "SELECT id, first_name, username, last_name, is_premium FROM users WHERE id = ?1",
         params![id],
         |row| {
             Ok(SimUserRecord {
                 id: row.get(0)?,
                 first_name: row.get(1)?,
                 username: row.get(2)?,
+                last_name: row.get(3)?,
+                is_premium: row.get::<_, i64>(4)? == 1,
             })
         },
     )
