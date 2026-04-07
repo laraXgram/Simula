@@ -125,7 +125,14 @@ import {
   sendUserVenue,
   sendInlineQuery,
   getInlineQueryAnswer,
+  getAvailableGifts,
+  getChatGifts,
+  deleteOwnedGift,
+  getUserGifts,
+  giftPremiumSubscription,
+  purchasePaidMedia,
   setGameScore,
+  sendGift,
   getSimulationBootstrap,
   openSimulationChannelDirectMessages,
   removeSimulationBusinessConnection,
@@ -141,6 +148,7 @@ import {
   sendUserMessage,
   forwardMessage,
   sendBotMediaFile,
+  sendBotPaidMedia,
   sendBotMessage,
   setUserMessageReaction,
   setSimulationBotGroupMembership,
@@ -161,6 +169,8 @@ import type {
   MenuButtonCommands as GeneratedMenuButtonCommands,
   MenuButtonDefault as GeneratedMenuButtonDefault,
   MenuButtonWebApp as GeneratedMenuButtonWebApp,
+  Gift as GeneratedGift,
+  OwnedGiftRegular as GeneratedOwnedGiftRegular,
   UsersShared as GeneratedUsersShared,
   WebAppData as GeneratedWebAppData,
 } from '../../types/generated/types';
@@ -207,12 +217,14 @@ const FORUM_TOPICS_KEY = 'laragram-forum-topics-by-chat';
 const SELECTED_FORUM_TOPIC_KEY = 'laragram-selected-forum-topic-by-chat';
 const BUSINESS_CONNECTIONS_KEY = 'laragram-business-connections';
 const USER_WALLETS_KEY = 'laragram-user-wallets';
+const PAID_MEDIA_PURCHASES_KEY = 'laragram-paid-media-purchases';
 const GENERAL_FORUM_TOPIC_THREAD_ID = 1;
 const DEFAULT_FORUM_ICON_COLOR = 0x6FB9F0;
 const DEFAULT_WALLET_STATE = {
   fiat: 50000,
   stars: 2500,
 };
+const PREMIUM_SUBSCRIPTION_STAR_COST = 950;
 type SidebarTab = 'chats' | 'bots' | 'users';
 type ChatScopeTab = 'private' | 'group' | 'channel';
 type BotModalMode = 'create' | 'edit';
@@ -280,6 +292,8 @@ const TELEGRAM_REACTION_EMOJIS = [
   '👍', '👎', '❤', '🔥', '🎉', '😁', '🤔', '😢', '😱', '👏', '🤩', '🙏', '👌', '🤣', '💯', '⚡',
   '💔', '🥰', '🤬', '🤯', '🤮', '🥱', '😈', '😎', '🗿', '🆒', '😘', '👀', '🤝', '🍾',
 ];
+const PAID_REACTION_KEY = '__paid_star__';
+const PAID_REACTION_GLYPH = '⭐';
 
 const DICE_EMOJIS = ['🎲', '🎯', '🏀', '⚽', '🎳', '🎰', '🏐'] as const;
 const FORUM_ICON_COLOR_PRESETS = [
@@ -293,6 +307,39 @@ const FORUM_ICON_COLOR_PRESETS = [
   0x8EC5FF,
 ];
 const FORUM_TOPIC_EMOJI_PRESETS = ['😀', '😎', '🎯', '📣', '💡', '🚀', '🎮', '🛠️', '🧪', '📌'];
+
+function reactionKeyFromTypePayload(raw: unknown): string | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+
+  const payload = raw as Record<string, unknown>;
+  const kind = typeof payload.type === 'string'
+    ? payload.type.toLowerCase()
+    : 'emoji';
+  if (kind === 'paid') {
+    return PAID_REACTION_KEY;
+  }
+  if (kind !== 'emoji') {
+    return null;
+  }
+
+  const emoji = typeof payload.emoji === 'string'
+    ? payload.emoji.trim()
+    : '';
+  return emoji.length > 0 ? emoji : null;
+}
+
+function reactionKeyToPayload(key: string): { type: 'emoji'; emoji: string } | { type: 'paid' } {
+  if (key === PAID_REACTION_KEY) {
+    return { type: 'paid' };
+  }
+  return { type: 'emoji', emoji: key };
+}
+
+function renderReactionLabel(key: string): string {
+  return key === PAID_REACTION_KEY ? PAID_REACTION_GLYPH : key;
+}
 
 function optionalTrimmedText(value?: string | null): string | undefined {
   if (typeof value !== 'string') {
@@ -410,6 +457,33 @@ function normalizeWalletState(raw?: Partial<WalletState>): WalletState {
   };
 }
 
+function normalizeOwnedGiftRegular(raw: Record<string, unknown>): GeneratedOwnedGiftRegular | null {
+  const type = typeof raw.type === 'string' ? raw.type : '';
+  const sendDate = Number(raw.send_date);
+  const gift = raw.gift;
+
+  if (type !== 'regular' || !gift || typeof gift !== 'object') {
+    return null;
+  }
+  if (!Number.isFinite(sendDate) || sendDate <= 0) {
+    return null;
+  }
+
+  return raw as unknown as GeneratedOwnedGiftRegular;
+}
+
+function extractGiftEmoji(gift: GeneratedGift): string {
+  const emoji = gift?.sticker?.emoji;
+  return typeof emoji === 'string' && emoji.trim().length > 0 ? emoji.trim() : '🎁';
+}
+
+function formatGiftSendDate(sendDate?: number): string {
+  if (!Number.isFinite(sendDate)) {
+    return 'unknown date';
+  }
+  return new Date(Number(sendDate) * 1000).toLocaleString();
+}
+
 function mapIncomingReplyMarkup(raw?: unknown): BotReplyMarkup | undefined {
   if (!raw || typeof raw !== 'object') {
     return undefined;
@@ -469,6 +543,7 @@ interface GroupChatItem {
 
 interface GroupSettingsSnapshot {
   showAuthorSignature: boolean;
+  paidStarReactionsEnabled: boolean;
   directMessagesEnabled: boolean;
   directMessagesStarCount: number;
   messageHistoryVisible: boolean;
@@ -830,6 +905,7 @@ function normalizeMembershipStatus(status?: string): string {
 function defaultGroupSettings(): GroupSettingsSnapshot {
   return {
     showAuthorSignature: false,
+    paidStarReactionsEnabled: false,
     directMessagesEnabled: false,
     directMessagesStarCount: 0,
     messageHistoryVisible: true,
@@ -854,6 +930,7 @@ function defaultGroupSettings(): GroupSettingsSnapshot {
 
 function mapServerSettingsToSnapshot(raw?: {
   show_author_signature?: boolean;
+  paid_star_reactions_enabled?: boolean;
   direct_messages_enabled?: boolean;
   direct_messages_star_count?: number;
   message_history_visible?: boolean;
@@ -884,6 +961,7 @@ function mapServerSettingsToSnapshot(raw?: {
 
   return {
     showAuthorSignature: raw?.show_author_signature ?? defaults.showAuthorSignature,
+    paidStarReactionsEnabled: raw?.paid_star_reactions_enabled ?? defaults.paidStarReactionsEnabled,
     directMessagesEnabled: raw?.direct_messages_enabled ?? defaults.directMessagesEnabled,
     directMessagesStarCount: Math.max(0, Math.floor(Number(raw?.direct_messages_star_count ?? defaults.directMessagesStarCount) || 0)),
     messageHistoryVisible: raw?.message_history_visible ?? defaults.messageHistoryVisible,
@@ -1390,6 +1468,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     description: '',
     isForum: false,
     showAuthorSignature: false,
+    paidStarReactionsEnabled: false,
     directMessagesEnabled: false,
     directMessagesStarCount: 0,
     messageHistoryVisible: true,
@@ -1576,6 +1655,13 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     Record<string, { channelChatId: number; channelMessageId: number; discussionRootMessageId?: number }>
   >({});
   const [messageMenu, setMessageMenu] = useState<{ messageId: number; x: number; y: number } | null>(null);
+  const [paidReactionModal, setPaidReactionModal] = useState<{
+    chatId: number;
+    messageId: number;
+    currentPaidCount: number;
+  } | null>(null);
+  const [paidReactionAmountDraft, setPaidReactionAmountDraft] = useState('1');
+  const [isPaidReactionSubmitting, setIsPaidReactionSubmitting] = useState(false);
   const [forwardMessageId, setForwardMessageId] = useState<number | null>(null);
   const [forwardTargetChatId, setForwardTargetChatId] = useState('');
   const [keyboardRequestUsersModal, setKeyboardRequestUsersModal] = useState<KeyboardRequestUsersModalState | null>(null);
@@ -1585,6 +1671,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const [selectedMessageIds, setSelectedMessageIds] = useState<number[]>([]);
   const [copiedToken, setCopiedToken] = useState(false);
   const [selectedUploads, setSelectedUploads] = useState<File[]>([]);
+  const [uploadAsPaidMedia, setUploadAsPaidMedia] = useState(false);
+  const [uploadPaidStarCountDraft, setUploadPaidStarCountDraft] = useState('25');
   const [composerParseMode, setComposerParseMode] = useState<ComposerParseMode>('none');
   const [showFormattingTools, setShowFormattingTools] = useState(false);
   const [mediaUrlByFileId, setMediaUrlByFileId] = useState<Record<string, string>>({});
@@ -1607,6 +1695,35 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const [gameShortNameDraft, setGameShortNameDraft] = useState('');
   const [showMediaDrawer, setShowMediaDrawer] = useState(false);
   const [mediaDrawerTab, setMediaDrawerTab] = useState<MediaDrawerTab>('stickers');
+  const [giftCatalog, setGiftCatalog] = useState<GeneratedGift[]>([]);
+  const [ownedRegularGifts, setOwnedRegularGifts] = useState<GeneratedOwnedGiftRegular[]>([]);
+  const [selectedGiftId, setSelectedGiftId] = useState('');
+  const [giftMessageDraft, setGiftMessageDraft] = useState('');
+  const [giftPayForUpgrade, setGiftPayForUpgrade] = useState(false);
+  const [isGiftCatalogLoading, setIsGiftCatalogLoading] = useState(false);
+  const [isOwnedGiftsLoading, setIsOwnedGiftsLoading] = useState(false);
+  const [isGiftActionLoading, setIsGiftActionLoading] = useState(false);
+  const [deletingOwnedGiftId, setDeletingOwnedGiftId] = useState<string | null>(null);
+  const [purchasingPaidMediaMessageId, setPurchasingPaidMediaMessageId] = useState<number | null>(null);
+  const [paidMediaPurchaseByActorKey, setPaidMediaPurchaseByActorKey] = useState<Record<string, boolean>>(() => {
+    try {
+      const raw = localStorage.getItem(PAID_MEDIA_PURCHASES_KEY);
+      if (!raw) {
+        return {};
+      }
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      return Object.entries(parsed).reduce<Record<string, boolean>>((acc, [key, value]) => {
+        if (typeof key === 'string' && typeof value === 'boolean') {
+          acc[key] = value;
+        }
+        return acc;
+      }, {});
+    } catch {
+      return {};
+    }
+  });
+  const [giftPanelError, setGiftPanelError] = useState('');
+  const [giftReloadTick, setGiftReloadTick] = useState(0);
   const [shareDraft, setShareDraft] = useState({
     phoneNumber: '+10000000000',
     contactFirstName: '',
@@ -2180,6 +2297,275 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   // Keep discussion comments authored by the active user, not the linked channel identity.
   const activeDiscussionSenderChatId: number | undefined = undefined;
   const chatKey = `${selectedBotToken}:${selectedChatId}`;
+  const isGiftPanelOpen = showMediaDrawer && mediaDrawerTab === 'gifts';
+  const selectedGift = useMemo(
+    () => giftCatalog.find((gift) => gift.id === selectedGiftId) || giftCatalog[0] || null,
+    [giftCatalog, selectedGiftId],
+  );
+  const selectedGiftChargeEstimate = selectedGift
+    ? selectedGift.star_count + (giftPayForUpgrade ? (selectedGift.upgrade_star_count || 0) : 0)
+    : 0;
+  const canSendGiftInCurrentScope = chatScopeTab === 'private'
+    || (chatScopeTab === 'channel' && selectedGroup?.type === 'channel');
+
+  useEffect(() => {
+    if (giftCatalog.length === 0) {
+      if (selectedGiftId) {
+        setSelectedGiftId('');
+      }
+      return;
+    }
+
+    if (!giftCatalog.some((gift) => gift.id === selectedGiftId)) {
+      setSelectedGiftId(giftCatalog[0].id);
+    }
+  }, [giftCatalog, selectedGiftId]);
+
+  useEffect(() => {
+    if (!isGiftPanelOpen || !selectedBotToken) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadGiftCatalog = async () => {
+      setIsGiftCatalogLoading(true);
+      setGiftPanelError('');
+      try {
+        const response = await getAvailableGifts(selectedBotToken);
+        if (cancelled) {
+          return;
+        }
+
+        setGiftCatalog(Array.isArray(response.gifts) ? response.gifts : []);
+      } catch (error) {
+        if (!cancelled) {
+          setGiftCatalog([]);
+          setGiftPanelError(error instanceof Error ? error.message : 'Failed to load available gifts');
+        }
+      } finally {
+        if (!cancelled) {
+          setIsGiftCatalogLoading(false);
+        }
+      }
+    };
+
+    void loadGiftCatalog();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isGiftPanelOpen, selectedBotToken]);
+
+  useEffect(() => {
+    if (!isGiftPanelOpen || !selectedBotToken) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadOwnedGifts = async () => {
+      setIsOwnedGiftsLoading(true);
+      try {
+        let regularGifts: GeneratedOwnedGiftRegular[] = [];
+
+        if (chatScopeTab === 'private') {
+          const response = await getUserGifts(selectedBotToken, {
+            user_id: selectedUser.id,
+            limit: 20,
+          });
+          regularGifts = response.gifts
+            .map((gift) => normalizeOwnedGiftRegular(gift as Record<string, unknown>))
+            .filter((gift): gift is GeneratedOwnedGiftRegular => Boolean(gift));
+        } else if (selectedGroup) {
+          const response = await getChatGifts(selectedBotToken, {
+            chat_id: selectedChatId,
+            limit: 20,
+          });
+          regularGifts = response.gifts
+            .map((gift) => normalizeOwnedGiftRegular(gift as Record<string, unknown>))
+            .filter((gift): gift is GeneratedOwnedGiftRegular => Boolean(gift));
+        }
+
+        if (cancelled) {
+          return;
+        }
+
+        setOwnedRegularGifts(regularGifts);
+      } catch (error) {
+        if (!cancelled) {
+          setOwnedRegularGifts([]);
+          setGiftPanelError(error instanceof Error ? error.message : 'Failed to load owned gifts');
+        }
+      } finally {
+        if (!cancelled) {
+          setIsOwnedGiftsLoading(false);
+        }
+      }
+    };
+
+    void loadOwnedGifts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    chatScopeTab,
+    giftReloadTick,
+    isGiftPanelOpen,
+    selectedBotToken,
+    selectedChatId,
+    selectedGroup,
+    selectedUser.id,
+  ]);
+
+  const sendSelectedGiftFromDrawer = async () => {
+    if (!selectedBotToken || !selectedGift) {
+      return;
+    }
+
+    if (!canSendGiftInCurrentScope) {
+      setGiftPanelError('Gifts can only be sent to users and channel chats.');
+      return;
+    }
+
+    setIsGiftActionLoading(true);
+    setGiftPanelError('');
+    try {
+      const text = giftMessageDraft.trim();
+      if (chatScopeTab === 'private') {
+        await sendGift(
+          selectedBotToken,
+          {
+            user_id: selectedUser.id,
+            gift_id: selectedGift.id,
+            pay_for_upgrade: giftPayForUpgrade || undefined,
+            text: text || undefined,
+          },
+          selectedUser.id,
+        );
+
+        setAvailableUsers((prev) => prev.map((user) => {
+          if (user.id !== selectedUser.id) {
+            return user;
+          }
+          return {
+            ...user,
+            gift_count: nonNegativeInteger(user.gift_count, 0) + 1,
+          };
+        }));
+      } else if (selectedGroup) {
+        await sendGift(
+          selectedBotToken,
+          {
+            chat_id: selectedGroup.id,
+            gift_id: selectedGift.id,
+            pay_for_upgrade: giftPayForUpgrade || undefined,
+            text: text || undefined,
+          },
+          selectedUser.id,
+        );
+      }
+
+      setGiftMessageDraft('');
+      setGiftPayForUpgrade(false);
+      setGiftReloadTick((prev) => prev + 1);
+    } catch (error) {
+      setGiftPanelError(error instanceof Error ? error.message : 'Failed to send gift');
+    } finally {
+      setIsGiftActionLoading(false);
+    }
+  };
+
+  const sendPremiumGiftFromDrawer = async () => {
+    if (!selectedBotToken) {
+      return;
+    }
+
+    if (chatScopeTab !== 'private') {
+      setGiftPanelError('Premium subscription gifts can only be sent to users.');
+      return;
+    }
+
+    setIsGiftActionLoading(true);
+    setGiftPanelError('');
+    try {
+      const text = giftMessageDraft.trim();
+      await giftPremiumSubscription(
+        selectedBotToken,
+        {
+          user_id: selectedUser.id,
+          month_count: 1,
+          star_count: PREMIUM_SUBSCRIPTION_STAR_COST,
+          text: text || undefined,
+        },
+        selectedUser.id,
+      );
+
+      setAvailableUsers((prev) => prev.map((user) => {
+        if (user.id !== selectedUser.id) {
+          return user;
+        }
+        return {
+          ...user,
+          is_premium: true,
+          gift_count: nonNegativeInteger(user.gift_count, 0) + 1,
+        };
+      }));
+
+      setGiftMessageDraft('');
+      setGiftReloadTick((prev) => prev + 1);
+    } catch (error) {
+      setGiftPanelError(error instanceof Error ? error.message : 'Failed to gift premium subscription');
+    } finally {
+      setIsGiftActionLoading(false);
+    }
+  };
+
+  const deleteOwnedGiftFromDrawer = async (ownedGiftId: string) => {
+    if (!selectedBotToken || !ownedGiftId.trim()) {
+      return;
+    }
+
+    if (chatScopeTab !== 'private' && !selectedGroup) {
+      setGiftPanelError('No chat selected to delete gift from.');
+      return;
+    }
+
+    setIsGiftActionLoading(true);
+    setDeletingOwnedGiftId(ownedGiftId);
+    setGiftPanelError('');
+    try {
+      await deleteOwnedGift(
+        selectedBotToken,
+        {
+          owned_gift_id: ownedGiftId,
+          user_id: chatScopeTab === 'private' ? selectedUser.id : undefined,
+          chat_id: chatScopeTab !== 'private' ? selectedGroup?.id : undefined,
+        },
+        selectedUser.id,
+      );
+
+      setOwnedRegularGifts((prev) => prev.filter((gift) => gift.owned_gift_id !== ownedGiftId));
+      if (chatScopeTab === 'private') {
+        setAvailableUsers((prev) => prev.map((user) => {
+          if (user.id !== selectedUser.id) {
+            return user;
+          }
+          return {
+            ...user,
+            gift_count: Math.max(nonNegativeInteger(user.gift_count, 0) - 1, 0),
+          };
+        }));
+      }
+    } catch (error) {
+      setGiftPanelError(error instanceof Error ? error.message : 'Failed to delete gift');
+    } finally {
+      setDeletingOwnedGiftId(null);
+      setIsGiftActionLoading(false);
+    }
+  };
+
   const forwardTargetDirectory = useMemo(() => {
     const privateTargets = availableUsers.map((user) => ({
       chatId: user.id,
@@ -3253,6 +3639,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   }, [walletByUserId]);
 
   useEffect(() => {
+    localStorage.setItem(PAID_MEDIA_PURCHASES_KEY, JSON.stringify(paidMediaPurchaseByActorKey));
+  }, [paidMediaPurchaseByActorKey]);
+
+  useEffect(() => {
     localStorage.setItem(SELECTED_GROUP_BY_BOT_KEY, JSON.stringify(selectedGroupByBot));
   }, [selectedGroupByBot]);
 
@@ -3564,10 +3954,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       if (update.message_reaction) {
         const actor = update.message_reaction.user;
         const actorKey = actor ? `${actor.id}:${actor.is_bot ? 1 : 0}` : null;
-        const newReactionEmojis = update.message_reaction.new_reaction
-          .filter((item) => item.type === 'emoji')
-          .map((item) => item.emoji)
-          .filter((emoji): emoji is string => typeof emoji === 'string' && emoji.length > 0);
+        const nextReactionKeys = update.message_reaction.new_reaction
+          .map((item) => reactionKeyFromTypePayload(item as unknown))
+          .filter((value): value is string => Boolean(value));
 
         if (actorKey) {
           setMessages((prev) => prev.map((message) => {
@@ -3580,10 +3969,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             }
 
             const actorReactions = { ...(message.actorReactions || {}) };
-            if (newReactionEmojis.length === 0) {
+            if (nextReactionKeys.length === 0) {
               delete actorReactions[actorKey];
             } else {
-              actorReactions[actorKey] = newReactionEmojis;
+              actorReactions[actorKey] = nextReactionKeys;
             }
 
             return {
@@ -3596,12 +3985,21 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
       if (update.message_reaction_count) {
         const counts = update.message_reaction_count.reactions
-          .filter((item) => (item.type as { type?: string }).type === 'emoji')
+          .map((item) => {
+            const key = reactionKeyFromTypePayload((item as { type?: unknown }).type);
+            if (!key) {
+              return null;
+            }
+            return {
+              emoji: key,
+              count: item.total_count,
+            };
+          })
+          .filter((item): item is { emoji: string; count: number } => Boolean(item))
           .map((item) => ({
-            emoji: (item.type as { emoji?: string }).emoji || '',
-            count: item.total_count,
-          }))
-          .filter((item) => item.emoji);
+            emoji: item.emoji,
+            count: item.count,
+          }));
 
         setMessages((prev) => prev.map((message) => {
           if (
@@ -3645,6 +4043,36 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           ...prev,
           [selectionKey]: update.poll_answer!.option_ids,
         }));
+      }
+
+      if (update.purchased_paid_media) {
+        const paidMediaPayload = typeof update.purchased_paid_media.paid_media_payload === 'string'
+          ? update.purchased_paid_media.paid_media_payload.trim()
+          : '';
+        const purchaser = update.purchased_paid_media.from;
+
+        if (paidMediaPayload.length > 0 && Number.isFinite(Number(purchaser?.id))) {
+          const parts = paidMediaPayload.split(':');
+          if (parts.length === 3 && parts[0] === 'paid_media') {
+            const purchasedChatId = Math.floor(Number(parts[1]));
+            const purchasedMessageId = Math.floor(Number(parts[2]));
+            if (
+              Number.isFinite(purchasedChatId)
+              && Number.isFinite(purchasedMessageId)
+              && purchasedMessageId > 0
+            ) {
+              const purchaseKey = paidMediaPurchaseKeyFor(selectedBotToken, purchaser.id, purchasedChatId, purchasedMessageId);
+              setPaidMediaPurchaseByActorKey((prev) => ({
+                ...prev,
+                [purchaseKey]: true,
+              }));
+            }
+          }
+        }
+
+        const purchaserLabel = purchaser?.first_name?.trim()
+          || (purchaser?.username ? `@${purchaser.username}` : `user_${purchaser?.id ?? 0}`);
+        setCallbackToast(`${purchaserLabel} purchased paid media`);
       }
 
       if (!payload) {
@@ -3718,6 +4146,48 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           fileId: payload.video_note.file_id,
           fileName: 'video_note.mp4',
         };
+      } else {
+        const paidMediaList = (payload.paid_media as { paid_media?: unknown[] } | undefined)?.paid_media;
+        const firstPaidMedia = Array.isArray(paidMediaList) && paidMediaList.length > 0
+          ? paidMediaList[0]
+          : undefined;
+        if (firstPaidMedia && typeof firstPaidMedia === 'object') {
+          const paidPayload = firstPaidMedia as Record<string, unknown>;
+          const paidType = typeof paidPayload.type === 'string'
+            ? paidPayload.type.toLowerCase()
+            : '';
+
+          if (paidType === 'photo') {
+            const paidPhoto = Array.isArray(paidPayload.photo)
+              ? (paidPayload.photo as Array<Record<string, unknown>>)
+              : [];
+            const paidPhotoBest = paidPhoto.length > 0 ? paidPhoto[paidPhoto.length - 1] : undefined;
+            const paidPhotoFileId = typeof paidPhotoBest?.file_id === 'string'
+              ? paidPhotoBest.file_id
+              : undefined;
+            if (paidPhotoFileId) {
+              media = {
+                type: 'photo',
+                fileId: paidPhotoFileId,
+              };
+            }
+          } else if (paidType === 'video') {
+            const paidVideo = paidPayload.video && typeof paidPayload.video === 'object'
+              ? (paidPayload.video as Record<string, unknown>)
+              : undefined;
+            const paidVideoFileId = typeof paidVideo?.file_id === 'string'
+              ? paidVideo.file_id
+              : undefined;
+            if (paidVideoFileId) {
+              media = {
+                type: 'video',
+                fileId: paidVideoFileId,
+                mimeType: typeof paidVideo?.mime_type === 'string' ? paidVideo.mime_type : undefined,
+                fileName: typeof paidVideo?.file_name === 'string' ? paidVideo.file_name : undefined,
+              };
+            }
+          }
+        }
       }
 
       const serviceMessage = (() => {
@@ -3735,6 +4205,19 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         };
 
         const actorName = displayName(payload.from || null);
+
+        if (payload.gift) {
+          const giftEmoji = payload.gift.gift?.sticker?.emoji?.trim() || '🎁';
+          const giftId = payload.gift.gift?.id?.trim() || 'gift';
+          const giftNote = payload.gift.text?.trim() || '';
+          return {
+            text: payload.text || giftNote || `${actorName} sent ${giftEmoji} ${giftId}`,
+            service: {
+              kind: 'system' as const,
+              targetName: giftId,
+            },
+          };
+        }
 
         if (payload.new_chat_members && payload.new_chat_members.length > 0) {
           const memberNames = payload.new_chat_members.map((member) => displayName(member));
@@ -3926,10 +4409,16 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         ? payloadRecord.business_connection_id.trim()
         : '';
       const businessConnectionId = rawBusinessConnectionId || undefined;
-      const rawPaidMessageStarCount = Math.floor(Number(payloadRecord.paid_message_star_count));
+      const rawPaidMessageStarCount = Math.floor(Number(
+        payloadRecord.paid_message_star_count ?? payloadRecord.paid_star_count,
+      ));
       const paidMessageStarCount = Number.isFinite(rawPaidMessageStarCount) && rawPaidMessageStarCount > 0
         ? rawPaidMessageStarCount
         : undefined;
+      const rawPaidMediaPayload = typeof payloadRecord.paid_media_payload === 'string'
+        ? payloadRecord.paid_media_payload.trim()
+        : '';
+      const paidMediaPayload = rawPaidMediaPayload || undefined;
       const rawLinkedChannelChatId = Math.floor(Number(payloadRecord.linked_channel_chat_id));
       const linkedChannelChatId = Number.isFinite(rawLinkedChannelChatId) && rawLinkedChannelChatId !== 0
         ? rawLinkedChannelChatId
@@ -3969,6 +4458,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         senderChatTitle,
         businessConnectionId,
         paidMessageStarCount,
+        paidMediaPayload,
         views: serviceMessage ? undefined : views,
         forwardedFrom: serviceMessage ? undefined : forwardOrigin.label,
         forwardedDate: serviceMessage ? undefined : forwardOrigin.date,
@@ -3980,6 +4470,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         venue: payload.venue,
         dice: payload.dice,
         game: payload.game,
+        gift: payload.gift,
         poll: payload.poll,
         invoice: payload.invoice,
         successfulPayment: payload.successful_payment,
@@ -4697,22 +5188,46 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
       try {
         if (selectedUploads.length > 0) {
-          for (let index = 0; index < selectedUploads.length; index += 1) {
-            const file = selectedUploads[index];
-            const uploadTarget = inferUploadMethod(file);
-            await sendBotMediaFile(
-              selectedBotToken,
-              {
-                chatId: selectedChatId,
-                method: uploadTarget.method,
-                field: uploadTarget.field,
-                file,
-                caption: index === 0 ? (text || undefined) : undefined,
-                parseMode: index === 0 && text && composerParseMode !== 'none' ? composerParseMode : undefined,
-                replyToMessageId: index === 0 ? replyTarget?.id : undefined,
-              },
-              selectedUser.id,
-            );
+          if (uploadAsPaidMedia) {
+            const normalizedPaidStarCount = Math.floor(Number(uploadPaidStarCountDraft));
+            if (!Number.isFinite(normalizedPaidStarCount) || normalizedPaidStarCount <= 0) {
+              throw new Error('Paid media cost must be greater than zero.');
+            }
+
+            const hasUnsupportedPaidMedia = selectedUploads.some((file) => {
+              const field = inferUploadMethod(file).field;
+              return field !== 'photo' && field !== 'video';
+            });
+            if (hasUnsupportedPaidMedia) {
+              throw new Error('Paid media supports only photo/video uploads.');
+            }
+
+            await sendBotPaidMedia(selectedBotToken, {
+              chatId: selectedChatId,
+              files: selectedUploads,
+              starCount: normalizedPaidStarCount,
+              caption: text || undefined,
+              parseMode: text && composerParseMode !== 'none' ? composerParseMode : undefined,
+              replyToMessageId: replyTarget?.id,
+            }, selectedUser.id);
+          } else {
+            for (let index = 0; index < selectedUploads.length; index += 1) {
+              const file = selectedUploads[index];
+              const uploadTarget = inferUploadMethod(file);
+              await sendBotMediaFile(
+                selectedBotToken,
+                {
+                  chatId: selectedChatId,
+                  method: uploadTarget.method,
+                  field: uploadTarget.field,
+                  file,
+                  caption: index === 0 ? (text || undefined) : undefined,
+                  parseMode: index === 0 && text && composerParseMode !== 'none' ? composerParseMode : undefined,
+                  replyToMessageId: index === 0 ? replyTarget?.id : undefined,
+                },
+                selectedUser.id,
+              );
+            }
           }
         } else {
           await sendBotMessage(
@@ -4733,6 +5248,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
         setComposerText('');
         setSelectedUploads([]);
+        setUploadAsPaidMedia(false);
         setReplyTarget(null);
         dismissActiveOneTimeKeyboard();
         isNearBottomRef.current = true;
@@ -4867,6 +5383,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
         setComposerText('');
         setSelectedUploads([]);
+        setUploadAsPaidMedia(false);
         setReplyTarget(null);
         dismissActiveOneTimeKeyboard();
         isNearBottomRef.current = true;
@@ -7206,6 +7723,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       description: selectedGroup.description || '',
       isForum: Boolean(selectedGroup.isForum),
       showAuthorSignature: currentSettings.showAuthorSignature,
+      paidStarReactionsEnabled: currentSettings.paidStarReactionsEnabled,
       directMessagesEnabled: currentSettings.directMessagesEnabled,
       directMessagesStarCount: currentSettings.directMessagesStarCount,
       messageHistoryVisible: currentSettings.messageHistoryVisible,
@@ -7744,6 +8262,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       const normalizedSlowModeDelay = Math.max(0, Math.floor(Number(groupProfileDraft.slowModeDelay) || 0));
       const draftSettings: GroupSettingsSnapshot = {
         showAuthorSignature: groupProfileDraft.showAuthorSignature,
+        paidStarReactionsEnabled: groupProfileDraft.paidStarReactionsEnabled,
         directMessagesEnabled: groupProfileDraft.directMessagesEnabled,
         directMessagesStarCount: Math.max(0, Math.floor(Number(groupProfileDraft.directMessagesStarCount) || 0)),
         messageHistoryVisible: groupProfileDraft.messageHistoryVisible,
@@ -7815,6 +8334,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         username: groupProfileDraft.username.trim() || undefined,
         is_forum: selectedGroup.type === 'supergroup' ? groupProfileDraft.isForum : undefined,
         show_author_signature: selectedGroup.type === 'channel' ? groupProfileDraft.showAuthorSignature : undefined,
+        paid_star_reactions_enabled: selectedGroup.type === 'channel' ? groupProfileDraft.paidStarReactionsEnabled : undefined,
         direct_messages_enabled: selectedGroup.type === 'channel' ? groupProfileDraft.directMessagesEnabled : undefined,
         direct_messages_star_count: selectedGroup.type === 'channel'
           ? Math.max(0, Math.floor(Number(groupProfileDraft.directMessagesStarCount) || 0))
@@ -8653,23 +9173,196 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     setShowScrollToBottom(distanceFromBottom > 240);
   };
 
-  const onReactToMessage = async (message: ChatMessage, emoji: string) => {
+  const paidMediaPurchaseKeyFor = (botToken: string, actorUserId: number, chatId: number, messageId: number): string => (
+    `${botToken}:${actorUserId}:${chatId}:${messageId}`
+  );
+
+  const paidMediaPurchaseLegacyKeyFor = (actorUserId: number, chatId: number, messageId: number): string => (
+    `${actorUserId}:${chatId}:${messageId}`
+  );
+
+  const isPaidMediaPurchasedForActor = (botToken: string, actorUserId: number, chatId: number, messageId: number): boolean => {
+    const key = paidMediaPurchaseKeyFor(botToken, actorUserId, chatId, messageId);
+    if (paidMediaPurchaseByActorKey[key]) {
+      return true;
+    }
+
+    const legacyKey = paidMediaPurchaseLegacyKeyFor(actorUserId, chatId, messageId);
+    return Boolean(paidMediaPurchaseByActorKey[legacyKey]);
+  };
+
+  const submitPaidReactionFromModal = async () => {
+    if (!paidReactionModal) {
+      return;
+    }
+
+    const targetMessage = messages.find((message) => (
+      message.botToken === selectedBotToken
+      && message.chatId === paidReactionModal.chatId
+      && message.id === paidReactionModal.messageId
+    ));
+
+    if (!targetMessage) {
+      setPaidReactionModal(null);
+      return;
+    }
+
+    const relatedChannel = groupChats.find((chat) => (
+      chat.id === targetMessage.chatId
+      && chat.type === 'channel'
+      && !chat.isDirectMessages
+    ));
+    if (!relatedChannel?.settings?.paidStarReactionsEnabled) {
+      setErrorText('Paid star reactions are disabled for this channel.');
+      return;
+    }
+
+    const requestedAmount = Math.floor(Number(paidReactionAmountDraft));
+    if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
+      setErrorText('Paid reaction stars must be a positive number.');
+      return;
+    }
+
+    if (walletState.stars < requestedAmount) {
+      setErrorText(`Not enough stars. You need ${requestedAmount}⭐ for this paid reaction.`);
+      return;
+    }
+
+    const actorKey = `${selectedUser.id}:0`;
+    const current = targetMessage.actorReactions?.[actorKey] || [];
+    const currentPaidCount = current.filter((item) => item === PAID_REACTION_KEY).length;
+    const currentEmojiReactions = current.filter((item) => item !== PAID_REACTION_KEY);
+    const nextReaction = [
+      ...currentEmojiReactions,
+      ...Array(currentPaidCount + requestedAmount).fill(PAID_REACTION_KEY),
+    ];
+
+    try {
+      setIsPaidReactionSubmitting(true);
+      await setUserMessageReaction(selectedBotToken, {
+        chat_id: targetMessage.chatId,
+        message_id: targetMessage.id,
+        user_id: selectedUser.id,
+        first_name: selectedUser.first_name,
+        username: selectedUser.username,
+        reaction: nextReaction.map((item) => reactionKeyToPayload(item)),
+      });
+      setWalletState((prev) => ({
+        ...prev,
+        stars: Math.max(prev.stars - requestedAmount, 0),
+      }));
+      setPaidReactionModal(null);
+      setPaidReactionAmountDraft('1');
+      setMessageMenu(null);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Reaction failed');
+    } finally {
+      setIsPaidReactionSubmitting(false);
+    }
+  };
+
+  const onReactToMessage = async (message: ChatMessage, reactionKey: string) => {
     const actorKey = `${selectedUser.id}:0`;
     const current = message.actorReactions?.[actorKey] || [];
-    const nextReaction = current.includes(emoji) ? [] : [emoji];
+    const currentPaidCount = current.filter((item) => item === PAID_REACTION_KEY).length;
+    const currentEmojiReactions = current.filter((item) => item !== PAID_REACTION_KEY);
+
+    let nextReaction: string[] = [];
+
+    if (reactionKey === PAID_REACTION_KEY) {
+      const isPaidEnabledInChannel = Boolean(
+        selectedGroup
+        && selectedGroup.type === 'channel'
+        && !selectedGroup.isDirectMessages
+        && selectedGroup.id === message.chatId
+        && selectedGroup.settings?.paidStarReactionsEnabled,
+      );
+      if (!isPaidEnabledInChannel) {
+        setErrorText('Paid star reactions are disabled for this channel.');
+        return;
+      }
+
+      setPaidReactionModal({
+        chatId: message.chatId,
+        messageId: message.id,
+        currentPaidCount,
+      });
+      setPaidReactionAmountDraft('1');
+      setMessageMenu(null);
+      return;
+    } else {
+      const nextEmojiReactions = currentEmojiReactions.includes(reactionKey)
+        ? currentEmojiReactions.filter((item) => item !== reactionKey)
+        : [reactionKey];
+      nextReaction = [
+        ...nextEmojiReactions,
+        ...Array(currentPaidCount).fill(PAID_REACTION_KEY),
+      ];
+    }
 
     try {
       await setUserMessageReaction(selectedBotToken, {
-        chat_id: selectedChatId,
+        chat_id: message.chatId,
         message_id: message.id,
         user_id: selectedUser.id,
         first_name: selectedUser.first_name,
         username: selectedUser.username,
-        reaction: nextReaction.map((item) => ({ type: 'emoji' as const, emoji: item })),
+        reaction: nextReaction.map((item) => reactionKeyToPayload(item)),
       });
       setMessageMenu(null);
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'Reaction failed');
+    }
+  };
+
+  const onPurchasePaidMedia = async (message: ChatMessage) => {
+    const starCost = Number(message.paidMessageStarCount || 0);
+    if (!Number.isFinite(starCost) || starCost <= 0) {
+      return;
+    }
+
+    const purchaseKey = paidMediaPurchaseKeyFor(selectedBotToken, selectedUser.id, message.chatId, message.id);
+    if (isPaidMediaPurchasedForActor(selectedBotToken, selectedUser.id, message.chatId, message.id)) {
+      return;
+    }
+
+    if (walletState.stars < starCost) {
+      setErrorText(`Not enough stars. You need ${starCost}⭐ to purchase this paid post.`);
+      return;
+    }
+
+    try {
+      setPurchasingPaidMediaMessageId(message.id);
+      const purchaseResult = await purchasePaidMedia(selectedBotToken, {
+        chat_id: message.chatId,
+        message_id: message.id,
+        user_id: selectedUser.id,
+        first_name: selectedUser.first_name,
+        username: selectedUser.username,
+        paid_media_payload: message.paidMediaPayload,
+      });
+
+      if (!purchaseResult.already_purchased) {
+        setWalletState((prev) => ({
+          ...prev,
+          stars: Math.max(prev.stars - starCost, 0),
+        }));
+      }
+
+      setPaidMediaPurchaseByActorKey((prev) => ({
+        ...prev,
+        [purchaseKey]: true,
+      }));
+
+      setCallbackToast(
+        purchaseResult.already_purchased
+          ? 'You already purchased this paid media.'
+          : `Paid media unlocked for ${starCost}⭐`,
+      );
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Paid media purchase failed');
+    } finally {
+      setPurchasingPaidMediaMessageId(null);
     }
   };
 
@@ -10387,9 +11080,68 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     );
   };
 
+  const renderGiftCard = (message: ChatMessage) => {
+    if (!message.gift) {
+      return null;
+    }
+
+    const gift = message.gift.gift;
+    const emoji = gift.sticker?.emoji?.trim() || '🎁';
+    const giftId = gift.id?.trim() || 'gift';
+    const starCount = Number.isFinite(Number(gift.star_count))
+      ? Math.max(Math.trunc(Number(gift.star_count)), 0)
+      : 0;
+    const note = message.gift.text?.trim() || '';
+
+    return (
+      <div className="mb-2 rounded-2xl border border-amber-200/35 bg-gradient-to-br from-[#4b2f1d]/90 via-[#6e3e25]/85 to-[#2f2638]/85 p-3 text-[#fff4d8] shadow-[0_10px_24px_rgba(0,0,0,0.28)]">
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-white/25 bg-white/10 text-2xl">
+            {emoji}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-semibold text-white">{giftId}</div>
+            <div className="mt-0.5 text-[11px] text-[#ffe3ad]">
+              {starCount > 0 ? `${starCount}⭐ gift` : 'Gift sent'}
+            </div>
+          </div>
+        </div>
+        {note ? (
+          <div className="mt-2 rounded-lg border border-white/20 bg-black/20 px-2 py-1.5 text-[11px] text-[#fff4db]">
+            “{note}”
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
   const renderMediaContent = (message: ChatMessage, compact = false) => {
     if (!message.media) {
       return null;
+    }
+
+    const requiresPurchase = typeof message.paidMessageStarCount === 'number'
+      && message.paidMessageStarCount > 0
+      && message.fromUserId !== selectedUser.id;
+    if (requiresPurchase && !isPaidMediaPurchasedForActor(selectedBotToken, selectedUser.id, message.chatId, message.id)) {
+      return (
+        <div className={compact
+          ? 'flex h-40 w-full flex-col items-center justify-center gap-2 rounded-xl border border-amber-300/35 bg-[linear-gradient(160deg,rgba(41,21,8,0.95),rgba(88,45,16,0.82),rgba(22,24,36,0.88))] p-3 text-center text-amber-100 shadow-[0_12px_28px_rgba(0,0,0,0.32)]'
+          : 'flex min-h-[180px] w-full max-w-[320px] flex-col items-center justify-center gap-2 rounded-xl border border-amber-300/35 bg-[linear-gradient(160deg,rgba(41,21,8,0.95),rgba(88,45,16,0.82),rgba(22,24,36,0.88))] p-4 text-center text-amber-100 shadow-[0_16px_34px_rgba(0,0,0,0.34)]'}
+        >
+          <div className="text-xl">🔒</div>
+          <div className="text-sm font-semibold text-amber-50">Paid media locked</div>
+          <div className="text-[11px] leading-5 text-amber-100/85">
+            Unlock this post to reveal the media.
+          </div>
+          {typeof message.paidMessageStarCount === 'number' && message.paidMessageStarCount > 0 ? (
+            <div className="inline-flex items-center gap-1 rounded-full border border-amber-200/45 bg-black/20 px-2 py-0.5 text-[11px]">
+              <Star className="h-3 w-3" />
+              {message.paidMessageStarCount}
+            </div>
+          ) : null}
+        </div>
+      );
     }
 
     const mediaUrl = mediaUrlByFileId[message.media.fileId];
@@ -10526,6 +11278,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         {message.reactionCounts.map((reaction) => {
           const selected = (message.actorReactions?.[actorKey] || []).includes(reaction.emoji);
+          const reactionLabel = renderReactionLabel(reaction.emoji);
           return (
             <button
               key={`${message.id}-${reaction.emoji}`}
@@ -10538,7 +11291,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   : 'border-white/20 bg-black/25 text-[#dceaf5] hover:bg-white/10',
               ].join(' ')}
             >
-              <span className="mr-1">{reaction.emoji}</span>
+              <span className="mr-1">{reactionLabel}</span>
               <span>{reaction.count}</span>
             </button>
           );
@@ -11836,6 +12589,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         {renderContactCard(message)}
                         {renderLocationCard(message)}
                         {renderVenueCard(message)}
+                        {renderGiftCard(message)}
                         {renderInvoiceCard(message)}
                         {renderSuccessfulPaymentCard(message)}
                         {renderPollCard(message)}
@@ -11844,6 +12598,35 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         ) : null}
                         {renderInlineKeyboard(message)}
                         {renderReactionChips(message)}
+                        {typeof message.paidMessageStarCount === 'number' && message.paidMessageStarCount > 0 ? (() => {
+                          const alreadyPurchased = isPaidMediaPurchasedForActor(
+                            selectedBotToken,
+                            selectedUser.id,
+                            message.chatId,
+                            message.id,
+                          );
+                          const isOwnPaidPost = message.fromUserId === selectedUser.id;
+                          if (isOwnPaidPost) {
+                            return null;
+                          }
+
+                          return (
+                            <div className="mt-2 flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => void onPurchasePaidMedia(message)}
+                                disabled={alreadyPurchased || purchasingPaidMediaMessageId === message.id}
+                                className="rounded-md border border-amber-200/45 bg-amber-900/25 px-2 py-1 text-[11px] text-amber-100 hover:bg-amber-900/35 disabled:opacity-60"
+                              >
+                                {alreadyPurchased
+                                  ? 'Purchased'
+                                  : purchasingPaidMediaMessageId === message.id
+                                    ? 'Purchasing...'
+                                    : `Unlock · ${message.paidMessageStarCount}⭐`}
+                              </button>
+                            </div>
+                          );
+                        })() : null}
                         <div className="mt-1 flex items-center justify-end gap-2 text-[10px] text-[#a5bfd3]">
                           <span>#{message.id}</span>
                           {message.businessConnectionId ? (
@@ -12012,6 +12795,35 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       {renderPollCard(lead)}
                       {renderInlineKeyboard(lead)}
                       {renderReactionChips(lead)}
+                      {typeof lead.paidMessageStarCount === 'number' && lead.paidMessageStarCount > 0 ? (() => {
+                        const alreadyPurchased = isPaidMediaPurchasedForActor(
+                          selectedBotToken,
+                          selectedUser.id,
+                          lead.chatId,
+                          lead.id,
+                        );
+                        const isOwnPaidPost = lead.fromUserId === selectedUser.id;
+                        if (isOwnPaidPost) {
+                          return null;
+                        }
+
+                        return (
+                          <div className="mt-2 flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => void onPurchasePaidMedia(lead)}
+                              disabled={alreadyPurchased || purchasingPaidMediaMessageId === lead.id}
+                              className="rounded-md border border-amber-200/45 bg-amber-900/25 px-2 py-1 text-[11px] text-amber-100 hover:bg-amber-900/35 disabled:opacity-60"
+                            >
+                              {alreadyPurchased
+                                ? 'Purchased'
+                                : purchasingPaidMediaMessageId === lead.id
+                                  ? 'Purchasing...'
+                                  : `Unlock · ${lead.paidMessageStarCount}⭐`}
+                            </button>
+                          </div>
+                        );
+                      })() : null}
                       <div className="mt-1 flex items-center justify-end gap-2 text-[10px] text-[#a5bfd3]">
                         <span>Album {block.messages.length} items</span>
                         {lead.businessConnectionId ? (
@@ -12126,11 +12938,46 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     </span>
                     <button
                       type="button"
-                      onClick={() => setSelectedUploads([])}
+                      onClick={() => {
+                        setSelectedUploads([]);
+                        setUploadAsPaidMedia(false);
+                      }}
                       className="rounded-md border border-white/15 px-2 py-1 text-[11px] text-white hover:bg-white/10"
                     >
                       Remove
                     </button>
+                  </div>
+                ) : null}
+                {selectedUploads.length > 0 && chatScopeTab === 'channel' ? (
+                  <div className="rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-xs text-telegram-textSecondary">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={uploadAsPaidMedia}
+                          onChange={(event) => setUploadAsPaidMedia(event.target.checked)}
+                        />
+                        Send as paid media
+                      </label>
+                      <label className="inline-flex items-center gap-2">
+                        <span>Cost</span>
+                        <input
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={uploadPaidStarCountDraft}
+                          onChange={(event) => setUploadPaidStarCountDraft(event.target.value)}
+                          disabled={!uploadAsPaidMedia}
+                          className="w-20 rounded border border-white/20 bg-white/5 px-2 py-1 text-xs text-white outline-none disabled:opacity-50"
+                        />
+                        <span>⭐</span>
+                      </label>
+                    </div>
+                    {uploadAsPaidMedia ? (
+                      <p className="mt-2 text-[11px] text-[#b7d8ee]">
+                        Paid media supports photo/video uploads only and sends them as a locked paid post.
+                      </p>
+                    ) : null}
                   </div>
                 ) : null}
                 <div className="space-y-2 rounded-2xl border border-white/10 bg-black/15 p-2">
@@ -12244,6 +13091,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     onChange={(event) => {
                       const files = Array.from(event.target.files || []);
                       setSelectedUploads(files);
+                      if (files.length === 0) {
+                        setUploadAsPaidMedia(false);
+                      }
                       event.currentTarget.value = '';
                     }}
                   />
@@ -12467,32 +13317,156 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       ) : null}
 
                       {mediaDrawerTab === 'gifts' ? (
-                        <div className="space-y-2 text-xs text-[#d7ecfb]">
+                        <div className="space-y-3 text-xs text-[#d7ecfb]">
+                          <div className="grid grid-cols-1 gap-2">
+                            <div className="rounded-xl border border-white/15 bg-black/20 px-3 py-2">
+                              <p className="text-[11px] text-[#9fc6df]">Gift target</p>
+                              <p className="mt-1 text-sm text-white">
+                                {chatScopeTab === 'private'
+                                  ? selectedUserDisplayName
+                                  : (selectedGroup?.title || 'No chat selected')}
+                              </p>
+                              <p className="mt-1 text-[11px] text-[#c8e4f6]">
+                                Scope: {chatScopeTab === 'private' ? 'User gifts' : 'Chat gifts'}
+                              </p>
+                            </div>
+                          </div>
+
                           <div className="rounded-xl border border-white/15 bg-black/20 px-3 py-2">
-                            <p className="text-[11px] uppercase tracking-wide text-[#8fb7d6]">Gifts Lab</p>
-                            <p className="mt-1 text-[#d0e8f8]">Phase 6.2 foundation is ready. Next incremental steps wire Telegram gift APIs and paid media handlers.</p>
-                          </div>
-                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                            <div className="rounded-xl border border-white/15 bg-black/20 px-3 py-2">
-                              <p className="text-[11px] text-[#9fc6df]">Selected user</p>
-                              <p className="mt-1 text-sm text-white">{selectedUserDisplayName}</p>
-                              <p className="mt-1 text-[11px] text-[#c8e4f6]">Stored gifts: {nonNegativeInteger(selectedUser.gift_count, 0)}</p>
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+                              <select
+                                value={selectedGiftId}
+                                onChange={(event) => setSelectedGiftId(event.target.value)}
+                                disabled={isGiftCatalogLoading || giftCatalog.length === 0 || isGiftActionLoading}
+                                className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                              >
+                                {giftCatalog.map((gift) => (
+                                  <option key={`gift-option-${gift.id}`} value={gift.id}>
+                                    {extractGiftEmoji(gift)} {gift.id} · {gift.star_count}⭐
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                type="text"
+                                value={giftMessageDraft}
+                                onChange={(event) => setGiftMessageDraft(event.target.value)}
+                                placeholder="Gift message (optional)"
+                                className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                              />
                             </div>
-                            <div className="rounded-xl border border-white/15 bg-black/20 px-3 py-2">
-                              <p className="text-[11px] text-[#9fc6df]">Wallet</p>
-                              <p className="mt-1 text-[11px] text-[#c8e4f6]">Stars: {walletState.stars}</p>
-                              <p className="mt-1 text-[11px] text-[#c8e4f6]">Fiat: {walletState.fiat}</p>
+
+                            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                              <label className="inline-flex items-center gap-2 text-[11px] text-[#c8e4f6]">
+                                <input
+                                  type="checkbox"
+                                  checked={giftPayForUpgrade}
+                                  onChange={(event) => setGiftPayForUpgrade(event.target.checked)}
+                                  disabled={!selectedGift?.upgrade_star_count || selectedGift.upgrade_star_count <= 0}
+                                  className="h-3.5 w-3.5"
+                                />
+                                Prepay upgrade
+                              </label>
+
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => void sendSelectedGiftFromDrawer()}
+                                  disabled={!selectedGift || !canSendGiftInCurrentScope || isGiftActionLoading}
+                                  className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-3 py-1.5 text-[11px] text-white hover:bg-[#245a80] disabled:opacity-60"
+                                >
+                                  Send gift ({selectedGiftChargeEstimate}⭐)
+                                </button>
+                                {chatScopeTab === 'private' ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void sendPremiumGiftFromDrawer()}
+                                    disabled={isGiftActionLoading}
+                                    className="rounded-md border border-[#8462d1]/70 bg-[#3b2a67] px-3 py-1.5 text-[11px] text-white hover:bg-[#4a357f] disabled:opacity-60"
+                                  >
+                                    Gift Premium (1m · {PREMIUM_SUBSCRIPTION_STAR_COST}⭐)
+                                  </button>
+                                ) : null}
+                              </div>
                             </div>
+
+                            {!canSendGiftInCurrentScope ? (
+                              <p className="mt-2 text-[11px] text-amber-200">
+                                Switch to a private chat or a channel scope to send gifts.
+                              </p>
+                            ) : null}
+                            {giftPanelError ? <p className="mt-2 text-[11px] text-amber-200">{giftPanelError}</p> : null}
                           </div>
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setShowUserProfileModal(true)}
-                              className="rounded-md border border-white/20 bg-white/10 px-3 py-1.5 text-[11px] text-white hover:bg-white/15"
-                            >
-                              Open profile
-                            </button>
+
+                          <div className="rounded-xl border border-white/15 bg-black/20 px-3 py-2">
+                            <div className="mb-2 flex items-center justify-between">
+                              <p className="text-[11px] text-[#9fc6df]">Available gifts</p>
+                              {isGiftCatalogLoading ? <span className="text-[11px] text-[#c8e4f6]">Loading...</span> : null}
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                              {giftCatalog.map((gift) => (
+                                <button
+                                  key={`gift-card-${gift.id}`}
+                                  type="button"
+                                  onClick={() => setSelectedGiftId(gift.id)}
+                                  className={`rounded-lg border px-2 py-2 text-left ${selectedGift?.id === gift.id ? 'border-[#87cfff]/70 bg-[#2b5278]/70 text-white' : 'border-white/20 bg-black/20 text-[#d9efff]'}`}
+                                >
+                                  <p className="text-lg leading-none">{extractGiftEmoji(gift)}</p>
+                                  <p className="mt-1 truncate text-[11px]">{gift.id}</p>
+                                  <p className="mt-1 text-[10px] text-[#b8d8ee]">{gift.star_count}⭐</p>
+                                </button>
+                              ))}
+                            </div>
+                            {!isGiftCatalogLoading && giftCatalog.length === 0 ? (
+                              <p className="mt-2 text-[11px] text-[#a6cbe4]">No gifts available for this bot.</p>
+                            ) : null}
                           </div>
+
+                          <div className="rounded-xl border border-white/15 bg-black/20 px-3 py-2">
+                            <div className="mb-2 flex items-center justify-between">
+                              <p className="text-[11px] text-[#9fc6df]">Owned gifts</p>
+                              {isOwnedGiftsLoading ? <span className="text-[11px] text-[#c8e4f6]">Syncing...</span> : null}
+                            </div>
+                            {isOwnedGiftsLoading ? null : (
+                              ownedRegularGifts.length > 0 ? (
+                                <div className="space-y-1.5">
+                                  {ownedRegularGifts.map((gift) => {
+                                    const ownedGiftId = gift.owned_gift_id;
+                                    return (
+                                      <div
+                                        key={`owned-gift-${ownedGiftId || `${gift.gift.id}-${gift.send_date}`}`}
+                                        className="rounded-md border border-white/10 bg-black/25 px-2 py-1.5"
+                                      >
+                                        <div className="flex items-start justify-between gap-2">
+                                          <div className="min-w-0 flex-1">
+                                            <p className="text-[11px] text-white">
+                                              {extractGiftEmoji(gift.gift)} {gift.gift.id} · {gift.gift.star_count}⭐
+                                            </p>
+                                            <p className="mt-0.5 text-[10px] text-[#b8d8ee]">
+                                              {gift.sender_user?.first_name ? `From ${gift.sender_user.first_name}` : 'From unknown'} · {formatGiftSendDate(gift.send_date)}
+                                            </p>
+                                            {gift.text ? <p className="mt-0.5 text-[10px] text-[#d7ecfb]">“{gift.text}”</p> : null}
+                                          </div>
+                                          {ownedGiftId ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => void deleteOwnedGiftFromDrawer(ownedGiftId)}
+                                              disabled={isGiftActionLoading}
+                                              className="mt-0.5 shrink-0 self-start rounded border border-red-300/35 bg-red-900/25 px-2 py-1 text-[10px] text-red-100 hover:bg-red-900/35 disabled:opacity-60"
+                                            >
+                                              {deletingOwnedGiftId === ownedGiftId ? 'Deleting...' : 'Delete gift'}
+                                            </button>
+                                          ) : null}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <p className="text-[11px] text-[#a6cbe4]">No owned gifts found for the current target.</p>
+                              )
+                            )}
+                          </div>
+
                         </div>
                       ) : null}
 
@@ -15068,14 +16042,24 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                 placeholder={selectedGroup.type === 'channel' ? 'Channel description' : 'Group description'}
               />
               {selectedGroup.type === 'channel' ? (
-                <label className="flex items-center gap-2 text-sm text-telegram-textSecondary">
-                  <input
-                    type="checkbox"
-                    checked={groupProfileDraft.showAuthorSignature}
-                    onChange={(e) => setGroupProfileDraft((prev) => ({ ...prev, showAuthorSignature: e.target.checked }))}
-                  />
-                  Show publisher name on channel posts
-                </label>
+                <>
+                  <label className="flex items-center gap-2 text-sm text-telegram-textSecondary">
+                    <input
+                      type="checkbox"
+                      checked={groupProfileDraft.showAuthorSignature}
+                      onChange={(e) => setGroupProfileDraft((prev) => ({ ...prev, showAuthorSignature: e.target.checked }))}
+                    />
+                    Show publisher name on channel posts
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-telegram-textSecondary">
+                    <input
+                      type="checkbox"
+                      checked={groupProfileDraft.paidStarReactionsEnabled}
+                      onChange={(e) => setGroupProfileDraft((prev) => ({ ...prev, paidStarReactionsEnabled: e.target.checked }))}
+                    />
+                    Enable paid star reactions on channel posts
+                  </label>
+                </>
               ) : null}
               {selectedGroup.type !== 'channel' ? (
                 <>
@@ -15619,6 +16603,95 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         </div>
       ) : null}
 
+      {paidReactionModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4">
+          <div className="w-full max-w-sm rounded-2xl border border-white/15 bg-[#152434] p-4 shadow-2xl">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-white">Send Paid Reaction</h3>
+                <p className="mt-1 text-xs text-[#9ec3dc]">Choose stars</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isPaidReactionSubmitting) {
+                    setPaidReactionModal(null);
+                  }
+                }}
+                className="rounded-full p-1 text-white hover:bg-white/10"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="rounded-xl border border-amber-200/25 bg-amber-900/15 px-3 py-2 text-xs text-amber-100">
+              <div className="flex items-center justify-between">
+                <span>Already sent on this message</span>
+                <span className="font-semibold">{paidReactionModal.currentPaidCount}⭐</span>
+              </div>
+              <div className="mt-1 flex items-center justify-between text-amber-50/90">
+                <span>Wallet balance</span>
+                <span>{walletState.stars}⭐</span>
+              </div>
+            </div>
+
+            <form
+              className="mt-3 space-y-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submitPaidReactionFromModal();
+              }}
+            >
+              <label className="block text-xs text-[#cbe6f8]">
+                <span className="mb-1 block">Stars to send</span>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  inputMode="numeric"
+                  value={paidReactionAmountDraft}
+                  onChange={(event) => setPaidReactionAmountDraft(event.target.value)}
+                  className="w-full rounded-lg border border-[#4f7a99]/60 bg-[#0f1c28] px-3 py-2 text-sm text-white outline-none focus:border-[#83c8ff]/70"
+                  placeholder="1"
+                  autoFocus
+                />
+              </label>
+
+              <div className="flex flex-wrap gap-2">
+                {[1, 5, 10, 25].map((amount) => (
+                  <button
+                    key={`paid-reaction-quick-${amount}`}
+                    type="button"
+                    onClick={() => setPaidReactionAmountDraft(String(amount))}
+                    className="rounded-md border border-white/20 bg-black/20 px-2.5 py-1 text-[11px] text-[#d7ecfb] hover:bg-white/10"
+                  >
+                    {amount}⭐
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPaidReactionModal(null)}
+                  disabled={isPaidReactionSubmitting}
+                  className="rounded-lg border border-white/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isPaidReactionSubmitting}
+                  className="rounded-lg border border-amber-200/50 bg-amber-800/45 px-3 py-2 text-sm font-medium text-amber-50 hover:bg-amber-800/60 disabled:opacity-60"
+                >
+                  {isPaidReactionSubmitting ? 'Sending...' : 'Send reaction'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
       {messageMenu ? (
         <div
           className="fixed z-50 w-60 max-w-[90vw] rounded-2xl border border-white/15 bg-[#132130] p-2 shadow-2xl"
@@ -15635,14 +16708,28 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               <>
                 <div className="px-2 pb-1 pt-1 text-[11px] font-medium text-telegram-textSecondary">Quick reactions</div>
                 <div className="mb-2 grid grid-cols-8 gap-1 px-1">
-                  {TELEGRAM_REACTION_EMOJIS.slice(0, 24).map((emoji) => {
+                  {[
+                    ...TELEGRAM_REACTION_EMOJIS.slice(0, 24),
+                    ...((selectedGroup
+                      && selectedGroup.type === 'channel'
+                      && !selectedGroup.isDirectMessages
+                      && selectedGroup.id === target.chatId
+                      && selectedGroup.settings?.paidStarReactionsEnabled)
+                      ? [PAID_REACTION_KEY]
+                      : []),
+                  ].map((reactionKey) => {
                     const actorKey = `${selectedUser.id}:0`;
-                    const selected = (target.actorReactions?.[actorKey] || []).includes(emoji);
+                    const actorReactions = target.actorReactions?.[actorKey] || [];
+                    const selected = actorReactions.includes(reactionKey);
+                    const paidCount = actorReactions.filter((item) => item === PAID_REACTION_KEY).length;
+                    const reactionLabel = reactionKey === PAID_REACTION_KEY && paidCount > 0
+                      ? `${renderReactionLabel(reactionKey)}×${paidCount}`
+                      : renderReactionLabel(reactionKey);
                     return (
                     <button
-                      key={`${target.id}-${emoji}`}
+                      key={`${target.id}-${reactionKey}`}
                       type="button"
-                      onClick={() => void onReactToMessage(target, emoji)}
+                      onClick={() => void onReactToMessage(target, reactionKey)}
                       className={[
                         'rounded-lg border px-1 py-1 text-sm transition',
                         selected
@@ -15650,7 +16737,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                           : 'border-white/15 bg-black/20 hover:bg-white/10',
                       ].join(' ')}
                     >
-                      {emoji}
+                      {reactionLabel}
                     </button>
                     );
                   })}

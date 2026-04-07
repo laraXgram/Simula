@@ -27,13 +27,20 @@ import type {
   ExportChatInviteLinkRequest,
   GetForumTopicIconStickersRequest,
   GetChatAdministratorsRequest,
+  GetChatGiftsRequest,
   GetChatMenuButtonRequest,
   GetChatMemberCountRequest,
   GetChatMemberRequest,
   GetChatRequest,
+  GetAvailableGiftsRequest,
   StopMessageLiveLocationRequest,
   EditMessageTextRequest,
   GetGameHighScoresRequest,
+  GetUserGiftsRequest,
+  GiftPremiumSubscriptionRequest,
+  ConvertGiftToStarsRequest,
+  UpgradeGiftRequest,
+  TransferGiftRequest,
   GetCustomEmojiStickersRequest,
   GetStickerSetRequest,
   ForwardMessageRequest,
@@ -74,6 +81,7 @@ import type {
   SetStickerPositionInSetRequest,
   SetStickerSetThumbnailRequest,
   SetStickerSetTitleRequest,
+  SendGiftRequest,
   StopPollRequest,
   HideGeneralForumTopicRequest,
   CloseForumTopicRequest,
@@ -89,6 +97,8 @@ import type {
   UploadStickerFileRequest,
 } from '../types/generated/methods';
 import type { BusinessBotRights, BusinessConnection as GeneratedBusinessConnection, Chat as GeneratedChat, ChatFullInfo, ChatInviteLink, ChatMember, ChatPermissions, ChatShared, File as TgFile, ForumTopic, GameHighScore, InlineQueryResult, InlineQueryResultsButton, MenuButton, Message, Sticker, StickerSet, User as GeneratedUser, UsersShared, WebAppData } from '../types/generated/types';
+
+import type { Gifts, OwnedGifts } from '../types/generated/types';
 
 export interface SimCreateGroupResult {
   chat: GeneratedChat;
@@ -149,6 +159,13 @@ export interface SimPayInvoiceResult {
 
 interface BotMethodCallOptions {
   actorUserId?: number;
+}
+
+export interface SimPurchasePaidMediaResult {
+  status: 'success';
+  paid_media_payload: string;
+  star_count: number;
+  already_purchased?: boolean;
 }
 
 export async function callBotMethod<T>(
@@ -367,6 +384,7 @@ export async function updateSimulationGroup(token: string, payload: {
   description?: string;
   is_forum?: boolean;
   show_author_signature?: boolean;
+  paid_star_reactions_enabled?: boolean;
   linked_chat_id?: number;
   direct_messages_enabled?: boolean;
   direct_messages_star_count?: number;
@@ -378,6 +396,7 @@ export async function updateSimulationGroup(token: string, payload: {
   settings?: {
     description?: string;
     show_author_signature?: boolean;
+    paid_star_reactions_enabled?: boolean;
     linked_chat_id?: number;
     direct_messages_enabled?: boolean;
     direct_messages_star_count?: number;
@@ -404,6 +423,7 @@ export async function updateSimulationGroup(token: string, payload: {
     settings?: {
       description?: string;
       show_author_signature?: boolean;
+      paid_star_reactions_enabled?: boolean;
       linked_chat_id?: number;
       direct_messages_enabled?: boolean;
       direct_messages_star_count?: number;
@@ -917,6 +937,70 @@ export async function sendPoll(token: string, payload: SendPollRequest): Promise
   return callBotMethod<Message>(token, 'sendPoll', payload);
 }
 
+export async function getAvailableGifts(token: string, payload: GetAvailableGiftsRequest = {}): Promise<Gifts> {
+  return callBotMethod<Gifts>(token, 'getAvailableGifts', payload);
+}
+
+export async function sendGift(token: string, payload: SendGiftRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'sendGift', payload, { actorUserId });
+}
+
+export async function giftPremiumSubscription(token: string, payload: GiftPremiumSubscriptionRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'giftPremiumSubscription', payload, { actorUserId });
+}
+
+export async function getUserGifts(token: string, payload: GetUserGiftsRequest): Promise<OwnedGifts> {
+  return callBotMethod<OwnedGifts>(token, 'getUserGifts', payload);
+}
+
+export async function getChatGifts(token: string, payload: GetChatGiftsRequest): Promise<OwnedGifts> {
+  return callBotMethod<OwnedGifts>(token, 'getChatGifts', payload);
+}
+
+export async function deleteOwnedGift(token: string, payload: {
+  owned_gift_id: string;
+  user_id?: number;
+  chat_id?: number;
+}, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'deleteOwnedGift', payload, { actorUserId });
+}
+
+export async function convertGiftToStars(token: string, payload: ConvertGiftToStarsRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'convertGiftToStars', payload);
+}
+
+export async function upgradeGift(token: string, payload: UpgradeGiftRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'upgradeGift', payload);
+}
+
+export async function transferGift(token: string, payload: TransferGiftRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'transferGift', payload);
+}
+
+export async function purchasePaidMedia(token: string, payload: {
+  chat_id: number;
+  message_id: number;
+  user_id?: number;
+  first_name?: string;
+  username?: string;
+  paid_media_payload?: string;
+}): Promise<SimPurchasePaidMediaResult> {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/purchasePaidMedia`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to purchase paid media');
+  }
+
+  return data.result as SimPurchasePaidMediaResult;
+}
+
 export async function sendInvoice(token: string, payload: SendInvoiceRequest): Promise<Message> {
   return callBotMethod<Message>(token, 'sendInvoice', payload);
 }
@@ -992,10 +1076,14 @@ export async function getPollVoters(
   return data.result as PollVotersResult;
 }
 
+type SimReactionPayloadItem =
+  | { type: 'emoji'; emoji: string }
+  | { type: 'paid' };
+
 export async function setBotMessageReaction(token: string, payload: {
   chat_id: number;
   message_id: number;
-  reaction: Array<{ type: 'emoji'; emoji: string }>;
+  reaction: SimReactionPayloadItem[];
 }) {
   return callBotMethod<boolean>(token, 'setMessageReaction', payload as SetMessageReactionRequest);
 }
@@ -1006,7 +1094,7 @@ export async function setUserMessageReaction(token: string, payload: {
   user_id: number;
   first_name: string;
   username?: string;
-  reaction: Array<{ type: 'emoji'; emoji: string }>;
+  reaction: SimReactionPayloadItem[];
 }) {
   const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/setUserReaction`, {
     method: 'POST',
@@ -2002,6 +2090,87 @@ export async function sendBotMediaGroup(token: string, payload: {
   const data = await response.json();
   if (!data.ok) {
     throw new Error(data.description || 'Unable to upload media group');
+  }
+
+  return data.result;
+}
+
+type PaidMediaItem = {
+  type: 'photo' | 'video';
+  file: globalThis.File;
+};
+
+function inferPaidMediaItem(file: globalThis.File): PaidMediaItem | null {
+  const mime = file.type.toLowerCase();
+  if (mime.startsWith('image/')) {
+    return { type: 'photo', file };
+  }
+  if (mime.startsWith('video/')) {
+    return { type: 'video', file };
+  }
+  return null;
+}
+
+export async function sendBotPaidMedia(token: string, payload: {
+  chatId: number;
+  files: globalThis.File[];
+  starCount: number;
+  caption?: string;
+  parseMode?: 'HTML' | 'Markdown' | 'MarkdownV2';
+  replyToMessageId?: number;
+}, actorUserId?: number) {
+  if (payload.files.length < 1 || payload.files.length > 10) {
+    throw new Error('Paid media requires 1 to 10 files');
+  }
+
+  const normalizedStarCount = Math.floor(Number(payload.starCount));
+  if (!Number.isFinite(normalizedStarCount) || normalizedStarCount <= 0) {
+    throw new Error('Paid media star count must be greater than zero');
+  }
+
+  const formData = new FormData();
+  formData.append('chat_id', String(payload.chatId));
+  formData.append('star_count', String(normalizedStarCount));
+  if (typeof payload.replyToMessageId === 'number' && Number.isFinite(payload.replyToMessageId)) {
+    formData.append('reply_parameters', JSON.stringify({ message_id: Math.trunc(payload.replyToMessageId) }));
+  }
+  if (payload.caption?.trim()) {
+    formData.append('caption', payload.caption.trim());
+    if (payload.parseMode) {
+      formData.append('parse_mode', payload.parseMode);
+    }
+  }
+
+  const media = payload.files.map((file, index) => {
+    const mapped = inferPaidMediaItem(file);
+    if (!mapped) {
+      throw new Error('Paid media supports only photo and video files');
+    }
+
+    const attachName = `paid_media_${index}`;
+    formData.append(attachName, mapped.file, mapped.file.name);
+    return {
+      type: mapped.type,
+      media: `attach://${attachName}`,
+    };
+  });
+
+  formData.append('media', JSON.stringify(media));
+
+  const headers: Record<string, string> = {};
+  if (typeof actorUserId === 'number' && Number.isFinite(actorUserId)) {
+    headers['X-LaraGram-Actor-User-Id'] = String(Math.trunc(actorUserId));
+  }
+
+  const response = await fetch(`${API_BASE_URL}/bot${encodeURIComponent(token)}/sendPaidMedia`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to send paid media');
   }
 
   return data.result;

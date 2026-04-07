@@ -138,6 +138,7 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
             direct_messages_enabled INTEGER NOT NULL DEFAULT 0,
             direct_messages_star_count INTEGER NOT NULL DEFAULT 0,
             channel_show_author_signature INTEGER NOT NULL DEFAULT 0,
+            channel_paid_reactions_enabled INTEGER NOT NULL DEFAULT 0,
             linked_discussion_chat_id INTEGER,
             message_history_visible INTEGER NOT NULL DEFAULT 1,
             slow_mode_delay         INTEGER NOT NULL DEFAULT 0,
@@ -525,6 +526,43 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
             FOREIGN KEY(bot_id) REFERENCES bots(id)
         );
 
+        CREATE TABLE IF NOT EXISTS sim_owned_gifts (
+            bot_id                    INTEGER NOT NULL,
+            owned_gift_id             TEXT NOT NULL,
+            owner_user_id             INTEGER,
+            owner_chat_id             INTEGER,
+            sender_user_id            INTEGER,
+            gift_id                   TEXT NOT NULL,
+            gift_json                 TEXT NOT NULL,
+            gift_star_count           INTEGER NOT NULL,
+            is_unique                 INTEGER NOT NULL DEFAULT 0,
+            is_unlimited              INTEGER NOT NULL DEFAULT 0,
+            is_from_blockchain        INTEGER NOT NULL DEFAULT 0,
+            send_date                 INTEGER NOT NULL,
+            text                      TEXT,
+            entities_json             TEXT,
+            is_private                INTEGER NOT NULL DEFAULT 0,
+            is_saved                  INTEGER NOT NULL DEFAULT 0,
+            can_be_upgraded           INTEGER NOT NULL DEFAULT 1,
+            was_refunded              INTEGER NOT NULL DEFAULT 0,
+            convert_star_count        INTEGER,
+            prepaid_upgrade_star_count INTEGER,
+            is_upgrade_separate       INTEGER NOT NULL DEFAULT 0,
+            unique_gift_number        INTEGER,
+            transfer_star_count       INTEGER,
+            next_transfer_date        INTEGER,
+            created_at                INTEGER NOT NULL,
+            updated_at                INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, owned_gift_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_sim_owned_gifts_owner_user
+            ON sim_owned_gifts (bot_id, owner_user_id, send_date DESC, owned_gift_id DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_sim_owned_gifts_owner_chat
+            ON sim_owned_gifts (bot_id, owner_chat_id, send_date DESC, owned_gift_id DESC);
+
         CREATE TABLE IF NOT EXISTS inline_messages (
             inline_message_id TEXT PRIMARY KEY,
             bot_id            INTEGER NOT NULL,
@@ -708,6 +746,7 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
     ensure_column_exists(conn, "sim_chats", "direct_messages_enabled", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column_exists(conn, "sim_chats", "direct_messages_star_count", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column_exists(conn, "sim_chats", "channel_show_author_signature", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column_exists(conn, "sim_chats", "channel_paid_reactions_enabled", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column_exists(conn, "sim_chats", "linked_discussion_chat_id", "INTEGER")?;
     ensure_column_exists(conn, "sim_chat_members", "permissions_json", "TEXT")?;
     ensure_column_exists(conn, "sim_chat_members", "admin_rights_json", "TEXT")?;

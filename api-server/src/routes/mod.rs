@@ -28,6 +28,7 @@ use crate::handlers::{
     handle_sim_get_callback_query_answer,
     handle_sim_get_inline_query_answer,
     handle_sim_get_poll_voters,
+    handle_sim_purchase_paid_media,
     handle_sim_pay_invoice,
     handle_sim_edit_user_message_media, handle_sim_send_user_media, handle_sim_send_user_message,
     handle_sim_send_user_contact, handle_sim_send_user_dice, handle_sim_send_user_game, handle_sim_send_user_location, handle_sim_send_user_venue,
@@ -45,7 +46,7 @@ use crate::handlers::{
     handle_sim_upsert_user,
     handle_download_file,
     with_request_actor_user_id,
-    SimChooseInlineResultRequest, SimClearHistoryRequest, SimCreateBotRequest, SimCreateGroupInviteLinkRequest, SimCreateGroupRequest, SimDeleteGroupRequest, SimJoinGroupByInviteLinkRequest, SimJoinGroupRequest, SimLeaveGroupRequest, SimMarkChannelMessageViewRequest, SimPayInvoiceRequest, SimPressInlineButtonRequest, SimResolveJoinRequestRequest, SimSendInlineQueryRequest, SimSendUserMessageRequest, SimSetBotGroupMembershipRequest, SimSetUserReactionRequest, SimUpdateBotRequest, SimUpdateGroupRequest,
+    SimChooseInlineResultRequest, SimClearHistoryRequest, SimCreateBotRequest, SimCreateGroupInviteLinkRequest, SimCreateGroupRequest, SimDeleteGroupRequest, SimJoinGroupByInviteLinkRequest, SimJoinGroupRequest, SimLeaveGroupRequest, SimMarkChannelMessageViewRequest, SimPayInvoiceRequest, SimPurchasePaidMediaRequest, SimPressInlineButtonRequest, SimResolveJoinRequestRequest, SimSendInlineQueryRequest, SimSendUserMessageRequest, SimSetBotGroupMembershipRequest, SimSetUserReactionRequest, SimUpdateBotRequest, SimUpdateGroupRequest,
     SimSendUserContactRequest, SimSendUserDiceRequest, SimSendUserGameRequest, SimSendUserLocationRequest, SimSendUserVenueRequest,
     SimDeleteUserRequest,
     SimSetPrivacyModeRequest,
@@ -408,6 +409,16 @@ pub async fn sim_pay_invoice(
 ) -> impl Responder {
     let token = path.into_inner();
     into_telegram_response(handle_sim_pay_invoice(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/purchasePaidMedia")]
+pub async fn sim_purchase_paid_media(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimPurchasePaidMediaRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_purchase_paid_media(&state, &token, payload.into_inner()))
 }
 
 #[post("/client-api/bot{token}/pressInlineButton")]

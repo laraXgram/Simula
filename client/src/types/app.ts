@@ -8,6 +8,7 @@ import type {
   KeyboardButton as GeneratedKeyboardButton,
   Message as GeneratedMessage,
   MessageEntity as GeneratedMessageEntity,
+  GiftInfo as GeneratedGiftInfo,
   Invoice as GeneratedInvoice,
   Contact as GeneratedContact,
   Location as GeneratedLocation,
@@ -76,6 +77,7 @@ export interface SimChatSettings {
   chat_id: number;
   description?: string;
   show_author_signature?: boolean;
+  paid_star_reactions_enabled?: boolean;
   linked_chat_id?: number;
   direct_messages_enabled?: boolean;
   direct_messages_star_count?: number;
@@ -130,6 +132,7 @@ export interface ChatMessage {
   senderChatTitle?: string;
   businessConnectionId?: string;
   paidMessageStarCount?: number;
+  paidMediaPayload?: string;
   isInlineOrigin?: boolean;
   viaBotUsername?: string;
   poll?: GeneratedPoll;
@@ -138,6 +141,7 @@ export interface ChatMessage {
   venue?: GeneratedVenue;
   dice?: GeneratedDice;
   game?: GeneratedGame;
+  gift?: GeneratedGiftInfo;
   invoice?: GeneratedInvoice;
   successfulPayment?: GeneratedSuccessfulPayment;
   media?: {
