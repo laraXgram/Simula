@@ -5,13 +5,14 @@ mod routes;
 mod types;
 mod websocket;
 
+use actix_files::{Files, NamedFile};
 use actix_cors::Cors;
 use actix_web::dev::Service;
-use actix_web::{web::Data, App, HttpResponse, HttpServer};
+use actix_web::{web, web::Data, App, HttpResponse, HttpServer};
 use futures_util::FutureExt;
 use rusqlite::Connection;
 use serde_json::json;
-use std::{collections::VecDeque, env, sync::Mutex};
+use std::{collections::VecDeque, env, path::PathBuf, sync::Mutex};
 
 use crate::database::{
     init_database, is_api_enabled, AppState,
@@ -55,7 +56,26 @@ async fn main() -> std::io::Result<()> {
         .ok()
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(8081);
+    let web_port = env::var("WEB_APP_PORT")
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(8888);
     let db_path = env::var("DATABASE_URL").unwrap_or_else(|_| "simula.db".to_string());
+    let web_dist_dir = match env::var("SIMULA_WEB_DIST_DIR") {
+        Ok(path) => {
+            let path = PathBuf::from(path);
+            if path.exists() {
+                Some(path)
+            } else {
+                log::warn!(
+                    "SIMULA_WEB_DIST_DIR is set but path does not exist: {}",
+                    path.display()
+                );
+                None
+            }
+        }
+        Err(_) => None,
+    };
 
     let mut conn = Connection::open(db_path).map_err(std::io::Error::other)?;
     init_database(&mut conn).map_err(std::io::Error::other)?;
@@ -82,9 +102,10 @@ async fn main() -> std::io::Result<()> {
 
     println!("Simula API Server starting on http://{host}:{port}");
 
-    HttpServer::new(move || {
+    let api_state = state.clone();
+    let api_server = HttpServer::new(move || {
         App::new()
-            .app_data(state.clone())
+            .app_data(api_state.clone())
             .wrap(Cors::permissive())
             .wrap_fn(|req, srv| {
                 let state = req.app_data::<Data<AppState>>().cloned();
@@ -175,7 +196,34 @@ async fn main() -> std::io::Result<()> {
             .service(sim_remove_user_chat_boosts)
             .service(sim_clear_history)
     })
-    .bind((host, port))?
-    .run()
-    .await
+    .bind((host.clone(), port))?
+    .run();
+
+    if let Some(web_dist_dir) = web_dist_dir {
+        let web_root = web_dist_dir.clone();
+        let web_index = web_dist_dir.join("index.html");
+        println!(
+            "Simula Web Client serving on http://{}:{} (dist: {})",
+            host,
+            web_port,
+            web_dist_dir.display()
+        );
+
+        let web_server = HttpServer::new(move || {
+            let static_root = web_root.clone();
+            let index_file = web_index.clone();
+            App::new()
+                .service(Files::new("/", static_root).index_file("index.html"))
+                .default_service(web::to(move || {
+                    let index_file = index_file.clone();
+                    async move { NamedFile::open_async(index_file).await }
+                }))
+        })
+        .bind((host, web_port))?
+        .run();
+
+        tokio::try_join!(api_server, web_server).map(|_| ())
+    } else {
+        api_server.await
+    }
 }

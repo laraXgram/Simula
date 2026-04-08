@@ -110,9 +110,6 @@ From the client directory:
 cd client
 npm install
 
-# bootstrap tauri files once
-npm run tauri:init
-
 # desktop dev session
 npm run tauri:dev
 
@@ -121,6 +118,26 @@ npm run tauri:build
 ```
 
 This path is optional and kept isolated from the web build pipeline.
+
+## Release Outputs (4 Files)
+
+The release workflow publishes exactly 4 end-user artifacts:
+
+- `simula-web.zip`
+- `simula-desktop-linux.zip`
+- `simula-desktop-macos.zip`
+- `simula-desktop-windows.zip`
+
+### Web Bundle
+
+`simula-web.zip` contains one launcher per OS (`run-web.sh` / `run-web.bat`) and starts both services together:
+
+- API server on `http://127.0.0.1:8081`
+- Web client on `http://127.0.0.1:8888`
+
+### Desktop Bundles
+
+Each desktop bundle contains a native desktop app. When the desktop app starts, it automatically launches the embedded API server in the background.
 
 ## Local Native Development (Without Docker)
 

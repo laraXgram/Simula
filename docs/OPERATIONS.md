@@ -23,6 +23,17 @@ docker compose --profile test run --rm client-test
 docker compose --profile scraper run --rm scraper
 ```
 
+## Release Artifacts
+
+Release workflow outputs 4 files:
+
+- `simula-web.zip`
+- `simula-desktop-linux.zip`
+- `simula-desktop-macos.zip`
+- `simula-desktop-windows.zip`
+
+`simula-web.zip` includes launchers that run API (`8081`) and web client (`8888`) together.
+
 ## Persistence Layout
 
 Persistent data is stored in named volumes:

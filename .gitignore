@@ -68,3 +68,7 @@ temp/
 /api-server/src/generated/methods.rs
 /api-server/src/generated/types.rs
 /client/src/types/generated
+
+# Desktop build resources
+/client/src-tauri/resources/simula-api-server
+/client/src-tauri/resources/simula-api-server.exe
