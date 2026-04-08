@@ -36,6 +36,9 @@ Thumbs.db
 # Rust
 Cargo.lock
 
+# JS
+/client/package.lock.json
+
 # Python
 venv/
 .venv/

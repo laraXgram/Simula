@@ -1,64 +1,165 @@
-# Simula
+# LaraGram Simula
 
-**Offline Telegram Bot Development Environment**
+Telegram Bot API simulator with a Simulated client, realtime updates, runtime controls, and traceable debug tooling.
 
-LaraGram Simula is a complete simulation environment for developing Telegram bots without internet dependency or actual Telegram API. It provides a full-featured Bot API server and a Telegram-like client for testing and development.
-
----
-
-## Features
-
-- **100% Telegram Bot API Coverage** - All methods and types
-- **Offline Development** - No internet required
-- **Real-time Testing** - WebSocket-based instant updates
-- **Multi-user Simulation** - Test with multiple fake users
-- **Debug Panel** - Request/response viewer
-- **Telegram-like UI** - Familiar interface for testing
-- **Desktop Support** - Web + Desktop apps
-
----
-
-## Quick Start
-
-### Prerequisites
-- Docker & Docker Compose
-- (Optional) Rust 1.75+, Node.js 18+, Python 3.11+
-
-### Installation
+## Quick Start (Release Profile)
 
 ```bash
-# Clone the repository
 git clone https://github.com/laraxgram/Simula.git
 cd Simula
 
-# Start all services with Docker
-docker-compose up -d
-
-# Access the client
-# Web: http://localhost:5173
-# API: http://localhost:8080
+./scripts/release-up.sh
 ```
 
----
+Available endpoints after startup:
 
-## 🛠️ Development
+- Client: http://127.0.0.1:5173
+- API: http://127.0.0.1:8080
+- Debug Console: http://127.0.0.1:5173/debug
+
+## Docker Profiles
+
+The root compose file supports dedicated environments:
+
+- release: production-like api + client containers
+- dev: hot-reload style api + vite client containers
+- test: one-shot quality checks for api + client
+- scraper: one-shot Telegram docs scrape + code generation
+- ops: one-shot backup/restore containers
+
+### Release
+
+```bash
+# Preferred (runs scraper+generator first)
+./scripts/release-up.sh
+
+# Manual equivalent
+docker compose --profile release run --rm scraper
+docker compose --profile release up -d --build api-server client
+
+docker compose --profile release down
+```
+
+### Dev
+
+```bash
+docker compose --profile dev up --build
+```
+
+### Test
+
+```bash
+docker compose --profile test run --rm api-server-test
+docker compose --profile test run --rm client-test
+```
 
 ### Scraper
+
 ```bash
-cd scraper
-pip install -r requirements.txt
-python src/scraper.py
+# Scrape Bot API docs and regenerate Rust/TypeScript generated files
+docker compose --profile scraper run --rm scraper
 ```
 
+## Data Persistence Policy (Volumes + Backup/Restore)
+
+Runtime data lives on named Docker volumes:
+
+- api-data: SQLite and runtime API data
+- api-files: uploaded/media files
+
+Backup artifacts are stored under backups/ on the host.
+
+### Create Backup
+
+```bash
+./scripts/backup.sh
+```
+
+### Restore Backup
+
+```bash
+# Restore latest archive
+./scripts/restore.sh
+
+# Restore specific archive name or absolute path
+./scripts/restore.sh simula_20260409_160000.tgz
+```
+
+Operational note:
+
+- Stop release/dev services before restore to avoid concurrent file writes.
+
+## Observability and Debug Workflow
+
+Use /debug for end-to-end debugging:
+
+- Realtime request/response logs from runtime endpoints
+- Structured webhook dispatch viewer with URL/status filtering
+- Realtime bot updates stream from websocket
+- JSON inspector tabs: request, response, and request-vs-response diff
+- Export trace bundles for bug reports
+- Import trace bundles for offline investigation
+
+Trace bundle format includes runtime logs, websocket updates, selected bot token, API base URL, and export timestamp.
+
+## Optional Desktop Packaging (Tauri)
+
+From the client directory:
+
+```bash
+cd client
+npm install
+
+# bootstrap tauri files once
+npm run tauri:init
+
+# desktop dev session
+npm run tauri:dev
+
+# desktop build artifacts
+npm run tauri:build
+```
+
+This path is optional and kept isolated from the web build pipeline.
+
+## Local Native Development (Without Docker)
+
 ### API Server
+
 ```bash
 cd api-server
 cargo run
 ```
 
 ### Client
+
 ```bash
 cd client
 npm install
 npm run dev
 ```
+
+### Scraper
+
+```bash
+cd scraper
+pip install -r requirements.txt
+python src/scraper.py
+python src/generator.py
+```
+
+## Contributing
+
+Thank you for considering contributing to the LaraGram Simula! The contribution guide can be found in the [LaraGram documentation](https://laraxgram.github.io/v3/contributions.html).
+
+## Code of Conduct
+
+In order to ensure that the LaraGram community is welcoming to all, please review and abide by the [Code of Conduct](https://laraxgram.github.io/v3/contributions.html#code-of-conduct).
+
+## Security Vulnerabilities
+
+If you discover a security vulnerability within LaraGram, please send an e-mail to LaraXGram via [laraxgram@gmail.com](mailto:laraxgram@gmail.com). All security vulnerabilities will be promptly addressed.
+
+## License
+
+The LaraGram Simula is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
