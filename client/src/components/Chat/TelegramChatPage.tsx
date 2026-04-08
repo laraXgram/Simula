@@ -41,6 +41,7 @@ import {
   createSimBot,
   createSimulationGroup,
   approveChatJoinRequest,
+  approveSuggestedPost,
   banChatMember,
   unbanChatMember,
   restrictChatMember,
@@ -86,8 +87,22 @@ import {
   createChatSubscriptionInviteLink,
   editChatSubscriptionInviteLink,
   declineChatJoinRequest,
+  declineSuggestedPost,
   setSimBotPrivacyMode,
   setChatMenuButton,
+  setMyCommands,
+  getMyCommands,
+  deleteMyCommands,
+  setMyName,
+  getMyName,
+  setMyDescription,
+  getMyDescription,
+  setMyShortDescription,
+  getMyShortDescription,
+  setMyProfilePhoto,
+  removeMyProfilePhoto,
+  setMyDefaultAdministratorRights,
+  getMyDefaultAdministratorRights,
   createNewStickerSet,
   addStickerToSet,
   deleteStickerFromSet,
@@ -99,6 +114,7 @@ import {
   editBotMessageCaption,
   editUserMessageMedia,
   editBotMessageText,
+  editStory,
   replaceStickerInSet,
   sendPoll,
   setCustomEmojiStickerSetThumbnail,
@@ -135,8 +151,13 @@ import {
   sendGift,
   getSimulationBootstrap,
   openSimulationChannelDirectMessages,
+  postStory,
+  postStoryWithFile,
   removeSimulationBusinessConnection,
+  repostStory,
   setSimulationBusinessConnection,
+  deleteStory,
+  editStoryWithFile,
   deleteSimulationGroup,
   joinSimulationGroup,
   joinSimulationGroupByInviteLink,
@@ -161,6 +182,8 @@ import { API_BASE_URL, DEFAULT_BOT_TOKEN } from '../../services/config';
 import { useBotUpdates } from '../../hooks/useBotUpdates';
 import type { GetChatMenuButtonRequest, SetChatMenuButtonRequest } from '../../types/generated/methods';
 import type {
+  BotCommand as GeneratedBotCommand,
+  ChatAdministratorRights as GeneratedChatAdministratorRights,
   BusinessBotRights as GeneratedBusinessBotRights,
   BusinessConnection as GeneratedBusinessConnection,
   ChatShared as GeneratedChatShared,
@@ -218,6 +241,8 @@ const SELECTED_FORUM_TOPIC_KEY = 'laragram-selected-forum-topic-by-chat';
 const BUSINESS_CONNECTIONS_KEY = 'laragram-business-connections';
 const USER_WALLETS_KEY = 'laragram-user-wallets';
 const PAID_MEDIA_PURCHASES_KEY = 'laragram-paid-media-purchases';
+const STORY_SHELF_BY_BOT_KEY = 'laragram-story-shelf-by-bot';
+const HIDDEN_STORY_KEYS_BY_BOT_KEY = 'laragram-hidden-story-keys-by-bot';
 const GENERAL_FORUM_TOPIC_THREAD_ID = 1;
 const DEFAULT_FORUM_ICON_COLOR = 0x6FB9F0;
 const DEFAULT_WALLET_STATE = {
@@ -225,6 +250,12 @@ const DEFAULT_WALLET_STATE = {
   stars: 2500,
 };
 const PREMIUM_SUBSCRIPTION_STAR_COST = 950;
+const STORY_ACTIVE_PERIOD_OPTIONS = [
+  { value: '21600', label: '6 hours' },
+  { value: '43200', label: '12 hours' },
+  { value: '86400', label: '24 hours' },
+  { value: '172800', label: '48 hours' },
+] as const;
 type SidebarTab = 'chats' | 'bots' | 'users';
 type ChatScopeTab = 'private' | 'group' | 'channel';
 type BotModalMode = 'create' | 'edit';
@@ -246,6 +277,24 @@ type MediaDrawerTab =
   | 'venue'
   | 'poll'
   | 'invoice';
+
+interface StoryPreviewSnapshot {
+  caption?: string;
+  contentRef?: string;
+  contentType?: 'photo' | 'video';
+}
+
+interface StoryShelfEntry {
+  story: NonNullable<ChatMessage['story']>;
+  updatedAt: number;
+  preview?: StoryPreviewSnapshot;
+}
+
+interface DeclineSuggestedPostModalState {
+  chatId: number;
+  messageId: number;
+  comment: string;
+}
 
 interface UserDraftState {
   first_name: string;
@@ -286,6 +335,39 @@ interface CheckoutFlowState {
 interface WalletState {
   fiat: number;
   stars: number;
+}
+
+interface BotAdminRightsDraft {
+  isAnonymous: boolean;
+  canManageChat: boolean;
+  canDeleteMessages: boolean;
+  canManageVideoChats: boolean;
+  canRestrictMembers: boolean;
+  canPromoteMembers: boolean;
+  canChangeInfo: boolean;
+  canInviteUsers: boolean;
+  canPostStories: boolean;
+  canEditStories: boolean;
+  canDeleteStories: boolean;
+  canPostMessages: boolean;
+  canEditMessages: boolean;
+  canPinMessages: boolean;
+  canManageTopics: boolean;
+  canManageDirectMessages: boolean;
+  canManageTags: boolean;
+}
+
+interface BotDraftState {
+  first_name: string;
+  username: string;
+  description: string;
+  short_description: string;
+  profile_photo_ref: string;
+  remove_profile_photo: boolean;
+  commands_text: string;
+  commands_language_code: string;
+  group_default_admin_rights: BotAdminRightsDraft;
+  channel_default_admin_rights: BotAdminRightsDraft;
 }
 
 const TELEGRAM_REACTION_EMOJIS = [
@@ -454,6 +536,153 @@ function normalizeWalletState(raw?: Partial<WalletState>): WalletState {
   return {
     fiat: Number.isFinite(fiat) && fiat >= 0 ? fiat : DEFAULT_WALLET_STATE.fiat,
     stars: Number.isFinite(stars) && stars >= 0 ? stars : DEFAULT_WALLET_STATE.stars,
+  };
+}
+
+function randomBotIdentityDraft(): Pick<BotDraftState, 'first_name' | 'username'> {
+  return {
+    first_name: `LaraGram Bot ${Math.floor(Math.random() * 9000 + 1000)}`,
+    username: `laragram_${Math.random().toString(36).slice(2, 8)}`,
+  };
+}
+
+function defaultBotAdminRightsDraft(): BotAdminRightsDraft {
+  return {
+    isAnonymous: false,
+    canManageChat: false,
+    canDeleteMessages: false,
+    canManageVideoChats: false,
+    canRestrictMembers: false,
+    canPromoteMembers: false,
+    canChangeInfo: false,
+    canInviteUsers: false,
+    canPostStories: false,
+    canEditStories: false,
+    canDeleteStories: false,
+    canPostMessages: false,
+    canEditMessages: false,
+    canPinMessages: false,
+    canManageTopics: false,
+    canManageDirectMessages: false,
+    canManageTags: false,
+  };
+}
+
+function emptyBotDraft(): BotDraftState {
+  return {
+    first_name: '',
+    username: '',
+    description: '',
+    short_description: '',
+    profile_photo_ref: '',
+    remove_profile_photo: false,
+    commands_text: '',
+    commands_language_code: '',
+    group_default_admin_rights: defaultBotAdminRightsDraft(),
+    channel_default_admin_rights: defaultBotAdminRightsDraft(),
+  };
+}
+
+function formatBotCommandsForEditor(commands: GeneratedBotCommand[]): string {
+  if (!Array.isArray(commands) || commands.length === 0) {
+    return '';
+  }
+  return commands
+    .map((command) => `/${command.command} - ${command.description}`)
+    .join('\n');
+}
+
+function parseBotCommandsFromEditor(raw: string): GeneratedBotCommand[] {
+  const lines = raw.split(/\r?\n/);
+  const parsedCommands: GeneratedBotCommand[] = [];
+  const seenCommands = new Set<string>();
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index].trim();
+    if (!line || line.startsWith('#')) {
+      continue;
+    }
+
+    const match = line.match(/^\/?([A-Za-z0-9_]{1,32})\s*(?:-|:)\s*(.+)$/);
+    if (!match) {
+      throw new Error(`Invalid command at line ${index + 1}. Use format: /command - Description`);
+    }
+
+    const command = match[1].toLowerCase();
+    const description = match[2].trim();
+
+    if (!/^[a-z0-9_]{1,32}$/.test(command)) {
+      throw new Error(`Command \"${command}\" is invalid. Use lowercase letters, numbers, and underscore only.`);
+    }
+    if (!description) {
+      throw new Error(`Command description is missing at line ${index + 1}.`);
+    }
+    if (description.length > 256) {
+      throw new Error(`Command description at line ${index + 1} exceeds 256 characters.`);
+    }
+    if (seenCommands.has(command)) {
+      throw new Error(`Duplicate command \"${command}\" in command list.`);
+    }
+
+    seenCommands.add(command);
+    parsedCommands.push({
+      command,
+      description,
+    });
+  }
+
+  return parsedCommands;
+}
+
+function mapChatAdminRightsToDraft(rights?: Partial<GeneratedChatAdministratorRights> | null): BotAdminRightsDraft {
+  const defaults = defaultBotAdminRightsDraft();
+  if (!rights) {
+    return defaults;
+  }
+
+  return {
+    isAnonymous: Boolean(rights.is_anonymous),
+    canManageChat: Boolean(rights.can_manage_chat),
+    canDeleteMessages: Boolean(rights.can_delete_messages),
+    canManageVideoChats: Boolean(rights.can_manage_video_chats),
+    canRestrictMembers: Boolean(rights.can_restrict_members),
+    canPromoteMembers: Boolean(rights.can_promote_members),
+    canChangeInfo: Boolean(rights.can_change_info),
+    canInviteUsers: Boolean(rights.can_invite_users),
+    canPostStories: Boolean(rights.can_post_stories),
+    canEditStories: Boolean(rights.can_edit_stories),
+    canDeleteStories: Boolean(rights.can_delete_stories),
+    canPostMessages: Boolean(rights.can_post_messages),
+    canEditMessages: Boolean(rights.can_edit_messages),
+    canPinMessages: Boolean(rights.can_pin_messages),
+    canManageTopics: Boolean(rights.can_manage_topics),
+    canManageDirectMessages: Boolean(rights.can_manage_direct_messages),
+    canManageTags: Boolean(rights.can_manage_tags),
+  };
+}
+
+function mapBotAdminRightsDraftToServer(
+  draft: BotAdminRightsDraft,
+  forChannels: boolean,
+): GeneratedChatAdministratorRights {
+  return {
+    is_anonymous: draft.isAnonymous,
+    can_manage_chat: draft.canManageChat,
+    can_delete_messages: draft.canDeleteMessages,
+    can_manage_video_chats: draft.canManageVideoChats,
+    can_restrict_members: draft.canRestrictMembers,
+    can_promote_members: draft.canPromoteMembers,
+    can_change_info: draft.canChangeInfo,
+    can_invite_users: draft.canInviteUsers,
+    can_post_stories: draft.canPostStories,
+    can_edit_stories: draft.canEditStories,
+    can_delete_stories: draft.canDeleteStories,
+    can_post_messages: forChannels ? draft.canPostMessages : undefined,
+    can_edit_messages: forChannels ? draft.canEditMessages : undefined,
+    can_pin_messages: forChannels ? undefined : draft.canPinMessages,
+    can_manage_topics: forChannels ? undefined : draft.canManageTopics,
+    can_manage_direct_messages: draft.canManageDirectMessages,
+    can_manage_tags: draft.canManageTags,
   };
 }
 
@@ -1644,10 +1873,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const [showUserProfileModal, setShowUserProfileModal] = useState(false);
   const [botModalMode, setBotModalMode] = useState<BotModalMode>('create');
   const [userModalMode, setUserModalMode] = useState<UserModalMode>('create');
-  const [botDraft, setBotDraft] = useState({
-    first_name: '',
-    username: '',
-  });
+  const [botDraft, setBotDraft] = useState<BotDraftState>(() => emptyBotDraft());
+  const [isBotModalLoading, setIsBotModalLoading] = useState(false);
+  const [botDefaultCommandsByToken, setBotDefaultCommandsByToken] = useState<Record<string, GeneratedBotCommand[]>>({});
+  const [isBotCommandsLoading, setIsBotCommandsLoading] = useState(false);
   const [userDraft, setUserDraft] = useState<UserDraftState>(() => emptyUserDraft());
   const [composerEditTarget, setComposerEditTarget] = useState<ChatMessage | null>(null);
   const [replyTarget, setReplyTarget] = useState<ChatMessage | null>(null);
@@ -1705,6 +1934,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const [isGiftActionLoading, setIsGiftActionLoading] = useState(false);
   const [deletingOwnedGiftId, setDeletingOwnedGiftId] = useState<string | null>(null);
   const [purchasingPaidMediaMessageId, setPurchasingPaidMediaMessageId] = useState<number | null>(null);
+  const [suggestedPostActionMessageId, setSuggestedPostActionMessageId] = useState<number | null>(null);
+  const [declineSuggestedPostModal, setDeclineSuggestedPostModal] = useState<DeclineSuggestedPostModalState | null>(null);
   const [paidMediaPurchaseByActorKey, setPaidMediaPurchaseByActorKey] = useState<Record<string, boolean>>(() => {
     try {
       const raw = localStorage.getItem(PAID_MEDIA_PURCHASES_KEY);
@@ -1767,6 +1998,45 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     needEmail: false,
     sendPhoneNumberToProvider: false,
     sendEmailToProvider: false,
+  });
+  const [storyBuilder, setStoryBuilder] = useState({
+    mode: 'post' as 'post' | 'edit',
+    contentType: 'photo' as 'photo' | 'video',
+    contentRef: '',
+    activePeriod: '86400',
+    caption: '',
+    storyId: '',
+    fromChatId: '',
+    fromStoryId: '',
+    areasJson: '',
+  });
+  const [storyBuilderFile, setStoryBuilderFile] = useState<File | null>(null);
+  const [isStoryActionRunning, setIsStoryActionRunning] = useState(false);
+  const [showStoryComposerModal, setShowStoryComposerModal] = useState(false);
+  const [storyShelf, setStoryShelf] = useState<Record<string, StoryShelfEntry>>(() => {
+    try {
+      const raw = localStorage.getItem(STORY_SHELF_BY_BOT_KEY);
+      const parsed = raw ? (JSON.parse(raw) as Record<string, Record<string, StoryShelfEntry>>) : {};
+      return parsed[selectedBotToken] || {};
+    } catch {
+      return {};
+    }
+  });
+  const [hiddenStoryKeys, setHiddenStoryKeys] = useState<Record<string, true>>(() => {
+    try {
+      const raw = localStorage.getItem(HIDDEN_STORY_KEYS_BY_BOT_KEY);
+      const parsed = raw ? (JSON.parse(raw) as Record<string, Record<string, true>>) : {};
+      return parsed[selectedBotToken] || {};
+    } catch {
+      return {};
+    }
+  });
+  const [activeStoryPreviewKey, setActiveStoryPreviewKey] = useState<string | null>(null);
+  const [suggestedPostComposer, setSuggestedPostComposer] = useState({
+    enabled: false,
+    priceCurrency: 'XTR' as 'XTR' | 'TON',
+    priceAmount: '100',
+    sendDate: '',
   });
   const [stickerStudio, setStickerStudio] = useState({
     userId: String(DEFAULT_USER.id),
@@ -1840,6 +2110,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     () => availableBots.find((bot) => bot.token === selectedBotToken),
     [availableBots, selectedBotToken],
   );
+  const selectedBotDefaultCommands = botDefaultCommandsByToken[selectedBotToken] || [];
 
   const selectedUser = useMemo(
     () => availableUsers.find((user) => user.id === selectedUserId) || DEFAULT_USER,
@@ -2030,6 +2301,14 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     selectedGroup?.isDirectMessages
     && !isSelectedUserDirectMessagesAdmin
     && selectedDirectMessagesStarCost > 0,
+  );
+  const canManageSuggestedPostsInSelectedChat = Boolean(
+    selectedGroup?.isDirectMessages
+    && isSelectedUserDirectMessagesManager,
+  );
+  const canCreateSuggestedPostInSelectedChat = Boolean(
+    selectedGroup?.isDirectMessages
+    && !isSelectedUserDirectMessagesManager,
   );
   const isChannelScope = chatScopeTab === 'channel';
   const canPostInSelectedChannel = !isChannelScope || canEditSelectedGroup;
@@ -2647,6 +2926,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const voiceRecorderChunksRef = useRef<BlobPart[]>([]);
   const inlineRequestSeqRef = useRef(0);
   const channelViewAckAtRef = useRef<Record<string, number>>({});
+  const storyShelfStorageReadyTokenRef = useRef(selectedBotToken);
 
   const visibleMessages = useMemo(() => {
     if (chatScopeTab === 'group' && activeDiscussionSource) {
@@ -3591,6 +3871,47 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   }, [selectedForumTopics, selectedGroup?.isForum]);
 
   useEffect(() => {
+    let disposed = false;
+
+    setIsBotCommandsLoading(true);
+    void (async () => {
+      try {
+        const commands = await getMyCommands(selectedBotToken);
+        if (disposed) {
+          return;
+        }
+
+        setBotDefaultCommandsByToken((prev) => ({
+          ...prev,
+          [selectedBotToken]: commands || [],
+        }));
+      } catch {
+        if (disposed) {
+          return;
+        }
+
+        setBotDefaultCommandsByToken((prev) => {
+          if (Object.prototype.hasOwnProperty.call(prev, selectedBotToken)) {
+            return prev;
+          }
+          return {
+            ...prev,
+            [selectedBotToken]: [],
+          };
+        });
+      } finally {
+        if (!disposed) {
+          setIsBotCommandsLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      disposed = true;
+    };
+  }, [selectedBotToken]);
+
+  useEffect(() => {
     localStorage.setItem(SELECTED_USER_KEY, String(selectedUserId));
   }, [selectedUserId]);
 
@@ -3641,6 +3962,34 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   useEffect(() => {
     localStorage.setItem(PAID_MEDIA_PURCHASES_KEY, JSON.stringify(paidMediaPurchaseByActorKey));
   }, [paidMediaPurchaseByActorKey]);
+
+  useEffect(() => {
+    if (storyShelfStorageReadyTokenRef.current !== selectedBotToken) {
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(STORY_SHELF_BY_BOT_KEY);
+      const parsed = raw ? (JSON.parse(raw) as Record<string, Record<string, StoryShelfEntry>>) : {};
+      parsed[selectedBotToken] = storyShelf;
+      localStorage.setItem(STORY_SHELF_BY_BOT_KEY, JSON.stringify(parsed));
+    } catch {
+      // Ignore persistence failures for local story shelf cache.
+    }
+  }, [selectedBotToken, storyShelf]);
+
+  useEffect(() => {
+    if (storyShelfStorageReadyTokenRef.current !== selectedBotToken) {
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(HIDDEN_STORY_KEYS_BY_BOT_KEY);
+      const parsed = raw ? (JSON.parse(raw) as Record<string, Record<string, true>>) : {};
+      parsed[selectedBotToken] = hiddenStoryKeys;
+      localStorage.setItem(HIDDEN_STORY_KEYS_BY_BOT_KEY, JSON.stringify(parsed));
+    } catch {
+      // Ignore persistence failures for local hidden-story cache.
+    }
+  }, [selectedBotToken, hiddenStoryKeys]);
 
   useEffect(() => {
     localStorage.setItem(SELECTED_GROUP_BY_BOT_KEY, JSON.stringify(selectedGroupByBot));
@@ -3813,6 +4162,32 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       };
     });
   }, [selectedBotToken, selectedGroupChatId, groupChats]);
+
+  useEffect(() => {
+    storyShelfStorageReadyTokenRef.current = '__loading__';
+    try {
+      const rawShelf = localStorage.getItem(STORY_SHELF_BY_BOT_KEY);
+      const parsedShelf = rawShelf ? (JSON.parse(rawShelf) as Record<string, Record<string, StoryShelfEntry>>) : {};
+      setStoryShelf(parsedShelf[selectedBotToken] || {});
+    } catch {
+      setStoryShelf({});
+    }
+
+    try {
+      const rawHidden = localStorage.getItem(HIDDEN_STORY_KEYS_BY_BOT_KEY);
+      const parsedHidden = rawHidden ? (JSON.parse(rawHidden) as Record<string, Record<string, true>>) : {};
+      setHiddenStoryKeys(parsedHidden[selectedBotToken] || {});
+    } catch {
+      setHiddenStoryKeys({});
+    }
+    storyShelfStorageReadyTokenRef.current = selectedBotToken;
+  }, [selectedBotToken]);
+
+  useEffect(() => {
+    setDeclineSuggestedPostModal(null);
+    setActiveStoryPreviewKey(null);
+    setShowStoryComposerModal(false);
+  }, [selectedBotToken, selectedGroup?.id]);
 
   useBotUpdates({
     token: selectedBotToken,
@@ -4091,6 +4466,157 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         return;
       }
 
+      const syncSuggestedPostSourceMessage = (
+        sourceMessage: { message_id?: number; chat?: { id?: number } } | undefined,
+        updater: (message: ChatMessage) => ChatMessage,
+      ) => {
+        const sourceMessageId = Number(sourceMessage?.message_id);
+        const sourceChatId = Number(sourceMessage?.chat?.id ?? payload.chat?.id);
+        if (!Number.isFinite(sourceMessageId) || sourceMessageId <= 0 || !Number.isFinite(sourceChatId)) {
+          return;
+        }
+
+        setMessages((prev) => prev.map((message) => {
+          if (
+            message.botToken !== selectedBotToken
+            || message.chatId !== sourceChatId
+            || message.id !== sourceMessageId
+          ) {
+            return message;
+          }
+          return updater(message);
+        }));
+      };
+
+      if (payload.suggested_post_approved) {
+        const approved = payload.suggested_post_approved;
+        syncSuggestedPostSourceMessage(approved.suggested_post_message, (message) => ({
+          ...message,
+          suggestedPostInfo: {
+            ...(message.suggestedPostInfo || {}),
+            state: 'approved',
+            price: approved.price || message.suggestedPostInfo?.price,
+            send_date: approved.send_date || message.suggestedPostInfo?.send_date,
+          },
+          suggestedPostApproved: approved,
+          suggestedPostApprovalFailed: undefined,
+          suggestedPostDeclined: undefined,
+        }));
+      }
+
+      if (payload.suggested_post_approval_failed) {
+        const failed = payload.suggested_post_approval_failed;
+        syncSuggestedPostSourceMessage(failed.suggested_post_message, (message) => ({
+          ...message,
+          suggestedPostInfo: {
+            ...(message.suggestedPostInfo || {}),
+            state: 'approval_failed',
+            price: failed.price || message.suggestedPostInfo?.price,
+          },
+          suggestedPostApprovalFailed: failed,
+        }));
+      }
+
+      if (payload.suggested_post_declined) {
+        const declined = payload.suggested_post_declined;
+        syncSuggestedPostSourceMessage(declined.suggested_post_message, (message) => ({
+          ...message,
+          suggestedPostInfo: {
+            ...(message.suggestedPostInfo || {}),
+            state: 'declined',
+          },
+          suggestedPostDeclined: declined,
+          suggestedPostApproved: undefined,
+          suggestedPostApprovalFailed: undefined,
+        }));
+      }
+
+      if (payload.suggested_post_paid) {
+        const paid = payload.suggested_post_paid;
+        const paidRecord = paid as unknown as Record<string, unknown>;
+        const currency = typeof paidRecord.currency === 'string'
+          ? paidRecord.currency.trim().toUpperCase()
+          : '';
+        const rawPayoutAmount = Math.floor(Number(
+          paidRecord.amount
+          ?? (paidRecord.star_amount && typeof paidRecord.star_amount === 'object'
+            ? (paidRecord.star_amount as Record<string, unknown>).amount
+            : undefined),
+        ));
+        const payoutAmount = Number.isFinite(rawPayoutAmount) && rawPayoutAmount >= 0
+          ? rawPayoutAmount
+          : 0;
+        const rawGrossAmount = Math.floor(Number(paidRecord.gross_amount));
+        const grossAmount = Number.isFinite(rawGrossAmount) && rawGrossAmount > 0
+          ? rawGrossAmount
+          : payoutAmount;
+        const proposerUserId = Math.floor(Number(paidRecord.proposer_user_id));
+        const channelOwnerUserId = Math.floor(Number(paidRecord.channel_owner_user_id));
+
+        if (
+          currency === 'XTR'
+          && grossAmount > 0
+          && Number.isFinite(proposerUserId)
+          && proposerUserId > 0
+          && Number.isFinite(channelOwnerUserId)
+          && channelOwnerUserId > 0
+        ) {
+          setWalletByUserId((prev) => {
+            const deltas: Record<string, number> = {};
+            const proposerKey = String(proposerUserId);
+            const ownerKey = String(channelOwnerUserId);
+
+            deltas[proposerKey] = (deltas[proposerKey] || 0) - grossAmount;
+            deltas[ownerKey] = (deltas[ownerKey] || 0) + payoutAmount;
+
+            let changed = false;
+            const next = { ...prev };
+            Object.entries(deltas).forEach(([userKey, delta]) => {
+              if (!delta) {
+                return;
+              }
+
+              const currentWallet = prev[userKey] || DEFAULT_WALLET_STATE;
+              const updatedWallet = normalizeWalletState({
+                ...currentWallet,
+                stars: Math.max(0, currentWallet.stars + delta),
+              });
+
+              if (
+                updatedWallet.fiat !== currentWallet.fiat
+                || updatedWallet.stars !== currentWallet.stars
+              ) {
+                next[userKey] = updatedWallet;
+                changed = true;
+              }
+            });
+
+            return changed ? next : prev;
+          });
+        }
+
+        syncSuggestedPostSourceMessage(paid.suggested_post_message, (message) => ({
+          ...message,
+          suggestedPostInfo: {
+            ...(message.suggestedPostInfo || {}),
+            state: 'paid',
+          },
+          suggestedPostPaid: paid,
+        }));
+      }
+
+      if (payload.suggested_post_refunded) {
+        const refunded = payload.suggested_post_refunded;
+        syncSuggestedPostSourceMessage(refunded.suggested_post_message, (message) => ({
+          ...message,
+          suggestedPostInfo: {
+            ...(message.suggestedPostInfo || {}),
+            state: 'refunded',
+          },
+          suggestedPostRefunded: refunded,
+        }));
+      }
+
       let media: ChatMessage['media'];
       if (payload.photo && payload.photo.length > 0) {
         const bestPhoto = payload.photo[payload.photo.length - 1];
@@ -4215,6 +4741,77 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             service: {
               kind: 'system' as const,
               targetName: giftId,
+            },
+          };
+        }
+
+        if (payload.suggested_post_approved) {
+          const approvedCurrency = payload.suggested_post_approved.price?.currency?.trim();
+          const approvedAmount = payload.suggested_post_approved.price?.amount;
+          const priceLabel = approvedCurrency && Number.isFinite(Number(approvedAmount))
+            ? ` (${approvedAmount} ${approvedCurrency})`
+            : '';
+          return {
+            text: payload.text || `${actorName} approved a suggested post${priceLabel}`,
+            service: {
+              kind: 'system' as const,
+              targetName: 'Suggested post',
+            },
+          };
+        }
+
+        if (payload.suggested_post_approval_failed) {
+          const failedCurrency = payload.suggested_post_approval_failed.price?.currency?.trim();
+          const failedAmount = payload.suggested_post_approval_failed.price?.amount;
+          const priceLabel = failedCurrency && Number.isFinite(Number(failedAmount))
+            ? ` (${failedAmount} ${failedCurrency})`
+            : '';
+          return {
+            text: payload.text || `${actorName} failed to approve a suggested post${priceLabel}`,
+            service: {
+              kind: 'system' as const,
+              targetName: 'Suggested post',
+            },
+          };
+        }
+
+        if (payload.suggested_post_declined) {
+          const declinedComment = payload.suggested_post_declined.comment?.trim();
+          return {
+            text: payload.text || (declinedComment
+              ? `${actorName} declined a suggested post: ${declinedComment}`
+              : `${actorName} declined a suggested post`),
+            service: {
+              kind: 'system' as const,
+              targetName: 'Suggested post',
+            },
+          };
+        }
+
+        if (payload.suggested_post_paid) {
+          const paidCurrency = payload.suggested_post_paid.currency?.trim();
+          const paidAmount = payload.suggested_post_paid.amount ?? payload.suggested_post_paid.star_amount?.amount;
+          const paidLabel = paidCurrency && Number.isFinite(Number(paidAmount))
+            ? ` (${paidAmount} ${paidCurrency})`
+            : (paidCurrency ? ` (${paidCurrency})` : '');
+          return {
+            text: payload.text || `${actorName} received payment for a suggested post${paidLabel}`,
+            service: {
+              kind: 'system' as const,
+              targetName: 'Suggested post',
+            },
+          };
+        }
+
+        if (payload.suggested_post_refunded) {
+          const refundedReason = payload.suggested_post_refunded.reason?.trim();
+          return {
+            text: payload.text || (refundedReason
+              ? `${actorName} refunded a suggested post (${refundedReason})`
+              : `${actorName} refunded a suggested post`),
+            service: {
+              kind: 'system' as const,
+              targetName: 'Suggested post',
             },
           };
         }
@@ -4409,6 +5006,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         ? payloadRecord.business_connection_id.trim()
         : '';
       const businessConnectionId = rawBusinessConnectionId || undefined;
+      const isPaidPost = payloadRecord.is_paid_post === true;
       const rawPaidMessageStarCount = Math.floor(Number(
         payloadRecord.paid_message_star_count ?? payloadRecord.paid_star_count,
       ));
@@ -4457,6 +5055,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         senderChatId,
         senderChatTitle,
         businessConnectionId,
+        isPaidPost,
         paidMessageStarCount,
         paidMediaPayload,
         views: serviceMessage ? undefined : views,
@@ -4472,6 +5071,13 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         game: payload.game,
         gift: payload.gift,
         poll: payload.poll,
+        story: payload.story,
+        suggestedPostInfo: payload.suggested_post_info,
+        suggestedPostApproved: payload.suggested_post_approved,
+        suggestedPostApprovalFailed: payload.suggested_post_approval_failed,
+        suggestedPostDeclined: payload.suggested_post_declined,
+        suggestedPostPaid: payload.suggested_post_paid,
+        suggestedPostRefunded: payload.suggested_post_refunded,
         invoice: payload.invoice,
         successfulPayment: payload.successful_payment,
         media,
@@ -5037,12 +5643,30 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }));
   };
 
+  const insertBotCommandIntoComposer = (command: string) => {
+    const normalized = command.trim().replace(/^\//, '');
+    if (!normalized) {
+      return;
+    }
+
+    setComposerText((prev) => {
+      const current = prev || '';
+      const spacer = current.length === 0 || /\s$/.test(current) ? '' : ' ';
+      return `${current}${spacer}/${normalized}`;
+    });
+    composerTextareaRef.current?.focus();
+  };
+
   const sendAsUser = async (
     text: string,
     parseMode?: Exclude<ComposerParseMode, 'none'>,
     replyToMessageId?: number,
+    options?: {
+      suggestedPostParameters?: NonNullable<Parameters<typeof sendUserMessage>[1]['suggested_post_parameters']>;
+    },
   ) => {
-    if (!text.trim() || isSending) {
+    const normalizedText = String(text ?? '');
+    if (!normalizedText.trim() || isSending) {
       return;
     }
     if (!ensureActiveForumTopicWritable()) {
@@ -5065,8 +5689,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         first_name: selectedUser.first_name,
         username: selectedUser.username,
         sender_chat_id: activeDiscussionSenderChatId,
-        text,
+        text: normalizedText,
         parse_mode: parseMode,
+        suggested_post_parameters: options?.suggestedPostParameters,
         reply_to_message_id: effectiveReplyToMessageId,
       });
       consumeDirectMessagesStars(1);
@@ -5078,7 +5703,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   };
 
   const submitComposer = async () => {
-    const text = composerText.trim();
+    const text = String(composerText ?? '').trim();
 
     if (!composerEditTarget && !ensureActiveForumTopicWritable()) {
       return;
@@ -5137,7 +5762,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           allows_multiple_answers: false,
           type: pollTrigger.type,
           correct_option_ids: pollTrigger.type === 'quiz' ? [pollTrigger.correctOptionId] : undefined,
-        });
+        }, selectedUser.id);
         setComposerText('');
       } catch (error) {
         setErrorText(error instanceof Error ? error.message : 'Poll send failed');
@@ -5399,11 +6024,70 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       return;
     }
 
+    const suggestedPostParameters = (() => {
+      if (!canCreateSuggestedPostInSelectedChat || !suggestedPostComposer.enabled) {
+        return undefined;
+      }
+
+      const nextParameters: NonNullable<Parameters<typeof sendUserMessage>[1]['suggested_post_parameters']> = {};
+
+      const priceAmountRaw = suggestedPostComposer.priceAmount.trim();
+      if (priceAmountRaw) {
+        const amount = Math.floor(Number(priceAmountRaw));
+        if (!Number.isFinite(amount)) {
+          setErrorText('Suggested post price amount is invalid.');
+          return null;
+        }
+
+        const currency = suggestedPostComposer.priceCurrency;
+        if (currency === 'XTR' && (amount < 5 || amount > 100000)) {
+          setErrorText('XTR amount must be between 5 and 100000.');
+          return null;
+        }
+        if (currency === 'TON' && (amount < 10000000 || amount > 10000000000000)) {
+          setErrorText('TON amount must be between 10000000 and 10000000000000.');
+          return null;
+        }
+
+        nextParameters.price = {
+          currency,
+          amount,
+        };
+      }
+
+      const sendDateRaw = suggestedPostComposer.sendDate.trim();
+      if (sendDateRaw) {
+        const sendDate = Math.floor(new Date(sendDateRaw).getTime() / 1000);
+        if (!Number.isFinite(sendDate)) {
+          setErrorText('Suggested post date is invalid.');
+          return null;
+        }
+
+        const now = Math.floor(Date.now() / 1000);
+        const delta = sendDate - now;
+        if (delta < 300 || delta > 2678400) {
+          setErrorText('Suggested post date must be between 5 minutes and 30 days in the future.');
+          return null;
+        }
+
+        nextParameters.send_date = sendDate;
+      }
+
+      return nextParameters;
+    })();
+
+    if (suggestedPostParameters === null) {
+      return;
+    }
+
     setComposerText('');
     await sendAsUser(
       text,
       composerParseMode === 'none' ? undefined : composerParseMode,
       resolveComposerReplyTargetId(replyTarget?.id),
+      suggestedPostParameters
+        ? { suggestedPostParameters }
+        : undefined,
     );
     setReplyTarget(null);
     dismissActiveOneTimeKeyboard();
@@ -5483,7 +6167,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         open_period: openPeriodNum,
         close_date: closeDateUnix,
         is_closed: pollBuilder.isClosed || undefined,
-      });
+      }, selectedUser.id);
 
       setPollBuilder({
         type: 'regular',
@@ -5601,7 +6285,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         send_phone_number_to_provider: isStarsCurrency ? false : invoiceBuilder.sendPhoneNumberToProvider,
         send_email_to_provider: isStarsCurrency ? false : invoiceBuilder.sendEmailToProvider,
         is_flexible: isStarsCurrency ? false : invoiceBuilder.isFlexible,
-      });
+      }, selectedUser.id);
 
       setErrorText('');
       setInvoiceBuilder((prev) => ({
@@ -5611,6 +6295,591 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'Invoice send failed');
     }
+  };
+
+  const storyShelfKeyFor = (story: NonNullable<ChatMessage['story']>): string => `${story.chat.id}:${story.id}`;
+
+  const mergeStoryPreviewSnapshots = (
+    ...entries: Array<StoryPreviewSnapshot | undefined>
+  ): StoryPreviewSnapshot | undefined => {
+    const merged: StoryPreviewSnapshot = {};
+
+    for (const entry of entries) {
+      if (!entry) {
+        continue;
+      }
+      if (!merged.caption && entry.caption) {
+        merged.caption = entry.caption;
+      }
+      if (!merged.contentRef && entry.contentRef) {
+        merged.contentRef = entry.contentRef;
+      }
+      if (!merged.contentType && entry.contentType) {
+        merged.contentType = entry.contentType;
+      }
+    }
+
+    if (!merged.caption && !merged.contentRef && !merged.contentType) {
+      return undefined;
+    }
+
+    return merged;
+  };
+
+  const storyPreviewFromStoryPayload = (story: NonNullable<ChatMessage['story']>): StoryPreviewSnapshot | undefined => {
+    const rawStory = story as unknown as Record<string, unknown>;
+    const rawContent = rawStory.content;
+    const content = rawContent && typeof rawContent === 'object'
+      ? (rawContent as Record<string, unknown>)
+      : undefined;
+
+    const caption = typeof rawStory.caption === 'string'
+      ? rawStory.caption.trim() || undefined
+      : undefined;
+
+    const rawType = typeof content?.type === 'string'
+      ? content.type
+      : (typeof rawStory.type === 'string' ? rawStory.type : '');
+    const normalizedType = rawType.trim().toLowerCase();
+
+    const photoRef = typeof content?.photo === 'string'
+      ? content.photo.trim()
+      : (typeof rawStory.photo === 'string' ? rawStory.photo.trim() : '');
+    const videoRef = typeof content?.video === 'string'
+      ? content.video.trim()
+      : (typeof rawStory.video === 'string' ? rawStory.video.trim() : '');
+
+    const contentType: StoryPreviewSnapshot['contentType'] = normalizedType === 'video'
+      ? 'video'
+      : (normalizedType === 'photo' ? 'photo' : (videoRef ? 'video' : (photoRef ? 'photo' : undefined)));
+    const contentRef = contentType === 'video'
+      ? (videoRef || undefined)
+      : (contentType === 'photo' ? (photoRef || undefined) : undefined);
+
+    if (!caption && !contentRef && !contentType) {
+      return undefined;
+    }
+
+    return {
+      caption,
+      contentRef,
+      contentType,
+    };
+  };
+
+  const storyPreviewFromMessage = (message: ChatMessage): StoryPreviewSnapshot | undefined => {
+    const caption = message.text?.trim() || undefined;
+    const contentType = message.media?.type === 'video'
+      ? 'video'
+      : (message.media?.type === 'photo' ? 'photo' : undefined);
+    const contentRef = contentType && message.media?.fileId
+      ? message.media.fileId
+      : undefined;
+    if (!caption && !contentType && !contentRef) {
+      return undefined;
+    }
+    return {
+      caption,
+      contentRef,
+      contentType,
+    };
+  };
+
+  const upsertStoryShelfEntry = (
+    story: NonNullable<ChatMessage['story']>,
+    updatedAt?: number,
+    preview?: StoryPreviewSnapshot,
+  ) => {
+    const key = storyShelfKeyFor(story);
+    const nextUpdatedAt = Number.isFinite(Number(updatedAt))
+      ? Math.floor(Number(updatedAt))
+      : Math.floor(Date.now() / 1000);
+    const normalizedPreview = mergeStoryPreviewSnapshots(
+      preview,
+      storyPreviewFromStoryPayload(story),
+    );
+
+    setStoryShelf((prev) => {
+      const existing = prev[key];
+      return {
+        ...prev,
+        [key]: {
+          story,
+          updatedAt: nextUpdatedAt,
+          preview: mergeStoryPreviewSnapshots(normalizedPreview, existing?.preview),
+        },
+      };
+    });
+    setHiddenStoryKeys((prev) => {
+      if (!prev[key]) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const hideStoryShelfEntry = (story: NonNullable<ChatMessage['story']>) => {
+    const key = storyShelfKeyFor(story);
+    setStoryShelf((prev) => {
+      if (!prev[key]) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setHiddenStoryKeys((prev) => ({
+      ...prev,
+      [key]: true,
+    }));
+  };
+
+  const isStoryOwnedByActiveUser = (story: NonNullable<ChatMessage['story']>) => story.chat.id === selectedUser.id;
+
+  const listedStories = useMemo(() => {
+    const merged = new Map<string, StoryShelfEntry>();
+
+    for (const [key, item] of Object.entries(storyShelf)) {
+      if (hiddenStoryKeys[key]) {
+        continue;
+      }
+      merged.set(key, item);
+    }
+
+    for (const message of messages) {
+      if (message.botToken !== selectedBotToken || !message.story) {
+        continue;
+      }
+      const key = storyShelfKeyFor(message.story);
+      if (hiddenStoryKeys[key]) {
+        continue;
+      }
+
+      const candidatePreview = mergeStoryPreviewSnapshots(
+        storyPreviewFromMessage(message),
+        storyPreviewFromStoryPayload(message.story),
+      );
+
+      const candidate: StoryShelfEntry = {
+        story: message.story,
+        updatedAt: message.editDate || message.date,
+        preview: candidatePreview,
+      };
+      const existing = merged.get(key);
+      if (!existing || existing.updatedAt < candidate.updatedAt) {
+        candidate.preview = mergeStoryPreviewSnapshots(candidate.preview, existing?.preview);
+        merged.set(key, candidate);
+      }
+    }
+
+    return Array.from(merged.values()).sort((left, right) => right.updatedAt - left.updatedAt);
+  }, [hiddenStoryKeys, messages, selectedBotToken, storyShelf]);
+
+  const storyPreviewMessageByKey = useMemo(() => {
+    const previewByKey = new Map<string, ChatMessage>();
+
+    for (const message of messages) {
+      if (message.botToken !== selectedBotToken || !message.story) {
+        continue;
+      }
+
+      const key = storyShelfKeyFor(message.story);
+      const existing = previewByKey.get(key);
+      if (!existing) {
+        previewByKey.set(key, message);
+        continue;
+      }
+
+      const existingUpdatedAt = existing.editDate || existing.date;
+      const candidateUpdatedAt = message.editDate || message.date;
+      if (candidateUpdatedAt >= existingUpdatedAt) {
+        previewByKey.set(key, message);
+      }
+    }
+
+    return previewByKey;
+  }, [messages, selectedBotToken]);
+
+  const activeStoryPreview = useMemo(() => {
+    if (!activeStoryPreviewKey) {
+      return null;
+    }
+
+    const entry = listedStories.find((item) => storyShelfKeyFor(item.story) === activeStoryPreviewKey);
+    if (!entry) {
+      return null;
+    }
+
+    return {
+      entry,
+      referenceMessage: storyPreviewMessageByKey.get(activeStoryPreviewKey),
+    };
+  }, [activeStoryPreviewKey, listedStories, storyPreviewMessageByKey]);
+
+  useEffect(() => {
+    if (!activeStoryPreviewKey) {
+      return;
+    }
+
+    const stillExists = listedStories.some((item) => storyShelfKeyFor(item.story) === activeStoryPreviewKey);
+    if (!stillExists) {
+      setActiveStoryPreviewKey(null);
+    }
+  }, [activeStoryPreviewKey, listedStories]);
+
+  const isDirectStoryPreviewSource = (value: string) => (
+    value.startsWith('http://')
+    || value.startsWith('https://')
+    || value.startsWith('data:')
+    || value.startsWith('blob:')
+    || value.startsWith('/'));
+
+  const activeStoryPreviewMediaRef = activeStoryPreview?.entry.preview?.contentRef?.trim() || '';
+  const activeStoryPreviewMediaType = activeStoryPreview?.entry.preview?.contentType;
+  const activeStoryPreviewMediaSource = activeStoryPreviewMediaRef
+    ? (isDirectStoryPreviewSource(activeStoryPreviewMediaRef)
+      ? activeStoryPreviewMediaRef
+      : mediaUrlByFileId[activeStoryPreviewMediaRef])
+    : undefined;
+  const activeStoryReferenceMediaFileId = activeStoryPreview?.referenceMessage?.media?.fileId?.trim() || '';
+
+  useEffect(() => {
+    if (!activeStoryPreview || !activeStoryPreviewMediaRef || isDirectStoryPreviewSource(activeStoryPreviewMediaRef)) {
+      return;
+    }
+    if (mediaUrlByFileId[activeStoryPreviewMediaRef]) {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const url = await resolveMediaUrl(selectedBotToken, activeStoryPreviewMediaRef);
+        if (cancelled) {
+          return;
+        }
+        setMediaUrlByFileId((prev) => ({
+          ...prev,
+          [activeStoryPreviewMediaRef]: url,
+        }));
+      } catch {
+        // Keep story preview responsive even if media URL resolution fails.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeStoryPreview, activeStoryPreviewMediaRef, mediaUrlByFileId, selectedBotToken]);
+
+  useEffect(() => {
+    if (!activeStoryReferenceMediaFileId || mediaUrlByFileId[activeStoryReferenceMediaFileId]) {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const token = activeStoryPreview?.referenceMessage?.botToken || selectedBotToken;
+        const url = await resolveMediaUrl(token, activeStoryReferenceMediaFileId);
+        if (cancelled) {
+          return;
+        }
+        setMediaUrlByFileId((prev) => ({
+          ...prev,
+          [activeStoryReferenceMediaFileId]: url,
+        }));
+      } catch {
+        // Keep story preview responsive even if media URL resolution fails.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeStoryPreview, activeStoryReferenceMediaFileId, mediaUrlByFileId, selectedBotToken]);
+
+  const submitStoryBuilder = async () => {
+    const parseActivePeriod = (raw: string): number => {
+      const value = Math.floor(Number(raw));
+      return Number.isFinite(value) ? value : 0;
+    };
+
+    const parseStoryAreas = (): unknown[] | undefined => {
+      const raw = storyBuilder.areasJson.trim();
+      if (!raw) {
+        return undefined;
+      }
+
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) {
+        throw new Error('Story areas must be a JSON array.');
+      }
+      return parsed;
+    };
+
+    try {
+      setErrorText('');
+      setIsStoryActionRunning(true);
+      const isEditMode = storyBuilder.mode === 'edit';
+      if (!isEditMode) {
+        const contentRef = storyBuilder.contentRef.trim();
+        const caption = storyBuilder.caption.trim() || undefined;
+        if (!contentRef && !storyBuilderFile) {
+          setErrorText('Upload a story file or provide a content reference.');
+          return;
+        }
+
+        const activePeriod = parseActivePeriod(storyBuilder.activePeriod);
+        const areas = parseStoryAreas();
+        const story = storyBuilderFile
+          ? await postStoryWithFile(
+            selectedBotToken,
+            {
+              file: storyBuilderFile,
+              content_type: storyBuilder.contentType,
+              active_period: activePeriod,
+              caption,
+              areas,
+            },
+            selectedUser.id,
+          )
+          : await postStory(
+            selectedBotToken,
+            {
+              content: {
+                type: storyBuilder.contentType,
+                [storyBuilder.contentType]: contentRef,
+              } as unknown as Parameters<typeof postStory>[1]['content'],
+              active_period: activePeriod,
+              caption,
+              areas: areas as Parameters<typeof postStory>[1]['areas'],
+            },
+            selectedUser.id,
+          );
+        upsertStoryShelfEntry(
+          story,
+          undefined,
+          mergeStoryPreviewSnapshots(
+            storyPreviewFromStoryPayload(story),
+            {
+              caption,
+              contentRef: storyBuilderFile ? undefined : (contentRef || undefined),
+              contentType: storyBuilder.contentType,
+            },
+          ),
+        );
+        setCallbackToast(`Story posted: #${story.id}`);
+        setStoryBuilderFile(null);
+        setStoryBuilder((prev) => ({
+          ...prev,
+          mode: 'post',
+          contentRef: '',
+          caption: '',
+          areasJson: '',
+        }));
+        setShowStoryComposerModal(false);
+        return;
+      }
+
+      const storyId = Math.floor(Number(storyBuilder.storyId));
+      if (!Number.isFinite(storyId) || storyId <= 0) {
+        setErrorText('story_id is required.');
+        return;
+      }
+
+      const contentRef = storyBuilder.contentRef.trim();
+      if (!contentRef && !storyBuilderFile) {
+        setErrorText('Upload a story file or provide a content reference for edit.');
+        return;
+      }
+
+      const areas = parseStoryAreas();
+      const caption = storyBuilder.caption.trim() || undefined;
+      const story = storyBuilderFile
+        ? await editStoryWithFile(
+          selectedBotToken,
+          {
+            story_id: storyId,
+            file: storyBuilderFile,
+            content_type: storyBuilder.contentType,
+            caption,
+            areas,
+          },
+          selectedUser.id,
+        )
+        : await editStory(
+          selectedBotToken,
+          {
+            story_id: storyId,
+            content: {
+              type: storyBuilder.contentType,
+              [storyBuilder.contentType]: contentRef,
+            } as unknown as Parameters<typeof editStory>[1]['content'],
+            caption,
+            areas: areas as Parameters<typeof editStory>[1]['areas'],
+          },
+          selectedUser.id,
+        );
+      upsertStoryShelfEntry(
+        story,
+        undefined,
+        mergeStoryPreviewSnapshots(
+          storyPreviewFromStoryPayload(story),
+          {
+            caption,
+            contentRef: storyBuilderFile ? undefined : (contentRef || undefined),
+            contentType: storyBuilder.contentType,
+          },
+        ),
+      );
+      setCallbackToast(`Story updated: #${story.id}`);
+      setStoryBuilderFile(null);
+      setStoryBuilder((prev) => ({
+        ...prev,
+        mode: 'post',
+        storyId: '',
+        contentRef: '',
+        caption: '',
+        areasJson: '',
+      }));
+      setShowStoryComposerModal(false);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Story action failed');
+    } finally {
+      setIsStoryActionRunning(false);
+    }
+  };
+
+  const openStoryComposerForPost = () => {
+    setShowStoryComposerModal(true);
+    setStoryBuilderFile(null);
+    setStoryBuilder((prev) => ({
+      ...prev,
+      mode: 'post',
+      storyId: '',
+      fromChatId: '',
+      fromStoryId: '',
+      contentRef: '',
+      caption: '',
+      areasJson: '',
+    }));
+  };
+
+  const openStoryEditorForReference = (story: NonNullable<ChatMessage['story']>) => {
+    if (!isStoryOwnedByActiveUser(story)) {
+      setErrorText('Only your own stories can be edited.');
+      return;
+    }
+
+    setShowStoryComposerModal(true);
+    setStoryBuilderFile(null);
+    setStoryBuilder((prev) => ({
+      ...prev,
+      mode: 'edit',
+      storyId: String(story.id),
+      fromChatId: String(story.chat.id),
+      fromStoryId: String(story.id),
+      contentRef: '',
+      caption: '',
+      areasJson: '',
+    }));
+  };
+
+  const onRepostStoryReference = async (story: NonNullable<ChatMessage['story']>) => {
+    const activePeriod = Math.floor(Number(storyBuilder.activePeriod)) || 86400;
+    const sourceKey = storyShelfKeyFor(story);
+    const sourceMessagePreview = storyPreviewMessageByKey.get(sourceKey);
+    const sourcePreview = mergeStoryPreviewSnapshots(
+      storyShelf[sourceKey]?.preview,
+      sourceMessagePreview ? storyPreviewFromMessage(sourceMessagePreview) : undefined,
+      storyPreviewFromStoryPayload(story),
+    );
+    setIsStoryActionRunning(true);
+    try {
+      const repostedStory = await repostStory(
+        selectedBotToken,
+        {
+          from_chat_id: story.chat.id,
+          from_story_id: story.id,
+          active_period: activePeriod,
+        },
+        selectedUser.id,
+      );
+      upsertStoryShelfEntry(
+        repostedStory,
+        undefined,
+        mergeStoryPreviewSnapshots(storyPreviewFromStoryPayload(repostedStory), sourcePreview),
+      );
+      setCallbackToast(`Story reposted: #${repostedStory.id}`);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Story repost failed');
+    } finally {
+      setIsStoryActionRunning(false);
+    }
+  };
+
+  const onDeleteStoryReference = async (story: NonNullable<ChatMessage['story']>) => {
+    if (!isStoryOwnedByActiveUser(story)) {
+      setErrorText('Only your own stories can be deleted.');
+      return;
+    }
+
+    setIsStoryActionRunning(true);
+    try {
+      await deleteStory(
+        selectedBotToken,
+        {
+          story_id: story.id,
+        },
+        selectedUser.id,
+      );
+      hideStoryShelfEntry(story);
+      setCallbackToast(`Story deleted: #${story.id}`);
+      setStoryBuilder((prev) => (
+        prev.mode === 'edit' && Number(prev.storyId) === story.id
+          ? {
+            ...prev,
+            mode: 'post',
+            storyId: '',
+            contentRef: '',
+            caption: '',
+            areasJson: '',
+          }
+          : prev
+      ));
+      setStoryBuilderFile(null);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Story delete failed');
+    } finally {
+      setIsStoryActionRunning(false);
+    }
+  };
+
+  const onQuickRepostStory = async (message: ChatMessage) => {
+    if (!message.story) {
+      return;
+    }
+
+    await onRepostStoryReference(message.story);
+  };
+
+  const onQuickDeleteStory = async (message: ChatMessage) => {
+    if (!message.story) {
+      return;
+    }
+
+    await onDeleteStoryReference(message.story);
+  };
+
+  const openStoryEditorFromMessage = (message: ChatMessage) => {
+    if (!message.story) {
+      return;
+    }
+
+    openStoryEditorForReference(message.story);
   };
 
   const stickerEmojiList = useMemo(
@@ -8455,20 +9724,63 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
   };
 
+  const loadBotDraftFromApi = async (
+    token: string,
+    fallback: Pick<BotDraftState, 'first_name' | 'username'>,
+  ) => {
+    setIsBotModalLoading(true);
+    try {
+      const [nameResult, descriptionResult, shortDescriptionResult, commandsResult, groupRights, channelRights] = await Promise.all([
+        getMyName(token),
+        getMyDescription(token),
+        getMyShortDescription(token),
+        getMyCommands(token),
+        getMyDefaultAdministratorRights(token, { for_channels: false }),
+        getMyDefaultAdministratorRights(token, { for_channels: true }),
+      ]);
+
+      const normalizedFirstName = optionalTrimmedText(nameResult?.name) || fallback.first_name;
+      setBotDraft((prev) => ({
+        ...prev,
+        first_name: normalizedFirstName,
+        username: fallback.username,
+        description: optionalTrimmedText(descriptionResult?.description) || '',
+        short_description: optionalTrimmedText(shortDescriptionResult?.short_description) || '',
+        profile_photo_ref: '',
+        remove_profile_photo: false,
+        commands_text: formatBotCommandsForEditor(commandsResult || []),
+        commands_language_code: '',
+        group_default_admin_rights: mapChatAdminRightsToDraft(groupRights),
+        channel_default_admin_rights: mapChatAdminRightsToDraft(channelRights),
+      }));
+      setBotDefaultCommandsByToken((prev) => ({
+        ...prev,
+        [token]: commandsResult || [],
+      }));
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Unable to load bot profile details');
+    } finally {
+      setIsBotModalLoading(false);
+    }
+  };
+
   const onCreateBot = () => {
+    const randomIdentity = randomBotIdentityDraft();
     setBotModalMode('create');
     setBotDraft({
-      first_name: `LaraGram Bot ${Math.floor(Math.random() * 9000 + 1000)}`,
-      username: `laragram_${Math.random().toString(36).slice(2, 8)}`,
+      ...emptyBotDraft(),
+      ...randomIdentity,
+      commands_text: '/start - Start the bot\n/help - Show help and usage',
     });
     setShowBotModal(true);
   };
 
   const randomizeBotDraft = () => {
-    setBotDraft({
-      first_name: `LaraGram Bot ${Math.floor(Math.random() * 9000 + 1000)}`,
-      username: `laragram_${Math.random().toString(36).slice(2, 8)}`,
-    });
+    const randomIdentity = randomBotIdentityDraft();
+    setBotDraft((prev) => ({
+      ...prev,
+      ...randomIdentity,
+    }));
   };
 
   const openCreateUserModal = () => {
@@ -8493,11 +9805,16 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const openEditBotModal = (bot: SimBot) => {
     setBotModalMode('edit');
     setBotDraft({
+      ...emptyBotDraft(),
       first_name: bot.first_name,
       username: bot.username,
     });
     setSelectedBotToken(bot.token);
     setShowBotModal(true);
+    void loadBotDraftFromApi(bot.token, {
+      first_name: bot.first_name,
+      username: bot.username,
+    });
   };
 
   const openEditUserModal = (user: SimUser) => {
@@ -8517,11 +9834,31 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     setErrorText('');
     setIsBootstrapping(true);
 
+    const normalizedFirstName = botDraft.first_name.trim();
+    const normalizedUsername = botDraft.username.trim();
+    if (!normalizedFirstName || !normalizedUsername) {
+      setErrorText('Bot first name and username are required.');
+      setIsBootstrapping(false);
+      return;
+    }
+
+    let parsedCommands: GeneratedBotCommand[] = [];
+    try {
+      parsedCommands = parseBotCommandsFromEditor(botDraft.commands_text);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Invalid command format');
+      setIsBootstrapping(false);
+      return;
+    }
+
+    const commandLanguageCode = optionalTrimmedText(botDraft.commands_language_code);
+    let targetToken = selectedBotToken;
+
     try {
       if (botModalMode === 'create') {
         const created = await createSimBot({
-          first_name: botDraft.first_name,
-          username: botDraft.username,
+          first_name: normalizedFirstName,
+          username: normalizedUsername,
         });
 
         const bot: SimBot = {
@@ -8533,10 +9870,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
         setAvailableBots((prev) => [...prev, bot]);
         setSelectedBotToken(bot.token);
+        targetToken = bot.token;
       } else {
         const updated = await updateSimBot(selectedBotToken, {
-          first_name: botDraft.first_name,
-          username: botDraft.username,
+          first_name: normalizedFirstName,
+          username: normalizedUsername,
         });
 
         setAvailableBots((prev) => prev.map((bot) => (
@@ -8550,8 +9888,57 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         )));
       }
 
+      await setMyName(targetToken, {
+        name: normalizedFirstName,
+      });
+      await setMyDescription(targetToken, {
+        description: optionalTrimmedText(botDraft.description),
+      });
+      await setMyShortDescription(targetToken, {
+        short_description: optionalTrimmedText(botDraft.short_description),
+      });
+
+      if (botDraft.remove_profile_photo) {
+        await removeMyProfilePhoto(targetToken);
+      } else {
+        const profilePhotoRef = optionalTrimmedText(botDraft.profile_photo_ref);
+        if (profilePhotoRef) {
+          await setMyProfilePhoto(targetToken, {
+            photo: {
+              type: 'static',
+              photo: profilePhotoRef,
+            },
+          });
+        }
+      }
+
+      if (parsedCommands.length > 0) {
+        await setMyCommands(targetToken, {
+          commands: parsedCommands,
+          language_code: commandLanguageCode,
+        });
+      } else {
+        await deleteMyCommands(targetToken, {
+          language_code: commandLanguageCode,
+        });
+      }
+
+      await setMyDefaultAdministratorRights(targetToken, {
+        rights: mapBotAdminRightsDraftToServer(botDraft.group_default_admin_rights, false),
+        for_channels: false,
+      });
+      await setMyDefaultAdministratorRights(targetToken, {
+        rights: mapBotAdminRightsDraftToServer(botDraft.channel_default_admin_rights, true),
+        for_channels: true,
+      });
+
+      setBotDefaultCommandsByToken((prev) => ({
+        ...prev,
+        [targetToken]: parsedCommands,
+      }));
+
       setShowBotModal(false);
-      setBotDraft({ first_name: '', username: '' });
+      setBotDraft(emptyBotDraft());
       setActiveTab('bots');
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'Bot could not be saved');
@@ -9316,6 +10703,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   };
 
   const onPurchasePaidMedia = async (message: ChatMessage) => {
+    if (!message.isPaidPost) {
+      return;
+    }
+
     const starCost = Number(message.paidMessageStarCount || 0);
     if (!Number.isFinite(starCost) || starCost <= 0) {
       return;
@@ -9363,6 +10754,161 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       setErrorText(error instanceof Error ? error.message : 'Paid media purchase failed');
     } finally {
       setPurchasingPaidMediaMessageId(null);
+    }
+  };
+
+  const onApproveSuggestedPostMessage = async (message: ChatMessage) => {
+    if (!selectedGroup?.isDirectMessages) {
+      setErrorText('Suggested post moderation is only available in direct messages chats.');
+      return;
+    }
+    if (!canManageSuggestedPostsInSelectedChat) {
+      setErrorText('Only channel owner/admin with direct-messages rights can approve suggested posts.');
+      return;
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    setErrorText('');
+    setSuggestedPostActionMessageId(message.id);
+    try {
+      await approveSuggestedPost(
+        selectedBotToken,
+        {
+          chat_id: message.chatId,
+          message_id: message.id,
+        },
+        selectedUser.id,
+      );
+      setMessages((prev) => prev.map((item) => {
+        if (item.botToken !== selectedBotToken || item.chatId !== message.chatId || item.id !== message.id) {
+          return item;
+        }
+        const approvedSendDate = item.suggestedPostInfo?.send_date || now;
+        const approvedPrice = item.suggestedPostInfo?.price || item.suggestedPostApproved?.price;
+        return {
+          ...item,
+          suggestedPostInfo: {
+            ...(item.suggestedPostInfo || {}),
+            state: 'approved',
+            send_date: approvedSendDate,
+          },
+          suggestedPostApproved: {
+            ...(item.suggestedPostApproved || {}),
+            send_date: approvedSendDate,
+            price: approvedPrice,
+          },
+          suggestedPostApprovalFailed: undefined,
+          suggestedPostDeclined: undefined,
+          suggestedPostPaid: undefined,
+          suggestedPostRefunded: undefined,
+        };
+      }));
+      setCallbackToast('Suggested post approved.');
+      setMessageMenu(null);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Unable to approve suggested post');
+    } finally {
+      setSuggestedPostActionMessageId(null);
+    }
+  };
+
+  const onDeclineSuggestedPostMessage = async (message: ChatMessage, comment?: string): Promise<boolean> => {
+    if (!selectedGroup?.isDirectMessages) {
+      setErrorText('Suggested post moderation is only available in direct messages chats.');
+      return false;
+    }
+    if (!canManageSuggestedPostsInSelectedChat) {
+      setErrorText('Only channel owner/admin with direct-messages rights can decline suggested posts.');
+      return false;
+    }
+
+    const normalizedComment = comment?.trim();
+    if (normalizedComment && normalizedComment.length > 128) {
+      setErrorText('Decline comment must be 128 characters or less.');
+      return false;
+    }
+
+    setErrorText('');
+    setSuggestedPostActionMessageId(message.id);
+    try {
+      await declineSuggestedPost(
+        selectedBotToken,
+        {
+          chat_id: message.chatId,
+          message_id: message.id,
+          comment: normalizedComment || undefined,
+        },
+        selectedUser.id,
+      );
+      setMessages((prev) => prev.map((item) => {
+        if (item.botToken !== selectedBotToken || item.chatId !== message.chatId || item.id !== message.id) {
+          return item;
+        }
+        return {
+          ...item,
+          suggestedPostInfo: {
+            ...(item.suggestedPostInfo || {}),
+            state: 'declined',
+          },
+          suggestedPostApproved: undefined,
+          suggestedPostApprovalFailed: undefined,
+          suggestedPostDeclined: {
+            ...(item.suggestedPostDeclined || {}),
+            comment: normalizedComment || undefined,
+          },
+          suggestedPostPaid: undefined,
+          suggestedPostRefunded: undefined,
+        };
+      }));
+      setCallbackToast('Suggested post declined.');
+      setMessageMenu(null);
+      return true;
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Unable to decline suggested post');
+      return false;
+    } finally {
+      setSuggestedPostActionMessageId(null);
+    }
+  };
+
+  const openDeclineSuggestedPostModal = (message: ChatMessage) => {
+    if (!selectedGroup?.isDirectMessages) {
+      setErrorText('Suggested post moderation is only available in direct messages chats.');
+      return;
+    }
+    if (!canManageSuggestedPostsInSelectedChat) {
+      setErrorText('Only channel owner/admin with direct-messages rights can decline suggested posts.');
+      return;
+    }
+
+    setErrorText('');
+    setDeclineSuggestedPostModal({
+      chatId: message.chatId,
+      messageId: message.id,
+      comment: message.suggestedPostDeclined?.comment || '',
+    });
+    setMessageMenu(null);
+  };
+
+  const submitDeclineSuggestedPostFromModal = async () => {
+    if (!declineSuggestedPostModal || !selectedGroup) {
+      return;
+    }
+
+    const target = messages.find((message) => (
+      message.botToken === selectedBotToken
+      && message.chatId === declineSuggestedPostModal.chatId
+      && message.id === declineSuggestedPostModal.messageId
+    ));
+
+    if (!target) {
+      setErrorText('Suggested post message was not found.');
+      return;
+    }
+
+    const success = await onDeclineSuggestedPostMessage(target, declineSuggestedPostModal.comment);
+    if (success) {
+      setDeclineSuggestedPostModal(null);
     }
   };
 
@@ -10856,6 +12402,168 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     );
   };
 
+  const renderSuggestedPostCard = (message: ChatMessage) => {
+    const info = message.suggestedPostInfo;
+    const approved = message.suggestedPostApproved;
+    const approvalFailed = message.suggestedPostApprovalFailed;
+    const declined = message.suggestedPostDeclined;
+    const paid = message.suggestedPostPaid;
+    const refunded = message.suggestedPostRefunded;
+
+    if (!info && !approved && !approvalFailed && !declined && !paid && !refunded) {
+      return null;
+    }
+
+    const rawState = (
+      info?.state
+      || (refunded
+        ? 'refunded'
+        : (paid
+          ? 'paid'
+          : (approved
+            ? 'approved'
+            : (approvalFailed
+              ? 'approval_failed'
+              : (declined ? 'declined' : 'pending')))))
+    ).trim();
+    const normalizedState = rawState ? rawState.toLowerCase() : 'pending';
+    const displayState = normalizedState
+      .split('_')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+    const resolvedPrice = info?.price || approved?.price || approvalFailed?.price;
+    const resolvedSendDate = info?.send_date || approved?.send_date;
+    const priceLabel = resolvedPrice
+      ? `${resolvedPrice.amount} ${resolvedPrice.currency}`
+      : null;
+    const paidAmount = paid?.amount ?? paid?.star_amount?.amount;
+    const paidLabel = paid
+      ? `${Number.isFinite(Number(paidAmount)) ? `${paidAmount} ` : ''}${paid.currency}`.trim()
+      : null;
+    const isPending = normalizedState === 'pending' || normalizedState === 'approval_failed';
+    const actionInProgress = suggestedPostActionMessageId === message.id;
+    const canManageActions = !message.service
+      && canManageSuggestedPostsInSelectedChat
+      && isPending
+      && selectedGroup?.isDirectMessages
+      && message.chatId === selectedGroup.id;
+    const stateBadgeClass = normalizedState === 'approved'
+      ? 'border-emerald-300/45 bg-emerald-900/30 text-emerald-100'
+      : normalizedState === 'declined'
+        ? 'border-red-300/45 bg-red-900/30 text-red-100'
+        : normalizedState === 'approval_failed'
+          ? 'border-amber-300/45 bg-amber-900/30 text-amber-100'
+          : normalizedState === 'paid'
+            ? 'border-cyan-300/45 bg-cyan-900/30 text-cyan-100'
+            : normalizedState === 'refunded'
+              ? 'border-orange-300/45 bg-orange-900/30 text-orange-100'
+              : 'border-[#7cc8ff]/45 bg-[#21506f]/70 text-[#d6eeff]';
+
+    return (
+      <div className="mb-2 rounded-xl border border-[#5e89a7]/45 bg-[#14324a]/80 p-2.5 text-[#d9edfb]">
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span className="rounded border border-white/20 bg-white/10 px-1.5 py-0.5">Suggested post</span>
+          <span className={`rounded border px-1.5 py-0.5 ${stateBadgeClass}`}>{displayState}</span>
+          {priceLabel ? (
+            <span className="rounded border border-emerald-300/35 bg-emerald-900/25 px-1.5 py-0.5 text-emerald-100">{priceLabel}</span>
+          ) : null}
+          {paidLabel ? (
+            <span className="rounded border border-cyan-300/35 bg-cyan-900/25 px-1.5 py-0.5 text-cyan-100">paid {paidLabel}</span>
+          ) : null}
+          {typeof resolvedSendDate === 'number' ? (
+            <span className="text-[#9dc4dc]">send {formatMessageTime(resolvedSendDate)}</span>
+          ) : null}
+        </div>
+        {approvalFailed?.price ? (
+          <div className="mt-1 text-[11px] text-amber-100">
+            Approval failed for {approvalFailed.price.amount} {approvalFailed.price.currency}.
+          </div>
+        ) : null}
+        {declined?.comment ? (
+          <div className="mt-1 text-[11px] text-[#b8d7eb]">Reason: {declined.comment}</div>
+        ) : null}
+        {refunded?.reason ? (
+          <div className="mt-1 text-[11px] text-orange-100">Refund reason: {refunded.reason}</div>
+        ) : null}
+        {canManageActions ? (
+          <div className="mt-2 flex items-center justify-end gap-1.5">
+            <button
+              type="button"
+              onClick={() => void onApproveSuggestedPostMessage(message)}
+              disabled={actionInProgress}
+              className="rounded-md border border-emerald-300/45 bg-emerald-900/30 px-2 py-1 text-[11px] text-emerald-100 hover:bg-emerald-900/40 disabled:opacity-60"
+            >
+              {actionInProgress ? 'Working...' : 'Approve'}
+            </button>
+            <button
+              type="button"
+              onClick={() => openDeclineSuggestedPostModal(message)}
+              disabled={actionInProgress}
+              className="rounded-md border border-red-300/40 bg-red-900/25 px-2 py-1 text-[11px] text-red-100 hover:bg-red-900/35 disabled:opacity-60"
+            >
+              Decline
+            </button>
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderStoryCard = (message: ChatMessage) => {
+    if (!message.story) {
+      return null;
+    }
+
+    const storyOwner = message.story.chat.title
+      || (message.story.chat.username ? `@${message.story.chat.username}` : `chat ${message.story.chat.id}`);
+    const canEditOwnStory = isStoryOwnedByActiveUser(message.story);
+
+    return (
+      <div className="mb-2 rounded-xl border border-[#4f7ea0]/45 bg-[#17374d]/75 p-3 text-[#dcf0ff]">
+        <div className="text-sm font-semibold">Story reference</div>
+        <div className="mt-1 text-xs">#{message.story.id} from {storyOwner}</div>
+        <div className="mt-2 flex flex-wrap items-center justify-end gap-1.5">
+          <button
+            type="button"
+            onClick={() => setActiveStoryPreviewKey(storyShelfKeyFor(message.story!))}
+            className="rounded-md border border-[#8fd3ff]/45 bg-[#1f5379]/55 px-2 py-1 text-[11px] text-[#d7efff] hover:bg-[#2b6a98]"
+          >
+            Preview
+          </button>
+          {canEditOwnStory ? (
+            <>
+              <button
+                type="button"
+                onClick={() => openStoryEditorFromMessage(message)}
+                disabled={isStoryActionRunning}
+                className="rounded-md border border-[#7ec8fb]/45 bg-[#1f5379] px-2 py-1 text-[11px] text-[#d7efff] hover:bg-[#2b6a98] disabled:opacity-60"
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => void onQuickDeleteStory(message)}
+                disabled={isStoryActionRunning}
+                className="rounded-md border border-red-300/35 bg-red-900/25 px-2 py-1 text-[11px] text-red-100 hover:bg-red-900/35 disabled:opacity-60"
+              >
+                Delete
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void onQuickRepostStory(message)}
+              disabled={isStoryActionRunning}
+              className="rounded-md border border-[#7ec8fb]/45 bg-[#1f5379] px-2 py-1 text-[11px] text-[#d7efff] hover:bg-[#2b6a98] disabled:opacity-60"
+            >
+              Repost
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const renderInvoiceCard = (message: ChatMessage) => {
     if (!message.invoice) {
       return null;
@@ -11120,7 +12828,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       return null;
     }
 
-    const requiresPurchase = typeof message.paidMessageStarCount === 'number'
+    const requiresPurchase = message.isPaidPost === true
+      && typeof message.paidMessageStarCount === 'number'
       && message.paidMessageStarCount > 0
       && message.fromUserId !== selectedUser.id;
     if (requiresPurchase && !isPaidMediaPurchasedForActor(selectedBotToken, selectedUser.id, message.chatId, message.id)) {
@@ -12453,6 +14162,61 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               </div>
             ) : (
               <div className="space-y-3">
+                {listedStories.length > 0 ? (
+                  <div className="mb-1 flex items-center gap-2 overflow-x-auto pb-1">
+                    <button
+                      type="button"
+                      onClick={openStoryComposerForPost}
+                      className="shrink-0 rounded-full border border-[#7ec8fb]/55 bg-[#1f5379] px-3 py-1 text-[11px] font-medium text-[#d7efff] hover:bg-[#2b6a98]"
+                    >
+                      + Story
+                    </button>
+                    <div className="flex gap-2">
+                      {listedStories.map((entry) => {
+                        const story = entry.story;
+                        const storyKey = storyShelfKeyFor(story);
+                        const referenceMessage = storyPreviewMessageByKey.get(storyKey);
+                        const ownerLabel = story.chat.title
+                          || (story.chat.username ? `@${story.chat.username}` : `chat ${story.chat.id}`);
+                        const previewText = referenceMessage?.text?.trim()
+                          || entry.preview?.caption
+                          || (referenceMessage?.media ? `[${referenceMessage.media.type}]` : 'tap');
+                        const active = activeStoryPreviewKey === storyKey;
+                        const avatarLabel = ownerLabel.trim() ? ownerLabel.trim().charAt(0).toUpperCase() : 'S';
+
+                        return (
+                          <button
+                            key={`story-strip-${storyKey}`}
+                            type="button"
+                            onClick={() => setActiveStoryPreviewKey(storyKey)}
+                            className={[
+                              'w-[74px] shrink-0 rounded-xl border px-1.5 py-1 text-center transition',
+                              active
+                                ? 'border-[#9bd8ff]/80 bg-[#255575] text-white'
+                                : 'border-white/20 bg-black/25 text-[#d6ebfb] hover:bg-white/10',
+                            ].join(' ')}
+                          >
+                            <div className="mx-auto mb-1 flex h-10 w-10 items-center justify-center rounded-full border border-[#8fd4ff]/60 bg-[#163a55] text-xs font-semibold">
+                              {avatarLabel}
+                            </div>
+                            <div className="truncate text-[10px] font-medium">{ownerLabel}</div>
+                            <div className="truncate text-[9px] text-[#9cc8e3]">{previewText}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mb-1 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={openStoryComposerForPost}
+                      className="rounded-full border border-[#7ec8fb]/45 bg-[#1f5379]/80 px-3 py-1 text-[11px] text-[#d7efff] hover:bg-[#2b6a98]"
+                    >
+                      + Story
+                    </button>
+                  </div>
+                )}
                 {visibleMessages.length === 0 ? (
                   <p className="text-center text-sm text-telegram-textSecondary">No messages yet.</p>
                 ) : null}
@@ -12590,6 +14354,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         {renderLocationCard(message)}
                         {renderVenueCard(message)}
                         {renderGiftCard(message)}
+                        {renderStoryCard(message)}
+                        {renderSuggestedPostCard(message)}
                         {renderInvoiceCard(message)}
                         {renderSuccessfulPaymentCard(message)}
                         {renderPollCard(message)}
@@ -12598,7 +14364,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         ) : null}
                         {renderInlineKeyboard(message)}
                         {renderReactionChips(message)}
-                        {typeof message.paidMessageStarCount === 'number' && message.paidMessageStarCount > 0 ? (() => {
+                        {message.isPaidPost === true && typeof message.paidMessageStarCount === 'number' && message.paidMessageStarCount > 0 ? (() => {
                           const alreadyPurchased = isPaidMediaPurchasedForActor(
                             selectedBotToken,
                             selectedUser.id,
@@ -12790,12 +14556,14 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       {renderContactCard(lead)}
                       {renderLocationCard(lead)}
                       {renderVenueCard(lead)}
+                      {renderStoryCard(lead)}
+                      {renderSuggestedPostCard(lead)}
                       {renderInvoiceCard(lead)}
                       {renderSuccessfulPaymentCard(lead)}
                       {renderPollCard(lead)}
                       {renderInlineKeyboard(lead)}
                       {renderReactionChips(lead)}
-                      {typeof lead.paidMessageStarCount === 'number' && lead.paidMessageStarCount > 0 ? (() => {
+                      {lead.isPaidPost === true && typeof lead.paidMessageStarCount === 'number' && lead.paidMessageStarCount > 0 ? (() => {
                         const alreadyPurchased = isPaidMediaPurchasedForActor(
                           selectedBotToken,
                           selectedUser.id,
@@ -12948,6 +14716,65 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     </button>
                   </div>
                 ) : null}
+                {canCreateSuggestedPostInSelectedChat ? (
+                  <div className="rounded-xl border border-[#4f7ea6]/50 bg-[#10283d]/90 px-3 py-2 text-xs text-[#d4ebfb]">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={suggestedPostComposer.enabled}
+                          onChange={(event) => setSuggestedPostComposer((prev) => ({
+                            ...prev,
+                            enabled: event.target.checked,
+                          }))}
+                        />
+                        Send as suggested post
+                      </label>
+                      <span className="text-[11px] text-[#9ecae5]">For channel DM members</span>
+                    </div>
+                    {suggestedPostComposer.enabled ? (
+                      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                        <label className="flex items-center gap-2 rounded-md border border-white/15 bg-black/20 px-2 py-1.5">
+                          <select
+                            value={suggestedPostComposer.priceCurrency}
+                            onChange={(event) => setSuggestedPostComposer((prev) => ({
+                              ...prev,
+                              priceCurrency: event.target.value as 'XTR' | 'TON',
+                            }))}
+                            className="rounded border border-white/20 bg-white/5 px-2 py-1 text-xs text-white outline-none"
+                          >
+                            <option value="XTR">XTR</option>
+                            <option value="TON">TON</option>
+                          </select>
+                          <input
+                            type="number"
+                            min={0}
+                            step={1}
+                            value={suggestedPostComposer.priceAmount}
+                            onChange={(event) => setSuggestedPostComposer((prev) => ({
+                              ...prev,
+                              priceAmount: event.target.value,
+                            }))}
+                            className="w-full rounded border border-white/20 bg-white/5 px-2 py-1 text-xs text-white outline-none"
+                            placeholder="optional price"
+                          />
+                        </label>
+                        <label className="flex items-center gap-2 rounded-md border border-white/15 bg-black/20 px-2 py-1.5">
+                          <span>Send at</span>
+                          <input
+                            type="datetime-local"
+                            value={suggestedPostComposer.sendDate}
+                            onChange={(event) => setSuggestedPostComposer((prev) => ({
+                              ...prev,
+                              sendDate: event.target.value,
+                            }))}
+                            className="w-full rounded border border-white/20 bg-white/5 px-2 py-1 text-xs text-white outline-none"
+                          />
+                        </label>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
                 {selectedUploads.length > 0 && chatScopeTab === 'channel' ? (
                   <div className="rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-xs text-telegram-textSecondary">
                     <div className="flex flex-wrap items-center gap-3">
@@ -13003,6 +14830,33 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         <div className="text-sm leading-6 break-words whitespace-pre-wrap">{renderEntityText(composerPreview.text, composerPreview.entities)}</div>
                       </div>
                     ) : null}
+                  </div>
+                ) : null}
+                {(isBotCommandsLoading || selectedBotDefaultCommands.length > 0) ? (
+                  <div className="rounded-xl border border-[#355a76]/55 bg-[#0f2334]/85 px-3 py-2">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <p className="text-[11px] text-[#a9d9ff]">Default bot commands</p>
+                      <span className="text-[10px] text-[#8db7d3]">
+                        {isBotCommandsLoading ? 'loading...' : `${selectedBotDefaultCommands.length} command(s)`}
+                      </span>
+                    </div>
+                    {selectedBotDefaultCommands.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {selectedBotDefaultCommands.slice(0, 24).map((command) => (
+                          <button
+                            key={`default-command-${command.command}`}
+                            type="button"
+                            onClick={() => insertBotCommandIntoComposer(command.command)}
+                            title={command.description}
+                            className="rounded-md border border-[#4f7ea6]/55 bg-[#173a55] px-2 py-1 text-[11px] text-[#d7edff] hover:bg-[#214c6f]"
+                          >
+                            /{command.command}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-telegram-textSecondary">No default commands configured for this bot yet.</p>
+                    )}
                   </div>
                 ) : null}
                 {inlineTrigger ? (
@@ -14491,7 +16345,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               event.preventDefault();
               void commitBotModal();
             }}
-            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-white/10 bg-[#152434] p-4 shadow-2xl"
+            className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-white/10 bg-[#152434] p-4 shadow-2xl"
           >
             <div className="mb-3 flex items-center justify-between">
               <h3 className="flex items-center gap-2 text-lg font-semibold">
@@ -14503,19 +16357,138 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               </button>
             </div>
 
-            <div className="space-y-2">
-              <input
-                value={botDraft.first_name}
-                onChange={(e) => setBotDraft((prev) => ({ ...prev, first_name: e.target.value }))}
-                className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
-                placeholder="Bot first name"
-              />
-              <input
-                value={botDraft.username}
-                onChange={(e) => setBotDraft((prev) => ({ ...prev, username: e.target.value }))}
-                className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
-                placeholder="bot_username"
-              />
+            {isBotModalLoading ? (
+              <p className="mb-3 rounded-lg border border-[#4f7ea6]/40 bg-[#0f2334]/80 px-3 py-2 text-xs text-[#cfe8ff]">
+                Loading bot profile and command settings...
+              </p>
+            ) : null}
+
+            <div className="space-y-3">
+              <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                <p className="mb-2 text-[11px] uppercase tracking-wide text-[#8fb7d6]">Identity</p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <input
+                    value={botDraft.first_name}
+                    onChange={(e) => setBotDraft((prev) => ({ ...prev, first_name: e.target.value }))}
+                    className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                    placeholder="Bot first name"
+                  />
+                  <input
+                    value={botDraft.username}
+                    onChange={(e) => setBotDraft((prev) => ({ ...prev, username: e.target.value }))}
+                    className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                    placeholder="bot_username"
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                <p className="mb-2 text-[11px] uppercase tracking-wide text-[#8fb7d6]">Profile</p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <textarea
+                    value={botDraft.description}
+                    onChange={(event) => setBotDraft((prev) => ({ ...prev, description: event.target.value }))}
+                    rows={3}
+                    className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none sm:col-span-2"
+                    placeholder="Bot description (setMyDescription)"
+                  />
+                  <input
+                    value={botDraft.short_description}
+                    onChange={(event) => setBotDraft((prev) => ({ ...prev, short_description: event.target.value }))}
+                    className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none sm:col-span-2"
+                    placeholder="Short description (setMyShortDescription)"
+                  />
+                  <input
+                    value={botDraft.profile_photo_ref}
+                    onChange={(event) => setBotDraft((prev) => ({
+                      ...prev,
+                      profile_photo_ref: event.target.value,
+                      remove_profile_photo: false,
+                    }))}
+                    className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none sm:col-span-2"
+                    placeholder="Profile photo URL / local path / file_id"
+                  />
+                  <label className="sm:col-span-2 inline-flex items-center gap-2 rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-xs text-[#d7ecfb]">
+                    <input
+                      type="checkbox"
+                      checked={botDraft.remove_profile_photo}
+                      onChange={(event) => setBotDraft((prev) => ({
+                        ...prev,
+                        remove_profile_photo: event.target.checked,
+                        profile_photo_ref: event.target.checked ? '' : prev.profile_photo_ref,
+                      }))}
+                    />
+                    Remove profile photo on save
+                  </label>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                <p className="mb-2 text-[11px] uppercase tracking-wide text-[#8fb7d6]">Default Commands</p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[180px_minmax(0,1fr)]">
+                  <input
+                    value={botDraft.commands_language_code}
+                    onChange={(event) => setBotDraft((prev) => ({ ...prev, commands_language_code: event.target.value }))}
+                    className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                    placeholder="language code (optional)"
+                  />
+                  <textarea
+                    value={botDraft.commands_text}
+                    onChange={(event) => setBotDraft((prev) => ({ ...prev, commands_text: event.target.value }))}
+                    rows={6}
+                    className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 font-mono text-xs outline-none"
+                    placeholder="/start - Start the bot\n/help - Show help"
+                  />
+                </div>
+                <p className="mt-2 text-[11px] text-[#9ec3dc]">Telegram format: /command - Description. Leave empty to delete default commands.</p>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                <p className="mb-2 text-[11px] uppercase tracking-wide text-[#8fb7d6]">Default Admin Rights</p>
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  <div className="rounded-lg border border-white/10 bg-[#0f1c28] p-3">
+                    <p className="mb-2 text-xs text-[#b8d8ee]">Groups/Supergroups</p>
+                    <div className="grid grid-cols-2 gap-1.5 text-[11px] text-[#d7ecfb]">
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.group_default_admin_rights.isAnonymous} onChange={(event) => setBotDraft((prev) => ({ ...prev, group_default_admin_rights: { ...prev.group_default_admin_rights, isAnonymous: event.target.checked } }))} />anonymous</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.group_default_admin_rights.canManageChat} onChange={(event) => setBotDraft((prev) => ({ ...prev, group_default_admin_rights: { ...prev.group_default_admin_rights, canManageChat: event.target.checked } }))} />manage chat</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.group_default_admin_rights.canDeleteMessages} onChange={(event) => setBotDraft((prev) => ({ ...prev, group_default_admin_rights: { ...prev.group_default_admin_rights, canDeleteMessages: event.target.checked } }))} />delete messages</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.group_default_admin_rights.canManageVideoChats} onChange={(event) => setBotDraft((prev) => ({ ...prev, group_default_admin_rights: { ...prev.group_default_admin_rights, canManageVideoChats: event.target.checked } }))} />video chats</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.group_default_admin_rights.canRestrictMembers} onChange={(event) => setBotDraft((prev) => ({ ...prev, group_default_admin_rights: { ...prev.group_default_admin_rights, canRestrictMembers: event.target.checked } }))} />restrict members</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.group_default_admin_rights.canPromoteMembers} onChange={(event) => setBotDraft((prev) => ({ ...prev, group_default_admin_rights: { ...prev.group_default_admin_rights, canPromoteMembers: event.target.checked } }))} />promote members</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.group_default_admin_rights.canChangeInfo} onChange={(event) => setBotDraft((prev) => ({ ...prev, group_default_admin_rights: { ...prev.group_default_admin_rights, canChangeInfo: event.target.checked } }))} />change info</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.group_default_admin_rights.canInviteUsers} onChange={(event) => setBotDraft((prev) => ({ ...prev, group_default_admin_rights: { ...prev.group_default_admin_rights, canInviteUsers: event.target.checked } }))} />invite users</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.group_default_admin_rights.canPinMessages} onChange={(event) => setBotDraft((prev) => ({ ...prev, group_default_admin_rights: { ...prev.group_default_admin_rights, canPinMessages: event.target.checked } }))} />pin messages</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.group_default_admin_rights.canManageTopics} onChange={(event) => setBotDraft((prev) => ({ ...prev, group_default_admin_rights: { ...prev.group_default_admin_rights, canManageTopics: event.target.checked } }))} />manage topics</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.group_default_admin_rights.canManageDirectMessages} onChange={(event) => setBotDraft((prev) => ({ ...prev, group_default_admin_rights: { ...prev.group_default_admin_rights, canManageDirectMessages: event.target.checked } }))} />manage DMs</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.group_default_admin_rights.canManageTags} onChange={(event) => setBotDraft((prev) => ({ ...prev, group_default_admin_rights: { ...prev.group_default_admin_rights, canManageTags: event.target.checked } }))} />manage tags</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.group_default_admin_rights.canPostStories} onChange={(event) => setBotDraft((prev) => ({ ...prev, group_default_admin_rights: { ...prev.group_default_admin_rights, canPostStories: event.target.checked } }))} />post stories</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.group_default_admin_rights.canEditStories} onChange={(event) => setBotDraft((prev) => ({ ...prev, group_default_admin_rights: { ...prev.group_default_admin_rights, canEditStories: event.target.checked } }))} />edit stories</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.group_default_admin_rights.canDeleteStories} onChange={(event) => setBotDraft((prev) => ({ ...prev, group_default_admin_rights: { ...prev.group_default_admin_rights, canDeleteStories: event.target.checked } }))} />delete stories</label>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-white/10 bg-[#0f1c28] p-3">
+                    <p className="mb-2 text-xs text-[#b8d8ee]">Channels</p>
+                    <div className="grid grid-cols-2 gap-1.5 text-[11px] text-[#d7ecfb]">
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.channel_default_admin_rights.isAnonymous} onChange={(event) => setBotDraft((prev) => ({ ...prev, channel_default_admin_rights: { ...prev.channel_default_admin_rights, isAnonymous: event.target.checked } }))} />anonymous</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.channel_default_admin_rights.canManageChat} onChange={(event) => setBotDraft((prev) => ({ ...prev, channel_default_admin_rights: { ...prev.channel_default_admin_rights, canManageChat: event.target.checked } }))} />manage chat</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.channel_default_admin_rights.canDeleteMessages} onChange={(event) => setBotDraft((prev) => ({ ...prev, channel_default_admin_rights: { ...prev.channel_default_admin_rights, canDeleteMessages: event.target.checked } }))} />delete messages</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.channel_default_admin_rights.canManageVideoChats} onChange={(event) => setBotDraft((prev) => ({ ...prev, channel_default_admin_rights: { ...prev.channel_default_admin_rights, canManageVideoChats: event.target.checked } }))} />video chats</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.channel_default_admin_rights.canRestrictMembers} onChange={(event) => setBotDraft((prev) => ({ ...prev, channel_default_admin_rights: { ...prev.channel_default_admin_rights, canRestrictMembers: event.target.checked } }))} />restrict members</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.channel_default_admin_rights.canPromoteMembers} onChange={(event) => setBotDraft((prev) => ({ ...prev, channel_default_admin_rights: { ...prev.channel_default_admin_rights, canPromoteMembers: event.target.checked } }))} />promote members</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.channel_default_admin_rights.canChangeInfo} onChange={(event) => setBotDraft((prev) => ({ ...prev, channel_default_admin_rights: { ...prev.channel_default_admin_rights, canChangeInfo: event.target.checked } }))} />change info</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.channel_default_admin_rights.canInviteUsers} onChange={(event) => setBotDraft((prev) => ({ ...prev, channel_default_admin_rights: { ...prev.channel_default_admin_rights, canInviteUsers: event.target.checked } }))} />invite users</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.channel_default_admin_rights.canPostMessages} onChange={(event) => setBotDraft((prev) => ({ ...prev, channel_default_admin_rights: { ...prev.channel_default_admin_rights, canPostMessages: event.target.checked } }))} />post messages</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.channel_default_admin_rights.canEditMessages} onChange={(event) => setBotDraft((prev) => ({ ...prev, channel_default_admin_rights: { ...prev.channel_default_admin_rights, canEditMessages: event.target.checked } }))} />edit messages</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.channel_default_admin_rights.canManageDirectMessages} onChange={(event) => setBotDraft((prev) => ({ ...prev, channel_default_admin_rights: { ...prev.channel_default_admin_rights, canManageDirectMessages: event.target.checked } }))} />manage DMs</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.channel_default_admin_rights.canManageTags} onChange={(event) => setBotDraft((prev) => ({ ...prev, channel_default_admin_rights: { ...prev.channel_default_admin_rights, canManageTags: event.target.checked } }))} />manage tags</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.channel_default_admin_rights.canPostStories} onChange={(event) => setBotDraft((prev) => ({ ...prev, channel_default_admin_rights: { ...prev.channel_default_admin_rights, canPostStories: event.target.checked } }))} />post stories</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.channel_default_admin_rights.canEditStories} onChange={(event) => setBotDraft((prev) => ({ ...prev, channel_default_admin_rights: { ...prev.channel_default_admin_rights, canEditStories: event.target.checked } }))} />edit stories</label>
+                      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={botDraft.channel_default_admin_rights.canDeleteStories} onChange={(event) => setBotDraft((prev) => ({ ...prev, channel_default_admin_rights: { ...prev.channel_default_admin_rights, canDeleteStories: event.target.checked } }))} />delete stories</label>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="mt-3 flex items-center justify-end gap-2">
@@ -14528,6 +16501,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               </button>
               <button
                 type="submit"
+                disabled={isBootstrapping || isBotModalLoading}
                 className="rounded-lg bg-[#2b5278] px-3 py-2 text-sm font-medium text-white hover:bg-[#366892]"
               >
                 {botModalMode === 'create' ? 'Create Bot' : 'Save Changes'}
@@ -16603,6 +18577,389 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         </div>
       ) : null}
 
+      {showStoryComposerModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4">
+          <div className="w-full max-w-lg rounded-2xl border border-white/20 bg-[#182b3c] p-4 shadow-2xl">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-white">
+                  {storyBuilder.mode === 'edit' ? 'Edit Story' : 'Post Story'}
+                </h3>
+                <p className="mt-1 text-xs text-[#9ec3dc]">Story tools moved out of media drawer.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isStoryActionRunning) {
+                    setShowStoryComposerModal(false);
+                  }
+                }}
+                className="rounded-full p-1 text-white hover:bg-white/10"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 rounded-xl border border-[#2f4e66]/55 bg-[#102638]/80 px-3 py-2">
+              {storyBuilder.mode === 'post' ? (
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                  <select
+                    value={storyBuilder.activePeriod}
+                    onChange={(event) => setStoryBuilder((prev) => ({ ...prev, activePeriod: event.target.value }))}
+                    className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                  >
+                    {STORY_ACTIVE_PERIOD_OPTIONS.map((option) => (
+                      <option key={`story-period-modal-${option.value}`} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                  <div className="rounded-md border border-[#355a76]/40 bg-black/20 px-2 py-1.5 text-[11px] text-[#a9cee5]">
+                    Story lifetime before auto-expire.
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <input
+                  type="file"
+                  accept="image/*,video/*"
+                  onClick={(event) => {
+                    (event.currentTarget as HTMLInputElement).value = '';
+                  }}
+                  onChange={(event) => {
+                    const nextFile = event.target.files?.[0] || null;
+                    setStoryBuilderFile(nextFile);
+                    if (nextFile?.type.startsWith('video/')) {
+                      setStoryBuilder((prev) => ({ ...prev, contentType: 'video' }));
+                    } else if (nextFile?.type.startsWith('image/')) {
+                      setStoryBuilder((prev) => ({ ...prev, contentType: 'photo' }));
+                    }
+                  }}
+                  className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                />
+                <select
+                  value={storyBuilder.contentType}
+                  onChange={(event) => setStoryBuilder((prev) => ({ ...prev, contentType: event.target.value as 'photo' | 'video' }))}
+                  className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                >
+                  <option value="photo">Photo</option>
+                  <option value="video">Video</option>
+                </select>
+              </div>
+
+              {storyBuilderFile ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[#355a76]/45 bg-black/20 px-2 py-1.5 text-[11px] text-[#c8e4f6]">
+                  <span className="truncate">Selected file: {storyBuilderFile.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => setStoryBuilderFile(null)}
+                    className="rounded border border-white/20 bg-white/10 px-2 py-0.5 text-[10px] text-white hover:bg-white/15"
+                  >
+                    Clear file
+                  </button>
+                </div>
+              ) : null}
+
+              <input
+                value={storyBuilder.contentRef}
+                onChange={(event) => setStoryBuilder((prev) => ({ ...prev, contentRef: event.target.value }))}
+                placeholder={storyBuilder.mode === 'edit'
+                  ? 'New file_id/url reference for edit (or upload file)'
+                  : 'Optional file_id/url reference (used when no file selected)'}
+                className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+              />
+
+              {storyBuilder.mode === 'edit' ? (
+                <input
+                  value={storyBuilder.storyId}
+                  readOnly
+                  className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-[#bddcf0] outline-none"
+                />
+              ) : null}
+
+              <textarea
+                value={storyBuilder.caption}
+                onChange={(event) => setStoryBuilder((prev) => ({ ...prev, caption: event.target.value }))}
+                placeholder="caption (optional)"
+                rows={2}
+                className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+              />
+
+              <details className="rounded-md border border-[#355a76]/45 bg-black/20 px-2 py-1.5 text-[11px] text-[#c8e4f6]">
+                <summary className="cursor-pointer select-none">Advanced: areas JSON</summary>
+                <textarea
+                  value={storyBuilder.areasJson}
+                  onChange={(event) => setStoryBuilder((prev) => ({ ...prev, areasJson: event.target.value }))}
+                  placeholder="areas JSON array (optional)"
+                  rows={2}
+                  className="mt-2 w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                />
+              </details>
+
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowStoryComposerModal(false)}
+                  disabled={isStoryActionRunning}
+                  className="rounded-lg border border-white/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void submitStoryBuilder()}
+                  disabled={!hasStarted || isSending || isStoryActionRunning}
+                  className="rounded-lg border border-[#2f7fb4]/60 bg-[#22567c] px-3 py-2 text-sm text-white hover:bg-[#2f6f9f] disabled:opacity-60"
+                >
+                  {isStoryActionRunning
+                    ? 'Working...'
+                    : (storyBuilder.mode === 'edit' ? 'Update story' : 'Post story')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {activeStoryPreview ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 px-4 pb-6 sm:items-center sm:pb-0"
+          onClick={() => setActiveStoryPreviewKey(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-white/20 bg-[#152434] p-4 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-white">Story Preview</h3>
+                <p className="mt-1 text-xs text-[#9ec3dc]">
+                  {activeStoryPreview.entry.story.chat.title
+                    || (activeStoryPreview.entry.story.chat.username
+                      ? `@${activeStoryPreview.entry.story.chat.username}`
+                      : `chat ${activeStoryPreview.entry.story.chat.id}`)}
+                  {` · #${activeStoryPreview.entry.story.id}`}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveStoryPreviewKey(null)}
+                className="rounded-full p-1 text-white hover:bg-white/10"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {activeStoryPreview.referenceMessage ? (
+              <div className="space-y-2">
+                {activeStoryPreview.referenceMessage.media ? (
+                  <div className="overflow-hidden rounded-xl border border-white/15 bg-black/25 p-2">
+                    {renderMediaContent(activeStoryPreview.referenceMessage)}
+                  </div>
+                ) : null}
+                {activeStoryPreview.referenceMessage.text ? (
+                  <div className="rounded-xl border border-white/15 bg-black/25 px-3 py-2 text-sm leading-6 text-[#d8ecfb] break-words whitespace-pre-wrap [overflow-wrap:anywhere]">
+                    {renderEntityText(
+                      activeStoryPreview.referenceMessage.text,
+                      activeStoryPreview.referenceMessage.entities || activeStoryPreview.referenceMessage.captionEntities,
+                    )}
+                  </div>
+                ) : null}
+                {!activeStoryPreview.referenceMessage.media && !activeStoryPreview.referenceMessage.text ? (
+                  <>
+                    {activeStoryPreviewMediaSource && activeStoryPreviewMediaType === 'photo' ? (
+                      <img
+                        src={activeStoryPreviewMediaSource}
+                        alt="story preview"
+                        className="max-h-72 w-full rounded-xl border border-white/15 object-cover"
+                      />
+                    ) : null}
+                    {activeStoryPreviewMediaSource && activeStoryPreviewMediaType === 'video' ? (
+                      <video
+                        src={activeStoryPreviewMediaSource}
+                        controls
+                        className="max-h-72 w-full rounded-xl border border-white/15"
+                      />
+                    ) : null}
+                    {activeStoryPreviewMediaRef && !activeStoryPreviewMediaSource ? (
+                      <div className="rounded-xl border border-white/15 bg-black/25 px-3 py-3 text-xs text-[#b8d7eb]">
+                        Loading story media preview...
+                      </div>
+                    ) : null}
+                    {activeStoryPreview.entry.preview?.caption ? (
+                      <div className="rounded-xl border border-white/15 bg-black/25 px-3 py-2 text-sm leading-6 text-[#d8ecfb] break-words whitespace-pre-wrap [overflow-wrap:anywhere]">
+                        {activeStoryPreview.entry.preview.caption}
+                      </div>
+                    ) : null}
+                    {!activeStoryPreviewMediaRef && !activeStoryPreview.entry.preview?.caption ? (
+                      <div className="rounded-xl border border-white/15 bg-black/25 px-3 py-3 text-xs text-[#b8d7eb]">
+                        Story reference exists, but no cached preview payload is available yet.
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {activeStoryPreviewMediaSource && activeStoryPreviewMediaType === 'photo' ? (
+                  <img
+                    src={activeStoryPreviewMediaSource}
+                    alt="story preview"
+                    className="max-h-72 w-full rounded-xl border border-white/15 object-cover"
+                  />
+                ) : null}
+                {activeStoryPreviewMediaSource && activeStoryPreviewMediaType === 'video' ? (
+                  <video
+                    src={activeStoryPreviewMediaSource}
+                    controls
+                    className="max-h-72 w-full rounded-xl border border-white/15"
+                  />
+                ) : null}
+                {activeStoryPreviewMediaRef && !activeStoryPreviewMediaSource ? (
+                  <div className="rounded-xl border border-white/15 bg-black/25 px-3 py-3 text-xs text-[#b8d7eb]">
+                    Loading story media preview...
+                  </div>
+                ) : null}
+                {activeStoryPreview.entry.preview?.caption ? (
+                  <div className="rounded-xl border border-white/15 bg-black/25 px-3 py-2 text-sm leading-6 text-[#d8ecfb] break-words whitespace-pre-wrap [overflow-wrap:anywhere]">
+                    {activeStoryPreview.entry.preview.caption}
+                  </div>
+                ) : null}
+                {!activeStoryPreviewMediaRef && !activeStoryPreview.entry.preview?.caption ? (
+                  <div className="rounded-xl border border-white/15 bg-black/25 px-3 py-3 text-xs text-[#b8d7eb]">
+                    Preview is limited for this story, but actions are available below.
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+              {activeStoryPreview.referenceMessage ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    scrollToMessage(activeStoryPreview.referenceMessage!.id);
+                    setActiveStoryPreviewKey(null);
+                  }}
+                  className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/15"
+                >
+                  Jump to message
+                </button>
+              ) : null}
+              {isStoryOwnedByActiveUser(activeStoryPreview.entry.story) ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      openStoryEditorForReference(activeStoryPreview.entry.story);
+                      setActiveStoryPreviewKey(null);
+                    }}
+                    disabled={isStoryActionRunning}
+                    className="rounded-lg border border-[#7ec8fb]/45 bg-[#1f5379] px-3 py-2 text-xs text-[#d7efff] hover:bg-[#2b6a98] disabled:opacity-60"
+                  >
+                    Edit story
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveStoryPreviewKey(null);
+                      void onDeleteStoryReference(activeStoryPreview.entry.story);
+                    }}
+                    disabled={isStoryActionRunning}
+                    className="rounded-lg border border-red-300/40 bg-red-900/25 px-3 py-2 text-xs text-red-100 hover:bg-red-900/35 disabled:opacity-60"
+                  >
+                    Delete story
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveStoryPreviewKey(null);
+                    void onRepostStoryReference(activeStoryPreview.entry.story);
+                  }}
+                  disabled={isStoryActionRunning}
+                  className="rounded-lg border border-[#7ec8fb]/45 bg-[#1f5379] px-3 py-2 text-xs text-[#d7efff] hover:bg-[#2b6a98] disabled:opacity-60"
+                >
+                  Repost story
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {declineSuggestedPostModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4">
+          <div className="w-full max-w-sm rounded-2xl border border-white/15 bg-[#152434] p-4 shadow-2xl">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-white">Decline Suggested Post</h3>
+                <p className="mt-1 text-xs text-[#9ec3dc]">Reason is optional, up to 128 characters.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (suggestedPostActionMessageId !== declineSuggestedPostModal.messageId) {
+                    setDeclineSuggestedPostModal(null);
+                  }
+                }}
+                className="rounded-full p-1 text-white hover:bg-white/10"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form
+              className="space-y-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submitDeclineSuggestedPostFromModal();
+              }}
+            >
+              <label className="block text-xs text-[#cbe6f8]">
+                <span className="mb-1 block">Reason</span>
+                <textarea
+                  value={declineSuggestedPostModal.comment}
+                  onChange={(event) => setDeclineSuggestedPostModal((prev) => (
+                    prev
+                      ? {
+                        ...prev,
+                        comment: event.target.value.slice(0, 128),
+                      }
+                      : prev
+                  ))}
+                  rows={4}
+                  className="w-full resize-none rounded-lg border border-[#4f7a99]/60 bg-[#0f1c28] px-3 py-2 text-sm text-white outline-none focus:border-[#83c8ff]/70"
+                  placeholder="Optional note for creator"
+                  autoFocus
+                />
+                <span className="mt-1 block text-right text-[10px] text-[#9ec3dc]">
+                  {declineSuggestedPostModal.comment.length}/128
+                </span>
+              </label>
+
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDeclineSuggestedPostModal(null)}
+                  disabled={suggestedPostActionMessageId === declineSuggestedPostModal.messageId}
+                  className="rounded-lg border border-white/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={suggestedPostActionMessageId === declineSuggestedPostModal.messageId}
+                  className="rounded-lg border border-red-300/45 bg-red-900/30 px-3 py-2 text-sm font-medium text-red-100 hover:bg-red-900/40 disabled:opacity-60"
+                >
+                  {suggestedPostActionMessageId === declineSuggestedPostModal.messageId ? 'Declining...' : 'Decline post'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
       {paidReactionModal ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4">
           <div className="w-full max-w-sm rounded-2xl border border-white/15 bg-[#152434] p-4 shadow-2xl">
@@ -16773,6 +19130,41 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     {target.media ? 'Edit caption/media' : 'Edit text'}
                   </button>
                 ) : null}
+                {(() => {
+                  const suggestedState = target.suggestedPostInfo?.state?.trim().toLowerCase() || '';
+                  const canModerate = !target.service
+                    && canManageSuggestedPostsInSelectedChat
+                    && selectedGroup?.isDirectMessages
+                    && target.chatId === selectedGroup.id
+                    && (suggestedState === 'pending' || suggestedState === 'approval_failed');
+
+                  if (!canModerate) {
+                    return null;
+                  }
+
+                  const inProgress = suggestedPostActionMessageId === target.id;
+
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void onApproveSuggestedPostMessage(target)}
+                        disabled={inProgress}
+                        className="w-full rounded-lg px-3 py-2 text-left text-sm text-emerald-100 hover:bg-white/10 disabled:opacity-50"
+                      >
+                        {inProgress ? 'Working...' : 'Approve suggested post'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openDeclineSuggestedPostModal(target)}
+                        disabled={inProgress}
+                        className="w-full rounded-lg px-3 py-2 text-left text-sm text-red-100 hover:bg-white/10 disabled:opacity-50"
+                      >
+                        Decline suggested post
+                      </button>
+                    </>
+                  );
+                })()}
                 {(chatScopeTab === 'group' || chatScopeTab === 'channel') && canPinInSelectedGroup && !target.service ? (
                   <button
                     type="button"

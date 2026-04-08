@@ -16,6 +16,13 @@ import type {
   Dice as GeneratedDice,
   Game as GeneratedGame,
   SuccessfulPayment as GeneratedSuccessfulPayment,
+  Story as GeneratedStory,
+  SuggestedPostApproved as GeneratedSuggestedPostApproved,
+  SuggestedPostApprovalFailed as GeneratedSuggestedPostApprovalFailed,
+  SuggestedPostDeclined as GeneratedSuggestedPostDeclined,
+  SuggestedPostInfo as GeneratedSuggestedPostInfo,
+  SuggestedPostPaid as GeneratedSuggestedPostPaid,
+  SuggestedPostRefunded as GeneratedSuggestedPostRefunded,
   Poll as GeneratedPoll,
   Chat as GeneratedChat,
   ChatPermissions as GeneratedChatPermissions,
@@ -131,11 +138,19 @@ export interface ChatMessage {
   senderChatId?: number;
   senderChatTitle?: string;
   businessConnectionId?: string;
+  isPaidPost?: boolean;
   paidMessageStarCount?: number;
   paidMediaPayload?: string;
   isInlineOrigin?: boolean;
   viaBotUsername?: string;
   poll?: GeneratedPoll;
+  story?: GeneratedStory;
+  suggestedPostInfo?: GeneratedSuggestedPostInfo;
+  suggestedPostApproved?: GeneratedSuggestedPostApproved;
+  suggestedPostApprovalFailed?: GeneratedSuggestedPostApprovalFailed;
+  suggestedPostDeclined?: GeneratedSuggestedPostDeclined;
+  suggestedPostPaid?: GeneratedSuggestedPostPaid;
+  suggestedPostRefunded?: GeneratedSuggestedPostRefunded;
   contact?: GeneratedContact;
   location?: GeneratedLocation;
   venue?: GeneratedVenue;

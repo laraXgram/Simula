@@ -58,6 +58,9 @@ async fn main() -> std::io::Result<()> {
             if let Err(error) = crate::handlers::handle_auto_close_due_polls(&auto_close_state) {
                 log::warn!("auto-close poll sweep failed: {}", error.description);
             }
+            if let Err(error) = crate::handlers::handle_auto_publish_due_suggested_posts(&auto_close_state) {
+                log::warn!("auto-publish suggested-post sweep failed: {}", error.description);
+            }
             actix_web::rt::time::sleep(std::time::Duration::from_secs(1)).await;
         }
     });

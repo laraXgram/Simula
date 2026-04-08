@@ -6,12 +6,15 @@ import type {
   BanChatMemberRequest,
   BanChatSenderChatRequest,
   ApproveChatJoinRequestRequest,
+  ApproveSuggestedPostRequest,
   CreateChatInviteLinkRequest,
   CreateChatSubscriptionInviteLinkRequest,
   CreateNewStickerSetRequest,
   CopyMessageRequest,
   CopyMessagesRequest,
+  DeclineSuggestedPostRequest,
   DeclineChatJoinRequestRequest,
+  DeleteStoryRequest,
   DeleteChatPhotoRequest,
   DeleteChatStickerSetRequest,
   DeleteForumTopicRequest,
@@ -22,11 +25,17 @@ import type {
   EditMessageCaptionRequest,
   EditMessageLiveLocationRequest,
   EditMessageMediaRequest,
+  EditStoryRequest,
   EditGeneralForumTopicRequest,
   EditForumTopicRequest,
   ExportChatInviteLinkRequest,
   GetForumTopicIconStickersRequest,
   GetChatAdministratorsRequest,
+  GetMyCommandsRequest,
+  GetMyDefaultAdministratorRightsRequest,
+  GetMyDescriptionRequest,
+  GetMyNameRequest,
+  GetMyShortDescriptionRequest,
   GetChatGiftsRequest,
   GetChatMenuButtonRequest,
   GetChatMemberCountRequest,
@@ -47,7 +56,9 @@ import type {
   ForwardMessagesRequest,
   LeaveChatRequest,
   PinChatMessageRequest,
+  PostStoryRequest,
   PromoteChatMemberRequest,
+  RepostStoryRequest,
   ReopenForumTopicRequest,
   ReopenGeneralForumTopicRequest,
   ReplaceStickerInSetRequest,
@@ -65,6 +76,8 @@ import type {
   SendStickerRequest,
   SendVenueRequest,
   SendVideoNoteRequest,
+  DeleteMyCommandsRequest,
+  RemoveMyProfilePhotoRequest,
   SetChatAdministratorCustomTitleRequest,
   SetChatDescriptionRequest,
   SetChatMemberTagRequest,
@@ -72,6 +85,12 @@ import type {
   SetChatPermissionsRequest,
   SetChatStickerSetRequest,
   SetChatTitleRequest,
+  SetMyCommandsRequest,
+  SetMyDefaultAdministratorRightsRequest,
+  SetMyDescriptionRequest,
+  SetMyNameRequest,
+  SetMyProfilePhotoRequest,
+  SetMyShortDescriptionRequest,
   SetGameScoreRequest,
   SetCustomEmojiStickerSetThumbnailRequest,
   SetMessageReactionRequest,
@@ -96,7 +115,8 @@ import type {
   UnpinChatMessageRequest,
   UploadStickerFileRequest,
 } from '../types/generated/methods';
-import type { BusinessBotRights, BusinessConnection as GeneratedBusinessConnection, Chat as GeneratedChat, ChatFullInfo, ChatInviteLink, ChatMember, ChatPermissions, ChatShared, File as TgFile, ForumTopic, GameHighScore, InlineQueryResult, InlineQueryResultsButton, MenuButton, Message, Sticker, StickerSet, User as GeneratedUser, UsersShared, WebAppData } from '../types/generated/types';
+import type { BotCommand, BotDescription, BotName, BotShortDescription, BusinessBotRights, BusinessConnection as GeneratedBusinessConnection, Chat as GeneratedChat, ChatAdministratorRights, ChatFullInfo, ChatInviteLink, ChatMember, ChatPermissions, ChatShared, File as TgFile, ForumTopic, GameHighScore, InlineQueryResult, InlineQueryResultsButton, MenuButton, Message, Sticker, StickerSet, SuggestedPostParameters, User as GeneratedUser, UsersShared, WebAppData } from '../types/generated/types';
+import type { Story } from '../types/generated/types';
 
 import type { Gifts, OwnedGifts } from '../types/generated/types';
 
@@ -166,6 +186,28 @@ export interface SimPurchasePaidMediaResult {
   paid_media_payload: string;
   star_count: number;
   already_purchased?: boolean;
+}
+
+function normalizeTextInput(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  return String(value);
+}
+
+function actorHeader(actorUserId?: number): Record<string, string> {
+  if (typeof actorUserId === 'number' && Number.isFinite(actorUserId)) {
+    return {
+      'X-LaraGram-Actor-User-Id': String(Math.trunc(actorUserId)),
+    };
+  }
+
+  return {};
 }
 
 export async function callBotMethod<T>(
@@ -726,6 +768,66 @@ export async function sendChatAction(token: string, payload: SendChatActionReque
   return callBotMethod<boolean>(token, 'sendChatAction', payload, { actorUserId });
 }
 
+export async function setMyCommands(token: string, payload: SetMyCommandsRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'setMyCommands', payload, { actorUserId });
+}
+
+export async function getMyCommands(token: string, payload: GetMyCommandsRequest = {}, actorUserId?: number): Promise<BotCommand[]> {
+  return callBotMethod<BotCommand[]>(token, 'getMyCommands', payload, { actorUserId });
+}
+
+export async function deleteMyCommands(token: string, payload: DeleteMyCommandsRequest = {}, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'deleteMyCommands', payload, { actorUserId });
+}
+
+export async function setMyName(token: string, payload: SetMyNameRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'setMyName', payload, { actorUserId });
+}
+
+export async function getMyName(token: string, payload: GetMyNameRequest = {}, actorUserId?: number): Promise<BotName> {
+  return callBotMethod<BotName>(token, 'getMyName', payload, { actorUserId });
+}
+
+export async function setMyDescription(token: string, payload: SetMyDescriptionRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'setMyDescription', payload, { actorUserId });
+}
+
+export async function getMyDescription(token: string, payload: GetMyDescriptionRequest = {}, actorUserId?: number): Promise<BotDescription> {
+  return callBotMethod<BotDescription>(token, 'getMyDescription', payload, { actorUserId });
+}
+
+export async function setMyShortDescription(token: string, payload: SetMyShortDescriptionRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'setMyShortDescription', payload, { actorUserId });
+}
+
+export async function getMyShortDescription(token: string, payload: GetMyShortDescriptionRequest = {}, actorUserId?: number): Promise<BotShortDescription> {
+  return callBotMethod<BotShortDescription>(token, 'getMyShortDescription', payload, { actorUserId });
+}
+
+export async function setMyProfilePhoto(token: string, payload: SetMyProfilePhotoRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'setMyProfilePhoto', payload, { actorUserId });
+}
+
+export async function removeMyProfilePhoto(token: string, payload: RemoveMyProfilePhotoRequest = {}, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'removeMyProfilePhoto', payload, { actorUserId });
+}
+
+export async function setMyDefaultAdministratorRights(
+  token: string,
+  payload: SetMyDefaultAdministratorRightsRequest,
+  actorUserId?: number,
+): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'setMyDefaultAdministratorRights', payload, { actorUserId });
+}
+
+export async function getMyDefaultAdministratorRights(
+  token: string,
+  payload: GetMyDefaultAdministratorRightsRequest = {},
+  actorUserId?: number,
+): Promise<ChatAdministratorRights> {
+  return callBotMethod<ChatAdministratorRights>(token, 'getMyDefaultAdministratorRights', payload, { actorUserId });
+}
+
 export async function setChatMenuButton(token: string, payload: SetChatMenuButtonRequest, actorUserId?: number): Promise<boolean> {
   return callBotMethod<boolean>(token, 'setChatMenuButton', payload, { actorUserId });
 }
@@ -912,17 +1014,23 @@ export async function sendUserMessage(token: string, payload: {
   business_connection_id?: string;
   text: string;
   parse_mode?: 'HTML' | 'Markdown' | 'MarkdownV2';
+  suggested_post_parameters?: SuggestedPostParameters;
   reply_to_message_id?: number;
   users_shared?: UsersShared;
   chat_shared?: ChatShared;
   web_app_data?: WebAppData;
 }) {
+  const normalizedPayload = {
+    ...payload,
+    text: normalizeTextInput(payload.text),
+  };
+
   const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/sendUserMessage`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(normalizedPayload),
   });
 
   const data = await response.json();
@@ -933,8 +1041,8 @@ export async function sendUserMessage(token: string, payload: {
   return data.result;
 }
 
-export async function sendPoll(token: string, payload: SendPollRequest): Promise<Message> {
-  return callBotMethod<Message>(token, 'sendPoll', payload);
+export async function sendPoll(token: string, payload: SendPollRequest, actorUserId?: number): Promise<Message> {
+  return callBotMethod<Message>(token, 'sendPoll', payload, { actorUserId });
 }
 
 export async function getAvailableGifts(token: string, payload: GetAvailableGiftsRequest = {}): Promise<Gifts> {
@@ -1001,8 +1109,8 @@ export async function purchasePaidMedia(token: string, payload: {
   return data.result as SimPurchasePaidMediaResult;
 }
 
-export async function sendInvoice(token: string, payload: SendInvoiceRequest): Promise<Message> {
-  return callBotMethod<Message>(token, 'sendInvoice', payload);
+export async function sendInvoice(token: string, payload: SendInvoiceRequest, actorUserId?: number): Promise<Message> {
+  return callBotMethod<Message>(token, 'sendInvoice', payload, { actorUserId });
 }
 
 export async function stopPoll(token: string, payload: StopPollRequest): Promise<Message> {
@@ -1653,7 +1761,126 @@ export async function clearSimHistory(token: string, chatId: number, messageThre
 }
 
 export async function sendBotMessage(token: string, payload: SendMessageRequest, actorUserId?: number) {
-  return callBotMethod<Message>(token, 'sendMessage', payload, { actorUserId });
+  const normalizedPayload: SendMessageRequest = {
+    ...payload,
+    text: normalizeTextInput(payload.text),
+  };
+
+  return callBotMethod<Message>(token, 'sendMessage', normalizedPayload, { actorUserId });
+}
+
+type StoryRequestWithOptionalBusinessConnection<T extends { business_connection_id: string }> =
+  Omit<T, 'business_connection_id'> & { business_connection_id?: string };
+
+type PostStoryRequestPayload = StoryRequestWithOptionalBusinessConnection<PostStoryRequest>;
+type RepostStoryRequestPayload = StoryRequestWithOptionalBusinessConnection<RepostStoryRequest>;
+type EditStoryRequestPayload = StoryRequestWithOptionalBusinessConnection<EditStoryRequest>;
+type DeleteStoryRequestPayload = StoryRequestWithOptionalBusinessConnection<DeleteStoryRequest>;
+
+export async function postStory(token: string, payload: PostStoryRequestPayload, actorUserId?: number): Promise<Story> {
+  return callBotMethod<Story>(token, 'postStory', payload, { actorUserId });
+}
+
+export async function repostStory(token: string, payload: RepostStoryRequestPayload, actorUserId?: number): Promise<Story> {
+  return callBotMethod<Story>(token, 'repostStory', payload, { actorUserId });
+}
+
+export async function editStory(token: string, payload: EditStoryRequestPayload, actorUserId?: number): Promise<Story> {
+  return callBotMethod<Story>(token, 'editStory', payload, { actorUserId });
+}
+
+export async function deleteStory(token: string, payload: DeleteStoryRequestPayload, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'deleteStory', payload, { actorUserId });
+}
+
+export async function postStoryWithFile(token: string, payload: {
+  business_connection_id?: string;
+  file: globalThis.File;
+  content_type: 'photo' | 'video';
+  active_period: number;
+  caption?: string;
+  areas?: unknown[];
+}, actorUserId?: number): Promise<Story> {
+  const formData = new FormData();
+  const businessConnectionId = payload.business_connection_id?.trim();
+  if (businessConnectionId) {
+    formData.append('business_connection_id', businessConnectionId);
+  }
+  formData.append('active_period', String(Math.trunc(payload.active_period)));
+  formData.append('story_file', payload.file, payload.file.name);
+  formData.append('content', JSON.stringify({
+    type: payload.content_type,
+    [payload.content_type]: 'attach://story_file',
+  }));
+
+  if (payload.caption?.trim()) {
+    formData.append('caption', payload.caption.trim());
+  }
+  if (Array.isArray(payload.areas)) {
+    formData.append('areas', JSON.stringify(payload.areas));
+  }
+
+  const response = await fetch(`${API_BASE_URL}/bot${encodeURIComponent(token)}/postStory`, {
+    method: 'POST',
+    headers: actorHeader(actorUserId),
+    body: formData,
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to post story');
+  }
+
+  return data.result as Story;
+}
+
+export async function editStoryWithFile(token: string, payload: {
+  business_connection_id?: string;
+  story_id: number;
+  file: globalThis.File;
+  content_type: 'photo' | 'video';
+  caption?: string;
+  areas?: unknown[];
+}, actorUserId?: number): Promise<Story> {
+  const formData = new FormData();
+  const businessConnectionId = payload.business_connection_id?.trim();
+  if (businessConnectionId) {
+    formData.append('business_connection_id', businessConnectionId);
+  }
+  formData.append('story_id', String(Math.trunc(payload.story_id)));
+  formData.append('story_file', payload.file, payload.file.name);
+  formData.append('content', JSON.stringify({
+    type: payload.content_type,
+    [payload.content_type]: 'attach://story_file',
+  }));
+
+  if (payload.caption?.trim()) {
+    formData.append('caption', payload.caption.trim());
+  }
+  if (Array.isArray(payload.areas)) {
+    formData.append('areas', JSON.stringify(payload.areas));
+  }
+
+  const response = await fetch(`${API_BASE_URL}/bot${encodeURIComponent(token)}/editStory`, {
+    method: 'POST',
+    headers: actorHeader(actorUserId),
+    body: formData,
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to edit story');
+  }
+
+  return data.result as Story;
+}
+
+export async function approveSuggestedPost(token: string, payload: ApproveSuggestedPostRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'approveSuggestedPost', payload, { actorUserId });
+}
+
+export async function declineSuggestedPost(token: string, payload: DeclineSuggestedPostRequest, actorUserId?: number): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'declineSuggestedPost', payload, { actorUserId });
 }
 
 export async function forwardMessage(token: string, payload: ForwardMessageRequest, actorUserId?: number) {

@@ -20,39 +20,41 @@ use crate::generated::methods::{
     CopyMessageRequest, CopyMessagesRequest,
     CreateChatInviteLinkRequest, CreateChatSubscriptionInviteLinkRequest,
     DeleteChatPhotoRequest, DeleteChatStickerSetRequest, DeleteMessageRequest,
-    DeleteMessagesRequest, DeleteStickerFromSetRequest, DeleteStickerSetRequest,
+    DeleteMessagesRequest, DeleteMyCommandsRequest, DeleteStickerFromSetRequest, DeleteStickerSetRequest,
     DeleteWebhookRequest, EditMessageCaptionRequest, EditMessageLiveLocationRequest,
     EditChatInviteLinkRequest, EditChatSubscriptionInviteLinkRequest,
-    DeleteStoryRequest,
     DeclineSuggestedPostRequest,
     DeclineChatJoinRequestRequest, ExportChatInviteLinkRequest,
     EditMessageMediaRequest, EditMessageReplyMarkupRequest, EditMessageTextRequest,
-    EditStoryRequest,
     EditUserStarSubscriptionRequest, GetCustomEmojiStickersRequest, GetFileRequest,
     GetChatRequest, GetChatAdministratorsRequest, GetChatMemberCountRequest,
     GetChatMemberRequest, GetChatMenuButtonRequest, GetForumTopicIconStickersRequest,
     GetAvailableGiftsRequest, GetChatGiftsRequest, GetGameHighScoresRequest,
-    GetMeRequest, GetMyStarBalanceRequest,
+    GetMeRequest, GetMyCommandsRequest, GetMyDefaultAdministratorRightsRequest,
+    GetMyDescriptionRequest, GetMyNameRequest, GetMyShortDescriptionRequest,
+    GetMyStarBalanceRequest,
     GetStarTransactionsRequest, GetStickerSetRequest, GetUpdatesRequest, LeaveChatRequest,
     GetUserGiftsRequest, GiftPremiumSubscriptionRequest,
     ConvertGiftToStarsRequest, UpgradeGiftRequest, TransferGiftRequest,
     GetBusinessConnectionRequest,
     ForwardMessageRequest, ForwardMessagesRequest,
     PinChatMessageRequest, PromoteChatMemberRequest, RefundStarPaymentRequest,
+    RemoveMyProfilePhotoRequest,
     RevokeChatInviteLinkRequest,
     ReplaceStickerInSetRequest, RestrictChatMemberRequest, SendAnimationRequest,
-    RepostStoryRequest,
     SendAudioRequest, SendContactRequest, SendDiceRequest, SendDocumentRequest,
     SendChatActionRequest, SendGameRequest, SendInvoiceRequest, SendLocationRequest, SendMediaGroupRequest,
     SendPaidMediaRequest,
     SendGiftRequest, SendMessageDraftRequest, SendMessageRequest, SendPhotoRequest,
-    PostStoryRequest,
     SendPollRequest, SendStickerRequest,
     SendVenueRequest, SendVideoNoteRequest, SendVideoRequest, SendVoiceRequest,
     SetChatAdministratorCustomTitleRequest, SetChatDescriptionRequest,
     SetChatMemberTagRequest, SetChatPermissionsRequest, SetChatStickerSetRequest,
     SetChatMenuButtonRequest, SetChatTitleRequest, SetCustomEmojiStickerSetThumbnailRequest, SetGameScoreRequest,
     SetMessageReactionRequest, SetStickerEmojiListRequest, SetStickerKeywordsRequest,
+    SetMyCommandsRequest, SetMyDefaultAdministratorRightsRequest,
+    SetMyDescriptionRequest, SetMyNameRequest, SetMyProfilePhotoRequest,
+    SetMyShortDescriptionRequest,
     SetBusinessAccountNameRequest, SetBusinessAccountUsernameRequest,
     SetBusinessAccountBioRequest, SetBusinessAccountProfilePhotoRequest,
     RemoveBusinessAccountProfilePhotoRequest, ReadBusinessMessageRequest,
@@ -69,7 +71,7 @@ use crate::generated::methods::{
     ReopenGeneralForumTopicRequest, HideGeneralForumTopicRequest,
     UnhideGeneralForumTopicRequest, UnpinAllGeneralForumTopicMessagesRequest,
 };
-use crate::generated::types::{AcceptedGiftTypes, Animation, Audio, BusinessBotRights, BusinessConnection, BusinessMessagesDeleted, CallbackQuery, Chat, ChatFullInfo, ChatInviteLink, ChatJoinRequest, ChatMember, ChatMemberAdministrator, ChatMemberBanned, ChatMemberLeft, ChatMemberMember, ChatMemberOwner, ChatMemberRestricted, ChatMemberUpdated, ChatPermissions, ChatPhoto, ChatShared, ChosenInlineResult, Contact, Dice, DirectMessagesTopic, Document, File, ForumTopic, Game, GameHighScore, Gift, GiftBackground, Gifts, InlineKeyboardMarkup, InlineQuery, InputSticker, Invoice, Location, MaskPosition, MaybeInaccessibleMessage, MenuButton, Message, MessageEntity, MessageReactionCountUpdated, MessageReactionUpdated, OrderInfo, OwnedGift, OwnedGifts, PaidMediaPurchased, PhotoSize, Poll, PollAnswer, PollOption, PreCheckoutQuery, ReactionCount, ReactionType, ReplyKeyboardMarkup, ReplyKeyboardRemove, ShippingAddress, ShippingQuery, StarAmount, Sticker, StickerSet, Story, StoryArea, SuccessfulPayment, Update, User, UsersShared, Venue, Video, VideoNote, Voice, WebAppData};
+use crate::generated::types::{AcceptedGiftTypes, Animation, Audio, BotCommand, BotCommandScope, BotDescription, BotName, BotShortDescription, BusinessBotRights, BusinessConnection, BusinessMessagesDeleted, CallbackQuery, Chat, ChatAdministratorRights, ChatFullInfo, ChatInviteLink, ChatJoinRequest, ChatMember, ChatMemberAdministrator, ChatMemberBanned, ChatMemberLeft, ChatMemberMember, ChatMemberOwner, ChatMemberRestricted, ChatMemberUpdated, ChatPermissions, ChatPhoto, ChatShared, ChosenInlineResult, Contact, Dice, DirectMessagesTopic, Document, File, ForumTopic, Game, GameHighScore, Gift, GiftBackground, Gifts, InlineKeyboardMarkup, InlineQuery, InputSticker, Invoice, Location, MaskPosition, MaybeInaccessibleMessage, MenuButton, Message, MessageEntity, MessageReactionCountUpdated, MessageReactionUpdated, OrderInfo, OwnedGift, OwnedGifts, PaidMediaPurchased, PhotoSize, Poll, PollAnswer, PollOption, PreCheckoutQuery, ReactionCount, ReactionType, ReplyKeyboardMarkup, ReplyKeyboardRemove, ShippingAddress, ShippingQuery, StarAmount, Sticker, StickerSet, StoryArea, SuggestedPostInfo, SuggestedPostParameters, SuggestedPostPrice, SuccessfulPayment, Update, User, UsersShared, Venue, Video, VideoNote, Voice, WebAppData};
 use crate::types::{strip_nulls, ApiError, ApiResult};
 
 thread_local! {
@@ -101,6 +103,7 @@ pub struct SimSendUserMessageRequest {
     pub business_connection_id: Option<String>,
     pub text: String,
     pub parse_mode: Option<String>,
+    pub suggested_post_parameters: Option<SuggestedPostParameters>,
     pub reply_to_message_id: Option<i64>,
     pub users_shared: Option<UsersShared>,
     pub chat_shared: Option<ChatShared>,
@@ -635,6 +638,23 @@ pub fn dispatch_method(
         "createinvoicelink" => handle_create_invoice_link(state, token, &params),
         "getmystarbalance" => handle_get_my_star_balance(state, token, &params),
         "getstartransactions" => handle_get_star_transactions(state, token, &params),
+        "setmycommands" => handle_set_my_commands(state, token, &params),
+        "getmycommands" => handle_get_my_commands(state, token, &params),
+        "deletemycommands" => handle_delete_my_commands(state, token, &params),
+        "setmyname" => handle_set_my_name(state, token, &params),
+        "getmyname" => handle_get_my_name(state, token, &params),
+        "setmydescription" => handle_set_my_description(state, token, &params),
+        "getmydescription" => handle_get_my_description(state, token, &params),
+        "setmyshortdescription" => handle_set_my_short_description(state, token, &params),
+        "getmyshortdescription" => handle_get_my_short_description(state, token, &params),
+        "setmyprofilephoto" => handle_set_my_profile_photo(state, token, &params),
+        "removemyprofilephoto" => handle_remove_my_profile_photo(state, token, &params),
+        "setmydefaultadministratorrights" => {
+            handle_set_my_default_administrator_rights(state, token, &params)
+        }
+        "getmydefaultadministratorrights" => {
+            handle_get_my_default_administrator_rights(state, token, &params)
+        }
         "refundstarpayment" => handle_refund_star_payment(state, token, &params),
         "edituserstarsubscription" => handle_edit_user_star_subscription(state, token, &params),
         "getstickerset" => handle_get_sticker_set(state, token, &params),
@@ -4335,6 +4355,700 @@ fn handle_get_me(state: &Data<AppState>, token: &str, params: &HashMap<String, V
     Ok(serde_json::to_value(user).map_err(ApiError::internal)?)
 }
 
+fn ensure_sim_bot_commands_storage(conn: &mut rusqlite::Connection) -> Result<(), ApiError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sim_bot_commands (
+            bot_id         INTEGER NOT NULL,
+            scope_key      TEXT NOT NULL,
+            language_code  TEXT NOT NULL,
+            commands_json  TEXT NOT NULL,
+            updated_at     INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, scope_key, language_code),
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );",
+    )
+    .map_err(ApiError::internal)
+}
+
+fn ensure_sim_bot_profile_texts_storage(conn: &mut rusqlite::Connection) -> Result<(), ApiError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sim_bot_profile_texts (
+            bot_id             INTEGER NOT NULL,
+            language_code      TEXT NOT NULL,
+            name               TEXT,
+            description        TEXT,
+            short_description  TEXT,
+            updated_at         INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, language_code),
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );",
+    )
+    .map_err(ApiError::internal)
+}
+
+fn ensure_sim_bot_profile_photos_storage(conn: &mut rusqlite::Connection) -> Result<(), ApiError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sim_bot_profile_photos (
+            bot_id        INTEGER PRIMARY KEY,
+            file_id       TEXT NOT NULL,
+            media_kind    TEXT NOT NULL,
+            updated_at    INTEGER NOT NULL,
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );",
+    )
+    .map_err(ApiError::internal)
+}
+
+fn ensure_sim_bot_default_admin_rights_storage(
+    conn: &mut rusqlite::Connection,
+) -> Result<(), ApiError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sim_bot_default_admin_rights (
+            bot_id        INTEGER NOT NULL,
+            for_channels  INTEGER NOT NULL,
+            rights_json   TEXT,
+            updated_at    INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, for_channels),
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );",
+    )
+    .map_err(ApiError::internal)
+}
+
+fn normalize_bot_language_code(language_code: Option<&str>) -> Result<String, ApiError> {
+    let normalized = language_code
+        .map(str::trim)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    if normalized.chars().count() > 32 {
+        return Err(ApiError::bad_request(
+            "language_code must be at most 32 characters",
+        ));
+    }
+
+    if !normalized.is_empty()
+        && !normalized
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    {
+        return Err(ApiError::bad_request("language_code is invalid"));
+    }
+
+    Ok(normalized)
+}
+
+fn normalize_bot_command_scope_key(scope: Option<&BotCommandScope>) -> Result<String, ApiError> {
+    let Some(scope) = scope else {
+        return Ok("default".to_string());
+    };
+
+    let object = scope
+        .extra
+        .as_object()
+        .ok_or_else(|| ApiError::bad_request("scope must be a JSON object"))?;
+    let scope_type = object
+        .get("type")
+        .and_then(Value::as_str)
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::bad_request("scope.type is required"))?;
+
+    match scope_type.as_str() {
+        "default" => Ok("default".to_string()),
+        "all_private_chats" => Ok("all_private_chats".to_string()),
+        "all_group_chats" => Ok("all_group_chats".to_string()),
+        "all_chat_administrators" => Ok("all_chat_administrators".to_string()),
+        "chat" => {
+            let chat_id = object
+                .get("chat_id")
+                .ok_or_else(|| ApiError::bad_request("scope.chat_id is required"))?;
+            let chat_key = value_to_chat_key(chat_id)?;
+            Ok(format!("chat:{}", chat_key))
+        }
+        "chat_administrators" => {
+            let chat_id = object
+                .get("chat_id")
+                .ok_or_else(|| ApiError::bad_request("scope.chat_id is required"))?;
+            let chat_key = value_to_chat_key(chat_id)?;
+            Ok(format!("chat_administrators:{}", chat_key))
+        }
+        "chat_member" => {
+            let chat_id = object
+                .get("chat_id")
+                .ok_or_else(|| ApiError::bad_request("scope.chat_id is required"))?;
+            let user_id = object
+                .get("user_id")
+                .and_then(|value| {
+                    value
+                        .as_i64()
+                        .or_else(|| value.as_str().and_then(|raw| raw.trim().parse::<i64>().ok()))
+                })
+                .ok_or_else(|| ApiError::bad_request("scope.user_id is required"))?;
+            if user_id <= 0 {
+                return Err(ApiError::bad_request("scope.user_id must be greater than zero"));
+            }
+            let chat_key = value_to_chat_key(chat_id)?;
+            Ok(format!("chat_member:{}:{}", chat_key, user_id))
+        }
+        _ => Err(ApiError::bad_request("unsupported scope.type for bot commands")),
+    }
+}
+
+fn normalize_bot_commands_payload(commands: &[BotCommand]) -> Result<Vec<BotCommand>, ApiError> {
+    if commands.is_empty() {
+        return Err(ApiError::bad_request("commands must include at least one item"));
+    }
+    if commands.len() > 100 {
+        return Err(ApiError::bad_request("commands must include at most 100 items"));
+    }
+
+    let mut seen_commands = HashSet::<String>::new();
+    let mut normalized = Vec::<BotCommand>::with_capacity(commands.len());
+    for item in commands {
+        let command = item.command.trim().to_ascii_lowercase();
+        if command.is_empty() {
+            return Err(ApiError::bad_request("command is empty"));
+        }
+        if command.chars().count() > 32 {
+            return Err(ApiError::bad_request(
+                "command length must be at most 32 characters",
+            ));
+        }
+        if !command
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
+        {
+            return Err(ApiError::bad_request(
+                "command must contain only lowercase letters, digits, and underscores",
+            ));
+        }
+
+        let description = item.description.trim();
+        if description.is_empty() {
+            return Err(ApiError::bad_request("command description is empty"));
+        }
+        if description.chars().count() > 256 {
+            return Err(ApiError::bad_request(
+                "command description length must be at most 256 characters",
+            ));
+        }
+
+        if !seen_commands.insert(command.clone()) {
+            return Err(ApiError::bad_request("duplicate command in commands list"));
+        }
+
+        normalized.push(BotCommand {
+            command,
+            description: description.to_string(),
+        });
+    }
+
+    Ok(normalized)
+}
+
+fn load_bot_profile_text_value(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    language_code: &str,
+    column_name: &str,
+) -> Result<Option<String>, ApiError> {
+    let sql = format!(
+        "SELECT {} FROM sim_bot_profile_texts WHERE bot_id = ?1 AND language_code = ?2",
+        column_name
+    );
+
+    let scoped_value: Option<Option<String>> = conn
+        .query_row(&sql, params![bot_id, language_code], |row| row.get(0))
+        .optional()
+        .map_err(ApiError::internal)?;
+    if let Some(value) = scoped_value.flatten() {
+        return Ok(Some(value));
+    }
+
+    if language_code.is_empty() {
+        return Ok(None);
+    }
+
+    let default_value: Option<Option<String>> = conn
+        .query_row(&sql, params![bot_id, ""], |row| row.get(0))
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    Ok(default_value.flatten())
+}
+
+fn default_bot_administrator_rights(for_channels: bool) -> ChatAdministratorRights {
+    ChatAdministratorRights {
+        is_anonymous: false,
+        can_manage_chat: false,
+        can_delete_messages: false,
+        can_manage_video_chats: false,
+        can_restrict_members: false,
+        can_promote_members: false,
+        can_change_info: false,
+        can_invite_users: false,
+        can_post_stories: false,
+        can_edit_stories: false,
+        can_delete_stories: false,
+        can_post_messages: if for_channels { Some(false) } else { None },
+        can_edit_messages: if for_channels { Some(false) } else { None },
+        can_pin_messages: if for_channels { None } else { Some(false) },
+        can_manage_topics: if for_channels { None } else { Some(false) },
+        can_manage_direct_messages: Some(false),
+        can_manage_tags: Some(false),
+    }
+}
+
+fn extract_bot_profile_photo_media_input(raw: &Value) -> Result<(&'static str, Value), ApiError> {
+    let Some(obj) = raw.as_object() else {
+        return Err(ApiError::bad_request(
+            "photo must be a valid InputProfilePhoto object",
+        ));
+    };
+
+    let photo_type = obj
+        .get("type")
+        .and_then(Value::as_str)
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::bad_request("photo.type is required"))?;
+
+    match photo_type.as_str() {
+        "static" => {
+            let photo = obj
+                .get("photo")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| ApiError::bad_request("photo.photo is required"))?;
+            Ok(("photo", Value::String(photo.to_string())))
+        }
+        "animated" => {
+            let animation = obj
+                .get("animation")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| ApiError::bad_request("photo.animation is required"))?;
+            Ok(("animation", Value::String(animation.to_string())))
+        }
+        _ => Err(ApiError::bad_request(
+            "photo.type must be one of: static, animated",
+        )),
+    }
+}
+
+fn handle_set_my_commands(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: SetMyCommandsRequest = parse_request(params)?;
+    let normalized_commands = normalize_bot_commands_payload(&request.commands)?;
+    let scope_key = normalize_bot_command_scope_key(request.scope.as_ref())?;
+    let language_code = normalize_bot_language_code(request.language_code.as_deref())?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_bot_commands_storage(&mut conn)?;
+
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO sim_bot_commands (bot_id, scope_key, language_code, commands_json, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(bot_id, scope_key, language_code)
+         DO UPDATE SET
+            commands_json = excluded.commands_json,
+            updated_at = excluded.updated_at",
+        params![
+            bot.id,
+            &scope_key,
+            &language_code,
+            serde_json::to_string(&normalized_commands).map_err(ApiError::internal)?,
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_get_my_commands(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: GetMyCommandsRequest = parse_request(params)?;
+    let scope_key = normalize_bot_command_scope_key(request.scope.as_ref())?;
+    let language_code = normalize_bot_language_code(request.language_code.as_deref())?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_bot_commands_storage(&mut conn)?;
+
+    let mut commands_json: Option<String> = conn
+        .query_row(
+            "SELECT commands_json
+             FROM sim_bot_commands
+             WHERE bot_id = ?1 AND scope_key = ?2 AND language_code = ?3",
+            params![bot.id, &scope_key, &language_code],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    if commands_json.is_none() && !language_code.is_empty() {
+        commands_json = conn
+            .query_row(
+                "SELECT commands_json
+                 FROM sim_bot_commands
+                 WHERE bot_id = ?1 AND scope_key = ?2 AND language_code = ''",
+                params![bot.id, &scope_key],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(ApiError::internal)?;
+    }
+
+    let commands = commands_json
+        .map(|raw| serde_json::from_str::<Vec<BotCommand>>(&raw).map_err(ApiError::internal))
+        .transpose()?
+        .unwrap_or_default();
+
+    Ok(serde_json::to_value(commands).map_err(ApiError::internal)?)
+}
+
+fn handle_delete_my_commands(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: DeleteMyCommandsRequest = parse_request(params)?;
+    let scope_key = normalize_bot_command_scope_key(request.scope.as_ref())?;
+    let language_code = normalize_bot_language_code(request.language_code.as_deref())?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_bot_commands_storage(&mut conn)?;
+
+    conn.execute(
+        "DELETE FROM sim_bot_commands WHERE bot_id = ?1 AND scope_key = ?2 AND language_code = ?3",
+        params![bot.id, &scope_key, &language_code],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_set_my_name(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: SetMyNameRequest = parse_request(params)?;
+    let language_code = normalize_bot_language_code(request.language_code.as_deref())?;
+    let normalized_name = request
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    if let Some(name) = normalized_name.as_ref() {
+        if name.chars().count() > 64 {
+            return Err(ApiError::bad_request(
+                "name must be at most 64 characters",
+            ));
+        }
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_bot_profile_texts_storage(&mut conn)?;
+
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO sim_bot_profile_texts (bot_id, language_code, name, updated_at)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(bot_id, language_code)
+         DO UPDATE SET
+            name = excluded.name,
+            updated_at = excluded.updated_at",
+        params![bot.id, &language_code, normalized_name.clone(), now],
+    )
+    .map_err(ApiError::internal)?;
+
+    if language_code.is_empty() {
+        if let Some(name) = normalized_name.as_ref() {
+            conn.execute(
+                "UPDATE bots SET first_name = ?1 WHERE id = ?2",
+                params![name, bot.id],
+            )
+            .map_err(ApiError::internal)?;
+        }
+    }
+
+    Ok(json!(true))
+}
+
+fn handle_get_my_name(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: GetMyNameRequest = parse_request(params)?;
+    let language_code = normalize_bot_language_code(request.language_code.as_deref())?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_bot_profile_texts_storage(&mut conn)?;
+
+    let name = load_bot_profile_text_value(&mut conn, bot.id, &language_code, "name")?
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or(bot.first_name);
+
+    Ok(serde_json::to_value(BotName { name }).map_err(ApiError::internal)?)
+}
+
+fn handle_set_my_description(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: SetMyDescriptionRequest = parse_request(params)?;
+    let language_code = normalize_bot_language_code(request.language_code.as_deref())?;
+    let normalized_description = request
+        .description
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    if let Some(description) = normalized_description.as_ref() {
+        if description.chars().count() > 512 {
+            return Err(ApiError::bad_request(
+                "description must be at most 512 characters",
+            ));
+        }
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_bot_profile_texts_storage(&mut conn)?;
+
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO sim_bot_profile_texts (bot_id, language_code, description, updated_at)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(bot_id, language_code)
+         DO UPDATE SET
+            description = excluded.description,
+            updated_at = excluded.updated_at",
+        params![bot.id, &language_code, normalized_description, now],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_get_my_description(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: GetMyDescriptionRequest = parse_request(params)?;
+    let language_code = normalize_bot_language_code(request.language_code.as_deref())?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_bot_profile_texts_storage(&mut conn)?;
+
+    let description = load_bot_profile_text_value(&mut conn, bot.id, &language_code, "description")?
+        .unwrap_or_default();
+
+    Ok(serde_json::to_value(BotDescription { description }).map_err(ApiError::internal)?)
+}
+
+fn handle_set_my_short_description(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: SetMyShortDescriptionRequest = parse_request(params)?;
+    let language_code = normalize_bot_language_code(request.language_code.as_deref())?;
+    let normalized_short_description = request
+        .short_description
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    if let Some(short_description) = normalized_short_description.as_ref() {
+        if short_description.chars().count() > 120 {
+            return Err(ApiError::bad_request(
+                "short_description must be at most 120 characters",
+            ));
+        }
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_bot_profile_texts_storage(&mut conn)?;
+
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO sim_bot_profile_texts (bot_id, language_code, short_description, updated_at)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(bot_id, language_code)
+         DO UPDATE SET
+            short_description = excluded.short_description,
+            updated_at = excluded.updated_at",
+        params![bot.id, &language_code, normalized_short_description, now],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_get_my_short_description(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: GetMyShortDescriptionRequest = parse_request(params)?;
+    let language_code = normalize_bot_language_code(request.language_code.as_deref())?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_bot_profile_texts_storage(&mut conn)?;
+
+    let short_description =
+        load_bot_profile_text_value(&mut conn, bot.id, &language_code, "short_description")?
+            .unwrap_or_default();
+
+    Ok(serde_json::to_value(BotShortDescription { short_description }).map_err(ApiError::internal)?)
+}
+
+fn handle_set_my_profile_photo(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: SetMyProfilePhotoRequest = parse_request(params)?;
+    let (media_kind, media_input) = extract_bot_profile_photo_media_input(&request.photo.extra)?;
+    let file = resolve_media_file(state, token, &media_input, media_kind)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_bot_profile_photos_storage(&mut conn)?;
+
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO sim_bot_profile_photos (bot_id, file_id, media_kind, updated_at)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(bot_id)
+         DO UPDATE SET
+            file_id = excluded.file_id,
+            media_kind = excluded.media_kind,
+            updated_at = excluded.updated_at",
+        params![bot.id, file.file_id, media_kind, now],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_remove_my_profile_photo(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let _request: RemoveMyProfilePhotoRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_bot_profile_photos_storage(&mut conn)?;
+
+    conn.execute(
+        "DELETE FROM sim_bot_profile_photos WHERE bot_id = ?1",
+        params![bot.id],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_set_my_default_administrator_rights(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: SetMyDefaultAdministratorRightsRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_bot_default_admin_rights_storage(&mut conn)?;
+
+    let now = Utc::now().timestamp();
+    let for_channels = request.for_channels.unwrap_or(false);
+    let rights_json = request
+        .rights
+        .as_ref()
+        .map(|rights| serde_json::to_string(rights).map_err(ApiError::internal))
+        .transpose()?;
+
+    conn.execute(
+        "INSERT INTO sim_bot_default_admin_rights (bot_id, for_channels, rights_json, updated_at)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(bot_id, for_channels)
+         DO UPDATE SET
+            rights_json = excluded.rights_json,
+            updated_at = excluded.updated_at",
+        params![
+            bot.id,
+            if for_channels { 1 } else { 0 },
+            rights_json,
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_get_my_default_administrator_rights(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: GetMyDefaultAdministratorRightsRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_bot_default_admin_rights_storage(&mut conn)?;
+
+    let for_channels = request.for_channels.unwrap_or(false);
+    let raw_rights: Option<Option<String>> = conn
+        .query_row(
+            "SELECT rights_json
+             FROM sim_bot_default_admin_rights
+             WHERE bot_id = ?1 AND for_channels = ?2",
+            params![bot.id, if for_channels { 1 } else { 0 }],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    let rights = raw_rights
+        .flatten()
+        .and_then(|raw| serde_json::from_str::<ChatAdministratorRights>(&raw).ok())
+        .unwrap_or_else(|| default_bot_administrator_rights(for_channels));
+
+    Ok(serde_json::to_value(rights).map_err(ApiError::internal)?)
+}
+
 fn extract_business_profile_photo_media_input(raw: &Value) -> Result<Value, ApiError> {
     let Some(obj) = raw.as_object() else {
         return Err(ApiError::bad_request("photo must be a valid InputProfilePhoto object"));
@@ -4368,6 +5082,78 @@ fn load_business_connection_or_404(
         .ok_or_else(|| ApiError::bad_request("business_connection_id is empty"))?;
     load_sim_business_connection_by_id(conn, bot_id, &normalized)?
         .ok_or_else(|| ApiError::not_found("business connection not found"))
+}
+
+fn resolve_story_business_connection_for_request(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    raw_business_connection_id: Option<&str>,
+) -> Result<(SimBusinessConnectionRecord, BusinessConnection), ApiError> {
+    let normalized_connection_id = normalize_business_connection_id(raw_business_connection_id);
+    let record = if let Some(connection_id) = normalized_connection_id.as_deref() {
+        load_business_connection_or_404(conn, bot_id, connection_id)?
+    } else {
+        let actor_user_id = current_request_actor_user_id().ok_or_else(|| {
+            ApiError::bad_request(
+                "business_connection_id is required when actor user context is unavailable",
+            )
+        })?;
+        let actor_user = ensure_user(conn, Some(actor_user_id), None, None)?;
+        let loaded = match load_sim_business_connection_for_user(conn, bot_id, actor_user.id)? {
+            Some(existing) => existing,
+            None => {
+                let default_connection_id = default_business_connection_id(bot_id, actor_user.id);
+                upsert_sim_business_connection(
+                    conn,
+                    bot_id,
+                    &default_connection_id,
+                    actor_user.id,
+                    actor_user.id,
+                    &default_business_bot_rights(),
+                    true,
+                )?
+            }
+        };
+
+        let mut rights = parse_business_bot_rights_json(&loaded.rights_json);
+        let mut should_upsert = false;
+        if rights.can_manage_stories != Some(true) {
+            rights.can_manage_stories = Some(true);
+            should_upsert = true;
+        }
+        if !loaded.is_enabled {
+            should_upsert = true;
+        }
+
+        if should_upsert {
+            upsert_sim_business_connection(
+                conn,
+                bot_id,
+                &loaded.connection_id,
+                loaded.user_id,
+                loaded.user_chat_id,
+                &rights,
+                true,
+            )?
+        } else {
+            loaded
+        }
+    };
+
+    if !record.is_enabled {
+        return Err(ApiError::bad_request("business connection is disabled"));
+    }
+
+    let connection = build_business_connection(conn, bot_id, &record)?;
+    if normalized_connection_id.is_some() {
+        ensure_business_right(
+            &connection,
+            |rights| rights.can_manage_stories,
+            "not enough rights to manage stories",
+        )?;
+    }
+
+    Ok((record, connection))
 }
 
 fn resolve_outbound_business_connection_for_bot_message(
@@ -6146,6 +6932,50 @@ struct SimBusinessStoryRecord {
     areas_json: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PostStoryCompatRequest {
+    business_connection_id: Option<String>,
+    content: crate::generated::types::InputStoryContent,
+    active_period: i64,
+    caption: Option<String>,
+    parse_mode: Option<String>,
+    caption_entities: Option<Vec<MessageEntity>>,
+    areas: Option<Vec<StoryArea>>,
+    post_to_chat_page: Option<bool>,
+    protect_content: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RepostStoryCompatRequest {
+    business_connection_id: Option<String>,
+    from_chat_id: i64,
+    from_story_id: i64,
+    active_period: i64,
+    post_to_chat_page: Option<bool>,
+    protect_content: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EditStoryCompatRequest {
+    business_connection_id: Option<String>,
+    story_id: i64,
+    content: crate::generated::types::InputStoryContent,
+    caption: Option<String>,
+    parse_mode: Option<String>,
+    caption_entities: Option<Vec<MessageEntity>>,
+    areas: Option<Vec<StoryArea>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeleteStoryCompatRequest {
+    business_connection_id: Option<String>,
+    story_id: i64,
+}
+
 fn ensure_story_active_period(active_period: i64) -> Result<(), ApiError> {
     match active_period {
         21_600 | 43_200 | 86_400 | 172_800 => Ok(()),
@@ -6222,6 +7052,58 @@ fn validate_story_areas_payload(areas: Option<&Vec<StoryArea>>) -> Result<(), Ap
     let mut unique_gift_count = 0;
 
     for area in areas {
+        let position = &area.position;
+        if !position.x_percentage.is_finite()
+            || position.x_percentage < 0.0
+            || position.x_percentage > 100.0
+        {
+            return Err(ApiError::bad_request(
+                "story area position.x_percentage must be between 0 and 100",
+            ));
+        }
+        if !position.y_percentage.is_finite()
+            || position.y_percentage < 0.0
+            || position.y_percentage > 100.0
+        {
+            return Err(ApiError::bad_request(
+                "story area position.y_percentage must be between 0 and 100",
+            ));
+        }
+        if !position.width_percentage.is_finite()
+            || position.width_percentage <= 0.0
+            || position.width_percentage > 100.0
+        {
+            return Err(ApiError::bad_request(
+                "story area position.width_percentage must be between 0 and 100",
+            ));
+        }
+        if !position.height_percentage.is_finite()
+            || position.height_percentage <= 0.0
+            || position.height_percentage > 100.0
+        {
+            return Err(ApiError::bad_request(
+                "story area position.height_percentage must be between 0 and 100",
+            ));
+        }
+        if !position.rotation_angle.is_finite() || position.rotation_angle.abs() > 360.0 {
+            return Err(ApiError::bad_request(
+                "story area position.rotation_angle must be finite and between -360 and 360",
+            ));
+        }
+        if !position.corner_radius_percentage.is_finite()
+            || position.corner_radius_percentage < 0.0
+            || position.corner_radius_percentage > 100.0
+        {
+            return Err(ApiError::bad_request(
+                "story area position.corner_radius_percentage must be between 0 and 100",
+            ));
+        }
+
+        let area_object = area
+            .r#type
+            .extra
+            .as_object()
+            .ok_or_else(|| ApiError::bad_request("story area payload is invalid"))?;
         let area_type = area
             .r#type
             .extra
@@ -6238,6 +7120,26 @@ fn validate_story_areas_payload(areas: Option<&Vec<StoryArea>>) -> Result<(), Ap
                         "a story can have at most 10 location areas",
                     ));
                 }
+
+                let latitude = area_object
+                    .get("latitude")
+                    .and_then(Value::as_f64)
+                    .ok_or_else(|| ApiError::bad_request("location area latitude is required"))?;
+                let longitude = area_object
+                    .get("longitude")
+                    .and_then(Value::as_f64)
+                    .ok_or_else(|| ApiError::bad_request("location area longitude is required"))?;
+
+                if !latitude.is_finite() || !(-90.0..=90.0).contains(&latitude) {
+                    return Err(ApiError::bad_request(
+                        "location area latitude must be between -90 and 90",
+                    ));
+                }
+                if !longitude.is_finite() || !(-180.0..=180.0).contains(&longitude) {
+                    return Err(ApiError::bad_request(
+                        "location area longitude must be between -180 and 180",
+                    ));
+                }
             }
             "suggested_reaction" => {
                 suggested_reaction_count += 1;
@@ -6246,12 +7148,72 @@ fn validate_story_areas_payload(areas: Option<&Vec<StoryArea>>) -> Result<(), Ap
                         "a story can have at most 5 suggested reaction areas",
                     ));
                 }
+
+                let reaction_type = area_object
+                    .get("reaction_type")
+                    .and_then(Value::as_object)
+                    .ok_or_else(|| ApiError::bad_request("suggested_reaction.reaction_type is required"))?;
+                let reaction_kind = reaction_type
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .map(|value| value.to_ascii_lowercase())
+                    .ok_or_else(|| ApiError::bad_request("suggested_reaction.reaction_type.type is required"))?;
+
+                match reaction_kind.as_str() {
+                    "emoji" => {
+                        let emoji = reaction_type
+                            .get("emoji")
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            .unwrap_or("");
+                        if emoji.is_empty() {
+                            return Err(ApiError::bad_request(
+                                "suggested_reaction emoji value is required",
+                            ));
+                        }
+                    }
+                    "custom_emoji" => {
+                        let custom_emoji_id = reaction_type
+                            .get("custom_emoji_id")
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            .unwrap_or("");
+                        if custom_emoji_id.is_empty() {
+                            return Err(ApiError::bad_request(
+                                "suggested_reaction custom_emoji_id is required",
+                            ));
+                        }
+                    }
+                    "paid" => {}
+                    _ => {
+                        return Err(ApiError::bad_request(
+                            "suggested_reaction reaction_type.type is invalid",
+                        ));
+                    }
+                }
             }
             "link" => {
                 link_count += 1;
                 if link_count > 3 {
                     return Err(ApiError::bad_request(
                         "a story can have at most 3 link areas",
+                    ));
+                }
+
+                let url = area_object
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .unwrap_or("");
+                if url.is_empty() {
+                    return Err(ApiError::bad_request("link area url is required"));
+                }
+                if !(url.starts_with("https://")
+                    || url.starts_with("http://")
+                    || url.starts_with("tg://"))
+                {
+                    return Err(ApiError::bad_request(
+                        "link area url must start with https://, http://, or tg://",
                     ));
                 }
             }
@@ -6262,6 +7224,35 @@ fn validate_story_areas_payload(areas: Option<&Vec<StoryArea>>) -> Result<(), Ap
                         "a story can have at most 3 weather areas",
                     ));
                 }
+
+                let temperature = area_object
+                    .get("temperature")
+                    .and_then(Value::as_f64)
+                    .ok_or_else(|| ApiError::bad_request("weather area temperature is required"))?;
+                if !temperature.is_finite() || !(-100.0..=100.0).contains(&temperature) {
+                    return Err(ApiError::bad_request(
+                        "weather area temperature must be between -100 and 100",
+                    ));
+                }
+
+                let emoji = area_object
+                    .get("emoji")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .unwrap_or("");
+                if emoji.is_empty() {
+                    return Err(ApiError::bad_request("weather area emoji is required"));
+                }
+
+                let background_color = area_object
+                    .get("background_color")
+                    .and_then(Value::as_i64)
+                    .ok_or_else(|| ApiError::bad_request("weather area background_color is required"))?;
+                if !(0..=0xFFFFFF).contains(&background_color) {
+                    return Err(ApiError::bad_request(
+                        "weather area background_color must be between 0 and 16777215",
+                    ));
+                }
             }
             "unique_gift" => {
                 unique_gift_count += 1;
@@ -6269,6 +7260,15 @@ fn validate_story_areas_payload(areas: Option<&Vec<StoryArea>>) -> Result<(), Ap
                     return Err(ApiError::bad_request(
                         "a story can have at most 1 unique gift area",
                     ));
+                }
+
+                let name = area_object
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .unwrap_or("");
+                if name.is_empty() {
+                    return Err(ApiError::bad_request("unique_gift area name is required"));
                 }
             }
             _ => {
@@ -6393,6 +7393,94 @@ fn story_chat_for_business_connection(connection: &BusinessConnection) -> Chat {
     }
 }
 
+fn normalize_story_content_payload(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+    content: &Value,
+) -> Result<Value, ApiError> {
+    let mut object = content
+        .as_object()
+        .cloned()
+        .ok_or_else(|| ApiError::bad_request("content must be a JSON object"))?;
+
+    let content_type = object
+        .get("type")
+        .and_then(Value::as_str)
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::bad_request("content.type is required"))?;
+
+    let media_field = match content_type.as_str() {
+        "photo" => "photo",
+        "video" => "video",
+        _ => {
+            return Err(ApiError::bad_request(
+                "content.type must be one of: photo, video",
+            ));
+        }
+    };
+
+    let media_ref = object
+        .get(media_field)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::bad_request(format!("content.{} is required", media_field)))?;
+
+    let resolved_input = if let Some(attach_key) = media_ref.strip_prefix("attach://") {
+        let attach_key = attach_key.trim();
+        if attach_key.is_empty() {
+            return Err(ApiError::bad_request(format!(
+                "content.{} attachment reference is invalid",
+                media_field
+            )));
+        }
+
+        params.get(attach_key).cloned().ok_or_else(|| {
+            ApiError::bad_request(format!(
+                "content.{} attachment '{}' was not provided",
+                media_field, attach_key
+            ))
+        })?
+    } else {
+        Value::String(media_ref.to_string())
+    };
+
+    let stored_file = resolve_media_file(state, token, &resolved_input, media_field)?;
+    object.insert(
+        media_field.to_string(),
+        Value::String(stored_file.file_id),
+    );
+    object.insert("type".to_string(), Value::String(content_type));
+
+    Ok(Value::Object(object))
+}
+
+fn build_story_response_payload(
+    chat: Chat,
+    story_id: i64,
+    content: Option<&Value>,
+    caption: Option<&str>,
+) -> Value {
+    let mut payload = json!({
+        "chat": chat,
+        "id": story_id,
+    });
+
+    if let Some(content_value) = content {
+        payload["content"] = content_value.clone();
+    }
+    if let Some(value) = caption {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            payload["caption"] = Value::String(trimmed.to_string());
+        }
+    }
+
+    payload
+}
+
 fn ensure_sim_suggested_posts_storage(conn: &mut rusqlite::Connection) -> Result<(), ApiError> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS sim_suggested_posts (
@@ -6480,14 +7568,567 @@ fn load_direct_messages_chat_for_request(
     Ok(chat)
 }
 
+fn load_suggested_post_message_for_service(
+    conn: &mut rusqlite::Connection,
+    bot: &crate::database::BotInfoRecord,
+    direct_messages_chat_id: i64,
+    message_id: i64,
+) -> Result<Value, ApiError> {
+    let message_value = load_message_value(conn, bot, message_id)?;
+    let belongs_to_chat = message_value
+        .get("chat")
+        .and_then(|chat| chat.get("id"))
+        .and_then(Value::as_i64)
+        .map(|chat_id| chat_id == direct_messages_chat_id)
+        .unwrap_or(false);
+
+    if !belongs_to_chat {
+        return Err(ApiError::bad_request("suggested post message was not found"));
+    }
+
+    let is_suggested_post = message_value
+        .get("suggested_post_info")
+        .is_some()
+        || message_value
+            .get("suggested_post_parameters")
+            .is_some();
+    if !is_suggested_post {
+        return Err(ApiError::bad_request("message is not a suggested post"));
+    }
+
+    Ok(message_value)
+}
+
+fn extract_suggested_post_price_from_message(message_value: &Value) -> Option<Value> {
+    let info_price = message_value
+        .get("suggested_post_info")
+        .and_then(|info| info.get("price"));
+    if info_price.is_some() {
+        return info_price.cloned();
+    }
+
+    message_value
+        .get("suggested_post_parameters")
+        .and_then(|params| params.get("price"))
+        .cloned()
+}
+
+fn extract_suggested_post_send_date_from_message(message_value: &Value) -> Option<i64> {
+    let info_send_date = message_value
+        .get("suggested_post_info")
+        .and_then(|info| info.get("send_date"))
+        .and_then(Value::as_i64);
+    if info_send_date.is_some() {
+        return info_send_date;
+    }
+
+    message_value
+        .get("suggested_post_parameters")
+        .and_then(|params| params.get("send_date"))
+        .and_then(Value::as_i64)
+}
+
+fn extract_suggested_post_price_currency_amount(
+    message_value: &Value,
+) -> Option<(String, i64)> {
+    let price = extract_suggested_post_price_from_message(message_value)?;
+    let currency = price
+        .get("currency")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?
+        .to_ascii_uppercase();
+    let amount = price.get("amount").and_then(Value::as_i64)?;
+    Some((currency, amount))
+}
+
+fn load_channel_owner_user_id(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    channel_chat_key: &str,
+) -> Result<Option<i64>, ApiError> {
+    conn.query_row(
+        "SELECT user_id
+         FROM sim_chat_members
+         WHERE bot_id = ?1 AND chat_key = ?2 AND status = 'owner'
+         LIMIT 1",
+        params![bot_id, channel_chat_key],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(ApiError::internal)
+}
+
+fn ensure_sim_business_connection_for_user(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    user_id: i64,
+) -> Result<SimBusinessConnectionRecord, ApiError> {
+    if let Some(existing) = load_sim_business_connection_for_user(conn, bot_id, user_id)? {
+        return Ok(existing);
+    }
+
+    let user = ensure_user(conn, Some(user_id), None, None)?;
+    let connection_id = default_business_connection_id(bot_id, user.id);
+    upsert_sim_business_connection(
+        conn,
+        bot_id,
+        &connection_id,
+        user.id,
+        user.id,
+        &default_business_bot_rights(),
+        true,
+    )
+}
+
+fn settle_suggested_post_price_for_publication(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    proposer_user_id: i64,
+    channel_owner_user_id: i64,
+    price: Option<(String, i64)>,
+) -> Result<Option<(String, i64, i64, i64)>, ApiError> {
+    let Some((currency, gross_amount)) = price else {
+        return Ok(None);
+    };
+
+    if gross_amount <= 0 {
+        return Ok(None);
+    }
+
+    if currency != "XTR" {
+        return Ok(Some((currency, gross_amount, gross_amount, 0)));
+    }
+
+    let now = Utc::now().timestamp();
+    let proposer_connection =
+        ensure_sim_business_connection_for_user(conn, bot_id, proposer_user_id)?;
+    let owner_connection =
+        ensure_sim_business_connection_for_user(conn, bot_id, channel_owner_user_id)?;
+
+    if proposer_connection.star_balance < gross_amount {
+        let top_up = gross_amount.saturating_sub(proposer_connection.star_balance);
+        conn.execute(
+            "UPDATE sim_business_connections
+             SET star_balance = star_balance + ?1,
+                 updated_at = ?2
+             WHERE bot_id = ?3 AND connection_id = ?4",
+            params![
+                top_up,
+                now,
+                bot_id,
+                proposer_connection.connection_id,
+            ],
+        )
+        .map_err(ApiError::internal)?;
+
+        conn.execute(
+            "INSERT INTO star_transactions_ledger
+             (id, bot_id, user_id, telegram_payment_charge_id, amount, date, kind)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'suggested_post_auto_topup')",
+            params![
+                format!("suggested_post_topup_{}", generate_telegram_numeric_id()),
+                bot_id,
+                proposer_user_id,
+                format!("suggested_post_topup_{}", generate_telegram_numeric_id()),
+                top_up,
+                now,
+            ],
+        )
+        .map_err(ApiError::internal)?;
+    }
+
+    conn.execute(
+        "UPDATE sim_business_connections
+         SET star_balance = star_balance - ?1,
+             updated_at = ?2
+         WHERE bot_id = ?3 AND connection_id = ?4",
+        params![
+            gross_amount,
+            now,
+            bot_id,
+            proposer_connection.connection_id,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    let payout_amount = gross_amount.saturating_mul(80) / 100;
+    let fee_amount = gross_amount.saturating_sub(payout_amount);
+
+    if payout_amount > 0 {
+        conn.execute(
+            "UPDATE sim_business_connections
+             SET star_balance = star_balance + ?1,
+                 updated_at = ?2
+             WHERE bot_id = ?3 AND connection_id = ?4",
+            params![
+                payout_amount,
+                now,
+                bot_id,
+                owner_connection.connection_id,
+            ],
+        )
+        .map_err(ApiError::internal)?;
+    }
+
+    conn.execute(
+        "INSERT INTO star_transactions_ledger
+         (id, bot_id, user_id, telegram_payment_charge_id, amount, date, kind)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'suggested_post_payment')",
+        params![
+            format!("suggested_post_debit_{}", generate_telegram_numeric_id()),
+            bot_id,
+            proposer_user_id,
+            format!("suggested_post_payment_{}", generate_telegram_numeric_id()),
+            -gross_amount,
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    if payout_amount > 0 {
+        conn.execute(
+            "INSERT INTO star_transactions_ledger
+             (id, bot_id, user_id, telegram_payment_charge_id, amount, date, kind)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'suggested_post_payout')",
+            params![
+                format!("suggested_post_credit_{}", generate_telegram_numeric_id()),
+                bot_id,
+                channel_owner_user_id,
+                format!("suggested_post_payout_{}", generate_telegram_numeric_id()),
+                payout_amount,
+                now,
+            ],
+        )
+        .map_err(ApiError::internal)?;
+    }
+
+    Ok(Some((currency, gross_amount, payout_amount, fee_amount)))
+}
+
+fn publish_suggested_post_to_parent_channel(
+    state: &Data<AppState>,
+    conn: &mut rusqlite::Connection,
+    token: &str,
+    bot: &crate::database::BotInfoRecord,
+    direct_messages_chat: &SimChatRecord,
+    source_message_id: i64,
+    actor_user_id: i64,
+) -> Result<Value, ApiError> {
+    let parent_channel_chat_id = direct_messages_chat
+        .parent_channel_chat_id
+        .ok_or_else(|| ApiError::bad_request("direct messages chat parent channel is missing"))?;
+
+    with_request_actor_user_id(Some(actor_user_id), || {
+        let source_message = resolve_source_message_for_transport(
+            conn,
+            bot,
+            &Value::String(direct_messages_chat.chat_key.clone()),
+            source_message_id,
+            false,
+        )?;
+
+        let send_kind = send_kind_from_transport_source_message(&source_message);
+        let (destination_chat_key, destination_chat) = resolve_bot_outbound_chat(
+            conn,
+            bot.id,
+            &Value::from(parent_channel_chat_id),
+            send_kind,
+        )?;
+        let sender_user = resolve_transport_sender_user(
+            conn,
+            bot,
+            &destination_chat_key,
+            &destination_chat,
+            send_kind,
+        )?;
+
+        let mut message_value = source_message;
+        let sender_user_value = serde_json::to_value(&sender_user).map_err(ApiError::internal)?;
+        let object = message_value
+            .as_object_mut()
+            .ok_or_else(|| ApiError::internal("suggested post payload is invalid"))?;
+
+        object.remove("forward_origin");
+        object.remove("is_automatic_forward");
+        object.remove("reply_to_message");
+        object.remove("edit_date");
+        object.remove("views");
+        object.remove("author_signature");
+        object.remove("sender_chat");
+        object.remove("message_thread_id");
+        object.remove("is_topic_message");
+        object.remove("direct_messages_topic");
+        object.remove("business_connection_id");
+        object.remove("paid_message_star_count");
+        object.remove("suggested_post_info");
+        object.remove("suggested_post_parameters");
+        object.remove("suggested_post_approved");
+        object.remove("suggested_post_approval_failed");
+        object.remove("suggested_post_declined");
+        object.remove("suggested_post_paid");
+        object.remove("suggested_post_refunded");
+        object.insert("from".to_string(), sender_user_value);
+
+        persist_transported_message(
+            state,
+            conn,
+            token,
+            bot,
+            &destination_chat_key,
+            &destination_chat,
+            &sender_user,
+            message_value,
+            None,
+        )
+    })
+}
+
+fn finalize_due_suggested_post_if_ready(
+    state: &Data<AppState>,
+    conn: &mut rusqlite::Connection,
+    token: &str,
+    bot: &crate::database::BotInfoRecord,
+    direct_messages_chat: &SimChatRecord,
+    message_id: i64,
+    actor_user_id: i64,
+) -> Result<bool, ApiError> {
+    let now = Utc::now().timestamp();
+    let Some((current_state, send_date)) = load_suggested_post_state(
+        conn,
+        bot.id,
+        &direct_messages_chat.chat_key,
+        message_id,
+    )?
+    else {
+        return Ok(false);
+    };
+
+    if current_state != "approved" {
+        return Ok(false);
+    }
+
+    let effective_send_date = send_date.unwrap_or(now);
+    if effective_send_date > now {
+        return Ok(false);
+    }
+
+    let suggested_message = load_suggested_post_message_for_service(
+        conn,
+        bot,
+        direct_messages_chat.chat_id,
+        message_id,
+    )?;
+
+    let parent_channel_chat_key = direct_messages_chat
+        .parent_channel_chat_id
+        .ok_or_else(|| ApiError::bad_request("direct messages chat parent channel is missing"))?
+        .to_string();
+    let channel_owner_user_id = load_channel_owner_user_id(conn, bot.id, &parent_channel_chat_key)?
+        .unwrap_or(actor_user_id);
+    let proposer_user_id = suggested_message
+        .get("from")
+        .and_then(|from| from.get("id"))
+        .and_then(Value::as_i64)
+        .unwrap_or(actor_user_id);
+
+    let channel_post_message = publish_suggested_post_to_parent_channel(
+        state,
+        conn,
+        token,
+        bot,
+        direct_messages_chat,
+        message_id,
+        actor_user_id,
+    )?;
+
+    let payment = settle_suggested_post_price_for_publication(
+        conn,
+        bot.id,
+        proposer_user_id,
+        channel_owner_user_id,
+        extract_suggested_post_price_currency_amount(&suggested_message),
+    )?;
+
+    upsert_suggested_post_state(
+        conn,
+        bot.id,
+        &direct_messages_chat.chat_key,
+        message_id,
+        "paid",
+        Some(effective_send_date),
+        None,
+        now,
+    )?;
+
+    let actor = if actor_user_id == bot.id {
+        build_bot_user(bot)
+    } else {
+        let actor_record = ensure_user(conn, Some(actor_user_id), None, None)?;
+        build_user_from_sim_record(&actor_record, false)
+    };
+
+    let mut paid_payload = Map::<String, Value>::new();
+    paid_payload.insert(
+        "suggested_post_message".to_string(),
+        suggested_message,
+    );
+    paid_payload.insert(
+        "published_channel_post".to_string(),
+        channel_post_message,
+    );
+    paid_payload.insert(
+        "send_date".to_string(),
+        Value::from(effective_send_date),
+    );
+
+    if let Some((currency, gross_amount, payout_amount, fee_amount)) = payment {
+        paid_payload.insert("currency".to_string(), Value::String(currency));
+        paid_payload.insert("amount".to_string(), Value::from(payout_amount));
+        paid_payload.insert("gross_amount".to_string(), Value::from(gross_amount));
+        paid_payload.insert("fee_amount".to_string(), Value::from(fee_amount));
+        paid_payload.insert(
+            "proposer_user_id".to_string(),
+            Value::from(proposer_user_id),
+        );
+        paid_payload.insert(
+            "channel_owner_user_id".to_string(),
+            Value::from(channel_owner_user_id),
+        );
+    }
+
+    let mut paid_service_fields = Map::<String, Value>::new();
+    paid_service_fields.insert(
+        "suggested_post_paid".to_string(),
+        Value::Object(paid_payload),
+    );
+    let direct_messages_chat_obj = build_chat_from_group_record(direct_messages_chat);
+    emit_service_message_update(
+        state,
+        conn,
+        token,
+        bot.id,
+        &direct_messages_chat.chat_key,
+        &direct_messages_chat_obj,
+        &actor,
+        now,
+        format!(
+            "{} published a suggested post",
+            display_name_for_service_user(&actor)
+        ),
+        paid_service_fields,
+    )?;
+
+    Ok(true)
+}
+
+fn emit_suggested_post_refunded_updates_before_delete(
+    state: &Data<AppState>,
+    conn: &mut rusqlite::Connection,
+    token: &str,
+    bot: &crate::database::BotInfoRecord,
+    direct_messages_chat: &SimChatRecord,
+    message_ids: &[i64],
+) -> Result<(), ApiError> {
+    if message_ids.is_empty() {
+        return Ok(());
+    }
+
+    ensure_sim_suggested_posts_storage(conn)?;
+
+    let actor_user_id = current_request_actor_user_id().unwrap_or(bot.id);
+    let actor = if actor_user_id == bot.id {
+        build_bot_user(bot)
+    } else {
+        let actor_record = ensure_user(conn, Some(actor_user_id), None, None)?;
+        build_user_from_sim_record(&actor_record, false)
+    };
+
+    let now = Utc::now().timestamp();
+    let direct_messages_chat_obj = build_chat_from_group_record(direct_messages_chat);
+
+    for message_id in message_ids {
+        let Some((current_state, send_date)) = load_suggested_post_state(
+            conn,
+            bot.id,
+            &direct_messages_chat.chat_key,
+            *message_id,
+        )?
+        else {
+            continue;
+        };
+
+        if current_state != "paid" {
+            continue;
+        }
+
+        let Ok(suggested_message) = load_suggested_post_message_for_service(
+            conn,
+            bot,
+            direct_messages_chat.chat_id,
+            *message_id,
+        )
+        else {
+            continue;
+        };
+
+        upsert_suggested_post_state(
+            conn,
+            bot.id,
+            &direct_messages_chat.chat_key,
+            *message_id,
+            "refunded",
+            send_date,
+            Some("deleted_message"),
+            now,
+        )?;
+
+        let mut refunded_payload = Map::<String, Value>::new();
+        refunded_payload.insert("suggested_post_message".to_string(), suggested_message);
+        refunded_payload.insert("reason".to_string(), Value::String("deleted_message".to_string()));
+
+        let mut service_fields = Map::<String, Value>::new();
+        service_fields.insert(
+            "suggested_post_refunded".to_string(),
+            Value::Object(refunded_payload),
+        );
+        emit_service_message_update(
+            state,
+            conn,
+            token,
+            bot.id,
+            &direct_messages_chat.chat_key,
+            &direct_messages_chat_obj,
+            &actor,
+            now,
+            format!(
+                "{} refunded a suggested post",
+                display_name_for_service_user(&actor)
+            ),
+            service_fields,
+        )?;
+    }
+
+    Ok(())
+}
+
 fn handle_post_story(
     state: &Data<AppState>,
     token: &str,
     params: &HashMap<String, Value>,
 ) -> ApiResult {
-    let request: PostStoryRequest = parse_request(params)?;
+    let request: PostStoryCompatRequest =
+        parse_request_ignoring_prefixed_fields(params, &["story_file"])?;
+
+    let normalized_story_content = normalize_story_content_payload(
+        state,
+        token,
+        params,
+        &request.content.extra,
+    )?;
+
     ensure_story_active_period(request.active_period)?;
-    validate_story_content_payload(&request.content.extra)?;
+    validate_story_content_payload(&normalized_story_content)?;
     validate_story_areas_payload(request.areas.as_ref())?;
 
     let explicit_caption_entities = request
@@ -6507,18 +8148,16 @@ fn handle_post_story(
         }
     }
 
+    let normalized_content = crate::generated::types::InputStoryContent {
+        extra: normalized_story_content.clone(),
+    };
+
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let record = load_business_connection_or_404(
+    let (record, connection) = resolve_story_business_connection_for_request(
         &mut conn,
         bot.id,
-        &request.business_connection_id,
-    )?;
-    let connection = build_business_connection(&mut conn, bot.id, &record)?;
-    ensure_business_right(
-        &connection,
-        |rights| rights.can_manage_stories,
-        "not enough rights to manage stories",
+        request.business_connection_id.as_deref(),
     )?;
 
     ensure_sim_story_storage(&mut conn)?;
@@ -6540,7 +8179,7 @@ fn handle_post_story(
             &record.connection_id,
             story_id,
             connection.user.id,
-            serde_json::to_string(&request.content).map_err(ApiError::internal)?,
+            serde_json::to_string(&normalized_content).map_err(ApiError::internal)?,
             caption,
             caption_entities.map(|value| value.to_string()),
             request
@@ -6564,11 +8203,12 @@ fn handle_post_story(
     )
     .map_err(ApiError::internal)?;
 
-    serde_json::to_value(Story {
-        chat: story_chat_for_business_connection(&connection),
-        id: story_id,
-    })
-    .map_err(ApiError::internal)
+    Ok(build_story_response_payload(
+        story_chat_for_business_connection(&connection),
+        story_id,
+        Some(&normalized_story_content),
+        caption.as_deref(),
+    ))
 }
 
 fn handle_repost_story(
@@ -6576,21 +8216,15 @@ fn handle_repost_story(
     token: &str,
     params: &HashMap<String, Value>,
 ) -> ApiResult {
-    let request: RepostStoryRequest = parse_request(params)?;
+    let request: RepostStoryCompatRequest = parse_request(params)?;
     ensure_story_active_period(request.active_period)?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let target_record = load_business_connection_or_404(
+    let (target_record, target_connection) = resolve_story_business_connection_for_request(
         &mut conn,
         bot.id,
-        &request.business_connection_id,
-    )?;
-    let target_connection = build_business_connection(&mut conn, bot.id, &target_record)?;
-    ensure_business_right(
-        &target_connection,
-        |rights| rights.can_manage_stories,
-        "not enough rights to manage stories",
+        request.business_connection_id.as_deref(),
     )?;
 
     let source_connection_record = load_sim_business_connection_for_user(
@@ -6656,11 +8290,18 @@ fn handle_repost_story(
     )
     .map_err(ApiError::internal)?;
 
-    serde_json::to_value(Story {
-        chat: story_chat_for_business_connection(&target_connection),
-        id: story_id,
-    })
-    .map_err(ApiError::internal)
+    let source_content_value = serde_json::from_str::<Value>(&source_story.content_json)
+        .unwrap_or_else(|_| Value::Null);
+    Ok(build_story_response_payload(
+        story_chat_for_business_connection(&target_connection),
+        story_id,
+        if source_content_value.is_null() {
+            None
+        } else {
+            Some(&source_content_value)
+        },
+        source_story.caption.as_deref(),
+    ))
 }
 
 fn handle_edit_story(
@@ -6668,8 +8309,17 @@ fn handle_edit_story(
     token: &str,
     params: &HashMap<String, Value>,
 ) -> ApiResult {
-    let request: EditStoryRequest = parse_request(params)?;
-    validate_story_content_payload(&request.content.extra)?;
+    let request: EditStoryCompatRequest =
+        parse_request_ignoring_prefixed_fields(params, &["story_file"])?;
+
+    let normalized_story_content = normalize_story_content_payload(
+        state,
+        token,
+        params,
+        &request.content.extra,
+    )?;
+
+    validate_story_content_payload(&normalized_story_content)?;
     validate_story_areas_payload(request.areas.as_ref())?;
 
     let explicit_caption_entities = request
@@ -6689,18 +8339,16 @@ fn handle_edit_story(
         }
     }
 
+    let normalized_content = crate::generated::types::InputStoryContent {
+        extra: normalized_story_content.clone(),
+    };
+
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let record = load_business_connection_or_404(
+    let (record, connection) = resolve_story_business_connection_for_request(
         &mut conn,
         bot.id,
-        &request.business_connection_id,
-    )?;
-    let connection = build_business_connection(&mut conn, bot.id, &record)?;
-    ensure_business_right(
-        &connection,
-        |rights| rights.can_manage_stories,
-        "not enough rights to manage stories",
+        request.business_connection_id.as_deref(),
     )?;
 
     ensure_sim_story_storage(&mut conn)?;
@@ -6724,7 +8372,7 @@ fn handle_edit_story(
              updated_at = ?5
          WHERE bot_id = ?6 AND business_connection_id = ?7 AND story_id = ?8",
         params![
-            serde_json::to_string(&request.content).map_err(ApiError::internal)?,
+            serde_json::to_string(&normalized_content).map_err(ApiError::internal)?,
             caption,
             caption_entities.map(|value| value.to_string()),
             request
@@ -6740,11 +8388,12 @@ fn handle_edit_story(
     )
     .map_err(ApiError::internal)?;
 
-    serde_json::to_value(Story {
-        chat: story_chat_for_business_connection(&connection),
-        id: request.story_id,
-    })
-    .map_err(ApiError::internal)
+    Ok(build_story_response_payload(
+        story_chat_for_business_connection(&connection),
+        request.story_id,
+        Some(&normalized_story_content),
+        caption.as_deref(),
+    ))
 }
 
 fn handle_delete_story(
@@ -6752,20 +8401,14 @@ fn handle_delete_story(
     token: &str,
     params: &HashMap<String, Value>,
 ) -> ApiResult {
-    let request: DeleteStoryRequest = parse_request(params)?;
+    let request: DeleteStoryCompatRequest = parse_request(params)?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let record = load_business_connection_or_404(
+    let (record, _connection) = resolve_story_business_connection_for_request(
         &mut conn,
         bot.id,
-        &request.business_connection_id,
-    )?;
-    let connection = build_business_connection(&mut conn, bot.id, &record)?;
-    ensure_business_right(
-        &connection,
-        |rights| rights.can_manage_stories,
-        "not enough rights to manage stories",
+        request.business_connection_id.as_deref(),
     )?;
 
     ensure_sim_story_storage(&mut conn)?;
@@ -6813,28 +8456,19 @@ fn handle_approve_suggested_post(
         .ok_or_else(|| ApiError::bad_request("direct messages chat parent channel is missing"))?
         .to_string();
     let actor_user_id = current_request_actor_user_id().unwrap_or(bot.id);
-    ensure_sender_can_send_in_chat(
+    ensure_channel_member_can_approve_suggested_posts(
         &mut conn,
         bot.id,
         &parent_channel_chat_key,
         actor_user_id,
-        ChatSendKind::Text,
     )?;
 
-    let message_exists: Option<i64> = conn
-        .query_row(
-            "SELECT 1
-             FROM messages
-             WHERE bot_id = ?1 AND chat_key = ?2 AND message_id = ?3",
-            params![bot.id, &direct_messages_chat.chat_key, request.message_id],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(ApiError::internal)?;
-
-    if message_exists.is_none() {
-        return Err(ApiError::bad_request("suggested post message was not found"));
-    }
+    let suggested_message = load_suggested_post_message_for_service(
+        &mut conn,
+        &bot,
+        direct_messages_chat.chat_id,
+        request.message_id,
+    )?;
 
     ensure_sim_suggested_posts_storage(&mut conn)?;
     let existing = load_suggested_post_state(
@@ -6844,27 +8478,105 @@ fn handle_approve_suggested_post(
         request.message_id,
     )?;
 
-    if let Some((state, _)) = existing.as_ref() {
-        if state == "declined" {
+    if let Some((current_state, existing_send_date)) = existing.as_ref() {
+        if current_state == "declined" {
             return Err(ApiError::bad_request(
                 "suggested post is already declined",
             ));
         }
-        if state == "approved" && request.send_date.is_none() {
+        if current_state == "paid" {
+            return Ok(json!(true));
+        }
+        if current_state == "refunded" {
+            return Err(ApiError::bad_request(
+                "suggested post is already refunded",
+            ));
+        }
+        if current_state == "approved" && request.send_date.is_none() {
+            let effective_send_date = existing_send_date.unwrap_or(now);
+            if effective_send_date <= now {
+                let _ = finalize_due_suggested_post_if_ready(
+                    state,
+                    &mut conn,
+                    token,
+                    &bot,
+                    &direct_messages_chat,
+                    request.message_id,
+                    actor_user_id,
+                )?;
+            }
             return Ok(json!(true));
         }
     }
 
     let resolved_send_date = request
         .send_date
-        .or_else(|| existing.as_ref().and_then(|(_, send_date)| *send_date));
+        .or_else(|| existing.as_ref().and_then(|(_, send_date)| *send_date))
+        .or_else(|| extract_suggested_post_send_date_from_message(&suggested_message));
     if let Some(send_date) = resolved_send_date {
         if send_date - now > 2_678_400 {
             return Err(ApiError::bad_request(
                 "send_date must be at most 30 days in the future",
             ));
         }
+
+        if send_date < now {
+            let Some(price) = extract_suggested_post_price_from_message(&suggested_message) else {
+                return Err(ApiError::bad_request(
+                    "suggested post send_date is in the past",
+                ));
+            };
+
+            upsert_suggested_post_state(
+                &mut conn,
+                bot.id,
+                &direct_messages_chat.chat_key,
+                request.message_id,
+                "approval_failed",
+                Some(send_date),
+                Some("send_date_in_past"),
+                now,
+            )?;
+
+            let actor = if actor_user_id == bot.id {
+                build_bot_user(&bot)
+            } else {
+                let actor_record = ensure_user(&mut conn, Some(actor_user_id), None, None)?;
+                build_user_from_sim_record(&actor_record, false)
+            };
+            let mut approval_failed_payload = Map::<String, Value>::new();
+            approval_failed_payload.insert(
+                "suggested_post_message".to_string(),
+                suggested_message.clone(),
+            );
+            approval_failed_payload.insert("price".to_string(), price);
+
+            let mut service_fields = Map::<String, Value>::new();
+            service_fields.insert(
+                "suggested_post_approval_failed".to_string(),
+                Value::Object(approval_failed_payload),
+            );
+            let direct_messages_chat_obj = build_chat_from_group_record(&direct_messages_chat);
+            emit_service_message_update(
+                state,
+                &mut conn,
+                token,
+                bot.id,
+                &direct_messages_chat.chat_key,
+                &direct_messages_chat_obj,
+                &actor,
+                now,
+                format!(
+                    "{} failed to approve a suggested post",
+                    display_name_for_service_user(&actor)
+                ),
+                service_fields,
+            )?;
+
+            return Ok(json!(true));
+        }
     }
+    let approved_send_date = resolved_send_date.unwrap_or(now);
 
     upsert_suggested_post_state(
         &mut conn,
@@ -6872,10 +8584,64 @@ fn handle_approve_suggested_post(
         &direct_messages_chat.chat_key,
         request.message_id,
         "approved",
-        resolved_send_date,
+        Some(approved_send_date),
         None,
         now,
     )?;
+
+    let actor = if actor_user_id == bot.id {
+        build_bot_user(&bot)
+    } else {
+        let actor_record = ensure_user(&mut conn, Some(actor_user_id), None, None)?;
+        build_user_from_sim_record(&actor_record, false)
+    };
+    let mut approved_payload = Map::<String, Value>::new();
+    approved_payload.insert(
+        "suggested_post_message".to_string(),
+        suggested_message.clone(),
+    );
+    approved_payload.insert("send_date".to_string(), Value::from(approved_send_date));
+    if let Some(price) = extract_suggested_post_price_from_message(
+        approved_payload
+            .get("suggested_post_message")
+            .unwrap_or(&Value::Null),
+    ) {
+        approved_payload.insert("price".to_string(), price);
+    }
+
+    let mut service_fields = Map::<String, Value>::new();
+    service_fields.insert(
+        "suggested_post_approved".to_string(),
+        Value::Object(approved_payload),
+    );
+    let direct_messages_chat_obj = build_chat_from_group_record(&direct_messages_chat);
+    emit_service_message_update(
+        state,
+        &mut conn,
+        token,
+        bot.id,
+        &direct_messages_chat.chat_key,
+        &direct_messages_chat_obj,
+        &actor,
+        now,
+        format!(
+            "{} approved a suggested post",
+            display_name_for_service_user(&actor)
+        ),
+        service_fields,
+    )?;
+
+    if approved_send_date <= now {
+        let _ = finalize_due_suggested_post_if_ready(
+            state,
+            &mut conn,
+            token,
+            &bot,
+            &direct_messages_chat,
+            request.message_id,
+            actor_user_id,
+        )?;
+    }
 
     Ok(json!(true))
 }
@@ -6913,20 +8679,12 @@ fn handle_decline_suggested_post(
         actor_user_id,
     )?;
 
-    let message_exists: Option<i64> = conn
-        .query_row(
-            "SELECT 1
-             FROM messages
-             WHERE bot_id = ?1 AND chat_key = ?2 AND message_id = ?3",
-            params![bot.id, &direct_messages_chat.chat_key, request.message_id],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(ApiError::internal)?;
-
-    if message_exists.is_none() {
-        return Err(ApiError::bad_request("suggested post message was not found"));
-    }
+    let suggested_message = load_suggested_post_message_for_service(
+        &mut conn,
+        &bot,
+        direct_messages_chat.chat_id,
+        request.message_id,
+    )?;
 
     ensure_sim_suggested_posts_storage(&mut conn)?;
     let existing = load_suggested_post_state(
@@ -6941,6 +8699,14 @@ fn handle_decline_suggested_post(
             return Err(ApiError::bad_request(
                 "suggested post is already approved",
             ));
+        }
+        if state == "paid" {
+            return Err(ApiError::bad_request(
+                "suggested post is already paid",
+            ));
+        }
+        if state == "refunded" {
+            return Ok(json!(true));
         }
         if state == "declined" {
             return Ok(json!(true));
@@ -6962,6 +8728,40 @@ fn handle_decline_suggested_post(
         None,
         normalized_comment,
         now,
+    )?;
+
+    let actor = if actor_user_id == bot.id {
+        build_bot_user(&bot)
+    } else {
+        let actor_record = ensure_user(&mut conn, Some(actor_user_id), None, None)?;
+        build_user_from_sim_record(&actor_record, false)
+    };
+    let mut declined_payload = Map::<String, Value>::new();
+    declined_payload.insert("suggested_post_message".to_string(), suggested_message);
+    if let Some(comment) = normalized_comment {
+        declined_payload.insert("comment".to_string(), Value::String(comment.to_string()));
+    }
+
+    let mut service_fields = Map::<String, Value>::new();
+    service_fields.insert(
+        "suggested_post_declined".to_string(),
+        Value::Object(declined_payload),
+    );
+    let direct_messages_chat_obj = build_chat_from_group_record(&direct_messages_chat);
+    emit_service_message_update(
+        state,
+        &mut conn,
+        token,
+        bot.id,
+        &direct_messages_chat.chat_key,
+        &direct_messages_chat_obj,
+        &actor,
+        now,
+        format!(
+            "{} declined a suggested post",
+            display_name_for_service_user(&actor)
+        ),
+        service_fields,
     )?;
 
     Ok(json!(true))
@@ -7775,6 +9575,7 @@ fn handle_copy_message(
         None,
         None,
         None,
+        false,
     )?;
 
     let message_id = copied_message
@@ -7819,6 +9620,7 @@ fn handle_copy_messages(
             None,
             None,
             None,
+            false,
         ) {
             Ok(copied_message) => {
                 if let Some(id) = copied_message.get("message_id").and_then(Value::as_i64) {
@@ -7859,6 +9661,7 @@ fn forward_message_internal(
         bot,
         from_chat_id_value,
         source_message_id,
+        false,
     )?;
 
     let send_kind = send_kind_from_transport_source_message(&source_message);
@@ -7944,12 +9747,14 @@ fn copy_message_internal(
     sender_chat_override: Option<Value>,
     is_automatic_forward_override: Option<bool>,
     linked_discussion_context: Option<LinkedDiscussionTransportContext>,
+    skip_source_membership_check: bool,
 ) -> Result<Value, ApiError> {
     let source_message = resolve_source_message_for_transport(
         conn,
         bot,
         from_chat_id_value,
         source_message_id,
+        skip_source_membership_check,
     )?;
 
     let send_kind = send_kind_from_transport_source_message(&source_message);
@@ -8103,12 +9908,13 @@ fn resolve_source_message_for_transport(
     bot: &crate::database::BotInfoRecord,
     from_chat_id_value: &Value,
     source_message_id: i64,
+    skip_source_membership_check: bool,
 ) -> Result<Value, ApiError> {
     let source_chat_key = value_to_chat_key(from_chat_id_value)?;
     ensure_chat(conn, &source_chat_key)?;
 
     if let Some(sim_chat) = load_sim_chat_record(conn, bot.id, &source_chat_key)? {
-        if sim_chat.chat_type != "private" {
+        if sim_chat.chat_type != "private" && !skip_source_membership_check {
             ensure_sender_is_chat_member(conn, bot.id, &source_chat_key, bot.id)?;
             if let Some(actor_user_id) = current_request_actor_user_id() {
                 if actor_user_id != bot.id {
@@ -8206,9 +10012,33 @@ fn message_has_transportable_content(message: &Value) -> bool {
         "location",
         "venue",
         "invoice",
+        "paid_media",
     ]
     .iter()
     .any(|key| message.get(*key).is_some())
+}
+
+fn forward_channel_post_to_linked_discussion_best_effort(
+    state: &Data<AppState>,
+    conn: &mut rusqlite::Connection,
+    token: &str,
+    bot: &crate::database::BotInfoRecord,
+    channel_chat_key: &str,
+    channel_message_value: &Value,
+) {
+    if let Err(error) = ensure_linked_discussion_forward_for_channel_post(
+        state,
+        conn,
+        token,
+        bot,
+        channel_chat_key,
+        channel_message_value,
+    ) {
+        eprintln!(
+            "linked discussion auto-forward failed for chat {}: {}",
+            channel_chat_key, error.description
+        );
+    }
 }
 
 fn send_kind_from_transport_source_message(message: &Value) -> ChatSendKind {
@@ -10844,6 +12674,112 @@ pub fn handle_auto_close_due_polls(state: &Data<AppState>) -> Result<(), ApiErro
     Ok(())
 }
 
+pub fn handle_auto_publish_due_suggested_posts(state: &Data<AppState>) -> Result<(), ApiError> {
+    let now = Utc::now().timestamp();
+    let mut conn = lock_db(state)?;
+    ensure_sim_suggested_posts_storage(&mut conn)?;
+
+    let due_rows: Vec<(String, i64, String, i64)> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT b.token, sp.bot_id, sp.chat_key, sp.message_id
+                 FROM sim_suggested_posts sp
+                 INNER JOIN bots b ON b.id = sp.bot_id
+                 WHERE sp.state = 'approved'
+                   AND COALESCE(sp.send_date, 0) <= ?1
+                 ORDER BY sp.updated_at ASC
+                 LIMIT 256",
+            )
+            .map_err(ApiError::internal)?;
+
+        let rows = stmt
+            .query_map(params![now], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })
+            .map_err(ApiError::internal)?;
+
+        let mut collected = Vec::new();
+        for row in rows {
+            collected.push(row.map_err(ApiError::internal)?);
+        }
+        collected
+    };
+
+    for (token, bot_id, chat_key, message_id) in due_rows {
+        let bot = ensure_bot(&mut conn, &token)?;
+        if bot.id != bot_id {
+            continue;
+        }
+
+        let Some(direct_messages_chat) = load_sim_chat_record(&mut conn, bot.id, &chat_key)? else {
+            continue;
+        };
+        if !is_direct_messages_chat(&direct_messages_chat) {
+            continue;
+        }
+
+        let actor_user_id = direct_messages_chat
+            .parent_channel_chat_id
+            .and_then(|channel_chat_id| {
+                load_channel_owner_user_id(&mut conn, bot.id, &channel_chat_id.to_string())
+                    .ok()
+                    .flatten()
+            })
+            .unwrap_or(bot.id);
+
+        if let Err(error) = finalize_due_suggested_post_if_ready(
+            state,
+            &mut conn,
+            &token,
+            &bot,
+            &direct_messages_chat,
+            message_id,
+            actor_user_id,
+        ) {
+            let failure_reason = match error.description.as_str() {
+                "source message was not found" => Some("source_message_missing"),
+                "suggested post message was not found" => Some("suggested_post_message_missing"),
+                "message is not a suggested post" => Some("invalid_suggested_post_source"),
+                _ => None,
+            };
+
+            if let Some(reason) = failure_reason {
+                let existing_send_date = load_suggested_post_state(
+                    &mut conn,
+                    bot.id,
+                    &direct_messages_chat.chat_key,
+                    message_id,
+                )?
+                .and_then(|(_, send_date)| send_date)
+                .or(Some(now));
+
+                upsert_suggested_post_state(
+                    &mut conn,
+                    bot.id,
+                    &direct_messages_chat.chat_key,
+                    message_id,
+                    "approval_failed",
+                    existing_send_date,
+                    Some(reason),
+                    now,
+                )?;
+            }
+
+            eprintln!(
+                "auto-publish suggested post failed for bot {} message {}: {}",
+                bot.id, message_id, error.description
+            );
+        }
+    }
+
+    Ok(())
+}
+
 pub fn handle_sim_vote_poll(
     state: &Data<AppState>,
     token: &str,
@@ -11848,14 +13784,14 @@ fn send_paid_media_message(
     dispatch_webhook_if_configured(&mut conn, bot.id, clean_update.clone());
 
     if is_channel_post {
-        ensure_linked_discussion_forward_for_channel_post(
+        forward_channel_post_to_linked_discussion_best_effort(
             state,
             &mut conn,
             token,
             &bot,
             &chat_key,
             &message_value,
-        )?;
+        );
     }
 
     Ok(message_value)
@@ -11994,14 +13930,14 @@ fn send_payload_message(
     dispatch_webhook_if_configured(&mut conn, bot.id, clean_update.clone());
 
     if is_channel_post {
-        ensure_linked_discussion_forward_for_channel_post(
+        forward_channel_post_to_linked_discussion_best_effort(
             state,
             &mut conn,
             token,
             &bot,
             &chat_key,
             &message_value,
-        )?;
+        );
     }
 
     Ok(message_value)
@@ -12148,14 +14084,14 @@ fn send_media_message_with_group(
     dispatch_webhook_if_configured(&mut conn, bot.id, clean_update.clone());
 
     if is_channel_post {
-        ensure_linked_discussion_forward_for_channel_post(
+        forward_channel_post_to_linked_discussion_best_effort(
             state,
             &mut conn,
             token,
             &bot,
             &chat_key,
             &message_value,
-        )?;
+        );
     }
 
     Ok(message_value)
@@ -12325,26 +14261,29 @@ fn ensure_linked_discussion_forward_for_channel_post(
         .transpose()?
         .flatten();
 
-    let forwarded_value = copy_message_internal(
-        state,
-        conn,
-        token,
-        bot,
-        &Value::String(channel_chat_key.to_string()),
-        &Value::from(linked_discussion_chat_id),
-        channel_message_id,
-        None,
-        None,
-        None,
-        false,
-        None,
-        None,
-        None,
-        discussion_reply_to_message_id,
-        sender_chat_override,
-        Some(true),
-        Some(linked_discussion_context),
-    )?;
+    let forwarded_value = with_request_actor_user_id(Some(bot.id), || {
+        copy_message_internal(
+            state,
+            conn,
+            token,
+            bot,
+            &Value::String(channel_chat_key.to_string()),
+            &Value::from(linked_discussion_chat_id),
+            channel_message_id,
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            discussion_reply_to_message_id,
+            sender_chat_override,
+            Some(true),
+            Some(linked_discussion_context),
+            true,
+        )
+    })?;
 
     let discussion_message_id = forwarded_value
         .get("message_id")
@@ -13680,6 +15619,65 @@ pub fn handle_sim_send_user_message(
         None
     };
 
+    let mut suggested_post_parameters = body.suggested_post_parameters.clone();
+    let mut suggested_post_info: Option<SuggestedPostInfo> = None;
+    if let Some(parameters) = suggested_post_parameters.as_mut() {
+        if !is_direct_messages {
+            return Err(ApiError::bad_request(
+                "suggested_post_parameters is available only in channel direct messages chats",
+            ));
+        }
+
+        let now = Utc::now().timestamp();
+
+        if let Some(price) = parameters.price.as_ref() {
+            let normalized_currency = price.currency.trim().to_ascii_uppercase();
+            let normalized_amount = price.amount;
+
+            match normalized_currency.as_str() {
+                "XTR" => {
+                    if !(5..=100_000).contains(&normalized_amount) {
+                        return Err(ApiError::bad_request(
+                            "suggested post XTR amount must be between 5 and 100000",
+                        ));
+                    }
+                }
+                "TON" => {
+                    if !(10_000_000..=10_000_000_000_000).contains(&normalized_amount) {
+                        return Err(ApiError::bad_request(
+                            "suggested post TON amount must be between 10000000 and 10000000000000",
+                        ));
+                    }
+                }
+                _ => {
+                    return Err(ApiError::bad_request(
+                        "suggested post price currency must be XTR or TON",
+                    ));
+                }
+            }
+
+            parameters.price = Some(SuggestedPostPrice {
+                currency: normalized_currency,
+                amount: normalized_amount,
+            });
+        }
+
+        if let Some(send_date) = parameters.send_date {
+            let delta = send_date - now;
+            if !(300..=2_678_400).contains(&delta) {
+                return Err(ApiError::bad_request(
+                    "suggested post send_date must be between 5 minutes and 30 days in the future",
+                ));
+            }
+        }
+
+        suggested_post_info = Some(SuggestedPostInfo {
+            state: "pending".to_string(),
+            price: parameters.price.clone(),
+            send_date: parameters.send_date,
+        });
+    }
+
     let chat_key = sim_chat.chat_key.clone();
     let direct_messages_star_count = if is_direct_messages {
         direct_messages_star_count_for_chat(&mut conn, bot.id, &sim_chat)?
@@ -13711,6 +15709,20 @@ pub fn handle_sim_send_user_message(
                 Some(now),
             )?;
         }
+    }
+
+    if let Some(info) = suggested_post_info.as_ref() {
+        ensure_sim_suggested_posts_storage(&mut conn)?;
+        upsert_suggested_post_state(
+            &mut conn,
+            bot.id,
+            &chat_key,
+            message_id,
+            "pending",
+            info.send_date,
+            None,
+            now,
+        )?;
     }
 
     let from = build_user_from_sim_record(&user, false);
@@ -13751,6 +15763,14 @@ pub fn handle_sim_send_user_message(
     }
     if let Some(connection_id) = business_connection_id.as_ref() {
         message_json["business_connection_id"] = Value::String(connection_id.clone());
+    }
+    if let Some(parameters) = suggested_post_parameters.as_ref() {
+        message_json["suggested_post_parameters"] =
+            serde_json::to_value(parameters).map_err(ApiError::internal)?;
+    }
+    if let Some(info) = suggested_post_info.as_ref() {
+        message_json["suggested_post_info"] =
+            serde_json::to_value(info).map_err(ApiError::internal)?;
     }
     if is_direct_messages && direct_messages_star_count > 0 {
         message_json["paid_message_star_count"] = Value::from(direct_messages_star_count);
@@ -13893,14 +15913,14 @@ pub fn handle_sim_send_user_message(
     }
 
     if is_channel_post {
-        ensure_linked_discussion_forward_for_channel_post(
+        forward_channel_post_to_linked_discussion_best_effort(
             state,
             &mut conn,
             token,
             &bot,
             &chat_key,
             &message_value,
-        )?;
+        );
     }
 
     Ok(message_value)
@@ -14353,14 +16373,14 @@ pub fn handle_sim_send_user_media(
     }
 
     if is_channel_post {
-        ensure_linked_discussion_forward_for_channel_post(
+        forward_channel_post_to_linked_discussion_best_effort(
             state,
             &mut conn,
             token,
             &bot,
             &chat_key,
             &message_value,
-        )?;
+        );
     }
 
     Ok(message_value)
@@ -18118,7 +20138,7 @@ fn ensure_message_can_be_deleted_by_actor(
     }
 
     if is_direct_messages_chat(&sim_chat) {
-        return Err(ApiError::bad_request("message can't be deleted"));
+        return Ok(());
     }
 
     if sim_chat.chat_type == "group" || sim_chat.chat_type == "supergroup" {
@@ -18191,6 +20211,7 @@ fn delete_messages_with_dependencies(
             drafts_bind_values.iter().map(sql_value_to_rusqlite),
         ))
         .map_err(ApiError::internal)?;
+    drop(drafts_stmt);
 
     let messages_sql = format!(
         "DELETE FROM messages WHERE bot_id = ? AND chat_key = ? AND message_id IN ({})",
@@ -18208,6 +20229,7 @@ fn delete_messages_with_dependencies(
             messages_bind_values.iter().map(sql_value_to_rusqlite),
         ))
         .map_err(ApiError::internal)?;
+    drop(messages_stmt);
 
     if deleted > 0 {
         let chat_id_fragment = format!("\"chat\":{{\"id\":{}", chat_id);
@@ -18240,6 +20262,26 @@ fn delete_messages_with_dependencies(
                 invoice_bind_values.iter().map(sql_value_to_rusqlite),
             ))
             .map_err(ApiError::internal)?;
+        drop(invoice_stmt);
+
+        ensure_sim_suggested_posts_storage(conn)?;
+        let suggested_sql = format!(
+            "DELETE FROM sim_suggested_posts WHERE bot_id = ? AND chat_key = ? AND message_id IN ({})",
+            placeholders,
+        );
+        let mut suggested_bind_values = Vec::with_capacity(2 + message_ids.len());
+        suggested_bind_values.push(Value::from(bot_id));
+        suggested_bind_values.push(Value::from(chat_key.to_string()));
+        for id in message_ids {
+            suggested_bind_values.push(Value::from(*id));
+        }
+        let mut suggested_stmt = conn.prepare(&suggested_sql).map_err(ApiError::internal)?;
+        suggested_stmt
+            .execute(rusqlite::params_from_iter(
+                suggested_bind_values.iter().map(sql_value_to_rusqlite),
+            ))
+            .map_err(ApiError::internal)?;
+        drop(suggested_stmt);
     }
 
     Ok(deleted)
@@ -19059,14 +21101,14 @@ fn send_sim_user_payload_message(
     }
 
     if is_channel_post {
-        ensure_linked_discussion_forward_for_channel_post(
+        forward_channel_post_to_linked_discussion_best_effort(
             state,
             &mut conn,
             token,
             &bot,
             &chat_key,
             &message_value,
-        )?;
+        );
     }
 
     Ok(message_value)
@@ -19423,11 +21465,24 @@ fn handle_delete_message(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let (chat_key, chat_id) = resolve_chat_key_and_id(&mut conn, bot.id, &request.chat_id)?;
+    let direct_messages_chat = load_sim_chat_record(&mut conn, bot.id, &chat_key)?
+        .filter(|chat| is_direct_messages_chat(chat));
 
     match ensure_message_can_be_deleted_by_actor(&mut conn, bot.id, &chat_key, request.message_id) {
         Ok(()) => {}
         Err(err) if err.code == 404 => return Ok(Value::Bool(false)),
         Err(err) => return Err(err),
+    }
+
+    if let Some(chat) = direct_messages_chat.as_ref() {
+        emit_suggested_post_refunded_updates_before_delete(
+            state,
+            &mut conn,
+            token,
+            &bot,
+            chat,
+            &[request.message_id],
+        )?;
     }
 
     let deleted = delete_messages_with_dependencies(
@@ -19456,6 +21511,8 @@ fn handle_delete_messages(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let (chat_key, chat_id) = resolve_chat_key_and_id(&mut conn, bot.id, &request.chat_id)?;
+    let direct_messages_chat = load_sim_chat_record(&mut conn, bot.id, &chat_key)?
+        .filter(|chat| is_direct_messages_chat(chat));
 
     let placeholders = std::iter::repeat("?")
         .take(message_ids.len())
@@ -19489,6 +21546,17 @@ fn handle_delete_messages(
 
     for message_id in &existing_ids {
         ensure_message_can_be_deleted_by_actor(&mut conn, bot.id, &chat_key, *message_id)?;
+    }
+
+    if let Some(chat) = direct_messages_chat.as_ref() {
+        emit_suggested_post_refunded_updates_before_delete(
+            state,
+            &mut conn,
+            token,
+            &bot,
+            chat,
+            &existing_ids,
+        )?;
     }
 
     let deleted = delete_messages_with_dependencies(
@@ -19563,6 +21631,8 @@ fn decode_request_value<T: DeserializeOwned>(payload: Value) -> Result<T, ApiErr
         Ok(decoded) => Ok(decoded),
         Err(strict_error) => {
             let variants = vec![
+                coerce_text_like_fields(payload.clone()),
+                coerce_text_like_fields(coerce_string_scalars(payload.clone())),
                 coerce_string_scalars(payload.clone()),
                 coerce_scalar_strings(payload.clone()),
                 coerce_scalar_strings(coerce_string_scalars(payload)),
@@ -19579,6 +21649,62 @@ fn decode_request_value<T: DeserializeOwned>(payload: Value) -> Result<T, ApiErr
             )))
         }
     }
+}
+
+fn coerce_text_like_fields(value: Value) -> Value {
+    coerce_text_like_fields_for_key(None, value)
+}
+
+fn coerce_text_like_fields_for_key(field_name: Option<&str>, value: Value) -> Value {
+    match value {
+        Value::Number(number) if field_name.map(is_text_like_field_name).unwrap_or(false) => {
+            Value::String(number.to_string())
+        }
+        Value::Bool(flag) if field_name.map(is_text_like_field_name).unwrap_or(false) => {
+            Value::String(flag.to_string())
+        }
+        Value::Array(items) => Value::Array(
+            items
+                .into_iter()
+                .map(|item| coerce_text_like_fields_for_key(field_name, item))
+                .collect(),
+        ),
+        Value::Object(map) => Value::Object(
+            map.into_iter()
+                .map(|(key, item)| {
+                    let coerced = coerce_text_like_fields_for_key(Some(key.as_str()), item);
+                    (key, coerced)
+                })
+                .collect(),
+        ),
+        other => other,
+    }
+}
+
+fn is_text_like_field_name(field_name: &str) -> bool {
+    matches!(
+        field_name,
+        "text"
+            | "caption"
+            | "question"
+            | "description"
+            | "title"
+            | "comment"
+            | "payload"
+            | "first_name"
+            | "last_name"
+            | "username"
+            | "phone_number"
+            | "emoji"
+            | "name"
+            | "url"
+            | "currency"
+            | "provider_token"
+            | "invoice_payload"
+            | "business_connection_id"
+            | "gift_id"
+            | "owned_gift_id"
+    )
 }
 
 fn coerce_string_scalars(value: Value) -> Value {
@@ -20928,14 +23054,14 @@ fn persist_and_dispatch_update(
                 .and_then(|chat| chat.get("id"))
             {
                 let channel_chat_key = value_to_chat_key(chat_id_value)?;
-                ensure_linked_discussion_forward_for_channel_post(
+                forward_channel_post_to_linked_discussion_best_effort(
                     state,
                     conn,
                     token,
                     &bot_record,
                     &channel_chat_key,
                     channel_post_value,
-                )?;
+                );
             }
         }
     }
@@ -22596,6 +24722,38 @@ fn ensure_channel_member_can_manage_direct_messages(
 
     Err(ApiError::bad_request(
         "not enough rights to manage channel direct messages",
+    ))
+}
+
+fn ensure_channel_member_can_approve_suggested_posts(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    channel_chat_key: &str,
+    user_id: i64,
+) -> Result<(), ApiError> {
+    let Some(member) = load_chat_member_record(conn, bot_id, channel_chat_key, user_id)? else {
+        return Err(ApiError::bad_request(
+            "only channel owner/admin with post rights can approve suggested posts",
+        ));
+    };
+
+    if member.status == "owner" {
+        return Ok(());
+    }
+
+    if member.status != "admin" {
+        return Err(ApiError::bad_request(
+            "only channel owner/admin with post rights can approve suggested posts",
+        ));
+    }
+
+    let rights = parse_channel_admin_rights_json(member.admin_rights_json.as_deref());
+    if rights.can_post_messages {
+        return Ok(());
+    }
+
+    Err(ApiError::bad_request(
+        "not enough rights to approve suggested posts",
     ))
 }
 
