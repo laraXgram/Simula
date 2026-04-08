@@ -3,6 +3,7 @@ import { SimBootstrapResponse } from '../types/app';
 import type {
   AddStickerToSetRequest,
   AnswerCallbackQueryRequest,
+  AnswerWebAppQueryRequest,
   BanChatMemberRequest,
   BanChatSenderChatRequest,
   ApproveChatJoinRequestRequest,
@@ -23,6 +24,7 @@ import type {
   EditChatInviteLinkRequest,
   EditChatSubscriptionInviteLinkRequest,
   EditMessageCaptionRequest,
+  EditMessageChecklistRequest,
   EditMessageLiveLocationRequest,
   EditMessageMediaRequest,
   EditStoryRequest,
@@ -45,7 +47,11 @@ import type {
   StopMessageLiveLocationRequest,
   EditMessageTextRequest,
   GetGameHighScoresRequest,
+  GetManagedBotTokenRequest,
   GetUserGiftsRequest,
+  GetUserChatBoostsRequest,
+  GetUserProfileAudiosRequest,
+  GetUserProfilePhotosRequest,
   GiftPremiumSubscriptionRequest,
   ConvertGiftToStarsRequest,
   UpgradeGiftRequest,
@@ -61,6 +67,7 @@ import type {
   RepostStoryRequest,
   ReopenForumTopicRequest,
   ReopenGeneralForumTopicRequest,
+  ReplaceManagedBotTokenRequest,
   ReplaceStickerInSetRequest,
   RevokeChatInviteLinkRequest,
   RestrictChatMemberRequest,
@@ -72,8 +79,11 @@ import type {
   SendInvoiceRequest,
   SendLocationRequest,
   SendMessageRequest,
+  SendChecklistRequest,
   SendPollRequest,
   SendStickerRequest,
+  SavePreparedInlineMessageRequest,
+  SavePreparedKeyboardButtonRequest,
   SendVenueRequest,
   SendVideoNoteRequest,
   DeleteMyCommandsRequest,
@@ -91,6 +101,8 @@ import type {
   SetMyNameRequest,
   SetMyProfilePhotoRequest,
   SetMyShortDescriptionRequest,
+  SetPassportDataErrorsRequest,
+  SetUserEmojiStatusRequest,
   SetGameScoreRequest,
   SetCustomEmojiStickerSetThumbnailRequest,
   SetMessageReactionRequest,
@@ -115,7 +127,7 @@ import type {
   UnpinChatMessageRequest,
   UploadStickerFileRequest,
 } from '../types/generated/methods';
-import type { BotCommand, BotDescription, BotName, BotShortDescription, BusinessBotRights, BusinessConnection as GeneratedBusinessConnection, Chat as GeneratedChat, ChatAdministratorRights, ChatFullInfo, ChatInviteLink, ChatMember, ChatPermissions, ChatShared, File as TgFile, ForumTopic, GameHighScore, InlineQueryResult, InlineQueryResultsButton, MenuButton, Message, Sticker, StickerSet, SuggestedPostParameters, User as GeneratedUser, UsersShared, WebAppData } from '../types/generated/types';
+import type { BotCommand, BotDescription, BotName, BotShortDescription, BusinessBotRights, BusinessConnection as GeneratedBusinessConnection, Chat as GeneratedChat, ChatAdministratorRights, ChatFullInfo, ChatInviteLink, ChatMember, ChatPermissions, ChatShared, File as TgFile, ForumTopic, GameHighScore, InlineQueryResult, InlineQueryResultsButton, KeyboardButtonRequestManagedBot, MenuButton, Message, PreparedInlineMessage, PreparedKeyboardButton, SentWebAppMessage, Sticker, StickerSet, SuggestedPostParameters, User as GeneratedUser, UserChatBoosts, UserProfileAudios, UserProfilePhotos, UsersShared, WebAppData } from '../types/generated/types';
 import type { Story } from '../types/generated/types';
 
 import type { Gifts, OwnedGifts } from '../types/generated/types';
@@ -1019,6 +1031,7 @@ export async function sendUserMessage(token: string, payload: {
   users_shared?: UsersShared;
   chat_shared?: ChatShared;
   web_app_data?: WebAppData;
+  managed_bot_request?: KeyboardButtonRequestManagedBot;
 }) {
   const normalizedPayload = {
     ...payload,
@@ -1246,6 +1259,60 @@ export async function pressInlineButton(token: string, payload: {
 
 export async function answerCallbackQuery(token: string, payload: AnswerCallbackQueryRequest) {
   return callBotMethod<boolean>(token, 'answerCallbackQuery', payload);
+}
+
+export async function answerWebAppQuery(token: string, payload: AnswerWebAppQueryRequest): Promise<SentWebAppMessage> {
+  return callBotMethod<SentWebAppMessage>(token, 'answerWebAppQuery', payload);
+}
+
+export async function savePreparedInlineMessage(
+  token: string,
+  payload: SavePreparedInlineMessageRequest,
+): Promise<PreparedInlineMessage> {
+  return callBotMethod<PreparedInlineMessage>(token, 'savePreparedInlineMessage', payload);
+}
+
+export async function savePreparedKeyboardButton(
+  token: string,
+  payload: SavePreparedKeyboardButtonRequest,
+): Promise<PreparedKeyboardButton> {
+  return callBotMethod<PreparedKeyboardButton>(token, 'savePreparedKeyboardButton', payload);
+}
+
+export async function getManagedBotToken(token: string, payload: GetManagedBotTokenRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'getManagedBotToken', payload);
+}
+
+export async function replaceManagedBotToken(token: string, payload: ReplaceManagedBotTokenRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'replaceManagedBotToken', payload);
+}
+
+export async function sendChecklist(token: string, payload: SendChecklistRequest, actorUserId?: number): Promise<Message> {
+  return callBotMethod<Message>(token, 'sendChecklist', payload, { actorUserId });
+}
+
+export async function editMessageChecklist(token: string, payload: EditMessageChecklistRequest, actorUserId?: number): Promise<Message> {
+  return callBotMethod<Message>(token, 'editMessageChecklist', payload, { actorUserId });
+}
+
+export async function setPassportDataErrors(token: string, payload: SetPassportDataErrorsRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'setPassportDataErrors', payload);
+}
+
+export async function setUserEmojiStatus(token: string, payload: SetUserEmojiStatusRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'setUserEmojiStatus', payload);
+}
+
+export async function getUserProfilePhotos(token: string, payload: GetUserProfilePhotosRequest): Promise<UserProfilePhotos> {
+  return callBotMethod<UserProfilePhotos>(token, 'getUserProfilePhotos', payload);
+}
+
+export async function getUserProfileAudios(token: string, payload: GetUserProfileAudiosRequest): Promise<UserProfileAudios> {
+  return callBotMethod<UserProfileAudios>(token, 'getUserProfileAudios', payload);
+}
+
+export async function getUserChatBoosts(token: string, payload: GetUserChatBoostsRequest, actorUserId?: number): Promise<UserChatBoosts> {
+  return callBotMethod<UserChatBoosts>(token, 'getUserChatBoosts', payload, { actorUserId });
 }
 
 export async function sendInlineQuery(token: string, payload: {
@@ -1734,6 +1801,195 @@ export async function deleteSimUser(payload: {
   }
 
   return data.result as { deleted: boolean; id: number };
+}
+
+export async function setSimUserProfileAudio(
+  token: string,
+  payload: {
+    user_id: number;
+    title?: string;
+    performer?: string;
+    file_name?: string;
+    mime_type?: string;
+    file_size?: number;
+    duration?: number;
+  },
+) {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/users/profile-audio`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to set profile audio');
+  }
+
+  return data.result as {
+    user_id: number;
+    file_id: string;
+    file_unique_id: string;
+    title: string;
+    file_name: string;
+    mime_type: string;
+    file_size?: number;
+    performer?: string;
+    duration: number;
+  };
+}
+
+export async function uploadSimUserProfileAudio(
+  token: string,
+  payload: {
+    user_id: number;
+    audio: globalThis.File;
+    title?: string;
+    performer?: string;
+    file_name?: string;
+    mime_type?: string;
+    duration?: number;
+  },
+  actorUserId?: number,
+) {
+  const formData = new FormData();
+  formData.append('user_id', String(payload.user_id));
+  formData.append('audio', payload.audio, payload.audio.name);
+
+  if (payload.title?.trim()) {
+    formData.append('title', payload.title.trim());
+  }
+  if (payload.performer?.trim()) {
+    formData.append('performer', payload.performer.trim());
+  }
+  if (payload.file_name?.trim()) {
+    formData.append('file_name', payload.file_name.trim());
+  }
+  if (payload.mime_type?.trim()) {
+    formData.append('mime_type', payload.mime_type.trim());
+  }
+  if (typeof payload.duration === 'number' && Number.isFinite(payload.duration)) {
+    formData.append('duration', String(Math.trunc(payload.duration)));
+  }
+
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/users/profile-audio/upload`, {
+    method: 'POST',
+    headers: {
+      ...actorHeader(actorUserId),
+    },
+    body: formData,
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to upload profile audio');
+  }
+
+  return data.result as {
+    user_id: number;
+    file_id: string;
+    file_unique_id: string;
+    file_path: string;
+    title: string;
+    performer?: string;
+    file_name: string;
+    mime_type: string;
+    file_size?: number;
+    duration: number;
+  };
+}
+
+export async function deleteSimUserProfileAudio(
+  token: string,
+  payload: {
+    user_id: number;
+    file_id: string;
+  },
+) {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/users/profile-audio/delete`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to delete profile audio');
+  }
+
+  return data.result as {
+    deleted: boolean;
+    user_id: number;
+    file_id: string;
+  };
+}
+
+export async function addSimUserChatBoosts(
+  token: string,
+  payload: {
+    chat_id: number;
+    user_id: number;
+    count?: number;
+    duration_days?: number;
+  },
+  actorUserId?: number,
+) {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/users/chat-boosts/add`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...actorHeader(actorUserId),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to add chat boosts');
+  }
+
+  return data.result as {
+    added_count: number;
+    boost_ids: string[];
+    chat_id: number;
+    user_id: number;
+  };
+}
+
+export async function removeSimUserChatBoosts(
+  token: string,
+  payload: {
+    chat_id: number;
+    user_id: number;
+    boost_ids?: string[];
+    remove_all?: boolean;
+  },
+  actorUserId?: number,
+) {
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/users/chat-boosts/remove`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...actorHeader(actorUserId),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to remove chat boosts');
+  }
+
+  return data.result as {
+    removed_count: number;
+    boost_ids: string[];
+    chat_id: number;
+    user_id: number;
+  };
 }
 
 export async function clearSimHistory(token: string, chatId: number, messageThreadId?: number) {

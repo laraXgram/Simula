@@ -131,6 +131,17 @@ import {
   payInvoice,
   PollVoterInfo,
   getCallbackQueryAnswer,
+  answerWebAppQuery,
+  savePreparedInlineMessage,
+  savePreparedKeyboardButton,
+  getManagedBotToken,
+  replaceManagedBotToken,
+  sendChecklist,
+  editMessageChecklist,
+  setUserEmojiStatus,
+  getUserProfilePhotos,
+  getUserProfileAudios,
+  getUserChatBoosts,
   getBotFile,
   getGameHighScores,
   pressInlineButton,
@@ -173,6 +184,11 @@ import {
   sendBotMessage,
   setUserMessageReaction,
   setSimulationBotGroupMembership,
+  setSimUserProfileAudio,
+  uploadSimUserProfileAudio,
+  deleteSimUserProfileAudio,
+  addSimUserChatBoosts,
+  removeSimUserChatBoosts,
   updateSimulationGroup,
   deleteSimUser,
   updateSimBot,
@@ -193,7 +209,12 @@ import type {
   MenuButtonDefault as GeneratedMenuButtonDefault,
   MenuButtonWebApp as GeneratedMenuButtonWebApp,
   Gift as GeneratedGift,
+  KeyboardButtonRequestManagedBot as GeneratedKeyboardButtonRequestManagedBot,
   OwnedGiftRegular as GeneratedOwnedGiftRegular,
+  UserProfilePhotos as GeneratedUserProfilePhotos,
+  UserProfileAudios as GeneratedUserProfileAudios,
+  UserChatBoosts as GeneratedUserChatBoosts,
+  User as GeneratedUser,
   UsersShared as GeneratedUsersShared,
   WebAppData as GeneratedWebAppData,
 } from '../../types/generated/types';
@@ -243,6 +264,9 @@ const USER_WALLETS_KEY = 'laragram-user-wallets';
 const PAID_MEDIA_PURCHASES_KEY = 'laragram-paid-media-purchases';
 const STORY_SHELF_BY_BOT_KEY = 'laragram-story-shelf-by-bot';
 const HIDDEN_STORY_KEYS_BY_BOT_KEY = 'laragram-hidden-story-keys-by-bot';
+const MANAGED_BOT_SETTINGS_BY_BOT_KEY = 'laragram-managed-bot-settings-by-bot';
+const USER_EMOJI_STATUS_BY_KEY = 'laragram-user-emoji-status-by-key';
+const CHAT_BOOST_COUNTS_BY_ACTOR_CHAT_KEY = 'laragram-chat-boost-counts-by-actor-chat';
 const GENERAL_FORUM_TOPIC_THREAD_ID = 1;
 const DEFAULT_FORUM_ICON_COLOR = 0x6FB9F0;
 const DEFAULT_WALLET_STATE = {
@@ -276,7 +300,8 @@ type MediaDrawerTab =
   | 'location'
   | 'venue'
   | 'poll'
-  | 'invoice';
+  | 'invoice'
+  | 'checklist';
 
 interface StoryPreviewSnapshot {
   caption?: string;
@@ -370,6 +395,40 @@ interface BotDraftState {
   channel_default_admin_rights: BotAdminRightsDraft;
 }
 
+interface ManagedBotSettingsState {
+  enabled: boolean;
+}
+
+interface ManagedBotRequestModalState {
+  buttonText: string;
+  requestId: string;
+  suggestedName: string;
+  suggestedUsername: string;
+}
+
+interface UserEmojiStatusState {
+  customEmojiId: string;
+  expirationDate?: number;
+}
+
+interface MiniAppModalState {
+  source: 'reply_keyboard_web_app' | 'inline_keyboard_web_app';
+  buttonText: string;
+  queryId: string;
+  url: string;
+}
+
+interface ChatBoostModalState {
+  chatId: number;
+  chatTitle: string;
+  countDraft: string;
+}
+
+interface ChecklistTaskDraft {
+  id: string;
+  text: string;
+}
+
 const TELEGRAM_REACTION_EMOJIS = [
   '👍', '👎', '❤', '🔥', '🎉', '😁', '🤔', '😢', '😱', '👏', '🤩', '🙏', '👌', '🤣', '💯', '⚡',
   '💔', '🥰', '🤬', '🤯', '🤮', '🥱', '😈', '😎', '🗿', '🆒', '😘', '👀', '🤝', '🍾',
@@ -437,6 +496,36 @@ function nonNegativeInteger(value: unknown, fallback = 0): number {
     return fallback;
   }
   return parsed;
+}
+
+function toDatetimeLocalInputValue(epochSeconds?: number): string {
+  if (!epochSeconds || !Number.isFinite(epochSeconds) || epochSeconds <= 0) {
+    return '';
+  }
+
+  const date = new Date(epochSeconds * 1000);
+  const timezoneOffsetMs = date.getTimezoneOffset() * 60_000;
+  const localDate = new Date(date.getTime() - timezoneOffsetMs);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function formatDurationShort(totalSeconds: number): string {
+  const seconds = Math.max(Math.floor(totalSeconds), 0);
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor((seconds % 86_400) / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
+  const remSeconds = seconds % 60;
+
+  if (days > 0) {
+    return `${days}d ${hours}h`;
+  }
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${remSeconds}s`;
+  }
+  return `${remSeconds}s`;
 }
 
 function normalizeSimUser(raw?: Partial<SimUser> | null): SimUser {
@@ -581,6 +670,16 @@ function emptyBotDraft(): BotDraftState {
     group_default_admin_rights: defaultBotAdminRightsDraft(),
     channel_default_admin_rights: defaultBotAdminRightsDraft(),
   };
+}
+
+function defaultManagedBotSettings(): ManagedBotSettingsState {
+  return {
+    enabled: true,
+  };
+}
+
+function normalizeManagedBotUsernameDraft(raw: string): string {
+  return raw.trim().replace(/^@+/, '').replace(/\s+/g, '');
 }
 
 function formatBotCommandsForEditor(commands: GeneratedBotCommand[]): string {
@@ -1871,9 +1970,78 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const [showBotModal, setShowBotModal] = useState(false);
   const [showUserModal, setShowUserModal] = useState(false);
   const [showUserProfileModal, setShowUserProfileModal] = useState(false);
+  const [managedBotSettingsByToken, setManagedBotSettingsByToken] = useState<Record<string, ManagedBotSettingsState>>(() => {
+    try {
+      const raw = localStorage.getItem(MANAGED_BOT_SETTINGS_BY_BOT_KEY);
+      const parsed = raw ? (JSON.parse(raw) as Record<string, Partial<ManagedBotSettingsState>>) : {};
+      const normalized: Record<string, ManagedBotSettingsState> = {};
+      Object.entries(parsed).forEach(([token, value]) => {
+        normalized[token] = {
+          enabled: typeof value?.enabled === 'boolean' ? value.enabled : true,
+        };
+      });
+      return normalized;
+    } catch {
+      return {};
+    }
+  });
+  const [managedBotOwnerDraft, setManagedBotOwnerDraft] = useState(String(DEFAULT_USER.id));
+  const [isManagedBotTokenActionRunning, setIsManagedBotTokenActionRunning] = useState(false);
+  const [managedBotRequestModal, setManagedBotRequestModal] = useState<ManagedBotRequestModalState | null>(null);
+  const [miniAppModal, setMiniAppModal] = useState<MiniAppModalState | null>(null);
+  const [emojiStatusDraft, setEmojiStatusDraft] = useState('');
+  const [emojiStatusExpirationDraft, setEmojiStatusExpirationDraft] = useState('');
+  const [profilePhotoUrlDraft, setProfilePhotoUrlDraft] = useState('');
+  const [profileAudioTitleDraft, setProfileAudioTitleDraft] = useState('');
+  const [profileAudioPerformerDraft, setProfileAudioPerformerDraft] = useState('');
+  const [profileAudioFileDraft, setProfileAudioFileDraft] = useState<File | null>(null);
+  const [userEmojiStatusByKey, setUserEmojiStatusByKey] = useState<Record<string, UserEmojiStatusState>>(() => {
+    try {
+      const raw = localStorage.getItem(USER_EMOJI_STATUS_BY_KEY);
+      const parsed = raw ? (JSON.parse(raw) as Record<string, Partial<UserEmojiStatusState>>) : {};
+      const normalized: Record<string, UserEmojiStatusState> = {};
+      Object.entries(parsed).forEach(([key, value]) => {
+        const customEmojiId = typeof value?.customEmojiId === 'string' ? value.customEmojiId.trim() : '';
+        if (!customEmojiId) {
+          return;
+        }
+        const expirationDate = Math.floor(Number(value?.expirationDate));
+        normalized[key] = {
+          customEmojiId,
+          expirationDate: Number.isFinite(expirationDate) && expirationDate > 0 ? expirationDate : undefined,
+        };
+      });
+      return normalized;
+    } catch {
+      return {};
+    }
+  });
+  const [chatBoostCountByActorChatKey, setChatBoostCountByActorChatKey] = useState<Record<string, number>>(() => {
+    try {
+      const raw = localStorage.getItem(CHAT_BOOST_COUNTS_BY_ACTOR_CHAT_KEY);
+      const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      return Object.entries(parsed).reduce<Record<string, number>>((acc, [key, value]) => {
+        const count = Math.floor(Number(value));
+        if (Number.isFinite(count) && count > 0) {
+          acc[key] = count;
+        }
+        return acc;
+      }, {});
+    } catch {
+      return {};
+    }
+  });
+  const [chatBoostModal, setChatBoostModal] = useState<ChatBoostModalState | null>(null);
+  const [emojiClockNow, setEmojiClockNow] = useState(() => Math.floor(Date.now() / 1000));
+  const [userProfilePhotos, setUserProfilePhotos] = useState<GeneratedUserProfilePhotos | null>(null);
+  const [userProfileAudios, setUserProfileAudios] = useState<GeneratedUserProfileAudios | null>(null);
+  const [userChatBoosts, setUserChatBoosts] = useState<GeneratedUserChatBoosts | null>(null);
+  const [isUserProfileDataLoading, setIsUserProfileDataLoading] = useState(false);
+  const [isBoostActionRunning, setIsBoostActionRunning] = useState(false);
   const [botModalMode, setBotModalMode] = useState<BotModalMode>('create');
   const [userModalMode, setUserModalMode] = useState<UserModalMode>('create');
   const [botDraft, setBotDraft] = useState<BotDraftState>(() => emptyBotDraft());
+  const [botManagedEnabledDraft, setBotManagedEnabledDraft] = useState(true);
   const [isBotModalLoading, setIsBotModalLoading] = useState(false);
   const [botDefaultCommandsByToken, setBotDefaultCommandsByToken] = useState<Record<string, GeneratedBotCommand[]>>({});
   const [isBotCommandsLoading, setIsBotCommandsLoading] = useState(false);
@@ -1999,6 +2167,30 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     sendPhoneNumberToProvider: false,
     sendEmailToProvider: false,
   });
+  const [checklistBuilder, setChecklistBuilder] = useState({
+    title: '',
+    tasks: [
+      { id: '1', text: 'First task' },
+      { id: '2', text: 'Second task' },
+    ] as ChecklistTaskDraft[],
+    othersCanAddTasks: false,
+    othersCanMarkTasksAsDone: true,
+  });
+  const [lastChecklistMessageIdDraft, setLastChecklistMessageIdDraft] = useState('');
+  const [webAppLab, setWebAppLab] = useState({
+    lastQueryId: '',
+    answerMessageText: 'Mini App result from LaraGram simulator',
+    answerTitle: 'Mini App Result',
+    answerDescription: '',
+    answerUrl: '',
+    preparedInlineText: 'Prepared inline message from Mini App',
+    preparedInlineTitle: 'Prepared Inline',
+    preparedButtonText: 'Open Mini App',
+    preparedButtonUrl: 'https://example.com/mini-app',
+  });
+  const [lastPreparedInlineMessageId, setLastPreparedInlineMessageId] = useState('');
+  const [lastPreparedKeyboardButtonId, setLastPreparedKeyboardButtonId] = useState('');
+  const [isWebAppLabRunning, setIsWebAppLabRunning] = useState(false);
   const [storyBuilder, setStoryBuilder] = useState({
     mode: 'post' as 'post' | 'edit',
     contentType: 'photo' as 'photo' | 'video',
@@ -2111,6 +2303,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     [availableBots, selectedBotToken],
   );
   const selectedBotDefaultCommands = botDefaultCommandsByToken[selectedBotToken] || [];
+  const activeManagedBotSettings = managedBotSettingsByToken[selectedBotToken] || defaultManagedBotSettings();
 
   const selectedUser = useMemo(
     () => availableUsers.find((user) => user.id === selectedUserId) || DEFAULT_USER,
@@ -2125,6 +2318,27 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
     return identity;
   }, [selectedUser]);
+  const selectedUserEmojiStatusKey = `${selectedBotToken}:${selectedUser.id}`;
+  const selectedUserEmojiStatus = useMemo(() => {
+    const status = userEmojiStatusByKey[selectedUserEmojiStatusKey];
+    if (!status?.customEmojiId) {
+      return null;
+    }
+    if (typeof status.expirationDate === 'number' && status.expirationDate <= emojiClockNow) {
+      return null;
+    }
+    return status;
+  }, [emojiClockNow, selectedUserEmojiStatusKey, userEmojiStatusByKey]);
+  const selectedUserEmojiStatusRemainingText = useMemo(() => {
+    if (!selectedUserEmojiStatus?.expirationDate) {
+      return 'no expiration';
+    }
+    const remaining = selectedUserEmojiStatus.expirationDate - emojiClockNow;
+    if (remaining <= 0) {
+      return 'expired';
+    }
+    return formatDurationShort(remaining);
+  }, [emojiClockNow, selectedUserEmojiStatus?.expirationDate]);
   const selectedUserWalletKey = String(selectedUser.id);
   const walletState = walletByUserId[selectedUserWalletKey] || DEFAULT_WALLET_STATE;
   const setWalletState = (next: WalletState | ((prev: WalletState) => WalletState)) => {
@@ -2164,6 +2378,58 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       setShowUserProfileModal(false);
     }
   }, [chatScopeTab]);
+
+  useEffect(() => {
+    setManagedBotOwnerDraft(String(selectedUser.id));
+  }, [selectedUser.id]);
+
+  useEffect(() => {
+    if (!showUserProfileModal || chatScopeTab !== 'private') {
+      return;
+    }
+
+    let cancelled = false;
+    setIsUserProfileDataLoading(true);
+    setErrorText('');
+
+    void (async () => {
+      try {
+        const [photos, audios] = await Promise.all([
+          getUserProfilePhotos(selectedBotToken, {
+            user_id: selectedUser.id,
+            limit: 100,
+          }),
+          getUserProfileAudios(selectedBotToken, {
+            user_id: selectedUser.id,
+            limit: 100,
+          }),
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        setUserProfilePhotos(photos);
+        setUserProfileAudios(audios);
+      } catch (error) {
+        if (!cancelled) {
+          setErrorText(error instanceof Error ? error.message : 'Failed to load profile media');
+        }
+      } finally {
+        if (!cancelled) {
+          setIsUserProfileDataLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showUserProfileModal, chatScopeTab, selectedBotToken, selectedUser.id]);
+
+  useEffect(() => {
+    setUserChatBoosts(null);
+  }, [selectedBotToken, selectedUser.id]);
 
   const inlineTrigger = useMemo(() => {
     const username = selectedBot?.username?.toLowerCase();
@@ -2214,6 +2480,95 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     () => groupChats.find((group) => group.id === selectedGroupChatId) || null,
     [groupChats, selectedGroupChatId],
   );
+
+  const selectedActorChatBoostKey = selectedGroup
+    ? `${selectedBotToken}:${selectedGroup.id}:${selectedUser.id}`
+    : null;
+  const selectedActorChatBoostCount = selectedActorChatBoostKey
+    ? (chatBoostCountByActorChatKey[selectedActorChatBoostKey] || 0)
+    : 0;
+
+  useEffect(() => {
+    if (chatScopeTab !== 'group' && chatScopeTab !== 'channel') {
+      return;
+    }
+    if (!selectedGroup || selectedGroup.isDirectMessages) {
+      return;
+    }
+
+    const targetChatId = selectedGroup.id;
+    const membershipKey = `${selectedBotToken}:${targetChatId}:${selectedUser.id}`;
+    const membershipStatus = groupMembershipByUser[membershipKey];
+    const isJoined = isJoinedMembershipStatus(membershipStatus);
+
+    if (!isJoined) {
+      syncChatBoostCount(targetChatId, selectedUser.id, 0);
+      setUserChatBoosts(null);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const boosts = await getUserChatBoosts(selectedBotToken, {
+          chat_id: targetChatId,
+          user_id: selectedUser.id,
+        }, selectedUser.id);
+
+        if (cancelled) {
+          return;
+        }
+
+        setUserChatBoosts(boosts);
+        syncChatBoostCount(targetChatId, selectedUser.id, boosts.boosts.length);
+      } catch {
+        if (cancelled) {
+          return;
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    chatScopeTab,
+    groupMembershipByUser,
+    selectedBotToken,
+    selectedGroup?.id,
+    selectedGroup?.isDirectMessages,
+    selectedUser.id,
+  ]);
+
+  useEffect(() => {
+    if (!showUserProfileModal || chatScopeTab !== 'private') {
+      return;
+    }
+
+    setProfilePhotoUrlDraft(selectedUser.photo_url || '');
+    setProfileAudioTitleDraft(selectedUserDisplayName ? `${selectedUserDisplayName} profile audio` : 'Profile audio');
+    setProfileAudioPerformerDraft(selectedUserDisplayName || selectedUser.first_name);
+    setProfileAudioFileDraft(null);
+
+    const currentEmojiStatus = userEmojiStatusByKey[selectedUserEmojiStatusKey];
+    const nowUnix = Math.floor(Date.now() / 1000);
+    if (currentEmojiStatus?.customEmojiId && (!currentEmojiStatus.expirationDate || currentEmojiStatus.expirationDate > nowUnix)) {
+      setEmojiStatusDraft(currentEmojiStatus.customEmojiId);
+      setEmojiStatusExpirationDraft(toDatetimeLocalInputValue(currentEmojiStatus.expirationDate));
+    } else {
+      setEmojiStatusDraft('');
+      setEmojiStatusExpirationDraft('');
+    }
+  }, [
+    chatScopeTab,
+    selectedUser.id,
+    selectedUser.first_name,
+    selectedUser.photo_url,
+    selectedUserDisplayName,
+    selectedUserEmojiStatusKey,
+    showUserProfileModal,
+    userEmojiStatusByKey,
+  ]);
 
   const channelDiscussionCandidates = useMemo(() => {
     if (!selectedGroup || selectedGroup.type !== 'channel') {
@@ -3786,6 +4141,35 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   }, []);
 
   useEffect(() => {
+    const timer = window.setInterval(() => {
+      setEmojiClockNow(Math.floor(Date.now() / 1000));
+    }, 1_000);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    setUserEmojiStatusByKey((prev) => {
+      let changed = false;
+      const next: Record<string, UserEmojiStatusState> = {};
+      Object.entries(prev).forEach(([key, status]) => {
+        if (!status.customEmojiId.trim()) {
+          changed = true;
+          return;
+        }
+        if (typeof status.expirationDate === 'number' && status.expirationDate <= emojiClockNow) {
+          changed = true;
+          return;
+        }
+        next[key] = status;
+      });
+      return changed ? next : prev;
+    });
+  }, [emojiClockNow]);
+
+  useEffect(() => {
     let cancelled = false;
 
     const loadPrivacyMode = async () => {
@@ -3954,6 +4338,18 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   useEffect(() => {
     localStorage.setItem(BUSINESS_CONNECTIONS_KEY, JSON.stringify(businessConnectionByUserKey));
   }, [businessConnectionByUserKey]);
+
+  useEffect(() => {
+    localStorage.setItem(MANAGED_BOT_SETTINGS_BY_BOT_KEY, JSON.stringify(managedBotSettingsByToken));
+  }, [managedBotSettingsByToken]);
+
+  useEffect(() => {
+    localStorage.setItem(USER_EMOJI_STATUS_BY_KEY, JSON.stringify(userEmojiStatusByKey));
+  }, [userEmojiStatusByKey]);
+
+  useEffect(() => {
+    localStorage.setItem(CHAT_BOOST_COUNTS_BY_ACTOR_CHAT_KEY, JSON.stringify(chatBoostCountByActorChatKey));
+  }, [chatBoostCountByActorChatKey]);
 
   useEffect(() => {
     localStorage.setItem(USER_WALLETS_KEY, JSON.stringify(walletByUserId));
@@ -4450,6 +4846,16 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         setCallbackToast(`${purchaserLabel} purchased paid media`);
       }
 
+      if (update.managed_bot) {
+        const owner = update.managed_bot.user;
+        const managedBot = update.managed_bot.bot;
+        const ownerLabel = owner.first_name?.trim()
+          || (owner.username ? `@${owner.username}` : `user_${owner.id}`);
+        const botLabel = managedBot.first_name?.trim()
+          || (managedBot.username ? `@${managedBot.username}` : `bot_${managedBot.id}`);
+        setCallbackToast(`${ownerLabel} updated managed bot ${botLabel}`);
+      }
+
       if (!payload) {
         setLastUpdateId((current) => Math.max(current, update.update_id));
         setLastUpdateByBot((prev) => {
@@ -4741,6 +5147,19 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             service: {
               kind: 'system' as const,
               targetName: giftId,
+            },
+          };
+        }
+
+        if (payload.managed_bot_created?.bot) {
+          const managedBot = payload.managed_bot_created.bot;
+          const botLabel = managedBot.first_name?.trim()
+            || (managedBot.username?.trim() ? `@${managedBot.username.trim()}` : `bot_${managedBot.id}`);
+          return {
+            text: payload.text || `${actorName} created managed bot ${botLabel}`,
+            service: {
+              kind: 'system' as const,
+              targetName: botLabel,
             },
           };
         }
@@ -5080,6 +5499,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         suggestedPostRefunded: payload.suggested_post_refunded,
         invoice: payload.invoice,
         successfulPayment: payload.successful_payment,
+        checklist: payload.checklist,
         media,
         mediaGroupId: payload.media_group_id,
         linkedChannelChatId,
@@ -5145,6 +5565,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             isInlineOrigin: Boolean(existing.isInlineOrigin || mapped.isInlineOrigin),
             reactionCounts: existing.reactionCounts,
             actorReactions: existing.actorReactions,
+            checklist: mapped.checklist ?? existing.checklist,
           };
           return next;
         }
@@ -6294,6 +6715,551 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       }));
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'Invoice send failed');
+    }
+  };
+
+  const submitChecklistBuilder = async (mode: 'send' | 'edit') => {
+    if (!ensureActiveForumTopicWritable()) {
+      return;
+    }
+
+    if (chatScopeTab !== 'private') {
+      setErrorText('Checklist flow is available only in private chats.');
+      return;
+    }
+
+    if (!activeBusinessConnectionId) {
+      setErrorText('Enable a business connection first, then send checklist.');
+      return;
+    }
+
+    const title = checklistBuilder.title.trim();
+    if (!title) {
+      setErrorText('Checklist title is required.');
+      return;
+    }
+
+    const normalizedTasks = checklistBuilder.tasks
+      .map((task, index) => ({
+        id: index + 1,
+        text: task.text.trim(),
+      }))
+      .filter((task) => task.text.length > 0);
+
+    if (normalizedTasks.length === 0) {
+      setErrorText('Checklist must include at least one task.');
+      return;
+    }
+
+    if (normalizedTasks.length > 30) {
+      setErrorText('Checklist can include at most 30 tasks in this simulator.');
+      return;
+    }
+
+    const checklistPayload = {
+      title,
+      tasks: normalizedTasks,
+      others_can_add_tasks: checklistBuilder.othersCanAddTasks,
+      others_can_mark_tasks_as_done: checklistBuilder.othersCanMarkTasksAsDone,
+    };
+
+    try {
+      if (mode === 'send') {
+        const result = await sendChecklist(selectedBotToken, {
+          business_connection_id: activeBusinessConnectionId,
+          chat_id: selectedChatId,
+          checklist: checklistPayload,
+        }, selectedUser.id);
+
+        if (Number.isFinite(Number(result.message_id))) {
+          setLastChecklistMessageIdDraft(String(result.message_id));
+        }
+        setCallbackToast(`Checklist sent (${normalizedTasks.length} tasks).`);
+      } else {
+        const messageId = Math.floor(Number(lastChecklistMessageIdDraft));
+        if (!Number.isFinite(messageId) || messageId <= 0) {
+          setErrorText('Checklist message_id is invalid for edit.');
+          return;
+        }
+
+        await editMessageChecklist(selectedBotToken, {
+          business_connection_id: activeBusinessConnectionId,
+          chat_id: selectedChatId,
+          message_id: messageId,
+          checklist: checklistPayload,
+        }, selectedUser.id);
+        setCallbackToast(`Checklist #${messageId} updated.`);
+      }
+
+      setErrorText('');
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Checklist action failed');
+    }
+  };
+
+  const buildWebAppInlineResult = (
+    title: string,
+    messageText: string,
+    description?: string,
+    url?: string,
+  ): InlineQueryResult => {
+    const result: Record<string, unknown> = {
+      type: 'article',
+      id: `webapp_result_${Date.now()}`,
+      title: title.trim() || 'Mini App Result',
+      input_message_content: {
+        message_text: messageText.trim() || 'Mini App result',
+      },
+    };
+
+    const normalizedDescription = description?.trim();
+    if (normalizedDescription) {
+      result.description = normalizedDescription;
+    }
+
+    const normalizedUrl = url?.trim();
+    if (normalizedUrl) {
+      result.url = normalizedUrl;
+    }
+
+    return result as InlineQueryResult;
+  };
+
+  const onAnswerWebAppQueryFromLab = async () => {
+    const webAppQueryId = webAppLab.lastQueryId.trim();
+    if (!webAppQueryId) {
+      setErrorText('web_app_query_id is required. Open a Mini App button first or paste an id.');
+      return;
+    }
+
+    setIsWebAppLabRunning(true);
+    setErrorText('');
+    try {
+      const result = await answerWebAppQuery(selectedBotToken, {
+        web_app_query_id: webAppQueryId,
+        result: buildWebAppInlineResult(
+          webAppLab.answerTitle,
+          webAppLab.answerMessageText,
+          webAppLab.answerDescription,
+          webAppLab.answerUrl,
+        ),
+      });
+      const inlineMessageId = result.inline_message_id?.trim() || 'unknown';
+      setCallbackToast(`answerWebAppQuery stored inline message id: ${inlineMessageId}`);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'answerWebAppQuery failed');
+    } finally {
+      setIsWebAppLabRunning(false);
+    }
+  };
+
+  const onSavePreparedInlineMessageFromLab = async () => {
+    setIsWebAppLabRunning(true);
+    setErrorText('');
+    try {
+      const result = await savePreparedInlineMessage(selectedBotToken, {
+        user_id: selectedUser.id,
+        result: buildWebAppInlineResult(
+          webAppLab.preparedInlineTitle,
+          webAppLab.preparedInlineText,
+          webAppLab.answerDescription,
+          webAppLab.answerUrl,
+        ),
+        allow_user_chats: true,
+        allow_bot_chats: true,
+        allow_group_chats: true,
+        allow_channel_chats: true,
+      });
+      setLastPreparedInlineMessageId(result.id);
+      setCallbackToast(`Prepared inline message saved: ${result.id}`);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'savePreparedInlineMessage failed');
+    } finally {
+      setIsWebAppLabRunning(false);
+    }
+  };
+
+  const onSavePreparedKeyboardButtonFromLab = async () => {
+    const text = webAppLab.preparedButtonText.trim();
+    if (!text) {
+      setErrorText('Prepared keyboard button text is required.');
+      return;
+    }
+
+    const url = webAppLab.preparedButtonUrl.trim();
+    if (!url) {
+      setErrorText('Prepared keyboard button Mini App URL is required.');
+      return;
+    }
+
+    setIsWebAppLabRunning(true);
+    setErrorText('');
+    try {
+      const result = await savePreparedKeyboardButton(selectedBotToken, {
+        user_id: selectedUser.id,
+        button: {
+          text,
+          web_app: {
+            url,
+          },
+        },
+      });
+      setLastPreparedKeyboardButtonId(result.id);
+      setCallbackToast(`Prepared keyboard button saved: ${result.id}`);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'savePreparedKeyboardButton failed');
+    } finally {
+      setIsWebAppLabRunning(false);
+    }
+  };
+
+  const onRefreshUserProfileMedia = async () => {
+    setIsUserProfileDataLoading(true);
+    setErrorText('');
+    try {
+      const [photos, audios] = await Promise.all([
+        getUserProfilePhotos(selectedBotToken, {
+          user_id: selectedUser.id,
+          limit: 100,
+        }),
+        getUserProfileAudios(selectedBotToken, {
+          user_id: selectedUser.id,
+          limit: 100,
+        }),
+      ]);
+      setUserProfilePhotos(photos);
+      setUserProfileAudios(audios);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Failed to load profile media');
+    } finally {
+      setIsUserProfileDataLoading(false);
+    }
+  };
+
+  const onSetUserEmojiStatusFromProfile = async (clearStatus = false) => {
+    const emojiStatusCustomEmojiId = emojiStatusDraft.trim();
+    if (!clearStatus && !emojiStatusCustomEmojiId) {
+      setErrorText('emoji_status_custom_emoji_id is required.');
+      return;
+    }
+
+    const expirationDate = emojiStatusExpirationDraft.trim()
+      ? Math.floor(new Date(emojiStatusExpirationDraft).getTime() / 1000)
+      : undefined;
+    if (emojiStatusExpirationDraft.trim() && !Number.isFinite(expirationDate)) {
+      setErrorText('Emoji status expiration date is invalid.');
+      return;
+    }
+
+    setIsUserProfileDataLoading(true);
+    setErrorText('');
+    try {
+      await setUserEmojiStatus(selectedBotToken, {
+        user_id: selectedUser.id,
+        emoji_status_custom_emoji_id: clearStatus ? undefined : emojiStatusCustomEmojiId,
+        emoji_status_expiration_date: clearStatus ? undefined : expirationDate,
+      });
+      setUserEmojiStatusByKey((prev) => {
+        const next = { ...prev };
+        if (clearStatus || !emojiStatusCustomEmojiId) {
+          delete next[selectedUserEmojiStatusKey];
+        } else {
+          next[selectedUserEmojiStatusKey] = {
+            customEmojiId: emojiStatusCustomEmojiId,
+            expirationDate,
+          };
+        }
+        return next;
+      });
+      if (clearStatus) {
+        setEmojiStatusDraft('');
+        setEmojiStatusExpirationDraft('');
+      }
+      setCallbackToast(clearStatus ? 'Emoji status cleared.' : 'Emoji status updated.');
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Failed to set emoji status');
+    } finally {
+      setIsUserProfileDataLoading(false);
+    }
+  };
+
+  const onSetUserProfilePhotoFromProfile = async () => {
+    const nextPhotoUrl = optionalTrimmedText(profilePhotoUrlDraft);
+    setIsUserProfileDataLoading(true);
+    setErrorText('');
+    try {
+      const saved = await upsertSimUser({
+        id: selectedUser.id,
+        first_name: selectedUser.first_name,
+        last_name: optionalTrimmedText(selectedUser.last_name),
+        username: optionalTrimmedText(selectedUser.username),
+        phone_number: optionalTrimmedText(selectedUser.phone_number),
+        photo_url: nextPhotoUrl,
+        bio: optionalTrimmedText(selectedUser.bio),
+        is_premium: Boolean(selectedUser.is_premium),
+        business_name: optionalTrimmedText(selectedUser.business_name),
+        business_intro: optionalTrimmedText(selectedUser.business_intro),
+        business_location: optionalTrimmedText(selectedUser.business_location),
+        gift_count: nonNegativeInteger(selectedUser.gift_count, 0),
+      });
+
+      const normalizedUser = normalizeSimUser(saved as SimUser);
+      setAvailableUsers((prev) => prev.map((user) => (
+        user.id === normalizedUser.id ? normalizedUser : user
+      )));
+      setProfilePhotoUrlDraft(normalizedUser.photo_url || '');
+      setCallbackToast(nextPhotoUrl ? 'Profile photo updated.' : 'Profile photo cleared.');
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Failed to update profile photo');
+    } finally {
+      setIsUserProfileDataLoading(false);
+    }
+  };
+
+  const onSetUserProfileAudioFromProfile = async () => {
+    const selectedFile = profileAudioFileDraft;
+    const fallbackTitleFromFile = selectedFile
+      ? selectedFile.name.replace(/\.[^/.]+$/, '').trim()
+      : '';
+    const title = profileAudioTitleDraft.trim() || fallbackTitleFromFile;
+    if (!title) {
+      setErrorText('Profile audio title or file is required.');
+      return;
+    }
+
+    setIsUserProfileDataLoading(true);
+    setErrorText('');
+    try {
+      if (selectedFile) {
+        await uploadSimUserProfileAudio(selectedBotToken, {
+          user_id: selectedUser.id,
+          audio: selectedFile,
+          title,
+          performer: optionalTrimmedText(profileAudioPerformerDraft),
+          file_name: selectedFile.name,
+          mime_type: selectedFile.type || undefined,
+          duration: 30,
+        }, selectedUser.id);
+      } else {
+        await setSimUserProfileAudio(selectedBotToken, {
+          user_id: selectedUser.id,
+          title,
+          performer: optionalTrimmedText(profileAudioPerformerDraft),
+          file_name: 'profile-audio.ogg',
+          duration: 30,
+        });
+      }
+
+      await onRefreshUserProfileMedia();
+      setProfileAudioFileDraft(null);
+      if (!profileAudioTitleDraft.trim()) {
+        setProfileAudioTitleDraft(title);
+      }
+      setCallbackToast(selectedFile ? 'Profile audio uploaded.' : 'Profile audio updated.');
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Failed to set profile audio');
+    } finally {
+      setIsUserProfileDataLoading(false);
+    }
+  };
+
+  const onDeleteUserProfileAudioFromProfile = async (fileId: string) => {
+    setIsUserProfileDataLoading(true);
+    setErrorText('');
+    try {
+      await deleteSimUserProfileAudio(selectedBotToken, {
+        user_id: selectedUser.id,
+        file_id: fileId,
+      });
+      await onRefreshUserProfileMedia();
+      setCallbackToast('Profile audio deleted.');
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Failed to delete profile audio');
+    } finally {
+      setIsUserProfileDataLoading(false);
+    }
+  };
+
+  const onDeleteAllUserProfileAudiosFromProfile = async () => {
+    const tracks = userProfileAudios?.audios || [];
+    if (tracks.length === 0) {
+      setCallbackToast('No profile audio to delete.');
+      return;
+    }
+
+    setIsUserProfileDataLoading(true);
+    setErrorText('');
+    try {
+      for (const audio of tracks) {
+        await deleteSimUserProfileAudio(selectedBotToken, {
+          user_id: selectedUser.id,
+          file_id: audio.file_id,
+        });
+      }
+      await onRefreshUserProfileMedia();
+      setCallbackToast('All profile audios deleted.');
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Failed to delete all profile audios');
+    } finally {
+      setIsUserProfileDataLoading(false);
+    }
+  };
+
+  const syncChatBoostCount = (chatId: number, userId: number, count: number) => {
+    const boostKey = `${selectedBotToken}:${chatId}:${userId}`;
+    setChatBoostCountByActorChatKey((prev) => {
+      const next = { ...prev };
+      if (count > 0) {
+        next[boostKey] = count;
+      } else {
+        delete next[boostKey];
+      }
+      return next;
+    });
+  };
+
+  const fetchSelectedChatBoosts = async () => {
+    if (!selectedGroup || selectedGroup.isDirectMessages) {
+      return null;
+    }
+
+    const boosts = await getUserChatBoosts(selectedBotToken, {
+      chat_id: selectedGroup.id,
+      user_id: selectedUser.id,
+    }, selectedUser.id);
+    setUserChatBoosts(boosts);
+    syncChatBoostCount(selectedGroup.id, selectedUser.id, boosts.boosts.length);
+    return boosts;
+  };
+
+  const onRefreshChatBoostsFromModal = async () => {
+    if (!selectedGroup || selectedGroup.isDirectMessages) {
+      return;
+    }
+
+    setIsBoostActionRunning(true);
+    setErrorText('');
+    try {
+      const boosts = await fetchSelectedChatBoosts();
+      if (boosts) {
+        setCallbackToast(`Loaded ${boosts.boosts.length} boosts for ${selectedGroup.title}.`);
+      }
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Failed to load chat boosts');
+    } finally {
+      setIsBoostActionRunning(false);
+    }
+  };
+
+  const onOpenChatBoostModal = () => {
+    if (!selectedGroup || selectedGroup.isDirectMessages) {
+      return;
+    }
+
+    if (groupMembership !== 'joined') {
+      setErrorText('Join the chat as this user before boosting.');
+      return;
+    }
+
+    if (!selectedUser.is_premium) {
+      setErrorText('Only premium users with available boosts can boost chats.');
+      return;
+    }
+
+    setChatBoostModal({
+      chatId: selectedGroup.id,
+      chatTitle: selectedGroup.title,
+      countDraft: '1',
+    });
+
+    void onRefreshChatBoostsFromModal();
+  };
+
+  const onApplyChatBoostFromModal = async () => {
+    if (!chatBoostModal) {
+      return;
+    }
+
+    const boostCount = Math.floor(Number(chatBoostModal.countDraft));
+    if (!Number.isFinite(boostCount) || boostCount <= 0) {
+      setErrorText('Boost count must be a positive number.');
+      return;
+    }
+
+    if (!selectedUser.is_premium) {
+      setErrorText('Only premium users can boost chats/channels.');
+      return;
+    }
+
+    setIsBoostActionRunning(true);
+    setErrorText('');
+    try {
+      const result = await addSimUserChatBoosts(selectedBotToken, {
+        chat_id: chatBoostModal.chatId,
+        user_id: selectedUser.id,
+        count: boostCount,
+      }, selectedUser.id);
+
+      const refreshed = await fetchSelectedChatBoosts();
+      setChatBoostModal((prev) => (prev
+        ? {
+          ...prev,
+          countDraft: '1',
+        }
+        : prev
+      ));
+      setChatMenuOpen(false);
+      setCallbackToast(
+        `Boosted ${chatBoostModal.chatTitle} by ${result.added_count}. Total boosts: ${refreshed?.boosts.length ?? 0}.`,
+      );
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Failed to boost chat');
+    } finally {
+      setIsBoostActionRunning(false);
+    }
+  };
+
+  const onRemoveChatBoostFromModal = async (boostId: string) => {
+    if (!chatBoostModal) {
+      return;
+    }
+
+    setIsBoostActionRunning(true);
+    setErrorText('');
+    try {
+      await removeSimUserChatBoosts(selectedBotToken, {
+        chat_id: chatBoostModal.chatId,
+        user_id: selectedUser.id,
+        boost_ids: [boostId],
+      }, selectedUser.id);
+      const refreshed = await fetchSelectedChatBoosts();
+      setCallbackToast(`Boost removed. Remaining boosts: ${refreshed?.boosts.length ?? 0}.`);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Failed to remove boost');
+    } finally {
+      setIsBoostActionRunning(false);
+    }
+  };
+
+  const onRemoveAllChatBoostsFromModal = async () => {
+    if (!chatBoostModal) {
+      return;
+    }
+
+    setIsBoostActionRunning(true);
+    setErrorText('');
+    try {
+      await removeSimUserChatBoosts(selectedBotToken, {
+        chat_id: chatBoostModal.chatId,
+        user_id: selectedUser.id,
+        remove_all: true,
+      }, selectedUser.id);
+      await fetchSelectedChatBoosts();
+      setCallbackToast('All boosts removed for this user in the selected chat.');
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Failed to clear boosts');
+    } finally {
+      setIsBoostActionRunning(false);
     }
   };
 
@@ -8048,6 +9014,27 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     });
   };
 
+  const onInspectSelectedGroupBoosts = async () => {
+    if (!selectedGroup || selectedGroup.isDirectMessages) {
+      return;
+    }
+
+    if (groupMembership !== 'joined') {
+      setErrorText('Join the chat as this user to view boosts.');
+      return;
+    }
+
+    await runGroupAction(async () => {
+      const boosts = await fetchSelectedChatBoosts();
+      if (!boosts) {
+        return;
+      }
+      setUserChatBoosts(boosts);
+      renderInspector(`getUserChatBoosts(${selectedUser.id})`, boosts);
+      setErrorText(`Loaded ${boosts.boosts.length} boosts for user ${selectedUser.id}.`);
+    });
+  };
+
   const onInspectSelectedGroupMember = async (targetUserId: number) => {
     if (!selectedGroup || !canEditSelectedGroup) {
       return;
@@ -9767,6 +10754,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const onCreateBot = () => {
     const randomIdentity = randomBotIdentityDraft();
     setBotModalMode('create');
+    setBotManagedEnabledDraft(true);
     setBotDraft({
       ...emptyBotDraft(),
       ...randomIdentity,
@@ -9804,6 +10792,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
   const openEditBotModal = (bot: SimBot) => {
     setBotModalMode('edit');
+    setBotManagedEnabledDraft(
+      managedBotSettingsByToken[bot.token]?.enabled
+      ?? defaultManagedBotSettings().enabled,
+    );
     setBotDraft({
       ...emptyBotDraft(),
       first_name: bot.first_name,
@@ -9815,6 +10807,34 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       first_name: bot.first_name,
       username: bot.username,
     });
+  };
+
+  const onRunManagedBotTokenAction = async (action: 'get' | 'replace') => {
+    const ownerUserId = Math.floor(Number(managedBotOwnerDraft));
+    if (!Number.isFinite(ownerUserId) || ownerUserId <= 0) {
+      setErrorText('Managed bot owner user_id is invalid.');
+      return;
+    }
+
+    setIsManagedBotTokenActionRunning(true);
+    setErrorText('');
+    try {
+      if (action === 'get') {
+        await getManagedBotToken(selectedBotToken, {
+          user_id: ownerUserId,
+        });
+        setCallbackToast(`Managed bot token fetched for user ${ownerUserId}.`);
+      } else {
+        await replaceManagedBotToken(selectedBotToken, {
+          user_id: ownerUserId,
+        });
+        setCallbackToast(`Managed bot token rotated for user ${ownerUserId}.`);
+      }
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Managed bot token action failed');
+    } finally {
+      setIsManagedBotTokenActionRunning(false);
+    }
   };
 
   const openEditUserModal = (user: SimUser) => {
@@ -9935,6 +10955,12 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       setBotDefaultCommandsByToken((prev) => ({
         ...prev,
         [targetToken]: parsedCommands,
+      }));
+      setManagedBotSettingsByToken((prev) => ({
+        ...prev,
+        [targetToken]: {
+          enabled: botManagedEnabledDraft,
+        },
       }));
 
       setShowBotModal(false);
@@ -10069,6 +11095,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       usersSharedPayload?: GeneratedUsersShared;
       chatSharedPayload?: GeneratedChatShared;
       webAppDataPayload?: GeneratedWebAppData;
+      managedBotRequestPayload?: GeneratedKeyboardButtonRequestManagedBot;
     },
   ): Promise<boolean> => {
     if (!ensureActiveForumTopicWritable()) {
@@ -10093,6 +11120,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         users_shared: options.usersSharedPayload,
         chat_shared: options.chatSharedPayload,
         web_app_data: options.webAppDataPayload,
+        managed_bot_request: options.managedBotRequestPayload,
       });
 
       setReplyTarget(null);
@@ -10180,6 +11208,66 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
   };
 
+  const registerWebAppQueryContext = (
+    source: 'reply_keyboard_web_app' | 'inline_keyboard_web_app',
+    buttonText: string,
+    url: string,
+  ): string => {
+    const nextQueryId = `webapp_${source}_${selectedUser.id}_${Date.now()}`;
+    setMiniAppModal({
+      source,
+      buttonText,
+      queryId: nextQueryId,
+      url,
+    });
+    setWebAppLab((prev) => ({
+      ...prev,
+      lastQueryId: nextQueryId,
+      answerUrl: prev.answerUrl || url,
+      preparedButtonUrl: prev.preparedButtonUrl || url,
+    }));
+    setCallbackToast(`Mini App opened via "${buttonText}". web_app_query_id: ${nextQueryId}`);
+    return nextQueryId;
+  };
+
+  const onSubmitManagedBotRequestModal = async () => {
+    if (!managedBotRequestModal) {
+      return;
+    }
+
+    const requestId = Math.floor(Number(managedBotRequestModal.requestId));
+    if (!Number.isFinite(requestId) || requestId <= 0) {
+      setErrorText('request_managed_bot.request_id is invalid.');
+      return;
+    }
+
+    const suggestedName = managedBotRequestModal.suggestedName.trim();
+    const suggestedUsername = normalizeManagedBotUsernameDraft(managedBotRequestModal.suggestedUsername);
+    if (suggestedUsername && !/^[A-Za-z0-9_]{4,32}$/.test(suggestedUsername)) {
+      setErrorText('suggested_username must contain 4-32 letters, numbers, or underscore.');
+      return;
+    }
+
+    const payload: GeneratedKeyboardButtonRequestManagedBot = {
+      request_id: requestId,
+      suggested_name: suggestedName || undefined,
+      suggested_username: suggestedUsername || undefined,
+    };
+
+    const displayName = suggestedName || 'Managed bot';
+    const outgoingText = suggestedUsername
+      ? `🤖 Requested managed bot: ${displayName} (@${suggestedUsername})`
+      : `🤖 Requested managed bot: ${displayName}`;
+
+    const sent = await sendStructuredReplyKeyboardMessage(outgoingText, {
+      managedBotRequestPayload: payload,
+    });
+
+    if (sent) {
+      setManagedBotRequestModal(null);
+    }
+  };
+
   const onReplyKeyboardButtonPress = async (button: ReplyKeyboardButton) => {
     const text = button.text.trim();
     if (!text || isSending) {
@@ -10194,6 +11282,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     let usersSharedPayload: GeneratedUsersShared | undefined;
     let chatSharedPayload: GeneratedChatShared | undefined;
     let webAppDataPayload: GeneratedWebAppData | undefined;
+    let managedBotRequestPayload: GeneratedKeyboardButtonRequestManagedBot | undefined;
 
     const legacyRequestUser = (() => {
       const rawLegacy = (button as unknown as Record<string, unknown>).request_user;
@@ -10365,15 +11454,36 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       });
       setMessageMenu(null);
       return;
+    } else if (button.request_managed_bot) {
+      const request = button.request_managed_bot;
+      if (!Number.isFinite(request.request_id) || request.request_id <= 0) {
+        setErrorText('request_managed_bot.request_id is invalid.');
+        return;
+      }
+
+      if (!activeManagedBotSettings.enabled) {
+        setErrorText('request_managed_bot is disabled in this bot settings profile.');
+        return;
+      }
+
+      setManagedBotRequestModal({
+        buttonText: text,
+        requestId: String(request.request_id),
+        suggestedName: request.suggested_name?.trim() || 'Managed bot',
+        suggestedUsername: request.suggested_username?.trim().replace(/^@+/, '') || '',
+      });
+      setMessageMenu(null);
+      return;
     }
 
     if (button.web_app?.url) {
-      window.open(button.web_app.url, '_blank', 'noopener,noreferrer');
+      const webAppQueryId = registerWebAppQueryContext('reply_keyboard_web_app', text, button.web_app.url);
       webAppDataPayload = {
         button_text: text,
         data: JSON.stringify({
           source: 'reply_keyboard_web_app',
           url: button.web_app.url,
+          web_app_query_id: webAppQueryId,
           actor_user_id: selectedUser.id,
           actor_username: selectedUser.username || null,
           timestamp: Math.floor(Date.now() / 1000),
@@ -10381,12 +11491,18 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       };
     }
 
-    const hasStructuredPayload = Boolean(usersSharedPayload || chatSharedPayload || webAppDataPayload);
+    const hasStructuredPayload = Boolean(
+      usersSharedPayload
+      || chatSharedPayload
+      || webAppDataPayload
+      || managedBotRequestPayload,
+    );
     if (hasStructuredPayload) {
       await sendStructuredReplyKeyboardMessage(outgoingText, {
         usersSharedPayload,
         chatSharedPayload,
         webAppDataPayload,
+        managedBotRequestPayload,
       });
     } else {
       await sendAsUser(
@@ -11024,7 +12140,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
 
     if (button.web_app?.url) {
-      window.open(button.web_app.url, '_blank', 'noopener,noreferrer');
+      registerWebAppQueryContext('inline_keyboard_web_app', button.text || 'web_app', button.web_app.url);
       return;
     }
 
@@ -11273,7 +12389,14 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     setIsBootstrapping(true);
     setErrorText('');
     try {
-      await deleteSimUser({ id });
+      try {
+        await deleteSimUser({ id });
+      } catch (error) {
+        const message = error instanceof Error ? error.message.toLowerCase() : '';
+        if (!message.includes('user not found')) {
+          throw error;
+        }
+      }
 
       const next = availableUsers.filter((user) => user.id !== id);
       setAvailableUsers(next);
@@ -12663,6 +13786,110 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     );
   };
 
+  const buildChecklistActorUser = (): GeneratedUser => ({
+    id: selectedUser.id,
+    is_bot: false,
+    first_name: selectedUser.first_name || 'User',
+    last_name: optionalTrimmedText(selectedUser.last_name),
+    username: optionalTrimmedText(selectedUser.username),
+    is_premium: Boolean(selectedUser.is_premium),
+  });
+
+  const onToggleChecklistTask = (message: ChatMessage, taskId: number) => {
+    if (!message.checklist) {
+      return;
+    }
+
+    const canMarkTask = Boolean(message.checklist.others_can_mark_tasks_as_done) || message.isOutgoing;
+    if (!canMarkTask) {
+      setErrorText('Only the checklist sender can mark tasks as done in this chat.');
+      return;
+    }
+
+    const actor = buildChecklistActorUser();
+    const now = Math.floor(Date.now() / 1000);
+
+    setMessages((prev) => prev.map((item) => {
+      if (item.id !== message.id || item.chatId !== message.chatId || item.botToken !== message.botToken || !item.checklist) {
+        return item;
+      }
+
+      return {
+        ...item,
+        checklist: {
+          ...item.checklist,
+          tasks: item.checklist.tasks.map((task) => {
+            if (task.id !== taskId) {
+              return task;
+            }
+
+            const isDone = Number.isFinite(Number(task.completion_date)) && Number(task.completion_date) > 0;
+            if (isDone) {
+              return {
+                ...task,
+                completed_by_user: undefined,
+                completed_by_chat: undefined,
+                completion_date: undefined,
+              };
+            }
+
+            return {
+              ...task,
+              completed_by_user: actor,
+              completed_by_chat: undefined,
+              completion_date: now,
+            };
+          }),
+        },
+      };
+    }));
+  };
+
+  const renderChecklistCard = (message: ChatMessage) => {
+    if (!message.checklist) {
+      return null;
+    }
+
+    const canMarkTask = Boolean(message.checklist.others_can_mark_tasks_as_done) || message.isOutgoing;
+
+    return (
+      <div className="mb-2 rounded-xl border border-[#4f7ea0]/45 bg-[#17374d]/75 p-3 text-[#dcf0ff]">
+        <div className="mb-2 text-sm font-semibold text-white">✅ {message.checklist.title}</div>
+        <div className="space-y-1.5">
+          {message.checklist.tasks.map((task) => {
+            const done = Number.isFinite(Number(task.completion_date)) && Number(task.completion_date) > 0;
+            return (
+              <div key={`checklist-task-${message.id}-${task.id}`} className="flex items-start gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => onToggleChecklistTask(message, task.id)}
+                  disabled={!canMarkTask}
+                  className={`mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${done ? 'border-emerald-300/65 bg-emerald-700/35 text-emerald-100' : 'border-white/30 bg-black/20 text-[#cbe4f7]'} ${canMarkTask ? 'hover:opacity-90' : 'cursor-not-allowed opacity-60'}`}
+                  title={canMarkTask ? 'Toggle task completion' : 'Only sender can mark tasks'}
+                >
+                  {done ? '✓' : '•'}
+                </button>
+                <div className="min-w-0 flex-1">
+                  <p className={`${done ? 'text-[#b9d3e5] line-through' : 'text-[#e1f3ff]'}`}>{task.text}</p>
+                  {done ? (
+                    <p className="mt-0.5 text-[10px] text-[#98bed9]">
+                      done by {task.completed_by_user?.first_name || task.completed_by_chat?.title || 'unknown'}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-[#9ec3dc]">
+          {message.checklist.others_can_add_tasks ? <span className="rounded border border-white/20 bg-black/20 px-1.5 py-0.5">others can add tasks</span> : null}
+          {message.checklist.others_can_mark_tasks_as_done ? <span className="rounded border border-white/20 bg-black/20 px-1.5 py-0.5">others can mark done</span> : null}
+          {!canMarkTask ? <span className="rounded border border-white/20 bg-black/20 px-1.5 py-0.5">sender-only completion</span> : null}
+        </div>
+      </div>
+    );
+  };
+
   const renderContactCard = (message: ChatMessage) => {
     if (!message.contact) {
       return null;
@@ -13757,17 +14984,27 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   )}
                 </div>
                 <div className="min-w-0">
-                  <h2 className="truncate font-semibold">
-                    {chatScopeTab === 'private'
-                      ? selectedUserDisplayName
-                      : (selectedGroup?.title || (chatScopeTab === 'channel' ? 'Channel' : 'Group'))}
+                  <h2 className="flex min-w-0 items-center gap-1.5 font-semibold">
+                    <span className="truncate">
+                      {chatScopeTab === 'private'
+                        ? selectedUserDisplayName
+                        : (selectedGroup?.title || (chatScopeTab === 'channel' ? 'Channel' : 'Group'))}
+                    </span>
+                    {chatScopeTab === 'private' && selectedUserEmojiStatus ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-300/45 bg-amber-700/25 px-1.5 py-0.5 text-[10px] text-amber-100">
+                        <span className="tg-premium-emoji text-[12px] leading-none" title="Active emoji status">
+                          {premiumEmojiGlyph(selectedUserEmojiStatus.customEmojiId)}
+                        </span>
+                        <Star className="h-3 w-3" />
+                      </span>
+                    ) : null}
                   </h2>
                   <p className="truncate text-xs text-telegram-textSecondary">
                     {chatScopeTab === 'private'
-                      ? `${selectedUserSecondaryLine}${selectedUser.is_premium ? ' · Premium' : ''}`
+                      ? `${selectedUserSecondaryLine}${selectedUser.is_premium ? ' · Premium' : ''}${selectedUserEmojiStatus ? ` · emoji: ${selectedUserEmojiStatusRemainingText}` : ''}`
                       : `@${selectedBot?.username || 'unknown'} · ${isDiscussionThreadView
                         ? `Discussion · ${activeDiscussionCommentContext?.commentsCount || 0} comments`
-                        : (chatScopeTab === 'channel' ? 'Channel chat' : 'Group chat')}`}
+                        : (chatScopeTab === 'channel' ? 'Channel chat' : 'Group chat')}${selectedActorChatBoostCount > 0 ? ` · boosts: ${selectedActorChatBoostCount}` : ''}`}
                     {chatScopeTab === 'group' && !isDiscussionThreadView && (selectedGroup?.isForum || selectedGroup?.isDirectMessages) && activeForumTopic
                       ? ` · ${selectedGroup?.isDirectMessages ? 'DM Topic' : 'Topic'}: ${activeForumTopic.name}`
                       : ''}
@@ -13873,6 +15110,19 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       className="w-full rounded-lg px-3 py-2 text-left text-sm text-orange-200 hover:bg-white/10 disabled:opacity-40"
                     >
                       Leave {chatScopeTab === 'channel' ? 'channel' : 'group'}
+                    </button>
+                  ) : null}
+                  {(chatScopeTab === 'group' || chatScopeTab === 'channel') && !selectedGroup?.isDirectMessages ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onOpenChatBoostModal();
+                        setChatMenuOpen(false);
+                      }}
+                      disabled={!selectedUser.is_premium || !selectedGroup || groupMembership !== 'joined'}
+                      className="w-full rounded-lg px-3 py-2 text-left text-sm text-amber-200 hover:bg-white/10 disabled:opacity-40"
+                    >
+                      Boost {chatScopeTab === 'channel' ? 'channel' : 'group'}
                     </button>
                   ) : null}
                   <button
@@ -14358,6 +15608,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         {renderSuggestedPostCard(message)}
                         {renderInvoiceCard(message)}
                         {renderSuccessfulPaymentCard(message)}
+                        {renderChecklistCard(message)}
                         {renderPollCard(message)}
                         {message.text ? (
                           <div className="text-sm leading-6 break-words whitespace-pre-wrap [overflow-wrap:anywhere]">{renderEntityText(message.text, message.entities || message.captionEntities)}</div>
@@ -14560,6 +15811,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       {renderSuggestedPostCard(lead)}
                       {renderInvoiceCard(lead)}
                       {renderSuccessfulPaymentCard(lead)}
+                      {renderChecklistCard(lead)}
                       {renderPollCard(lead)}
                       {renderInlineKeyboard(lead)}
                       {renderReactionChips(lead)}
@@ -15098,6 +16350,15 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         className={`rounded-lg px-2 py-1 text-[11px] ${mediaDrawerTab === 'invoice' ? 'bg-[#2b5278] text-white' : 'bg-black/20 text-[#d8ecfb]'}`}
                       >
                         <span className="inline-flex items-center gap-1"><Wallet className="h-3.5 w-3.5" />Invoice</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMediaDrawerTab('checklist');
+                        }}
+                        className={`rounded-lg px-2 py-1 text-[11px] ${mediaDrawerTab === 'checklist' ? 'bg-[#2b5278] text-white' : 'bg-black/20 text-[#d8ecfb]'}`}
+                      >
+                        <span className="inline-flex items-center gap-1"><ShieldCheck className="h-3.5 w-3.5" />Checklist</span>
                       </button>
                     </div>
 
@@ -16092,6 +17353,112 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         </div>
                       ) : null}
 
+                      {mediaDrawerTab === 'checklist' ? (
+                        <div className="space-y-2 rounded-xl border border-[#2f4e66]/55 bg-[#102638]/80 px-3 py-2 text-xs text-[#d7ecfb]">
+                          <p className="text-[11px] text-[#9fc6df]">
+                            Uses sendChecklist/editMessageChecklist with generated checklist.tasks payload.
+                          </p>
+                          <p className="text-[11px] text-[#9fc6df]">
+                            business_connection: {activeBusinessConnectionId || 'none'}
+                          </p>
+                          <input
+                            value={checklistBuilder.title}
+                            onChange={(event) => setChecklistBuilder((prev) => ({ ...prev, title: event.target.value }))}
+                            placeholder="Checklist title"
+                            className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                          />
+                          <div className="space-y-1">
+                            {checklistBuilder.tasks.map((task, index) => (
+                              <div key={`checklist-task-${task.id}-${index}`} className="grid grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-2">
+                                <input
+                                  value={task.id}
+                                  onChange={(event) => setChecklistBuilder((prev) => {
+                                    const next = [...prev.tasks];
+                                    next[index] = { ...next[index], id: event.target.value };
+                                    return { ...prev, tasks: next };
+                                  })}
+                                  placeholder="id"
+                                  className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                                />
+                                <input
+                                  value={task.text}
+                                  onChange={(event) => setChecklistBuilder((prev) => {
+                                    const next = [...prev.tasks];
+                                    next[index] = { ...next[index], text: event.target.value };
+                                    return { ...prev, tasks: next };
+                                  })}
+                                  placeholder={`Task ${index + 1}`}
+                                  className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1 text-xs text-white outline-none"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setChecklistBuilder((prev) => ({
+                                    ...prev,
+                                    tasks: prev.tasks.length > 1 ? prev.tasks.filter((_, taskIndex) => taskIndex !== index) : prev.tasks,
+                                  }))}
+                                  disabled={checklistBuilder.tasks.length <= 1}
+                                  className="rounded-md border border-red-300/35 bg-red-700/25 px-2 py-1 text-[11px] text-red-100 disabled:opacity-50"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setChecklistBuilder((prev) => ({
+                                ...prev,
+                                tasks: [...prev.tasks, { id: String(prev.tasks.length + 1), text: '' }],
+                              }))}
+                              className="rounded-md border border-[#355a76]/60 bg-[#163041]/70 px-2 py-1 text-[11px] text-white hover:bg-[#1f3f56]"
+                            >
+                              Add task
+                            </button>
+                            <label className="inline-flex items-center gap-1 text-[11px] text-white">
+                              <input
+                                type="checkbox"
+                                checked={checklistBuilder.othersCanAddTasks}
+                                onChange={(event) => setChecklistBuilder((prev) => ({ ...prev, othersCanAddTasks: event.target.checked }))}
+                              />
+                              others_can_add_tasks
+                            </label>
+                            <label className="inline-flex items-center gap-1 text-[11px] text-white">
+                              <input
+                                type="checkbox"
+                                checked={checklistBuilder.othersCanMarkTasksAsDone}
+                                onChange={(event) => setChecklistBuilder((prev) => ({ ...prev, othersCanMarkTasksAsDone: event.target.checked }))}
+                              />
+                              others_can_mark_tasks_as_done
+                            </label>
+                          </div>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+                            <input
+                              value={lastChecklistMessageIdDraft}
+                              onChange={(event) => setLastChecklistMessageIdDraft(event.target.value)}
+                              placeholder="Checklist message_id for edit"
+                              className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void submitChecklistBuilder('send')}
+                              disabled={!hasStarted || isSending}
+                              className="rounded-md border border-[#2f7fb4]/60 bg-[#22567c] px-3 py-1.5 text-xs text-white hover:bg-[#2f6f9f] disabled:opacity-60"
+                            >
+                              sendChecklist
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void submitChecklistBuilder('edit')}
+                              disabled={!hasStarted || isSending}
+                              className="rounded-md border border-[#2f7fb4]/60 bg-[#22567c] px-3 py-1.5 text-xs text-white hover:bg-[#2f6f9f] disabled:opacity-60"
+                            >
+                              editChecklist
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+
                       {mediaDrawerTab === 'stickers' && showStickerStudioPanel ? (
                         <div className="space-y-2 text-[11px] text-[#d7ecfb]">
                           <p className="text-[11px] uppercase tracking-wide text-[#9fc6df]">Sticker Studio</p>
@@ -16444,6 +17811,52 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               </div>
 
               <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                <p className="mb-2 text-[11px] uppercase tracking-wide text-[#8fb7d6]">Managed Bot</p>
+                <label className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-xs text-[#d7ecfb]">
+                  <input
+                    type="checkbox"
+                    checked={botManagedEnabledDraft}
+                    onChange={(event) => setBotManagedEnabledDraft(event.target.checked)}
+                  />
+                  Enable reply keyboard request_managed_bot flow
+                </label>
+
+                {botModalMode === 'edit' ? (
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[160px_minmax(0,1fr)_auto_auto]">
+                    <input
+                      value={managedBotOwnerDraft}
+                      onChange={(event) => setManagedBotOwnerDraft(event.target.value)}
+                      className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+                      placeholder="owner user_id"
+                    />
+                    <p className="self-center text-[11px] text-[#9ec3dc]">
+                      Generate/rotate managed bot token for this owner
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void onRunManagedBotTokenAction('get')}
+                      disabled={isManagedBotTokenActionRunning}
+                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-xs text-white hover:bg-white/10 disabled:opacity-50"
+                    >
+                      getManagedBotToken
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onRunManagedBotTokenAction('replace')}
+                      disabled={isManagedBotTokenActionRunning}
+                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-xs text-white hover:bg-white/10 disabled:opacity-50"
+                    >
+                      replaceManagedBotToken
+                    </button>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-[11px] text-[#9ec3dc]">
+                    Save the bot first, then use token actions for managed bots.
+                  </p>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                 <p className="mb-2 text-[11px] uppercase tracking-wide text-[#8fb7d6]">Default Admin Rights</p>
                 <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                   <div className="rounded-lg border border-white/10 bg-[#0f1c28] p-3">
@@ -16513,7 +17926,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
       {showUserProfileModal && chatScopeTab === 'private' ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4">
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/10 bg-[#152434] p-4 shadow-2xl">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-[#152434] p-4 shadow-2xl">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-base font-semibold text-white">Profile</h3>
               <button
@@ -16534,9 +17947,22 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                 )}
               </div>
               <div className="min-w-0">
-                <p className="truncate text-base font-semibold text-white">{selectedUserDisplayName}</p>
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <p className="truncate text-base font-semibold text-white">{selectedUserDisplayName}</p>
+                  {selectedUserEmojiStatus ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-300/45 bg-amber-700/25 px-1.5 py-0.5 text-[10px] text-amber-100">
+                      <span className="tg-premium-emoji text-[12px] leading-none" title="Active emoji status">
+                        {premiumEmojiGlyph(selectedUserEmojiStatus.customEmojiId)}
+                      </span>
+                      <Star className="h-3 w-3" />
+                    </span>
+                  ) : null}
+                </div>
                 <p className="truncate text-xs text-[#a7cae0]">{selectedUserSecondaryLine}</p>
                 <p className="mt-1 text-[11px] text-[#8fb7d6]">id: {selectedUser.id}</p>
+                {selectedUserEmojiStatus ? (
+                  <p className="mt-1 text-[11px] text-[#9ec3dc]">Emoji status expires in {selectedUserEmojiStatusRemainingText}</p>
+                ) : null}
               </div>
             </div>
 
@@ -16566,6 +17992,193 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                 <p className="text-[11px] uppercase tracking-wide text-[#8fb7d6]">Business Intro</p>
                 <p className="mt-1 whitespace-pre-wrap break-words">{selectedUser.business_intro || 'No business intro set.'}</p>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-[11px] uppercase tracking-wide text-[#8fb7d6]">Profile Photos</p>
+                  <button
+                    type="button"
+                    onClick={() => void onRefreshUserProfileMedia()}
+                    disabled={isUserProfileDataLoading}
+                    className="rounded-md border border-white/20 bg-black/20 px-2 py-1 text-[11px] text-white hover:bg-white/10 disabled:opacity-50"
+                  >
+                    Refresh
+                  </button>
+                </div>
+
+                <p className="text-[11px] text-[#9ec3dc]">Total photos: {userProfilePhotos?.total_count ?? 0}</p>
+                <div className="mt-1 max-h-28 space-y-1 overflow-y-auto rounded-lg border border-white/10 bg-[#0f1c28] p-2 text-[11px] text-[#d7ecfb]">
+                  {(userProfilePhotos?.photos || []).map((group, index) => (
+                    <p key={`profile-photo-${index}`} className="truncate">{group[0]?.file_id || '-'}</p>
+                  ))}
+                  {(userProfilePhotos?.photos || []).length === 0 ? <p className="text-[#9ec3dc]">No profile photos</p> : null}
+                </div>
+
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+                  <input
+                    value={profilePhotoUrlDraft}
+                    onChange={(event) => setProfilePhotoUrlDraft(event.target.value)}
+                    className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-xs outline-none"
+                    placeholder="Profile photo URL"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void onSetUserProfilePhotoFromProfile()}
+                    disabled={isUserProfileDataLoading}
+                    className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-2.5 py-1 text-[11px] text-white hover:bg-[#245a80] disabled:opacity-50"
+                  >
+                    Set photo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfilePhotoUrlDraft('');
+                      void onSetUserProfilePhotoFromProfile();
+                    }}
+                    disabled={isUserProfileDataLoading}
+                    className="rounded-md border border-red-300/40 bg-red-700/25 px-2.5 py-1 text-[11px] text-red-100 hover:bg-red-700/35 disabled:opacity-50"
+                  >
+                    Clear photo
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-[11px] uppercase tracking-wide text-[#8fb7d6]">Profile Music</p>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => void onDeleteAllUserProfileAudiosFromProfile()}
+                      disabled={isUserProfileDataLoading || (userProfileAudios?.audios.length ?? 0) === 0}
+                      className="rounded-md border border-red-300/40 bg-red-700/25 px-2 py-1 text-[11px] text-red-100 hover:bg-red-700/35 disabled:opacity-50"
+                    >
+                      Clear all
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onRefreshUserProfileMedia()}
+                      disabled={isUserProfileDataLoading}
+                      className="rounded-md border border-white/20 bg-black/20 px-2 py-1 text-[11px] text-white hover:bg-white/10 disabled:opacity-50"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-[#9ec3dc]">Total tracks: {userProfileAudios?.total_count ?? 0}</p>
+                <div className="mt-1 max-h-32 space-y-1 overflow-y-auto rounded-lg border border-white/10 bg-[#0f1c28] p-2">
+                  {(userProfileAudios?.audios || []).map((audio) => (
+                    <div key={`profile-audio-row-${audio.file_id}`} className="flex items-center justify-between gap-2 rounded border border-white/10 bg-black/20 px-2 py-1">
+                      <div className="min-w-0 text-[11px] text-[#d7ecfb]">
+                        <p className="truncate">{audio.title || audio.file_name || audio.file_id}</p>
+                        <p className="truncate text-[10px] text-[#9ec3dc]">{audio.performer || '-'} · {audio.duration}s · {audio.file_id}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void onDeleteUserProfileAudioFromProfile(audio.file_id)}
+                        disabled={isUserProfileDataLoading}
+                        className="rounded-md border border-red-300/40 bg-red-700/25 px-2 py-1 text-[10px] text-red-100 hover:bg-red-700/35 disabled:opacity-50"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  ))}
+                  {(userProfileAudios?.audios || []).length === 0 ? <p className="text-[11px] text-[#9ec3dc]">No profile audios</p> : null}
+                </div>
+
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                  <input
+                    value={profileAudioTitleDraft}
+                    onChange={(event) => setProfileAudioTitleDraft(event.target.value)}
+                    className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-xs outline-none"
+                    placeholder="Profile audio title"
+                  />
+                  <input
+                    value={profileAudioPerformerDraft}
+                    onChange={(event) => setProfileAudioPerformerDraft(event.target.value)}
+                    className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-xs outline-none"
+                    placeholder="Performer (optional)"
+                  />
+                </div>
+
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0] ?? null;
+                      setProfileAudioFileDraft(file);
+                      if (file && !profileAudioTitleDraft.trim()) {
+                        const titleFromFile = file.name.replace(/\.[^/.]+$/, '').trim();
+                        if (titleFromFile) {
+                          setProfileAudioTitleDraft(titleFromFile);
+                        }
+                      }
+                    }}
+                    className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-xs outline-none file:mr-3 file:rounded-md file:border-0 file:bg-[#1a4868] file:px-2 file:py-1 file:text-xs file:text-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void onSetUserProfileAudioFromProfile()}
+                    disabled={isUserProfileDataLoading}
+                    className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-2.5 py-1 text-[11px] text-white hover:bg-[#245a80] disabled:opacity-50"
+                  >
+                    Add/Upload audio
+                  </button>
+                </div>
+                {profileAudioFileDraft ? (
+                  <p className="mt-1 text-[11px] text-[#9ec3dc]">Selected file: {profileAudioFileDraft.name}</p>
+                ) : null}
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                <p className="mb-2 text-[11px] uppercase tracking-wide text-[#8fb7d6]">Emoji Status</p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <input
+                    value={emojiStatusDraft}
+                    onChange={(event) => setEmojiStatusDraft(event.target.value)}
+                    className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-xs outline-none"
+                    placeholder="emoji_status_custom_emoji_id"
+                  />
+                  <input
+                    type="datetime-local"
+                    value={emojiStatusExpirationDraft}
+                    onChange={(event) => setEmojiStatusExpirationDraft(event.target.value)}
+                    className="rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-xs outline-none"
+                  />
+                </div>
+                <div className="mt-2 rounded-lg border border-white/10 bg-[#0f1c28] px-3 py-2 text-[11px] text-[#cfe7f8]">
+                  {selectedUserEmojiStatus ? (
+                    <p>
+                      Active: <span className="tg-premium-emoji">{premiumEmojiGlyph(selectedUserEmojiStatus.customEmojiId)}</span>{' '}
+                      {selectedUserEmojiStatus.customEmojiId}
+                      {' · expires in '}
+                      {selectedUserEmojiStatusRemainingText}
+                    </p>
+                  ) : (
+                    <p>No active emoji status.</p>
+                  )}
+                </div>
+                <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void onSetUserEmojiStatusFromProfile(true)}
+                    disabled={isUserProfileDataLoading}
+                    className="rounded-md border border-red-300/40 bg-red-700/25 px-2.5 py-1 text-[11px] text-red-100 hover:bg-red-700/35 disabled:opacity-50"
+                  >
+                    Clear status
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void onSetUserEmojiStatusFromProfile(false)}
+                    disabled={isUserProfileDataLoading}
+                    className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-2.5 py-1 text-[11px] text-white hover:bg-[#245a80] disabled:opacity-50"
+                  >
+                    setUserEmojiStatus
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -16926,6 +18539,313 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         </div>
       ) : null}
 
+      {managedBotRequestModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-white/10 bg-[#152434] p-4 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="truncate text-sm font-semibold text-white">Request managed bot</h3>
+                <p className="truncate text-xs text-[#9ec3dc]">{managedBotRequestModal.buttonText}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setManagedBotRequestModal(null)}
+                className="rounded-full p-1 text-white hover:bg-white/10"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <input
+                value={managedBotRequestModal.requestId}
+                onChange={(event) => setManagedBotRequestModal((prev) => (
+                  prev
+                    ? {
+                      ...prev,
+                      requestId: event.target.value,
+                    }
+                    : prev
+                ))}
+                placeholder="request_id"
+                className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+              />
+              <input
+                value={managedBotRequestModal.suggestedName}
+                onChange={(event) => setManagedBotRequestModal((prev) => (
+                  prev
+                    ? {
+                      ...prev,
+                      suggestedName: event.target.value,
+                    }
+                    : prev
+                ))}
+                placeholder="suggested_name"
+                className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+              />
+              <input
+                value={managedBotRequestModal.suggestedUsername}
+                onChange={(event) => setManagedBotRequestModal((prev) => (
+                  prev
+                    ? {
+                      ...prev,
+                      suggestedUsername: event.target.value,
+                    }
+                    : prev
+                ))}
+                placeholder="suggested_username"
+                className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+              />
+            </div>
+
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setManagedBotRequestModal(null)}
+                className="rounded-lg border border-white/15 px-3 py-2 text-sm text-white hover:bg-white/10"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void onSubmitManagedBotRequestModal()}
+                disabled={isSending}
+                className="rounded-lg bg-[#2b5278] px-3 py-2 text-sm font-medium text-white hover:bg-[#366892] disabled:opacity-50"
+              >
+                Request managed bot
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {miniAppModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-white/10 bg-[#152434] p-4 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="truncate text-base font-semibold text-white">Built-in Mini App</h3>
+                <p className="truncate text-xs text-[#9ec3dc]">
+                  {miniAppModal.buttonText} · {miniAppModal.source}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMiniAppModal(null)}
+                className="rounded-full p-1 text-white hover:bg-white/10"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mb-3 grid grid-cols-1 gap-2 rounded-xl border border-white/10 bg-black/20 p-3 text-[11px] text-[#cfe7f8] sm:grid-cols-2">
+              <p className="truncate">web_app_query_id: <span className="text-white">{miniAppModal.queryId}</span></p>
+              <p className="truncate">url: <span className="text-white">{miniAppModal.url}</span></p>
+            </div>
+
+            <div className="space-y-2 rounded-xl border border-[#2f4e66]/55 bg-[#102638]/80 px-3 py-2 text-xs text-[#d7ecfb]">
+              <input
+                value={webAppLab.lastQueryId}
+                onChange={(event) => setWebAppLab((prev) => ({ ...prev, lastQueryId: event.target.value }))}
+                placeholder="web_app_query_id"
+                className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+              />
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <input
+                  value={webAppLab.answerTitle}
+                  onChange={(event) => setWebAppLab((prev) => ({ ...prev, answerTitle: event.target.value }))}
+                  placeholder="answer result title"
+                  className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                />
+                <input
+                  value={webAppLab.answerUrl}
+                  onChange={(event) => setWebAppLab((prev) => ({ ...prev, answerUrl: event.target.value }))}
+                  placeholder="result URL (optional)"
+                  className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                />
+              </div>
+              <textarea
+                value={webAppLab.answerMessageText}
+                onChange={(event) => setWebAppLab((prev) => ({ ...prev, answerMessageText: event.target.value }))}
+                rows={2}
+                placeholder="answerWebAppQuery message_text"
+                className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+              />
+              <input
+                value={webAppLab.answerDescription}
+                onChange={(event) => setWebAppLab((prev) => ({ ...prev, answerDescription: event.target.value }))}
+                placeholder="result description (optional)"
+                className="w-full rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+              />
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <button
+                  type="button"
+                  onClick={() => void onAnswerWebAppQueryFromLab()}
+                  disabled={isWebAppLabRunning}
+                  className="rounded-md border border-[#2f7fb4]/60 bg-[#22567c] px-3 py-1.5 text-xs text-white hover:bg-[#2f6f9f] disabled:opacity-60"
+                >
+                  answerWebAppQuery
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void onSavePreparedInlineMessageFromLab()}
+                  disabled={isWebAppLabRunning}
+                  className="rounded-md border border-[#2f7fb4]/60 bg-[#22567c] px-3 py-1.5 text-xs text-white hover:bg-[#2f6f9f] disabled:opacity-60"
+                >
+                  savePreparedInline
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void onSavePreparedKeyboardButtonFromLab()}
+                  disabled={isWebAppLabRunning}
+                  className="rounded-md border border-[#2f7fb4]/60 bg-[#22567c] px-3 py-1.5 text-xs text-white hover:bg-[#2f6f9f] disabled:opacity-60"
+                >
+                  savePreparedButton
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <input
+                  value={webAppLab.preparedInlineTitle}
+                  onChange={(event) => setWebAppLab((prev) => ({ ...prev, preparedInlineTitle: event.target.value }))}
+                  placeholder="prepared inline title"
+                  className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                />
+                <input
+                  value={webAppLab.preparedInlineText}
+                  onChange={(event) => setWebAppLab((prev) => ({ ...prev, preparedInlineText: event.target.value }))}
+                  placeholder="prepared inline message text"
+                  className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                />
+                <input
+                  value={webAppLab.preparedButtonText}
+                  onChange={(event) => setWebAppLab((prev) => ({ ...prev, preparedButtonText: event.target.value }))}
+                  placeholder="prepared keyboard button text"
+                  className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                />
+                <input
+                  value={webAppLab.preparedButtonUrl}
+                  onChange={(event) => setWebAppLab((prev) => ({ ...prev, preparedButtonUrl: event.target.value }))}
+                  placeholder="prepared keyboard button web_app URL"
+                  className="rounded-md border border-[#355a76]/60 bg-black/30 px-2 py-1.5 text-xs text-white outline-none"
+                />
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <p className="rounded-md border border-white/15 bg-black/25 px-2 py-1 text-[11px] text-[#cfe7f8] break-all">
+                  prepared inline id: {lastPreparedInlineMessageId || '-'}
+                </p>
+                <p className="rounded-md border border-white/15 bg-black/25 px-2 py-1 text-[11px] text-[#cfe7f8] break-all">
+                  prepared keyboard id: {lastPreparedKeyboardButtonId || '-'}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {chatBoostModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#152434] p-4 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="truncate text-sm font-semibold text-white">Boost chat</h3>
+                <p className="truncate text-xs text-[#9ec3dc]">{chatBoostModal.chatTitle}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setChatBoostModal(null)}
+                className="rounded-full p-1 text-white hover:bg-white/10"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <p className="mb-2 text-xs text-[#cfe7f8]">
+              Set how many boosts you want to apply as this premium user.
+            </p>
+            <input
+              type="number"
+              min={1}
+              value={chatBoostModal.countDraft}
+              onChange={(event) => setChatBoostModal((prev) => (
+                prev
+                  ? {
+                    ...prev,
+                    countDraft: event.target.value,
+                  }
+                  : prev
+              ))}
+              className="w-full rounded-lg border border-white/15 bg-[#0f1c28] px-3 py-2 text-sm outline-none"
+              placeholder="boost count"
+            />
+
+            <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-2">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-[11px] text-[#cfe7f8]">Current boosts for this user: {userChatBoosts?.boosts.length ?? 0}</p>
+                <button
+                  type="button"
+                  onClick={() => void onRefreshChatBoostsFromModal()}
+                  disabled={isBoostActionRunning}
+                  className="rounded-md border border-white/20 bg-black/20 px-2 py-1 text-[11px] text-white hover:bg-white/10 disabled:opacity-50"
+                >
+                  Refresh
+                </button>
+              </div>
+
+              <div className="max-h-40 space-y-1 overflow-y-auto">
+                {(userChatBoosts?.boosts || []).map((boost) => (
+                  <div
+                    key={`boost-modal-${boost.boost_id}`}
+                    className="flex items-center justify-between gap-2 rounded-md border border-white/10 bg-[#0f1c28] px-2 py-1"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-[11px] text-white">{boost.boost_id}</p>
+                      <p className="truncate text-[10px] text-[#9fc7e1]">expires {new Date(boost.expiration_date * 1000).toLocaleString()}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void onRemoveChatBoostFromModal(boost.boost_id)}
+                      disabled={isBoostActionRunning}
+                      className="rounded-md border border-red-300/40 bg-red-700/25 px-2 py-1 text-[10px] text-red-100 hover:bg-red-700/35 disabled:opacity-50"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))}
+                {(userChatBoosts?.boosts || []).length === 0 ? (
+                  <p className="text-[11px] text-[#9fc7e1]">No boosts recorded yet.</p>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => void onRemoveAllChatBoostsFromModal()}
+                disabled={isBoostActionRunning || (userChatBoosts?.boosts.length ?? 0) === 0}
+                className="rounded-lg border border-red-300/35 bg-red-700/20 px-3 py-2 text-sm text-red-100 hover:bg-red-700/30 disabled:opacity-50"
+              >
+                Remove all
+              </button>
+              <button
+                type="button"
+                onClick={() => setChatBoostModal(null)}
+                className="rounded-lg border border-white/15 px-3 py-2 text-sm text-white hover:bg-white/10"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void onApplyChatBoostFromModal()}
+                disabled={isBoostActionRunning}
+                className="rounded-lg bg-[#2b5278] px-3 py-2 text-sm font-medium text-white hover:bg-[#366892] disabled:opacity-50"
+              >
+                Apply boost
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {showGroupActionsModal && (chatScopeTab === 'group' || chatScopeTab === 'channel') && selectedGroup ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
           <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-white/10 bg-[#152434] p-4 shadow-2xl">
@@ -17133,7 +19053,18 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                     >
                       getChatMemberCount
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => void onInspectSelectedGroupBoosts()}
+                      disabled={isGroupActionRunning || groupMembership !== 'joined'}
+                      className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-40"
+                    >
+                      getUserChatBoosts
+                    </button>
                   </div>
+                  <p className="mt-2 text-[11px] text-[#9ec3dc]">
+                    Latest boosts for current user: {userChatBoosts?.boosts.length ?? 0}
+                  </p>
                 </div>
 
                 {isChannelScope ? (

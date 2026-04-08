@@ -39,6 +39,11 @@ use crate::handlers::{
     handle_sim_remove_business_connection,
     handle_sim_set_business_connection,
     handle_sim_delete_user,
+    handle_sim_delete_user_profile_audio,
+    handle_sim_upload_user_profile_audio,
+    handle_sim_add_user_chat_boosts,
+    handle_sim_remove_user_chat_boosts,
+    handle_sim_set_user_profile_audio,
     handle_sim_set_user_reaction,
     handle_sim_set_privacy_mode,
     handle_sim_vote_poll,
@@ -49,6 +54,10 @@ use crate::handlers::{
     SimChooseInlineResultRequest, SimClearHistoryRequest, SimCreateBotRequest, SimCreateGroupInviteLinkRequest, SimCreateGroupRequest, SimDeleteGroupRequest, SimJoinGroupByInviteLinkRequest, SimJoinGroupRequest, SimLeaveGroupRequest, SimMarkChannelMessageViewRequest, SimPayInvoiceRequest, SimPurchasePaidMediaRequest, SimPressInlineButtonRequest, SimResolveJoinRequestRequest, SimSendInlineQueryRequest, SimSendUserMessageRequest, SimSetBotGroupMembershipRequest, SimSetUserReactionRequest, SimUpdateBotRequest, SimUpdateGroupRequest,
     SimSendUserContactRequest, SimSendUserDiceRequest, SimSendUserGameRequest, SimSendUserLocationRequest, SimSendUserVenueRequest,
     SimDeleteUserRequest,
+    SimDeleteUserProfileAudioRequest,
+    SimAddUserChatBoostsRequest,
+    SimRemoveUserChatBoostsRequest,
+    SimSetUserProfileAudioRequest,
     SimSetPrivacyModeRequest,
     SimRemoveBusinessConnectionRequest,
     SimSetBusinessConnectionRequest,
@@ -640,6 +649,80 @@ pub async fn sim_delete_user(
     payload: web::Json<SimDeleteUserRequest>,
 ) -> impl Responder {
     into_telegram_response(handle_sim_delete_user(&state, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/users/profile-audio")]
+pub async fn sim_set_user_profile_audio(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimSetUserProfileAudioRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_set_user_profile_audio(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/users/profile-audio/upload")]
+pub async fn sim_upload_user_profile_audio(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    req: HttpRequest,
+    payload: web::Payload,
+) -> impl Responder {
+    let token = path.into_inner();
+
+    let content_type = req
+        .headers()
+        .get(actix_web::http::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    if !content_type.starts_with("multipart/form-data") {
+        return into_telegram_response(Err(ApiError::bad_request(
+            "content-type must be multipart/form-data",
+        )));
+    }
+
+    let params = match parse_multipart_payload(req.headers(), payload).await {
+        Ok(value) => value,
+        Err(error) => return into_telegram_response(Err(error)),
+    };
+
+    let actor_user_id = extract_request_actor_user_id(req.headers());
+    let result = with_request_actor_user_id(actor_user_id, || {
+        handle_sim_upload_user_profile_audio(&state, &token, &params)
+    });
+    into_telegram_response(result)
+}
+
+#[post("/client-api/bot{token}/users/profile-audio/delete")]
+pub async fn sim_delete_user_profile_audio(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimDeleteUserProfileAudioRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_delete_user_profile_audio(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/users/chat-boosts/add")]
+pub async fn sim_add_user_chat_boosts(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimAddUserChatBoostsRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_add_user_chat_boosts(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/users/chat-boosts/remove")]
+pub async fn sim_remove_user_chat_boosts(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimRemoveUserChatBoostsRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_remove_user_chat_boosts(&state, &token, payload.into_inner()))
 }
 
 #[post("/client-api/bot{token}/clearHistory")]

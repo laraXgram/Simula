@@ -13,6 +13,7 @@ use std::time::Duration;
 use crate::database::{ensure_bot, ensure_chat, lock_db, AppState};
 use crate::generated::methods::{
     AddStickerToSetRequest, AnswerCallbackQueryRequest, AnswerInlineQueryRequest,
+    AnswerWebAppQueryRequest,
     ApproveChatJoinRequestRequest,
     ApproveSuggestedPostRequest,
     AnswerPreCheckoutQueryRequest, AnswerShippingQueryRequest, BanChatMemberRequest,
@@ -21,7 +22,8 @@ use crate::generated::methods::{
     CreateChatInviteLinkRequest, CreateChatSubscriptionInviteLinkRequest,
     DeleteChatPhotoRequest, DeleteChatStickerSetRequest, DeleteMessageRequest,
     DeleteMessagesRequest, DeleteMyCommandsRequest, DeleteStickerFromSetRequest, DeleteStickerSetRequest,
-    DeleteWebhookRequest, EditMessageCaptionRequest, EditMessageLiveLocationRequest,
+    DeleteWebhookRequest, EditMessageCaptionRequest, EditMessageChecklistRequest,
+    EditMessageLiveLocationRequest,
     EditChatInviteLinkRequest, EditChatSubscriptionInviteLinkRequest,
     DeclineSuggestedPostRequest,
     DeclineChatJoinRequestRequest, ExportChatInviteLinkRequest,
@@ -33,28 +35,35 @@ use crate::generated::methods::{
     GetMeRequest, GetMyCommandsRequest, GetMyDefaultAdministratorRightsRequest,
     GetMyDescriptionRequest, GetMyNameRequest, GetMyShortDescriptionRequest,
     GetMyStarBalanceRequest,
+    GetManagedBotTokenRequest,
     GetStarTransactionsRequest, GetStickerSetRequest, GetUpdatesRequest, LeaveChatRequest,
     GetUserGiftsRequest, GiftPremiumSubscriptionRequest,
+    GetUserProfileAudiosRequest, GetUserProfilePhotosRequest, GetUserChatBoostsRequest,
     ConvertGiftToStarsRequest, UpgradeGiftRequest, TransferGiftRequest,
     GetBusinessConnectionRequest,
     ForwardMessageRequest, ForwardMessagesRequest,
     PinChatMessageRequest, PromoteChatMemberRequest, RefundStarPaymentRequest,
     RemoveMyProfilePhotoRequest,
     RevokeChatInviteLinkRequest,
+    ReplaceManagedBotTokenRequest,
     ReplaceStickerInSetRequest, RestrictChatMemberRequest, SendAnimationRequest,
     SendAudioRequest, SendContactRequest, SendDiceRequest, SendDocumentRequest,
-    SendChatActionRequest, SendGameRequest, SendInvoiceRequest, SendLocationRequest, SendMediaGroupRequest,
+    SendChatActionRequest, SendChecklistRequest, SendGameRequest, SendInvoiceRequest,
+    SendLocationRequest, SendMediaGroupRequest,
     SendPaidMediaRequest,
     SendGiftRequest, SendMessageDraftRequest, SendMessageRequest, SendPhotoRequest,
     SendPollRequest, SendStickerRequest,
+    SavePreparedInlineMessageRequest, SavePreparedKeyboardButtonRequest,
     SendVenueRequest, SendVideoNoteRequest, SendVideoRequest, SendVoiceRequest,
     SetChatAdministratorCustomTitleRequest, SetChatDescriptionRequest,
     SetChatMemberTagRequest, SetChatPermissionsRequest, SetChatStickerSetRequest,
     SetChatMenuButtonRequest, SetChatTitleRequest, SetCustomEmojiStickerSetThumbnailRequest, SetGameScoreRequest,
     SetMessageReactionRequest, SetStickerEmojiListRequest, SetStickerKeywordsRequest,
     SetMyCommandsRequest, SetMyDefaultAdministratorRightsRequest,
+    SetPassportDataErrorsRequest,
     SetMyDescriptionRequest, SetMyNameRequest, SetMyProfilePhotoRequest,
     SetMyShortDescriptionRequest,
+    SetUserEmojiStatusRequest,
     SetBusinessAccountNameRequest, SetBusinessAccountUsernameRequest,
     SetBusinessAccountBioRequest, SetBusinessAccountProfilePhotoRequest,
     RemoveBusinessAccountProfilePhotoRequest, ReadBusinessMessageRequest,
@@ -71,7 +80,7 @@ use crate::generated::methods::{
     ReopenGeneralForumTopicRequest, HideGeneralForumTopicRequest,
     UnhideGeneralForumTopicRequest, UnpinAllGeneralForumTopicMessagesRequest,
 };
-use crate::generated::types::{AcceptedGiftTypes, Animation, Audio, BotCommand, BotCommandScope, BotDescription, BotName, BotShortDescription, BusinessBotRights, BusinessConnection, BusinessMessagesDeleted, CallbackQuery, Chat, ChatAdministratorRights, ChatFullInfo, ChatInviteLink, ChatJoinRequest, ChatMember, ChatMemberAdministrator, ChatMemberBanned, ChatMemberLeft, ChatMemberMember, ChatMemberOwner, ChatMemberRestricted, ChatMemberUpdated, ChatPermissions, ChatPhoto, ChatShared, ChosenInlineResult, Contact, Dice, DirectMessagesTopic, Document, File, ForumTopic, Game, GameHighScore, Gift, GiftBackground, Gifts, InlineKeyboardMarkup, InlineQuery, InputSticker, Invoice, Location, MaskPosition, MaybeInaccessibleMessage, MenuButton, Message, MessageEntity, MessageReactionCountUpdated, MessageReactionUpdated, OrderInfo, OwnedGift, OwnedGifts, PaidMediaPurchased, PhotoSize, Poll, PollAnswer, PollOption, PreCheckoutQuery, ReactionCount, ReactionType, ReplyKeyboardMarkup, ReplyKeyboardRemove, ShippingAddress, ShippingQuery, StarAmount, Sticker, StickerSet, StoryArea, SuggestedPostInfo, SuggestedPostParameters, SuggestedPostPrice, SuccessfulPayment, Update, User, UsersShared, Venue, Video, VideoNote, Voice, WebAppData};
+use crate::generated::types::{AcceptedGiftTypes, Animation, Audio, BotCommand, BotCommandScope, BotDescription, BotName, BotShortDescription, BusinessBotRights, BusinessConnection, BusinessMessagesDeleted, CallbackQuery, Chat, ChatAdministratorRights, ChatBoost, ChatBoostSource, ChatFullInfo, ChatInviteLink, ChatJoinRequest, ChatMember, ChatMemberAdministrator, ChatMemberBanned, ChatMemberLeft, ChatMemberMember, ChatMemberOwner, ChatMemberRestricted, ChatMemberUpdated, ChatPermissions, ChatPhoto, ChatShared, Checklist, ChecklistTask, ChosenInlineResult, Contact, Dice, DirectMessagesTopic, Document, File, ForumTopic, Game, GameHighScore, Gift, GiftBackground, Gifts, InlineKeyboardMarkup, InlineQuery, InputChecklist, InputChecklistTask, InputSticker, Invoice, KeyboardButtonRequestManagedBot, Location, ManagedBotCreated, ManagedBotUpdated, MaskPosition, MaybeInaccessibleMessage, MenuButton, Message, MessageEntity, MessageReactionCountUpdated, MessageReactionUpdated, OrderInfo, OwnedGift, OwnedGifts, PaidMediaPurchased, PhotoSize, Poll, PollAnswer, PollOption, PreCheckoutQuery, PreparedInlineMessage, PreparedKeyboardButton, ReactionCount, ReactionType, ReplyKeyboardMarkup, ReplyKeyboardRemove, SentWebAppMessage, ShippingAddress, ShippingQuery, StarAmount, Sticker, StickerSet, StoryArea, SuggestedPostInfo, SuggestedPostParameters, SuggestedPostPrice, SuccessfulPayment, Update, User, UserChatBoosts, UserProfileAudios, UserProfilePhotos, UsersShared, Venue, Video, VideoNote, Voice, WebAppData};
 use crate::types::{strip_nulls, ApiError, ApiResult};
 
 thread_local! {
@@ -108,6 +117,7 @@ pub struct SimSendUserMessageRequest {
     pub users_shared: Option<UsersShared>,
     pub chat_shared: Option<ChatShared>,
     pub web_app_data: Option<WebAppData>,
+    pub managed_bot_request: Option<KeyboardButtonRequestManagedBot>,
 }
 
 #[derive(Deserialize)]
@@ -197,6 +207,50 @@ pub struct SimUpsertUserRequest {
 #[derive(Deserialize)]
 pub struct SimDeleteUserRequest {
     pub id: i64,
+}
+
+#[derive(Deserialize)]
+pub struct SimSetUserProfileAudioRequest {
+    pub user_id: i64,
+    pub title: Option<String>,
+    pub performer: Option<String>,
+    pub file_name: Option<String>,
+    pub mime_type: Option<String>,
+    pub file_size: Option<i64>,
+    pub duration: Option<i64>,
+}
+
+#[derive(Deserialize)]
+pub struct SimDeleteUserProfileAudioRequest {
+    pub user_id: i64,
+    pub file_id: String,
+}
+
+#[derive(Deserialize)]
+pub struct SimUploadUserProfileAudioRequest {
+    pub user_id: i64,
+    pub audio: Value,
+    pub title: Option<String>,
+    pub performer: Option<String>,
+    pub file_name: Option<String>,
+    pub mime_type: Option<String>,
+    pub duration: Option<i64>,
+}
+
+#[derive(Deserialize)]
+pub struct SimAddUserChatBoostsRequest {
+    pub chat_id: i64,
+    pub user_id: i64,
+    pub count: Option<i64>,
+    pub duration_days: Option<i64>,
+}
+
+#[derive(Deserialize)]
+pub struct SimRemoveUserChatBoostsRequest {
+    pub chat_id: i64,
+    pub user_id: i64,
+    pub boost_ids: Option<Vec<String>>,
+    pub remove_all: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -560,6 +614,7 @@ pub fn dispatch_method(
         "sendvideonote" => handle_send_video_note(state, token, &params),
         "sendsticker" => handle_send_sticker(state, token, &params),
         "sendpoll" => handle_send_poll(state, token, &params),
+        "sendchecklist" => handle_send_checklist(state, token, &params),
         "sendinvoice" => handle_send_invoice(state, token, &params),
         "sendpaidmedia" => handle_send_paid_media(state, token, &params),
         "sendmediagroup" => handle_send_media_group(state, token, &params),
@@ -569,6 +624,7 @@ pub fn dispatch_method(
         "editmessagemedia" => handle_edit_message_media(state, token, &params),
         "editmessagelivelocation" => handle_edit_message_live_location(state, token, &params),
         "stopmessagelivelocation" => handle_stop_message_live_location(state, token, &params),
+        "editmessagechecklist" => handle_edit_message_checklist(state, token, &params),
         "editmessagereplymarkup" => handle_edit_message_reply_markup(state, token, &params),
         "deletemessage" => handle_delete_message(state, token, &params),
         "deletemessages" => handle_delete_messages(state, token, &params),
@@ -594,6 +650,9 @@ pub fn dispatch_method(
         "getchatmembercount" => handle_get_chat_member_count(state, token, &params),
         "getchatmember" => handle_get_chat_member(state, token, &params),
         "getbusinessconnection" => handle_get_business_connection(state, token, &params),
+        "getmanagedbottoken" => handle_get_managed_bot_token(state, token, &params),
+        "replacemanagedbottoken" => handle_replace_managed_bot_token(state, token, &params),
+        "getuserchatboosts" => handle_get_user_chat_boosts(state, token, &params),
         "setchatmenubutton" => handle_set_chat_menu_button(state, token, &params),
         "getchatmenubutton" => handle_get_chat_menu_button(state, token, &params),
         "setchatphoto" => handle_set_chat_photo(state, token, &params),
@@ -624,6 +683,9 @@ pub fn dispatch_method(
         "unpinallchatmessages" => handle_unpin_all_chat_messages(state, token, &params),
         "leavechat" => handle_leave_chat(state, token, &params),
         "getfile" => handle_get_file(state, token, &params),
+        "getuserprofilephotos" => handle_get_user_profile_photos(state, token, &params),
+        "getuserprofileaudios" => handle_get_user_profile_audios(state, token, &params),
+        "setuseremojistatus" => handle_set_user_emoji_status(state, token, &params),
         "getupdates" => handle_get_updates(state, token, &params),
         "setwebhook" => handle_set_webhook(state, token, &params),
         "deletewebhook" => handle_delete_webhook(state, token, &params),
@@ -632,6 +694,7 @@ pub fn dispatch_method(
         "approvesuggestedpost" => handle_approve_suggested_post(state, token, &params),
         "declinesuggestedpost" => handle_decline_suggested_post(state, token, &params),
         "answercallbackquery" => handle_answer_callback_query(state, token, &params),
+        "answerwebappquery" => handle_answer_web_app_query(state, token, &params),
         "answerinlinequery" => handle_answer_inline_query(state, token, &params),
         "answershippingquery" => handle_answer_shipping_query(state, token, &params),
         "answerprecheckoutquery" => handle_answer_pre_checkout_query(state, token, &params),
@@ -657,6 +720,9 @@ pub fn dispatch_method(
         }
         "refundstarpayment" => handle_refund_star_payment(state, token, &params),
         "edituserstarsubscription" => handle_edit_user_star_subscription(state, token, &params),
+        "savepreparedinlinemessage" => handle_save_prepared_inline_message(state, token, &params),
+        "savepreparedkeyboardbutton" => handle_save_prepared_keyboard_button(state, token, &params),
+        "setpassportdataerrors" => handle_set_passport_data_errors(state, token, &params),
         "getstickerset" => handle_get_sticker_set(state, token, &params),
         "getcustomemojistickers" => handle_get_custom_emoji_stickers(state, token, &params),
         "uploadstickerfile" => handle_upload_sticker_file(state, token, &params),
@@ -4162,6 +4228,146 @@ fn handle_answer_callback_query(
     Ok(json!(true))
 }
 
+fn handle_answer_web_app_query(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: AnswerWebAppQueryRequest = parse_request(params)?;
+    let web_app_query_id = request.web_app_query_id.trim();
+    if web_app_query_id.is_empty() {
+        return Err(ApiError::bad_request("web_app_query_id is empty"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_web_app_query_answers_storage(&mut conn)?;
+
+    let now = Utc::now().timestamp();
+    let inline_message_id = generate_telegram_numeric_id();
+    let result_json = serde_json::to_string(&request.result).map_err(ApiError::internal)?;
+
+    conn.execute(
+        "INSERT INTO sim_web_app_query_answers
+         (bot_id, web_app_query_id, inline_message_id, result_json, answered_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(bot_id, web_app_query_id)
+         DO UPDATE SET
+            inline_message_id = excluded.inline_message_id,
+            result_json = excluded.result_json,
+            answered_at = excluded.answered_at",
+        params![
+            bot.id,
+            web_app_query_id,
+            inline_message_id,
+            result_json,
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    serde_json::to_value(SentWebAppMessage {
+        inline_message_id: Some(inline_message_id),
+    })
+    .map_err(ApiError::internal)
+}
+
+fn handle_save_prepared_inline_message(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: SavePreparedInlineMessageRequest = parse_request(params)?;
+    if request.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
+
+    let allow_user_chats = request.allow_user_chats.unwrap_or(true);
+    let allow_bot_chats = request.allow_bot_chats.unwrap_or(true);
+    let allow_group_chats = request.allow_group_chats.unwrap_or(true);
+    let allow_channel_chats = request.allow_channel_chats.unwrap_or(true);
+
+    if !(allow_user_chats || allow_bot_chats || allow_group_chats || allow_channel_chats) {
+        return Err(ApiError::bad_request(
+            "at least one allow_* chat target must be true",
+        ));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let _ = ensure_sim_user_record(&mut conn, request.user_id)?;
+    ensure_sim_prepared_inline_messages_storage(&mut conn)?;
+
+    let now = Utc::now().timestamp();
+    let prepared_id = generate_telegram_numeric_id();
+    let expiration_date = now + (24 * 60 * 60);
+
+    conn.execute(
+        "INSERT INTO sim_prepared_inline_messages
+         (bot_id, id, user_id, result_json,
+          allow_user_chats, allow_bot_chats, allow_group_chats, allow_channel_chats,
+          expiration_date, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
+        params![
+            bot.id,
+            &prepared_id,
+            request.user_id,
+            serde_json::to_string(&request.result).map_err(ApiError::internal)?,
+            if allow_user_chats { 1 } else { 0 },
+            if allow_bot_chats { 1 } else { 0 },
+            if allow_group_chats { 1 } else { 0 },
+            if allow_channel_chats { 1 } else { 0 },
+            expiration_date,
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    serde_json::to_value(PreparedInlineMessage {
+        id: prepared_id,
+        expiration_date,
+    })
+    .map_err(ApiError::internal)
+}
+
+fn handle_save_prepared_keyboard_button(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: SavePreparedKeyboardButtonRequest = parse_request(params)?;
+    if request.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
+    if request.button.text.trim().is_empty() {
+        return Err(ApiError::bad_request("button.text is empty"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let _ = ensure_sim_user_record(&mut conn, request.user_id)?;
+    ensure_sim_prepared_keyboard_buttons_storage(&mut conn)?;
+
+    let now = Utc::now().timestamp();
+    let prepared_id = generate_telegram_numeric_id();
+
+    conn.execute(
+        "INSERT INTO sim_prepared_keyboard_buttons
+         (bot_id, id, user_id, button_json, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+        params![
+            bot.id,
+            &prepared_id,
+            request.user_id,
+            serde_json::to_string(&request.button).map_err(ApiError::internal)?,
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    serde_json::to_value(PreparedKeyboardButton { id: prepared_id }).map_err(ApiError::internal)
+}
+
 fn handle_answer_inline_query(
     state: &Data<AppState>,
     token: &str,
@@ -4413,6 +4619,429 @@ fn ensure_sim_bot_default_admin_rights_storage(
         );",
     )
     .map_err(ApiError::internal)
+}
+
+fn ensure_sim_managed_bots_storage(conn: &mut rusqlite::Connection) -> Result<(), ApiError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sim_managed_bots (
+            bot_id          INTEGER NOT NULL,
+            owner_user_id   INTEGER NOT NULL,
+            managed_bot_id  INTEGER NOT NULL,
+            created_at      INTEGER NOT NULL,
+            updated_at      INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, owner_user_id),
+            UNIQUE (bot_id, managed_bot_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(managed_bot_id) REFERENCES bots(id)
+        );",
+    )
+    .map_err(ApiError::internal)
+}
+
+fn ensure_sim_prepared_inline_messages_storage(
+    conn: &mut rusqlite::Connection,
+) -> Result<(), ApiError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sim_prepared_inline_messages (
+            bot_id               INTEGER NOT NULL,
+            id                   TEXT NOT NULL,
+            user_id              INTEGER NOT NULL,
+            result_json          TEXT NOT NULL,
+            allow_user_chats     INTEGER NOT NULL DEFAULT 1,
+            allow_bot_chats      INTEGER NOT NULL DEFAULT 1,
+            allow_group_chats    INTEGER NOT NULL DEFAULT 1,
+            allow_channel_chats  INTEGER NOT NULL DEFAULT 1,
+            expiration_date      INTEGER NOT NULL,
+            created_at           INTEGER NOT NULL,
+            updated_at           INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );",
+    )
+    .map_err(ApiError::internal)
+}
+
+fn ensure_sim_prepared_keyboard_buttons_storage(
+    conn: &mut rusqlite::Connection,
+) -> Result<(), ApiError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sim_prepared_keyboard_buttons (
+            bot_id       INTEGER NOT NULL,
+            id           TEXT NOT NULL,
+            user_id      INTEGER NOT NULL,
+            button_json  TEXT NOT NULL,
+            created_at   INTEGER NOT NULL,
+            updated_at   INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );",
+    )
+    .map_err(ApiError::internal)
+}
+
+fn ensure_sim_web_app_query_answers_storage(
+    conn: &mut rusqlite::Connection,
+) -> Result<(), ApiError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sim_web_app_query_answers (
+            bot_id            INTEGER NOT NULL,
+            web_app_query_id  TEXT NOT NULL,
+            inline_message_id TEXT,
+            result_json       TEXT NOT NULL,
+            answered_at       INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, web_app_query_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );",
+    )
+    .map_err(ApiError::internal)
+}
+
+fn ensure_sim_passport_data_errors_storage(
+    conn: &mut rusqlite::Connection,
+) -> Result<(), ApiError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sim_passport_data_errors (
+            bot_id       INTEGER NOT NULL,
+            user_id      INTEGER NOT NULL,
+            errors_json  TEXT NOT NULL,
+            updated_at   INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, user_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );",
+    )
+    .map_err(ApiError::internal)
+}
+
+fn ensure_sim_user_emoji_statuses_storage(
+    conn: &mut rusqlite::Connection,
+) -> Result<(), ApiError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sim_user_emoji_statuses (
+            bot_id                           INTEGER NOT NULL,
+            user_id                          INTEGER NOT NULL,
+            emoji_status_custom_emoji_id     TEXT,
+            emoji_status_expiration_date     INTEGER,
+            updated_at                       INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, user_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );",
+    )
+    .map_err(ApiError::internal)
+}
+
+fn ensure_sim_user_profile_photos_storage(
+    conn: &mut rusqlite::Connection,
+) -> Result<(), ApiError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sim_user_profile_photos (
+            bot_id        INTEGER NOT NULL,
+            user_id       INTEGER NOT NULL,
+            file_id       TEXT NOT NULL,
+            file_unique_id TEXT NOT NULL,
+            width         INTEGER NOT NULL,
+            height        INTEGER NOT NULL,
+            file_size     INTEGER,
+            position      INTEGER NOT NULL DEFAULT 0,
+            created_at    INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, user_id, file_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_sim_user_profile_photos_order
+            ON sim_user_profile_photos (bot_id, user_id, position ASC, created_at DESC, file_id ASC);",
+    )
+    .map_err(ApiError::internal)
+}
+
+fn ensure_sim_user_profile_audios_storage(
+    conn: &mut rusqlite::Connection,
+) -> Result<(), ApiError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sim_user_profile_audios (
+            bot_id         INTEGER NOT NULL,
+            user_id        INTEGER NOT NULL,
+            file_id        TEXT NOT NULL,
+            file_unique_id TEXT NOT NULL,
+            duration       INTEGER NOT NULL,
+            performer      TEXT,
+            title          TEXT,
+            file_name      TEXT,
+            mime_type      TEXT,
+            file_size      INTEGER,
+            position       INTEGER NOT NULL DEFAULT 0,
+            created_at     INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, user_id, file_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_sim_user_profile_audios_order
+            ON sim_user_profile_audios (bot_id, user_id, position ASC, created_at DESC, file_id ASC);",
+    )
+    .map_err(ApiError::internal)
+}
+
+fn ensure_sim_user_chat_boosts_storage(
+    conn: &mut rusqlite::Connection,
+) -> Result<(), ApiError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sim_user_chat_boosts (
+            bot_id           INTEGER NOT NULL,
+            chat_key         TEXT NOT NULL,
+            user_id          INTEGER NOT NULL,
+            boost_id         TEXT NOT NULL,
+            add_date         INTEGER NOT NULL,
+            expiration_date  INTEGER NOT NULL,
+            source_json      TEXT NOT NULL,
+            created_at       INTEGER NOT NULL,
+            updated_at       INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, chat_key, user_id, boost_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_sim_user_chat_boosts_lookup
+            ON sim_user_chat_boosts (bot_id, chat_key, user_id, expiration_date DESC, add_date DESC);",
+    )
+    .map_err(ApiError::internal)
+}
+
+fn managed_bot_user_from_record(record: &SimManagedBotRecord) -> User {
+    User {
+        id: record.managed_bot_id,
+        is_bot: true,
+        first_name: record.managed_bot_first_name.clone(),
+        last_name: None,
+        username: Some(record.managed_bot_username.clone()),
+        language_code: None,
+        is_premium: None,
+        added_to_attachment_menu: None,
+        can_join_groups: Some(true),
+        can_read_all_group_messages: Some(false),
+        supports_inline_queries: Some(false),
+        can_connect_to_business: None,
+        has_main_web_app: None,
+        has_topics_enabled: None,
+        allows_users_to_create_topics: None,
+        can_manage_bots: None,
+    }
+}
+
+fn build_user_with_manage_bots(record: &SimUserRecord) -> User {
+    let mut user = build_user_from_sim_record(record, false);
+    user.can_manage_bots = Some(true);
+    user
+}
+
+fn load_managed_bot_record(
+    conn: &mut rusqlite::Connection,
+    manager_bot_id: i64,
+    owner_user_id: i64,
+) -> Result<Option<SimManagedBotRecord>, ApiError> {
+    conn.query_row(
+        "SELECT m.owner_user_id, m.managed_bot_id, b.token, b.username, b.first_name, m.created_at, m.updated_at
+         FROM sim_managed_bots m
+         INNER JOIN bots b ON b.id = m.managed_bot_id
+         WHERE m.bot_id = ?1 AND m.owner_user_id = ?2",
+        params![manager_bot_id, owner_user_id],
+        |row| {
+            Ok(SimManagedBotRecord {
+                owner_user_id: row.get(0)?,
+                managed_bot_id: row.get(1)?,
+                managed_token: row.get(2)?,
+                managed_bot_username: row.get(3)?,
+                managed_bot_first_name: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(ApiError::internal)
+}
+
+fn create_managed_bot_record(
+    conn: &mut rusqlite::Connection,
+    manager_bot_id: i64,
+    owner_user_id: i64,
+    suggested_name: Option<&str>,
+    suggested_username: Option<&str>,
+) -> Result<SimManagedBotRecord, ApiError> {
+    let token = generate_telegram_token();
+    let suffix = token_suffix(&token);
+    let now = Utc::now().timestamp();
+
+    let first_name = suggested_name
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("Managed Bot {}", &suffix[..4]));
+
+    let username = suggested_username
+        .map(sanitize_username)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| format!("managed_{}", suffix));
+
+    conn.execute(
+        "INSERT INTO bots (token, username, first_name, created_at) VALUES (?1, ?2, ?3, ?4)",
+        params![token, username, first_name, now],
+    )
+    .map_err(ApiError::internal)?;
+
+    let managed_bot_id = conn.last_insert_rowid();
+    conn.execute(
+        "INSERT INTO sim_managed_bots (bot_id, owner_user_id, managed_bot_id, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?4)",
+        params![manager_bot_id, owner_user_id, managed_bot_id, now],
+    )
+    .map_err(ApiError::internal)?;
+
+    load_managed_bot_record(conn, manager_bot_id, owner_user_id)?
+        .ok_or_else(|| ApiError::internal("failed to create managed bot record"))
+}
+
+fn ensure_managed_bot_record(
+    conn: &mut rusqlite::Connection,
+    manager_bot_id: i64,
+    owner_user_id: i64,
+    suggested_name: Option<&str>,
+    suggested_username: Option<&str>,
+) -> Result<SimManagedBotRecord, ApiError> {
+    if owner_user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
+
+    if let Some(existing) = load_managed_bot_record(conn, manager_bot_id, owner_user_id)? {
+        return Ok(existing);
+    }
+
+    create_managed_bot_record(
+        conn,
+        manager_bot_id,
+        owner_user_id,
+        suggested_name,
+        suggested_username,
+    )
+}
+
+fn rotate_managed_bot_token(
+    conn: &mut rusqlite::Connection,
+    manager_bot_id: i64,
+    owner_user_id: i64,
+) -> Result<SimManagedBotRecord, ApiError> {
+    let current = load_managed_bot_record(conn, manager_bot_id, owner_user_id)?
+        .ok_or_else(|| ApiError::not_found("managed bot not found"))?;
+
+    let now = Utc::now().timestamp();
+    let new_token = generate_telegram_token();
+    conn.execute(
+        "UPDATE bots SET token = ?1 WHERE id = ?2",
+        params![new_token, current.managed_bot_id],
+    )
+    .map_err(ApiError::internal)?;
+
+    conn.execute(
+        "UPDATE sim_managed_bots
+         SET updated_at = ?1
+         WHERE bot_id = ?2 AND owner_user_id = ?3",
+        params![now, manager_bot_id, owner_user_id],
+    )
+    .map_err(ApiError::internal)?;
+
+    load_managed_bot_record(conn, manager_bot_id, owner_user_id)?
+        .ok_or_else(|| ApiError::internal("managed bot update failed"))
+}
+
+fn normalize_input_checklist_task(task: &InputChecklistTask) -> Result<ChecklistTask, ApiError> {
+    if task.id <= 0 {
+        return Err(ApiError::bad_request("checklist task id must be greater than zero"));
+    }
+
+    let explicit_entities = task
+        .text_entities
+        .as_ref()
+        .and_then(|value| serde_json::to_value(value).ok());
+    let (text, text_entities_value) = parse_formatted_text(
+        &task.text,
+        task.parse_mode.as_deref(),
+        explicit_entities,
+    );
+
+    if text.trim().is_empty() {
+        return Err(ApiError::bad_request("checklist task text is empty"));
+    }
+    if text.chars().count() > 300 {
+        return Err(ApiError::bad_request("checklist task text is too long"));
+    }
+
+    let text_entities = text_entities_value
+        .and_then(|value| serde_json::from_value::<Vec<MessageEntity>>(value).ok());
+
+    Ok(ChecklistTask {
+        id: task.id,
+        text,
+        text_entities,
+        completed_by_user: None,
+        completed_by_chat: None,
+        completion_date: None,
+    })
+}
+
+fn normalize_input_checklist(input: &InputChecklist) -> Result<Checklist, ApiError> {
+    let explicit_title_entities = input
+        .title_entities
+        .as_ref()
+        .and_then(|value| serde_json::to_value(value).ok());
+    let (title, title_entities_value) = parse_formatted_text(
+        &input.title,
+        input.parse_mode.as_deref(),
+        explicit_title_entities,
+    );
+
+    if title.trim().is_empty() {
+        return Err(ApiError::bad_request("checklist title is empty"));
+    }
+    if title.chars().count() > 255 {
+        return Err(ApiError::bad_request("checklist title is too long"));
+    }
+    if input.tasks.is_empty() {
+        return Err(ApiError::bad_request("checklist must include at least one task"));
+    }
+    if input.tasks.len() > 30 {
+        return Err(ApiError::bad_request("checklist can include at most 30 tasks"));
+    }
+
+    let mut task_ids = HashSet::<i64>::new();
+    let mut tasks = Vec::<ChecklistTask>::with_capacity(input.tasks.len());
+    for task in &input.tasks {
+        if !task_ids.insert(task.id) {
+            return Err(ApiError::bad_request("checklist task ids must be unique"));
+        }
+        tasks.push(normalize_input_checklist_task(task)?);
+    }
+
+    let title_entities = title_entities_value
+        .and_then(|value| serde_json::from_value::<Vec<MessageEntity>>(value).ok());
+
+    Ok(Checklist {
+        title,
+        title_entities,
+        tasks,
+        others_can_add_tasks: input.others_can_add_tasks,
+        others_can_mark_tasks_as_done: input.others_can_mark_tasks_as_done,
+    })
+}
+
+fn normalize_profile_pagination(
+    offset: Option<i64>,
+    limit: Option<i64>,
+) -> Result<(usize, usize), ApiError> {
+    let normalized_offset = offset.unwrap_or(0);
+    if normalized_offset < 0 {
+        return Err(ApiError::bad_request("offset must be non-negative"));
+    }
+
+    let normalized_limit = limit.unwrap_or(100);
+    if !(1..=100).contains(&normalized_limit) {
+        return Err(ApiError::bad_request("limit must be between 1 and 100"));
+    }
+
+    Ok((normalized_offset as usize, normalized_limit as usize))
 }
 
 fn normalize_bot_language_code(language_code: Option<&str>) -> Result<String, ApiError> {
@@ -5199,6 +5828,79 @@ fn handle_get_business_connection(
     let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
     let connection = build_business_connection(&mut conn, bot.id, &record)?;
     serde_json::to_value(connection).map_err(ApiError::internal)
+}
+
+fn handle_get_managed_bot_token(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: GetManagedBotTokenRequest = parse_request(params)?;
+    if request.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_managed_bots_storage(&mut conn)?;
+
+    let owner = ensure_sim_user_record(&mut conn, request.user_id)?;
+    let _ = ensure_managed_bot_record(&mut conn, bot.id, owner.id, None, None)?;
+    Ok(json!(true))
+}
+
+fn handle_replace_managed_bot_token(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: ReplaceManagedBotTokenRequest = parse_request(params)?;
+    if request.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_managed_bots_storage(&mut conn)?;
+
+    let owner = ensure_sim_user_record(&mut conn, request.user_id)?;
+    let _ = ensure_managed_bot_record(&mut conn, bot.id, owner.id, None, None)?;
+    let record = rotate_managed_bot_token(&mut conn, bot.id, owner.id)?;
+
+    let update_value = serde_json::to_value(Update {
+        update_id: 0,
+        message: None,
+        edited_message: None,
+        channel_post: None,
+        edited_channel_post: None,
+        business_connection: None,
+        business_message: None,
+        edited_business_message: None,
+        deleted_business_messages: None,
+        message_reaction: None,
+        message_reaction_count: None,
+        inline_query: None,
+        chosen_inline_result: None,
+        callback_query: None,
+        shipping_query: None,
+        pre_checkout_query: None,
+        purchased_paid_media: None,
+        poll: None,
+        poll_answer: None,
+        my_chat_member: None,
+        chat_member: None,
+        chat_join_request: None,
+        chat_boost: None,
+        removed_chat_boost: None,
+        managed_bot: Some(ManagedBotUpdated {
+            user: build_user_with_manage_bots(&owner),
+            bot: managed_bot_user_from_record(&record),
+        }),
+    })
+    .map_err(ApiError::internal)?;
+
+    persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
+    Ok(json!(true))
 }
 
 fn handle_read_business_message(
@@ -11542,6 +12244,142 @@ fn handle_send_invoice(state: &Data<AppState>, token: &str, params: &HashMap<Str
     Ok(message_value)
 }
 
+fn handle_send_checklist(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: SendChecklistRequest = parse_request_with_legacy_checklist(params)?;
+    if request.business_connection_id.trim().is_empty() {
+        return Err(ApiError::bad_request("business_connection_id is empty"));
+    }
+
+    let checklist = normalize_input_checklist(&request.checklist)?;
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let chat_id_value = Value::from(request.chat_id);
+    let (chat_key, chat) = resolve_bot_outbound_chat(
+        &mut conn,
+        bot.id,
+        &chat_id_value,
+        ChatSendKind::Other,
+    )?;
+    if chat.r#type != "private" {
+        return Err(ApiError::bad_request(
+            "sendChecklist is available only in private chats",
+        ));
+    }
+
+    let business_connection_id = resolve_outbound_business_connection_for_bot_message(
+        &mut conn,
+        bot.id,
+        &chat,
+        Some(request.business_connection_id.as_str()),
+    )?
+    .ok_or_else(|| ApiError::bad_request("business_connection_id is empty"))?;
+
+    let sender = resolve_sender_for_bot_outbound_chat(
+        &mut conn,
+        &bot,
+        &chat_key,
+        &chat,
+        ChatSendKind::Other,
+    )?;
+
+    let reply_markup_value = request
+        .reply_markup
+        .as_ref()
+        .and_then(|markup| serde_json::to_value(markup).ok());
+    let reply_markup = handle_reply_markup_state(
+        &mut conn,
+        bot.id,
+        &chat_key,
+        reply_markup_value.as_ref(),
+    )?;
+
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO messages (bot_id, chat_key, from_user_id, text, date) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![bot.id, &chat_key, sender.id, &checklist.title, now],
+    )
+    .map_err(ApiError::internal)?;
+
+    let message_id = conn.last_insert_rowid();
+    let mut message_value = load_message_value(&mut conn, &bot, message_id)?;
+    message_value["checklist"] = serde_json::to_value(&checklist).map_err(ApiError::internal)?;
+    message_value["business_connection_id"] = Value::String(business_connection_id);
+
+    if let Some(message_effect_id) = request
+        .message_effect_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        message_value["message_effect_id"] = Value::String(message_effect_id.to_string());
+    }
+
+    if let Some(markup) = reply_markup {
+        message_value["reply_markup"] = markup;
+    }
+
+    if let Some(reply_parameters) = request.reply_parameters {
+        let reply_chat_key = match reply_parameters.chat_id {
+            Some(ref value) => value_to_chat_key(value).unwrap_or_else(|_| chat_key.clone()),
+            None => chat_key.clone(),
+        };
+
+        if let Ok(reply_value) = load_message_value(&mut conn, &bot, reply_parameters.message_id) {
+            let belongs_to_chat = reply_value
+                .get("chat")
+                .and_then(|v| v.get("id"))
+                .and_then(Value::as_i64)
+                .map(|chat_id| chat_id.to_string() == reply_chat_key)
+                .unwrap_or(false);
+
+            if belongs_to_chat {
+                message_value["reply_to_message"] = reply_value;
+            } else if !reply_parameters.allow_sending_without_reply.unwrap_or(false) {
+                return Err(ApiError::bad_request("replied message not found"));
+            }
+        } else if !reply_parameters.allow_sending_without_reply.unwrap_or(false) {
+            return Err(ApiError::bad_request("replied message not found"));
+        }
+    }
+
+    let update_value = serde_json::to_value(Update {
+        update_id: 0,
+        message: None,
+        edited_message: None,
+        channel_post: None,
+        edited_channel_post: None,
+        business_connection: None,
+        business_message: Some(serde_json::from_value(message_value.clone()).map_err(ApiError::internal)?),
+        edited_business_message: None,
+        deleted_business_messages: None,
+        message_reaction: None,
+        message_reaction_count: None,
+        inline_query: None,
+        chosen_inline_result: None,
+        callback_query: None,
+        shipping_query: None,
+        pre_checkout_query: None,
+        purchased_paid_media: None,
+        poll: None,
+        poll_answer: None,
+        my_chat_member: None,
+        chat_member: None,
+        chat_join_request: None,
+        chat_boost: None,
+        removed_chat_boost: None,
+        managed_bot: None,
+    })
+    .map_err(ApiError::internal)?;
+
+    persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
+    Ok(message_value)
+}
+
 fn handle_send_poll(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: SendPollRequest = parse_request(params)?;
     let explicit_question_entities = request
@@ -12389,6 +13227,356 @@ fn handle_get_file(state: &Data<AppState>, token: &str, params: &HashMap<String,
         "file_size": file_size,
         "file_path": file_path
     }))
+}
+
+fn handle_get_user_profile_photos(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: GetUserProfilePhotosRequest = parse_request(params)?;
+    if request.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
+    let (offset, limit) = normalize_profile_pagination(request.offset, request.limit)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let _ = ensure_sim_user_record(&mut conn, request.user_id)?;
+    ensure_sim_user_profile_photos_storage(&mut conn)?;
+
+    let existing_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sim_user_profile_photos WHERE bot_id = ?1 AND user_id = ?2",
+            params![bot.id, request.user_id],
+            |row| row.get(0),
+        )
+        .map_err(ApiError::internal)?;
+
+    if existing_count == 0 {
+        let user_photo_url: Option<String> = conn
+            .query_row(
+                "SELECT photo_url FROM users WHERE id = ?1",
+                params![request.user_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(ApiError::internal)?
+            .flatten();
+
+        let business_profile_photo_id: Option<String> = conn
+            .query_row(
+                "SELECT COALESCE(public_profile_photo_file_id, profile_photo_file_id)
+                 FROM sim_business_account_profiles
+                 WHERE bot_id = ?1 AND user_id = ?2",
+                params![bot.id, request.user_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(ApiError::internal)?
+            .flatten();
+
+        if user_photo_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some()
+            || business_profile_photo_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .is_some()
+        {
+            let now = Utc::now().timestamp();
+            let file_id = business_profile_photo_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| generate_telegram_file_id("profile_photo"));
+
+            let file_unique_id = generate_telegram_file_unique_id();
+            conn.execute(
+                "INSERT OR IGNORE INTO sim_user_profile_photos
+                 (bot_id, user_id, file_id, file_unique_id, width, height, file_size, position, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, 0, ?7)",
+                params![bot.id, request.user_id, file_id, file_unique_id, 640, 640, now],
+            )
+            .map_err(ApiError::internal)?;
+        }
+    }
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT file_id, file_unique_id, width, height, file_size
+             FROM sim_user_profile_photos
+             WHERE bot_id = ?1 AND user_id = ?2
+             ORDER BY position ASC, created_at DESC, file_id ASC",
+        )
+        .map_err(ApiError::internal)?;
+
+    let rows = stmt
+        .query_map(params![bot.id, request.user_id], |row| {
+            Ok(PhotoSize {
+                file_id: row.get(0)?,
+                file_unique_id: row.get(1)?,
+                width: row.get(2)?,
+                height: row.get(3)?,
+                file_size: row.get(4)?,
+            })
+        })
+        .map_err(ApiError::internal)?;
+
+    let all_photos = rows
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(ApiError::internal)?;
+    let total_count = all_photos.len() as i64;
+
+    let photos = all_photos
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(|photo| vec![photo])
+        .collect::<Vec<Vec<PhotoSize>>>();
+
+    serde_json::to_value(UserProfilePhotos { total_count, photos }).map_err(ApiError::internal)
+}
+
+fn handle_get_user_profile_audios(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: GetUserProfileAudiosRequest = parse_request(params)?;
+    if request.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
+    let (offset, limit) = normalize_profile_pagination(request.offset, request.limit)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_user_record(&mut conn, request.user_id)?;
+    ensure_sim_user_profile_audios_storage(&mut conn)?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT file_id, file_unique_id, duration, performer, title, file_name, mime_type, file_size
+             FROM sim_user_profile_audios
+             WHERE bot_id = ?1 AND user_id = ?2
+             ORDER BY position ASC, created_at DESC, file_id ASC",
+        )
+        .map_err(ApiError::internal)?;
+
+    let rows = stmt
+        .query_map(params![bot.id, request.user_id], |row| {
+            Ok(Audio {
+                file_id: row.get(0)?,
+                file_unique_id: row.get(1)?,
+                duration: row.get(2)?,
+                performer: row.get(3)?,
+                title: row.get(4)?,
+                file_name: row.get(5)?,
+                mime_type: row.get(6)?,
+                file_size: row.get(7)?,
+                thumbnail: None,
+            })
+        })
+        .map_err(ApiError::internal)?;
+
+    let all_audios = rows
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(ApiError::internal)?;
+    let total_count = all_audios.len() as i64;
+
+    let audios = all_audios
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .collect::<Vec<Audio>>();
+
+    serde_json::to_value(UserProfileAudios { total_count, audios }).map_err(ApiError::internal)
+}
+
+fn handle_set_user_emoji_status(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: SetUserEmojiStatusRequest = parse_request(params)?;
+    if request.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
+
+    let custom_emoji_id = request
+        .emoji_status_custom_emoji_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    if request.emoji_status_expiration_date.is_some() && custom_emoji_id.is_none() {
+        return Err(ApiError::bad_request(
+            "emoji_status_expiration_date requires emoji_status_custom_emoji_id",
+        ));
+    }
+
+    let now = Utc::now().timestamp();
+    if let Some(expiration_date) = request.emoji_status_expiration_date {
+        if expiration_date <= now {
+            return Err(ApiError::bad_request(
+                "emoji_status_expiration_date must be in the future",
+            ));
+        }
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let _ = ensure_sim_user_record(&mut conn, request.user_id)?;
+    ensure_sim_user_emoji_statuses_storage(&mut conn)?;
+
+    conn.execute(
+        "INSERT INTO sim_user_emoji_statuses
+         (bot_id, user_id, emoji_status_custom_emoji_id, emoji_status_expiration_date, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(bot_id, user_id)
+         DO UPDATE SET
+            emoji_status_custom_emoji_id = excluded.emoji_status_custom_emoji_id,
+            emoji_status_expiration_date = excluded.emoji_status_expiration_date,
+            updated_at = excluded.updated_at",
+        params![
+            bot.id,
+            request.user_id,
+            custom_emoji_id,
+            request.emoji_status_expiration_date,
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_set_passport_data_errors(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: SetPassportDataErrorsRequest = parse_request(params)?;
+    if request.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
+    if request.errors.is_empty() {
+        return Err(ApiError::bad_request("errors must include at least one item"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let _ = ensure_sim_user_record(&mut conn, request.user_id)?;
+    ensure_sim_passport_data_errors_storage(&mut conn)?;
+
+    let now = Utc::now().timestamp();
+    let mut normalized_errors = Vec::<Value>::with_capacity(request.errors.len());
+    for error in request.errors {
+        let error_value = error.extra;
+        let source = error_value
+            .get("source")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or("");
+        let element_type = error_value
+            .get("type")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or("");
+        let message = error_value
+            .get("message")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or("");
+
+        if source.is_empty() {
+            return Err(ApiError::bad_request("passport error source is required"));
+        }
+        if element_type.is_empty() {
+            return Err(ApiError::bad_request("passport error type is required"));
+        }
+        if message.is_empty() {
+            return Err(ApiError::bad_request("passport error message is required"));
+        }
+
+        normalized_errors.push(error_value);
+    }
+
+    conn.execute(
+        "INSERT INTO sim_passport_data_errors (bot_id, user_id, errors_json, updated_at)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(bot_id, user_id)
+         DO UPDATE SET errors_json = excluded.errors_json, updated_at = excluded.updated_at",
+        params![
+            bot.id,
+            request.user_id,
+            serde_json::to_string(&normalized_errors).map_err(ApiError::internal)?,
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_get_user_chat_boosts(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: GetUserChatBoostsRequest = parse_request(params)?;
+    if request.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_user_chat_boosts_storage(&mut conn)?;
+
+    let (chat_key, _sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    ensure_sender_is_chat_member(&mut conn, bot.id, &chat_key, request.user_id)?;
+
+    ensure_sim_user_record(&mut conn, request.user_id)?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT boost_id, add_date, expiration_date, source_json
+             FROM sim_user_chat_boosts
+             WHERE bot_id = ?1 AND chat_key = ?2 AND user_id = ?3
+             ORDER BY expiration_date DESC, add_date DESC, boost_id ASC",
+        )
+        .map_err(ApiError::internal)?;
+
+    let rows = stmt
+        .query_map(params![bot.id, &chat_key, request.user_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .map_err(ApiError::internal)?;
+
+    let mut boosts = Vec::<ChatBoost>::new();
+    for row in rows {
+        let (boost_id, add_date, expiration_date, source_json) = row.map_err(ApiError::internal)?;
+        let source = serde_json::from_str::<ChatBoostSource>(&source_json)
+            .map_err(ApiError::internal)?;
+        boosts.push(ChatBoost {
+            boost_id,
+            add_date,
+            expiration_date,
+            source,
+        });
+    }
+
+    serde_json::to_value(UserChatBoosts { boosts }).map_err(ApiError::internal)
 }
 
 fn handle_stop_poll(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
@@ -15619,6 +16807,38 @@ pub fn handle_sim_send_user_message(
         None
     };
 
+    let mut managed_bot_created: Option<ManagedBotCreated> = None;
+    let mut managed_bot_update: Option<ManagedBotUpdated> = None;
+    if let Some(managed_bot_request) = body.managed_bot_request.as_ref() {
+        if managed_bot_request.request_id <= 0 {
+            return Err(ApiError::bad_request("request_managed_bot.request_id is invalid"));
+        }
+
+        if is_direct_messages || sim_chat.chat_type != "private" {
+            return Err(ApiError::bad_request(
+                "request_managed_bot is available only in private chats",
+            ));
+        }
+
+        ensure_sim_managed_bots_storage(&mut conn)?;
+        let managed_bot = ensure_managed_bot_record(
+            &mut conn,
+            bot.id,
+            user.id,
+            managed_bot_request.suggested_name.as_deref(),
+            managed_bot_request.suggested_username.as_deref(),
+        )?;
+
+        let managed_bot_user = managed_bot_user_from_record(&managed_bot);
+        managed_bot_created = Some(ManagedBotCreated {
+            bot: managed_bot_user.clone(),
+        });
+        managed_bot_update = Some(ManagedBotUpdated {
+            user: build_user_with_manage_bots(&user),
+            bot: managed_bot_user,
+        });
+    }
+
     let mut suggested_post_parameters = body.suggested_post_parameters.clone();
     let mut suggested_post_info: Option<SuggestedPostInfo> = None;
     if let Some(parameters) = suggested_post_parameters.as_mut() {
@@ -15787,6 +17007,10 @@ pub fn handle_sim_send_user_message(
     if let Some(web_app_data) = body.web_app_data {
         message_json["web_app_data"] = serde_json::to_value(web_app_data).map_err(ApiError::internal)?;
     }
+    if let Some(created) = managed_bot_created.as_ref() {
+        message_json["managed_bot_created"] =
+            serde_json::to_value(created).map_err(ApiError::internal)?;
+    }
 
     let is_channel_post = sim_chat.chat_type == "channel";
     if !is_channel_post && !is_direct_messages {
@@ -15921,6 +17145,39 @@ pub fn handle_sim_send_user_message(
             &chat_key,
             &message_value,
         );
+    }
+
+    if let Some(managed_bot) = managed_bot_update {
+        let managed_update = serde_json::to_value(Update {
+            update_id: 0,
+            message: None,
+            edited_message: None,
+            channel_post: None,
+            edited_channel_post: None,
+            business_connection: None,
+            business_message: None,
+            edited_business_message: None,
+            deleted_business_messages: None,
+            message_reaction: None,
+            message_reaction_count: None,
+            inline_query: None,
+            chosen_inline_result: None,
+            callback_query: None,
+            shipping_query: None,
+            pre_checkout_query: None,
+            purchased_paid_media: None,
+            poll: None,
+            poll_answer: None,
+            my_chat_member: None,
+            chat_member: None,
+            chat_join_request: None,
+            chat_boost: None,
+            removed_chat_boost: None,
+            managed_bot: Some(managed_bot),
+        })
+        .map_err(ApiError::internal)?;
+
+        persist_and_dispatch_update(state, &mut conn, token, bot.id, managed_update)?;
     }
 
     Ok(message_value)
@@ -16948,6 +18205,363 @@ pub fn handle_sim_delete_user(state: &Data<AppState>, body: SimDeleteUserRequest
         .map_err(ApiError::internal)?;
 
     Ok(json!({ "deleted": true, "id": body.id }))
+}
+
+pub fn handle_sim_set_user_profile_audio(
+    state: &Data<AppState>,
+    token: &str,
+    body: SimSetUserProfileAudioRequest,
+) -> ApiResult {
+    if body.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
+
+    let normalize_optional_text = |value: Option<String>| {
+        value
+            .map(|item| item.trim().to_string())
+            .filter(|item| !item.is_empty())
+    };
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let user = ensure_sim_user_record(&mut conn, body.user_id)?;
+    ensure_sim_user_profile_audios_storage(&mut conn)?;
+
+    let title = normalize_optional_text(body.title).unwrap_or_else(|| "Profile audio".to_string());
+    let performer = normalize_optional_text(body.performer).or_else(|| Some(user.first_name.clone()));
+    let file_name = normalize_optional_text(body.file_name).unwrap_or_else(|| "profile-audio.ogg".to_string());
+    let mime_type = normalize_optional_text(body.mime_type).unwrap_or_else(|| "audio/ogg".to_string());
+    let file_size = body.file_size.filter(|value| *value > 0);
+    let duration = body.duration.unwrap_or(30).clamp(1, 3600);
+
+    conn.execute(
+        "UPDATE sim_user_profile_audios
+         SET position = position + 1
+         WHERE bot_id = ?1 AND user_id = ?2",
+        params![bot.id, body.user_id],
+    )
+    .map_err(ApiError::internal)?;
+
+    let file_id = generate_telegram_file_id("profile_audio");
+    let file_unique_id = generate_telegram_file_unique_id();
+    let now = Utc::now().timestamp();
+
+    conn.execute(
+        "INSERT INTO sim_user_profile_audios
+         (bot_id, user_id, file_id, file_unique_id, duration, performer, title, file_name, mime_type, file_size, position, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, ?11)",
+        params![
+            bot.id,
+            body.user_id,
+            &file_id,
+            &file_unique_id,
+            duration,
+            performer.clone(),
+            title.clone(),
+            file_name.clone(),
+            mime_type.clone(),
+            file_size,
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!({
+        "user_id": body.user_id,
+        "file_id": file_id,
+        "file_unique_id": file_unique_id,
+        "title": title,
+        "file_name": file_name,
+        "mime_type": mime_type,
+        "file_size": file_size,
+        "duration": duration,
+    }))
+}
+
+pub fn handle_sim_upload_user_profile_audio(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: SimUploadUserProfileAudioRequest = parse_request(params)?;
+    if request.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
+
+    let stored = resolve_media_file(state, token, &request.audio, "audio")?;
+
+    let normalize_optional_text = |value: Option<String>| {
+        value
+            .map(|item| item.trim().to_string())
+            .filter(|item| !item.is_empty())
+    };
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    let user = ensure_sim_user_record(&mut conn, request.user_id)?;
+    ensure_sim_user_profile_audios_storage(&mut conn)?;
+
+    let title = normalize_optional_text(request.title).unwrap_or_else(|| {
+        request
+            .file_name
+            .as_deref()
+            .map(|name| name.trim())
+            .filter(|name| !name.is_empty())
+            .map(|name| {
+                if let Some((base, _)) = name.rsplit_once('.') {
+                    base.trim().to_string()
+                } else {
+                    name.to_string()
+                }
+            })
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| "Profile audio".to_string())
+    });
+
+    let performer = normalize_optional_text(request.performer).or_else(|| Some(user.first_name.clone()));
+    let file_name = normalize_optional_text(request.file_name)
+        .or_else(|| {
+            stored
+                .file_path
+                .rsplit('/')
+                .next()
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "profile-audio.ogg".to_string());
+    let mime_type = normalize_optional_text(request.mime_type)
+        .or_else(|| stored.mime_type.clone())
+        .unwrap_or_else(|| "audio/ogg".to_string());
+    let duration = request.duration.unwrap_or(30).clamp(1, 3600);
+    let now = Utc::now().timestamp();
+
+    conn.execute(
+        "UPDATE sim_user_profile_audios
+         SET position = position + 1
+         WHERE bot_id = ?1 AND user_id = ?2",
+        params![bot.id, request.user_id],
+    )
+    .map_err(ApiError::internal)?;
+
+    conn.execute(
+        "INSERT INTO sim_user_profile_audios
+         (bot_id, user_id, file_id, file_unique_id, duration, performer, title, file_name, mime_type, file_size, position, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, ?11)",
+        params![
+            bot.id,
+            request.user_id,
+            &stored.file_id,
+            &stored.file_unique_id,
+            duration,
+            performer.clone(),
+            &title,
+            &file_name,
+            &mime_type,
+            stored.file_size,
+            now,
+        ],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!({
+        "user_id": request.user_id,
+        "file_id": stored.file_id,
+        "file_unique_id": stored.file_unique_id,
+        "file_path": stored.file_path,
+        "title": title,
+        "performer": performer,
+        "file_name": file_name,
+        "mime_type": mime_type,
+        "file_size": stored.file_size,
+        "duration": duration,
+    }))
+}
+
+pub fn handle_sim_delete_user_profile_audio(
+    state: &Data<AppState>,
+    token: &str,
+    body: SimDeleteUserProfileAudioRequest,
+) -> ApiResult {
+    if body.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
+
+    let file_id = body.file_id.trim();
+    if file_id.is_empty() {
+        return Err(ApiError::bad_request("file_id is required"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_user_record(&mut conn, body.user_id)?;
+    ensure_sim_user_profile_audios_storage(&mut conn)?;
+
+    let deleted = conn
+        .execute(
+            "DELETE FROM sim_user_profile_audios WHERE bot_id = ?1 AND user_id = ?2 AND file_id = ?3",
+            params![bot.id, body.user_id, file_id],
+        )
+        .map_err(ApiError::internal)?;
+
+    if deleted == 0 {
+        return Err(ApiError::not_found("profile audio not found"));
+    }
+
+    Ok(json!({
+        "deleted": true,
+        "user_id": body.user_id,
+        "file_id": file_id,
+    }))
+}
+
+pub fn handle_sim_add_user_chat_boosts(
+    state: &Data<AppState>,
+    token: &str,
+    body: SimAddUserChatBoostsRequest,
+) -> ApiResult {
+    if body.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
+
+    let count = body.count.unwrap_or(1);
+    if count <= 0 || count > 100 {
+        return Err(ApiError::bad_request("count must be between 1 and 100"));
+    }
+
+    let duration_days = body.duration_days.unwrap_or(30);
+    if duration_days <= 0 || duration_days > 3650 {
+        return Err(ApiError::bad_request("duration_days must be between 1 and 3650"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_user_chat_boosts_storage(&mut conn)?;
+
+    let chat_id_value = Value::from(body.chat_id);
+    let (chat_key, _sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &chat_id_value)?;
+    ensure_sender_is_chat_member(&mut conn, bot.id, &chat_key, body.user_id)?;
+
+    let user = ensure_sim_user_record(&mut conn, body.user_id)?;
+    if !user.is_premium {
+        return Err(ApiError::bad_request("only premium users can boost chats"));
+    }
+
+    let source_json = serde_json::to_string(&json!({
+        "source": "premium",
+        "user": build_user_from_sim_record(&user, false),
+    }))
+    .map_err(ApiError::internal)?;
+
+    let now = Utc::now().timestamp();
+    let mut added_boost_ids = Vec::<String>::with_capacity(count as usize);
+    for index in 0..count {
+        let boost_id = generate_telegram_numeric_id();
+        let add_date = now - (index * 60);
+        let expiration_date = add_date + (duration_days * 24 * 60 * 60);
+
+        conn.execute(
+            "INSERT INTO sim_user_chat_boosts
+             (bot_id, chat_key, user_id, boost_id, add_date, expiration_date, source_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+            params![
+                bot.id,
+                &chat_key,
+                body.user_id,
+                &boost_id,
+                add_date,
+                expiration_date,
+                &source_json,
+                now,
+            ],
+        )
+        .map_err(ApiError::internal)?;
+
+        added_boost_ids.push(boost_id);
+    }
+
+    Ok(json!({
+        "added_count": added_boost_ids.len(),
+        "boost_ids": added_boost_ids,
+        "chat_id": body.chat_id,
+        "user_id": body.user_id,
+    }))
+}
+
+pub fn handle_sim_remove_user_chat_boosts(
+    state: &Data<AppState>,
+    token: &str,
+    body: SimRemoveUserChatBoostsRequest,
+) -> ApiResult {
+    if body.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_user_chat_boosts_storage(&mut conn)?;
+
+    let chat_id_value = Value::from(body.chat_id);
+    let (chat_key, _sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &chat_id_value)?;
+    ensure_sender_is_chat_member(&mut conn, bot.id, &chat_key, body.user_id)?;
+
+    ensure_sim_user_record(&mut conn, body.user_id)?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT boost_id
+             FROM sim_user_chat_boosts
+             WHERE bot_id = ?1 AND chat_key = ?2 AND user_id = ?3
+             ORDER BY expiration_date DESC, add_date DESC, boost_id ASC",
+        )
+        .map_err(ApiError::internal)?;
+
+    let existing_rows = stmt
+        .query_map(params![bot.id, &chat_key, body.user_id], |row| row.get::<_, String>(0))
+        .map_err(ApiError::internal)?;
+    let existing_boost_ids = existing_rows
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(ApiError::internal)?;
+
+    if existing_boost_ids.is_empty() {
+        return Ok(json!({
+            "removed_count": 0,
+            "boost_ids": Vec::<String>::new(),
+            "chat_id": body.chat_id,
+            "user_id": body.user_id,
+        }));
+    }
+
+    let target_ids = if body.remove_all.unwrap_or(false) {
+        existing_boost_ids.clone()
+    } else if let Some(boost_ids) = body.boost_ids {
+        let wanted = boost_ids
+            .into_iter()
+            .map(|item| item.trim().to_string())
+            .filter(|item| !item.is_empty())
+            .collect::<HashSet<_>>();
+
+        existing_boost_ids
+            .iter()
+            .filter(|boost_id| wanted.contains(*boost_id))
+            .cloned()
+            .collect::<Vec<_>>()
+    } else {
+        vec![existing_boost_ids[0].clone()]
+    };
+
+    for boost_id in &target_ids {
+        conn.execute(
+            "DELETE FROM sim_user_chat_boosts WHERE bot_id = ?1 AND chat_key = ?2 AND user_id = ?3 AND boost_id = ?4",
+            params![bot.id, &chat_key, body.user_id, boost_id],
+        )
+        .map_err(ApiError::internal)?;
+    }
+
+    Ok(json!({
+        "removed_count": target_ids.len(),
+        "boost_ids": target_ids,
+        "chat_id": body.chat_id,
+        "user_id": body.user_id,
+    }))
 }
 
 pub fn handle_sim_create_group(
@@ -21407,6 +23021,91 @@ fn handle_edit_message_caption(
     }
 }
 
+fn handle_edit_message_checklist(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: EditMessageChecklistRequest = parse_request_with_legacy_checklist(params)?;
+    if request.business_connection_id.trim().is_empty() {
+        return Err(ApiError::bad_request("business_connection_id is empty"));
+    }
+
+    let checklist = normalize_input_checklist(&request.checklist)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let connection = load_business_connection_or_404(
+        &mut conn,
+        bot.id,
+        request.business_connection_id.trim(),
+    )?;
+    if !connection.is_enabled {
+        return Err(ApiError::bad_request("business connection is disabled"));
+    }
+    if connection.user_chat_id != request.chat_id {
+        return Err(ApiError::bad_request(
+            "business connection does not match target private chat",
+        ));
+    }
+
+    let business_connection = build_business_connection(&mut conn, bot.id, &connection)?;
+    ensure_business_right(
+        &business_connection,
+        |rights| rights.can_reply,
+        "not enough rights to edit business checklists",
+    )?;
+
+    let chat_id_value = Value::from(request.chat_id);
+    let (chat_key, _) = resolve_chat_key_and_id(&mut conn, bot.id, &chat_id_value)?;
+
+    let exists_in_chat: Option<i64> = conn
+        .query_row(
+            "SELECT 1 FROM messages WHERE bot_id = ?1 AND chat_key = ?2 AND message_id = ?3",
+            params![bot.id, &chat_key, request.message_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+    if exists_in_chat.is_none() {
+        return Err(ApiError::not_found("message to edit was not found"));
+    }
+
+    ensure_message_can_be_edited_by_bot(&mut conn, bot.id, &chat_key, request.message_id, false)?;
+
+    let mut edited_message = load_message_value(&mut conn, &bot, request.message_id)?;
+    if edited_message.get("checklist").is_none() {
+        return Err(ApiError::bad_request("message has no checklist to edit"));
+    }
+
+    let message_connection_id = edited_message
+        .get("business_connection_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    if message_connection_id.as_deref() != Some(connection.connection_id.as_str()) {
+        return Err(ApiError::bad_request(
+            "business connection does not match message",
+        ));
+    }
+
+    conn.execute(
+        "UPDATE messages SET text = ?1 WHERE bot_id = ?2 AND chat_key = ?3 AND message_id = ?4",
+        params![checklist.title.clone(), bot.id, &chat_key, request.message_id],
+    )
+    .map_err(ApiError::internal)?;
+
+    edited_message["checklist"] = serde_json::to_value(&checklist).map_err(ApiError::internal)?;
+    edited_message["business_connection_id"] = Value::String(connection.connection_id);
+    apply_inline_reply_markup(&mut edited_message, request.reply_markup);
+
+    publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
+    Ok(edited_message)
+}
+
 fn handle_edit_message_reply_markup(
     state: &Data<AppState>,
     token: &str,
@@ -21624,6 +23323,110 @@ fn handle_delete_webhook(state: &Data<AppState>, token: &str, params: &HashMap<S
 fn parse_request<T: DeserializeOwned>(params: &HashMap<String, Value>) -> Result<T, ApiError> {
     let object = Map::from_iter(params.iter().map(|(k, v)| (k.clone(), v.clone())));
     decode_request_value(Value::Object(object))
+}
+
+fn parse_request_with_legacy_checklist<T: DeserializeOwned>(
+    params: &HashMap<String, Value>,
+) -> Result<T, ApiError> {
+    let object = Map::from_iter(params.iter().map(|(k, v)| (k.clone(), v.clone())));
+    let normalized = normalize_legacy_checklist_request_payload(Value::Object(object));
+    decode_request_value(normalized)
+}
+
+fn normalize_legacy_checklist_request_payload(payload: Value) -> Value {
+    match payload {
+        Value::Object(mut root) => {
+            if let Some(checklist_value) = root.get_mut("checklist") {
+                normalize_legacy_checklist_value(checklist_value);
+            }
+
+            if !root.contains_key("checklist") {
+                if let Some(items_value) = root.remove("items") {
+                    let mut checklist = Map::new();
+                    checklist.insert(
+                        "title".to_string(),
+                        root.remove("title")
+                            .unwrap_or_else(|| Value::String("Checklist".to_string())),
+                    );
+                    checklist.insert("tasks".to_string(), normalize_legacy_checklist_tasks(items_value));
+
+                    if let Some(value) = root.remove("others_can_add_tasks") {
+                        checklist.insert("others_can_add_tasks".to_string(), value);
+                    }
+                    if let Some(value) = root.remove("others_can_mark_tasks_as_done") {
+                        checklist.insert("others_can_mark_tasks_as_done".to_string(), value);
+                    }
+
+                    root.insert("checklist".to_string(), Value::Object(checklist));
+                }
+            }
+
+            Value::Object(root)
+        }
+        other => other,
+    }
+}
+
+fn normalize_legacy_checklist_value(value: &mut Value) {
+    if let Value::Object(checklist) = value {
+        if checklist.get("tasks").is_none() {
+            if let Some(items_value) = checklist.remove("items") {
+                checklist.insert(
+                    "tasks".to_string(),
+                    normalize_legacy_checklist_tasks(items_value),
+                );
+            }
+        }
+    }
+}
+
+fn normalize_legacy_checklist_tasks(value: Value) -> Value {
+    match value {
+        Value::Array(items) => Value::Array(
+            items
+                .into_iter()
+                .enumerate()
+                .map(|(index, item)| normalize_legacy_checklist_task(item, index + 1))
+                .collect(),
+        ),
+        other => other,
+    }
+}
+
+fn normalize_legacy_checklist_task(value: Value, fallback_id: usize) -> Value {
+    match value {
+        Value::Object(mut task) => {
+            if task.get("text").is_none() {
+                if let Some(title) = task.remove("title") {
+                    task.insert("text".to_string(), title);
+                } else if let Some(label) = task.remove("label") {
+                    task.insert("text".to_string(), label);
+                }
+            }
+
+            if task.get("id").is_none() {
+                task.insert("id".to_string(), Value::from(fallback_id as i64));
+            }
+
+            if task.get("is_done").is_none() {
+                if let Some(checked) = task.remove("is_checked") {
+                    task.insert("is_done".to_string(), checked);
+                } else if let Some(checked) = task.remove("checked") {
+                    task.insert("is_done".to_string(), checked);
+                }
+            }
+
+            Value::Object(task)
+        }
+        Value::String(text) => json!({
+            "id": fallback_id as i64,
+            "text": text,
+        }),
+        other => json!({
+            "id": fallback_id as i64,
+            "text": other.to_string(),
+        }),
+    }
 }
 
 fn decode_request_value<T: DeserializeOwned>(payload: Value) -> Result<T, ApiError> {
@@ -23871,6 +25674,17 @@ struct SimBusinessProfileRecord {
     bio: Option<String>,
     profile_photo_file_id: Option<String>,
     public_profile_photo_file_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct SimManagedBotRecord {
+    owner_user_id: i64,
+    managed_bot_id: i64,
+    managed_token: String,
+    managed_bot_username: String,
+    managed_bot_first_name: String,
+    created_at: i64,
+    updated_at: i64,
 }
 
 #[derive(Debug, Clone)]

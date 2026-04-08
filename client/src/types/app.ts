@@ -24,6 +24,7 @@ import type {
   SuggestedPostPaid as GeneratedSuggestedPostPaid,
   SuggestedPostRefunded as GeneratedSuggestedPostRefunded,
   Poll as GeneratedPoll,
+  Checklist as GeneratedChecklist,
   Chat as GeneratedChat,
   ChatPermissions as GeneratedChatPermissions,
   MessageReactionCountUpdated as GeneratedMessageReactionCountUpdated,
@@ -159,6 +160,7 @@ export interface ChatMessage {
   gift?: GeneratedGiftInfo;
   invoice?: GeneratedInvoice;
   successfulPayment?: GeneratedSuccessfulPayment;
+  checklist?: GeneratedChecklist;
   media?: {
     type: 'photo' | 'video' | 'audio' | 'voice' | 'document' | 'sticker' | 'animation' | 'video_note';
     fileId: string;
