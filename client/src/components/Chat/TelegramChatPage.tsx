@@ -15899,8 +15899,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       <p className="mt-1 break-all">Storage: {runtimeInfo?.storage_path || 'files'}</p>
                       <p className="mt-1 break-all">Logs: {runtimeInfo?.logs_path || 'stdout (env_logger)'}</p>
                       <p className="mt-1 break-all">Workspace: {runtimeInfo?.workspace_dir || '-'}</p>
-                      <p className="mt-1 break-all">API bind: {runtimeInfo?.api_host || '127.0.0.1'}:{runtimeInfo?.api_port || '8080'}</p>
-                      <p className="mt-1 break-all">Web app port: {runtimeInfo?.web_port || '5173'}</p>
+                      <p className="mt-1 break-all">API bind: {runtimeInfo?.api_host || '127.0.0.1'}:{runtimeInfo?.api_port || '8081'}</p>
+                      <p className="mt-1 break-all">Web app port: {runtimeInfo?.web_port || '8888'}</p>
                     </div>
                   </div>
                 ) : null}

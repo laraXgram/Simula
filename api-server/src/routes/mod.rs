@@ -104,10 +104,10 @@ pub async fn health() -> impl Responder {
 #[get("/client-api/runtime/info")]
 pub async fn runtime_info(state: Data<AppState>) -> impl Responder {
     let api_host = std::env::var("API_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let api_port = std::env::var("API_PORT").unwrap_or_else(|_| "8080".to_string());
+    let api_port = std::env::var("API_PORT").unwrap_or_else(|_| "8081".to_string());
     let database_path = std::env::var("DATABASE_URL").unwrap_or_else(|_| "simula.db".to_string());
     let storage_path = std::env::var("FILE_STORAGE_DIR").unwrap_or_else(|_| "files".to_string());
-    let web_port = std::env::var("WEB_APP_PORT").unwrap_or_else(|_| "5173".to_string());
+    let web_port = std::env::var("WEB_APP_PORT").unwrap_or_else(|_| "8888".to_string());
     let logs_path = std::env::var("LOG_DIR").unwrap_or_else(|_| "stdout (env_logger)".to_string());
     let workspace_dir = std::env::current_dir()
         .ok()
@@ -1524,8 +1524,8 @@ fn perform_runtime_service_action(
 fn runtime_env_defaults() -> BTreeMap<String, String> {
     BTreeMap::from([
         ("API_HOST".to_string(), "127.0.0.1".to_string()),
-        ("API_PORT".to_string(), "8080".to_string()),
-        ("WEB_APP_PORT".to_string(), "5173".to_string()),
+        ("API_PORT".to_string(), "8081".to_string()),
+        ("WEB_APP_PORT".to_string(), "8888".to_string()),
         ("DATABASE_URL".to_string(), "simula.db".to_string()),
         ("FILE_STORAGE_DIR".to_string(), "files".to_string()),
         ("LOG_DIR".to_string(), "stdout".to_string()),

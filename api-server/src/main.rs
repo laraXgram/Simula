@@ -54,7 +54,7 @@ async fn main() -> std::io::Result<()> {
     let port = env::var("API_PORT")
         .ok()
         .and_then(|p| p.parse::<u16>().ok())
-        .unwrap_or(8080);
+        .unwrap_or(8081);
     let db_path = env::var("DATABASE_URL").unwrap_or_else(|_| "simula.db".to_string());
 
     let mut conn = Connection::open(db_path).map_err(std::io::Error::other)?;

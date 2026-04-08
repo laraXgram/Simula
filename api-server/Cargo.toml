@@ -1,5 +1,5 @@
 [package]
-name = "laragram-api-server"
+name = "simula-api-server"
 version = "0.1.0"
 edition = "2021"
 

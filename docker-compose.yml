@@ -1,52 +1,235 @@
-version: '3.8'
+x-runtime-env: &runtime-env
+  RUST_LOG: info
+  API_HOST: 0.0.0.0
+  API_PORT: 8081
+  WEB_APP_PORT: 8888
+  DATABASE_URL: /data/simula.db
+  FILE_STORAGE_DIR: /files
+  LOG_DIR: stdout
+  RUNTIME_SERVICE_MODE: runtime-gate
+  RUNTIME_SERVICE_NAME: simula-api-server
 
 services:
-  # Python Scraper (run manually when needed)
-  scraper:
-    build:
-      context: ./scraper
-      dockerfile: Dockerfile
-    volumes:
-      - ./scraper/output:/app/output
-    profiles:
-      - scraper
-
-  # Rust API Server
   api-server:
     build:
       context: ./api-server
       dockerfile: Dockerfile
-    ports:
-      - "8080:8080"
+    container_name: simula-api-release
+    restart: unless-stopped
     environment:
-      - RUST_LOG=info
-      - DATABASE_URL=/data/laragram.db
+      <<: *runtime-env
+    ports:
+      - "8081:8081"
     volumes:
       - api-data:/data
       - api-files:/files
+    depends_on:
+      scraper:
+        condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    profiles:
+      - release
 
-  # React Client
   client:
     build:
       context: ./client
       dockerfile: Dockerfile
+    container_name: simula-client-release
+    restart: unless-stopped
     ports:
-      - "5173:5173"
-    environment:
-      - VITE_API_URL=http://localhost:8080
-      - VITE_WS_URL=ws://localhost:8080/ws
+      - "8888:8888"
     depends_on:
-      - api-server
+      api-server:
+        condition: service_healthy
+    profiles:
+      - release
+
+  api-server-dev:
+    image: rust:slim
+    container_name: simula-api-dev
+    init: true
+    working_dir: /workspace/api-server
+    command: >-
+      bash -lc "
+      apt-get update &&
+      apt-get install -y --no-install-recommends pkg-config libssl-dev libsqlite3-dev curl &&
+      cargo run
+      "
+    environment:
+      <<: *runtime-env
+      RUST_LOG: debug
+      CARGO_TERM_COLOR: always
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./api-server:/workspace/api-server
+      - api-data:/data
+      - api-files:/files
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - api-target:/workspace/api-server/target
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    profiles:
+      - dev
+
+  client-dev:
+    image: node:20-slim
+    container_name: simula-client-dev
+    init: true
+    working_dir: /workspace/client
+    command: >-
+      bash -lc "
+      npm install &&
+      npm run dev -- --host 0.0.0.0 --port 8888
+      "
+    environment:
+      VITE_API_BASE_URL: http://127.0.0.1:8081
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./client:/workspace/client
+      - client-node-modules:/workspace/client/node_modules
+    depends_on:
+      api-server-dev:
+        condition: service_healthy
+    profiles:
+      - dev
+
+  api-server-test:
+    image: rust:slim
+    container_name: simula-api-test
+    init: true
+    working_dir: /workspace/api-server
+    command: >-
+      bash -lc "
+      apt-get update &&
+      apt-get install -y --no-install-recommends pkg-config libssl-dev libsqlite3-dev &&
+      cargo test --all-targets
+      "
+    environment:
+      <<: *runtime-env
+      RUST_LOG: warn
+      CARGO_TERM_COLOR: always
+    volumes:
+      - ./api-server:/workspace/api-server
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - api-target:/workspace/api-server/target
+    profiles:
+      - test
+
+  client-test:
+    image: node:20-slim
+    container_name: simula-client-test
+    init: true
+    working_dir: /workspace/client
+    command: >-
+      bash -lc "
+      npm install &&
+      npm run lint &&
+      npm run build
+      "
+    environment:
+      VITE_API_BASE_URL: http://127.0.0.1:8081
+    volumes:
+      - ./client:/workspace/client
+      - client-node-modules:/workspace/client/node_modules
+    profiles:
+      - test
+
+  scraper:
+    build:
+      context: ./scraper
+      dockerfile: Dockerfile
+    container_name: simula-scraper
+    working_dir: /app
+    command: sh -c "python src/scraper.py && python src/generator.py"
+    restart: "no"
+    environment:
+      RUST_OUTPUT_DIR: /workspace/api-server/src/generated
+      TS_OUTPUT_DIR: /workspace/client/src/types/generated
+    volumes:
+      - ./scraper/output:/app/output
+      - ./api-server/src/generated:/workspace/api-server/src/generated
+      - ./client/src/types/generated:/workspace/client/src/types/generated
+    profiles:
+      - release
+      - scraper
+
+  backup:
+    image: alpine:3.20
+    container_name: simula-backup
+    working_dir: /workspace
+    command: >-
+      sh -c '
+      set -eu
+      mkdir -p /backups
+      timestamp=$$(date +%Y%m%d_%H%M%S)
+      archive="/backups/simula_$${timestamp}.tgz"
+      tar czf "$$archive" -C / data files
+      echo "backup created: $$archive"
+      '
+    volumes:
+      - api-data:/data:ro
+      - api-files:/files:ro
+      - ./backups:/backups
+    profiles:
+      - ops
+
+  restore:
+    image: alpine:3.20
+    container_name: simula-restore
+    working_dir: /workspace
+    environment:
+      BACKUP_FILE: latest
+    command: >-
+      sh -c '
+      set -eu
+      selected="$$BACKUP_FILE"
+      if [ "$$selected" = "latest" ]; then
+        selected=$$(ls -1t /backups/simula_*.tgz 2>/dev/null | head -n 1 || true)
+      fi
+      if [ -z "$$selected" ]; then
+        echo "no backup archive found in /backups"
+        exit 1
+      fi
+      if [ ! -f "$$selected" ]; then
+        selected="/backups/$$selected"
+      fi
+      if [ ! -f "$$selected" ]; then
+        echo "backup archive not found: $$selected"
+        exit 1
+      fi
+      rm -rf /data/* /files/*
+      tar xzf "$$selected" -C /
+      echo "restore completed from: $$selected"
+      '
+    volumes:
+      - api-data:/data
+      - api-files:/files
+      - ./backups:/backups:ro
+    profiles:
+      - ops
 
 volumes:
   api-data:
   api-files:
+  cargo-registry:
+  cargo-git:
+  api-target:
+  client-node-modules:
 
 networks:
   default:
-    name: laragram-network
+    name: simula-network

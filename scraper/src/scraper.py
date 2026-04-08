@@ -1,5 +1,5 @@
 """
-LaraGram Studio - Telegram Bot API Scraper
+Simula - Telegram Bot API Scraper
 
 This scraper fetches the official Telegram Bot API documentation
 and extracts all methods and types with their parameters/properties.
@@ -435,7 +435,7 @@ class TelegramAPIScraper:
 
 def main():
     """Main entry point."""
-    print("🚀 LaraGram Studio - Telegram Bot API Scraper")
+    print("🚀 Simula - Telegram Bot API Scraper")
     print("="*50)
 
     # Check if we should use cache (for offline development)

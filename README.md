@@ -13,9 +13,9 @@ cd Simula
 
 Available endpoints after startup:
 
-- Client: http://127.0.0.1:5173
-- API: http://127.0.0.1:8080
-- Debug Console: http://127.0.0.1:5173/debug
+- Client: http://127.0.0.1:8888
+- API: http://127.0.0.1:8081
+- Debug Console: http://127.0.0.1:8888/debug
 
 ## Docker Profiles
 
