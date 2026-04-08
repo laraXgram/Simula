@@ -23366,43 +23366,20 @@ fn emit_service_message_update(
         message_json[key] = value;
     }
 
-    let message: Message = serde_json::from_value(message_json).map_err(ApiError::internal)?;
     let is_channel_post = chat.r#type == "channel";
-    let update = Update {
-        update_id: 0,
-        message: if is_channel_post { None } else { Some(message.clone()) },
-        edited_message: None,
-        channel_post: if is_channel_post { Some(message) } else { None },
-        edited_channel_post: None,
-        business_connection: None,
-        business_message: None,
-        edited_business_message: None,
-        deleted_business_messages: None,
-        message_reaction: None,
-        message_reaction_count: None,
-        inline_query: None,
-        chosen_inline_result: None,
-        callback_query: None,
-        shipping_query: None,
-        pre_checkout_query: None,
-        purchased_paid_media: None,
-        poll: None,
-        poll_answer: None,
-        my_chat_member: None,
-        chat_member: None,
-        chat_join_request: None,
-        chat_boost: None,
-        removed_chat_boost: None,
-        managed_bot: None,
+    let update_value = if is_channel_post {
+        json!({
+            "update_id": 0,
+            "channel_post": message_json,
+        })
+    } else {
+        json!({
+            "update_id": 0,
+            "message": message_json,
+        })
     };
 
-    persist_and_dispatch_update(
-        state,
-        conn,
-        token,
-        bot_id,
-        serde_json::to_value(update).map_err(ApiError::internal)?,
-    )
+    persist_and_dispatch_update(state, conn, token, bot_id, update_value)
 }
 
 fn load_message_value(
