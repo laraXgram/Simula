@@ -6,13 +6,21 @@ mod types;
 mod websocket;
 
 use actix_cors::Cors;
-use actix_web::{web::Data, App, HttpServer};
+use actix_web::dev::Service;
+use actix_web::{web::Data, App, HttpResponse, HttpServer};
+use futures_util::FutureExt;
 use rusqlite::Connection;
-use std::{env, sync::Mutex};
+use serde_json::json;
+use std::{collections::VecDeque, env, sync::Mutex};
 
-use crate::database::{init_database, AppState};
+use crate::database::{
+    init_database, is_api_enabled, AppState,
+};
 use crate::routes::{
-    bot_api_get, bot_api_post, file_download, health, sim_bootstrap, sim_clear_history, sim_create_bot,
+    bot_api_get, bot_api_post, file_download, health, runtime_env_get, runtime_env_set,
+    runtime_info, runtime_logs, runtime_logs_clear, runtime_power_set, runtime_power_status,
+    runtime_service_action, runtime_service_status,
+    sim_bootstrap, sim_clear_history, sim_create_bot,
     sim_create_group, sim_create_group_invite_link,
     sim_delete_group,
     sim_delete_user,
@@ -55,6 +63,8 @@ async fn main() -> std::io::Result<()> {
     let state = Data::new(AppState {
         db: Mutex::new(conn),
         ws_hub: WebSocketHub::new(),
+        runtime_logs: Mutex::new(VecDeque::new()),
+        api_enabled: Mutex::new(true),
     });
 
     let auto_close_state = state.clone();
@@ -76,7 +86,45 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(state.clone())
             .wrap(Cors::permissive())
+            .wrap_fn(|req, srv| {
+                let state = req.app_data::<Data<AppState>>().cloned();
+                let path = req.path().to_string();
+
+                if let Some(app_state) = state.clone() {
+                    let bypass_runtime_power = path == "/health"
+                        || path.starts_with("/client-api/runtime")
+                        || path.starts_with("/ws/");
+                    if !is_api_enabled(&app_state) && !bypass_runtime_power {
+                        let response_payload = json!({
+                            "ok": false,
+                            "error_code": 503,
+                            "description": "Service Unavailable: runtime power is off",
+                        });
+                        let response = HttpResponse::ServiceUnavailable()
+                            .json(response_payload)
+                            .map_into_right_body();
+
+                        return async move { Ok(req.into_response(response)) }.boxed_local();
+                    }
+                }
+
+                let fut = srv.call(req);
+                async move {
+                    let response = fut.await?.map_into_left_body();
+                    Ok(response)
+                }
+                .boxed_local()
+            })
             .service(health)
+            .service(runtime_info)
+            .service(runtime_logs)
+            .service(runtime_logs_clear)
+            .service(runtime_power_status)
+            .service(runtime_power_set)
+            .service(runtime_service_status)
+            .service(runtime_service_action)
+            .service(runtime_env_get)
+            .service(runtime_env_set)
             .service(ws_bot_updates)
             .service(bot_api_get)
             .service(bot_api_post)

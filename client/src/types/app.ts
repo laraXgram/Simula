@@ -60,7 +60,14 @@ export interface SimUser {
   business_intro?: string;
   business_location?: string;
   gift_count?: number;
+  is_verified?: boolean;
+  verification_description?: string;
 }
+
+export type SimBootstrapChat = GeneratedChat & {
+  is_verified?: boolean;
+  verification_description?: string;
+};
 
 export interface SimChatMembership {
   chat_id: number;
@@ -114,7 +121,7 @@ export interface SimBootstrapChannelDirectMessages {
 export interface SimBootstrapResponse {
   bot: SimBot;
   users: SimUser[];
-  chats?: GeneratedChat[];
+  chats?: SimBootstrapChat[];
   channel_direct_messages?: SimBootstrapChannelDirectMessages[];
   chat_settings?: SimChatSettings[];
   memberships?: SimChatMembership[];

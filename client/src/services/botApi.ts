@@ -2,6 +2,7 @@ import { API_BASE_URL } from './config';
 import { SimBootstrapResponse } from '../types/app';
 import type {
   AddStickerToSetRequest,
+  CloseRequest,
   AnswerCallbackQueryRequest,
   AnswerWebAppQueryRequest,
   BanChatMemberRequest,
@@ -43,6 +44,7 @@ import type {
   GetChatMemberCountRequest,
   GetChatMemberRequest,
   GetChatRequest,
+  GetWebhookInfoRequest,
   GetAvailableGiftsRequest,
   StopMessageLiveLocationRequest,
   EditMessageTextRequest,
@@ -67,6 +69,8 @@ import type {
   RepostStoryRequest,
   ReopenForumTopicRequest,
   ReopenGeneralForumTopicRequest,
+  RemoveChatVerificationRequest,
+  RemoveUserVerificationRequest,
   ReplaceManagedBotTokenRequest,
   ReplaceStickerInSetRequest,
   RevokeChatInviteLinkRequest,
@@ -126,8 +130,11 @@ import type {
   UnpinAllChatMessagesRequest,
   UnpinChatMessageRequest,
   UploadStickerFileRequest,
+  VerifyChatRequest,
+  VerifyUserRequest,
+  LogOutRequest,
 } from '../types/generated/methods';
-import type { BotCommand, BotDescription, BotName, BotShortDescription, BusinessBotRights, BusinessConnection as GeneratedBusinessConnection, Chat as GeneratedChat, ChatAdministratorRights, ChatFullInfo, ChatInviteLink, ChatMember, ChatPermissions, ChatShared, File as TgFile, ForumTopic, GameHighScore, InlineQueryResult, InlineQueryResultsButton, KeyboardButtonRequestManagedBot, MenuButton, Message, PreparedInlineMessage, PreparedKeyboardButton, SentWebAppMessage, Sticker, StickerSet, SuggestedPostParameters, User as GeneratedUser, UserChatBoosts, UserProfileAudios, UserProfilePhotos, UsersShared, WebAppData } from '../types/generated/types';
+import type { BotCommand, BotDescription, BotName, BotShortDescription, BusinessBotRights, BusinessConnection as GeneratedBusinessConnection, Chat as GeneratedChat, ChatAdministratorRights, ChatFullInfo, ChatInviteLink, ChatMember, ChatPermissions, ChatShared, File as TgFile, ForumTopic, GameHighScore, InlineQueryResult, InlineQueryResultsButton, KeyboardButtonRequestManagedBot, MenuButton, Message, PreparedInlineMessage, PreparedKeyboardButton, SentWebAppMessage, Sticker, StickerSet, SuggestedPostParameters, User as GeneratedUser, UserChatBoosts, UserProfileAudios, UserProfilePhotos, UsersShared, WebAppData, WebhookInfo } from '../types/generated/types';
 import type { Story } from '../types/generated/types';
 
 import type { Gifts, OwnedGifts } from '../types/generated/types';
@@ -193,6 +200,26 @@ interface BotMethodCallOptions {
   actorUserId?: number;
 }
 
+function emitBotApiDebugEvent(detail: {
+  at: number;
+  token: string;
+  method: string;
+  request: unknown;
+  ok: boolean;
+  response?: unknown;
+  error?: string;
+}) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.dispatchEvent(new CustomEvent('laragram:bot-api-log', { detail }));
+  } catch {
+    // Ignore debug event failures to keep API calls unaffected.
+  }
+}
+
 export interface SimPurchasePaidMediaResult {
   status: 'success';
   paid_media_payload: string;
@@ -236,19 +263,53 @@ export async function callBotMethod<T>(
     headers['X-LaraGram-Actor-User-Id'] = String(Math.trunc(options.actorUserId));
   }
 
-  const response = await fetch(`${API_BASE_URL}/bot${token}/${method}`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(params),
-  });
+  let emitted = false;
+  try {
+    const response = await fetch(`${API_BASE_URL}/bot${token}/${method}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(params),
+    });
 
-  const data = await response.json();
+    const data = await response.json();
 
-  if (!data.ok) {
-    throw new Error(data.description || 'Unknown Telegram API error');
+    if (!data.ok) {
+      const errorMessage = data.description || 'Unknown Telegram API error';
+      emitBotApiDebugEvent({
+        at: Date.now(),
+        token,
+        method,
+        request: params,
+        ok: false,
+        error: errorMessage,
+      });
+      emitted = true;
+      throw new Error(errorMessage);
+    }
+
+    emitBotApiDebugEvent({
+      at: Date.now(),
+      token,
+      method,
+      request: params,
+      ok: true,
+      response: data.result,
+    });
+    emitted = true;
+    return data.result as T;
+  } catch (error) {
+    if (!emitted) {
+      emitBotApiDebugEvent({
+        at: Date.now(),
+        token,
+        method,
+        request: params,
+        ok: false,
+        error: error instanceof Error ? error.message : 'Network/API error',
+      });
+    }
+    throw error;
   }
-
-  return data.result as T;
 }
 
 export async function getSimulationBootstrap(token: string): Promise<SimBootstrapResponse> {
@@ -1259,6 +1320,34 @@ export async function pressInlineButton(token: string, payload: {
 
 export async function answerCallbackQuery(token: string, payload: AnswerCallbackQueryRequest) {
   return callBotMethod<boolean>(token, 'answerCallbackQuery', payload);
+}
+
+export async function getWebhookInfo(token: string, payload: GetWebhookInfoRequest = {}): Promise<WebhookInfo> {
+  return callBotMethod<WebhookInfo>(token, 'getWebhookInfo', payload);
+}
+
+export async function logOut(token: string, payload: LogOutRequest = {}): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'logOut', payload);
+}
+
+export async function closeBotSession(token: string, payload: CloseRequest = {}): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'close', payload);
+}
+
+export async function verifyUser(token: string, payload: VerifyUserRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'verifyUser', payload);
+}
+
+export async function verifyChat(token: string, payload: VerifyChatRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'verifyChat', payload);
+}
+
+export async function removeUserVerification(token: string, payload: RemoveUserVerificationRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'removeUserVerification', payload);
+}
+
+export async function removeChatVerification(token: string, payload: RemoveChatVerificationRequest): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'removeChatVerification', payload);
 }
 
 export async function answerWebAppQuery(token: string, payload: AnswerWebAppQueryRequest): Promise<SentWebAppMessage> {

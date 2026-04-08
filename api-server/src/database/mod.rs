@@ -1,5 +1,8 @@
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::VecDeque;
 use std::sync::{Mutex, MutexGuard};
 
 use crate::types::ApiError;
@@ -8,6 +11,24 @@ use crate::websocket::WebSocketHub;
 pub struct AppState {
     pub db: Mutex<Connection>,
     pub ws_hub: WebSocketHub,
+    pub runtime_logs: Mutex<VecDeque<RuntimeRequestLogEntry>>,
+    pub api_enabled: Mutex<bool>,
+}
+
+pub const MAX_RUNTIME_LOG_ENTRIES: usize = 1000;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeRequestLogEntry {
+    pub id: String,
+    pub at: i64,
+    pub method: String,
+    pub path: String,
+    pub query: Option<String>,
+    pub status: u16,
+    pub duration_ms: u64,
+    pub remote_addr: Option<String>,
+    pub request: Option<Value>,
+    pub response: Option<Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -22,6 +43,45 @@ pub fn lock_db(state: &actix_web::web::Data<AppState>) -> Result<MutexGuard<'_, 
         .db
         .lock()
         .map_err(|_| ApiError::internal("database lock poisoned"))
+}
+
+pub fn push_runtime_request_log(
+    state: &actix_web::web::Data<AppState>,
+    entry: RuntimeRequestLogEntry,
+) {
+    if let Ok(mut logs) = state.runtime_logs.lock() {
+        logs.push_front(entry);
+        while logs.len() > MAX_RUNTIME_LOG_ENTRIES {
+            logs.pop_back();
+        }
+    }
+}
+
+pub fn runtime_logs_snapshot(
+    state: &actix_web::web::Data<AppState>,
+    limit: usize,
+) -> Vec<RuntimeRequestLogEntry> {
+    let capped_limit = limit.min(MAX_RUNTIME_LOG_ENTRIES).max(1);
+    match state.runtime_logs.lock() {
+        Ok(logs) => logs.iter().take(capped_limit).cloned().collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+pub fn clear_runtime_logs(state: &actix_web::web::Data<AppState>) {
+    if let Ok(mut logs) = state.runtime_logs.lock() {
+        logs.clear();
+    }
+}
+
+pub fn is_api_enabled(state: &actix_web::web::Data<AppState>) -> bool {
+    state.api_enabled.lock().map(|value| *value).unwrap_or(true)
+}
+
+pub fn set_api_enabled(state: &actix_web::web::Data<AppState>, enabled: bool) {
+    if let Ok(mut value) = state.api_enabled.lock() {
+        *value = enabled;
+    }
 }
 
 pub fn ensure_bot(conn: &mut Connection, token: &str) -> Result<BotInfoRecord, ApiError> {

@@ -1,16 +1,25 @@
 use actix_multipart::Multipart;
 use actix_web::{
-    get, post,
+    get, post, put,
     web::{self, Bytes, Data, Query},
     HttpRequest, HttpResponse, Responder,
 };
+use chrono::Utc;
 use futures_util::StreamExt;
+use serde::Deserialize;
+use serde_json::json;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::Instant;
+use uuid::Uuid;
 
-use crate::database::AppState;
+use crate::database::{
+    clear_runtime_logs, is_api_enabled, push_runtime_request_log, runtime_logs_snapshot,
+    set_api_enabled, AppState, RuntimeRequestLogEntry,
+};
 use crate::handlers::{
     dispatch_method, handle_sim_bootstrap, handle_sim_clear_history, handle_sim_create_bot,
     handle_sim_create_group,
@@ -65,11 +74,228 @@ use crate::handlers::{
     SimVotePollRequest,
     SimUpsertUserRequest,
 };
-use crate::types::{into_telegram_response, ApiError};
+use crate::types::{into_telegram_response, strip_nulls, ApiError};
+
+#[derive(Debug, Deserialize)]
+pub struct RuntimeLogsQuery {
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RuntimePowerRequest {
+    pub enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RuntimeEnvPatchRequest {
+    pub values: BTreeMap<String, Option<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RuntimeServiceActionRequest {
+    pub action: String,
+}
 
 #[get("/health")]
 pub async fn health() -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({"status": "ok"}))
+}
+
+#[get("/client-api/runtime/info")]
+pub async fn runtime_info(state: Data<AppState>) -> impl Responder {
+    let api_host = std::env::var("API_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let api_port = std::env::var("API_PORT").unwrap_or_else(|_| "8080".to_string());
+    let database_path = std::env::var("DATABASE_URL").unwrap_or_else(|_| "laragram.db".to_string());
+    let storage_path = std::env::var("FILE_STORAGE_DIR").unwrap_or_else(|_| "files".to_string());
+    let web_port = std::env::var("WEB_APP_PORT").unwrap_or_else(|_| "5173".to_string());
+    let logs_path = std::env::var("LOG_DIR").unwrap_or_else(|_| "stdout (env_logger)".to_string());
+    let workspace_dir = std::env::current_dir()
+        .ok()
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_else(|| ".".to_string());
+    let env_file_path = runtime_env_file_path();
+    let env_values = read_runtime_env_file().unwrap_or_default();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "ok",
+        "runtime": {
+            "api_host": api_host,
+            "api_port": api_port,
+            "web_port": web_port,
+            "database_path": database_path,
+            "storage_path": storage_path,
+            "logs_path": logs_path,
+            "workspace_dir": workspace_dir,
+            "api_enabled": is_api_enabled(&state),
+            "env_file_path": env_file_path.to_string_lossy().to_string(),
+            "env_values": env_values,
+            "service": runtime_service_snapshot(&state),
+        }
+    }))
+}
+
+#[get("/client-api/runtime/logs")]
+pub async fn runtime_logs(state: Data<AppState>, query: Query<RuntimeLogsQuery>) -> impl Responder {
+    let limit = query.limit.unwrap_or(200).clamp(1, 1000);
+    HttpResponse::Ok().json(json!({
+        "ok": true,
+        "result": {
+            "items": runtime_logs_snapshot(&state, limit),
+            "api_enabled": is_api_enabled(&state),
+        }
+    }))
+}
+
+#[post("/client-api/runtime/logs/clear")]
+pub async fn runtime_logs_clear(state: Data<AppState>) -> impl Responder {
+    clear_runtime_logs(&state);
+    HttpResponse::Ok().json(json!({
+        "ok": true,
+        "result": true,
+    }))
+}
+
+#[get("/client-api/runtime/power")]
+pub async fn runtime_power_status(state: Data<AppState>) -> impl Responder {
+    let service_snapshot = runtime_service_snapshot(&state);
+    let enabled = service_snapshot
+        .get("active")
+        .and_then(Value::as_bool)
+        .unwrap_or_else(|| is_api_enabled(&state));
+
+    HttpResponse::Ok().json(json!({
+        "ok": true,
+        "result": {
+            "enabled": enabled,
+            "service": service_snapshot,
+        }
+    }))
+}
+
+#[post("/client-api/runtime/power")]
+pub async fn runtime_power_set(
+    state: Data<AppState>,
+    payload: web::Json<RuntimePowerRequest>,
+) -> impl Responder {
+    let action = if payload.enabled { "start" } else { "stop" };
+    match perform_runtime_service_action(&state, action) {
+        Ok(service_snapshot) => {
+            let enabled = service_snapshot
+                .get("active")
+                .and_then(Value::as_bool)
+                .unwrap_or_else(|| is_api_enabled(&state));
+            HttpResponse::Ok().json(json!({
+                "ok": true,
+                "result": {
+                    "enabled": enabled,
+                    "service": service_snapshot,
+                }
+            }))
+        }
+        Err(error) => HttpResponse::Ok().json(json!({
+            "ok": false,
+            "error_code": error.code,
+            "description": error.description,
+        })),
+    }
+}
+
+#[get("/client-api/runtime/service")]
+pub async fn runtime_service_status(state: Data<AppState>) -> impl Responder {
+    HttpResponse::Ok().json(json!({
+        "ok": true,
+        "result": runtime_service_snapshot(&state),
+    }))
+}
+
+#[post("/client-api/runtime/service")]
+pub async fn runtime_service_action(
+    state: Data<AppState>,
+    payload: web::Json<RuntimeServiceActionRequest>,
+) -> impl Responder {
+    let action = payload.action.trim().to_ascii_lowercase();
+    if !["start", "stop", "restart"].contains(&action.as_str()) {
+        return HttpResponse::Ok().json(json!({
+            "ok": false,
+            "error_code": 400,
+            "description": "Invalid service action. Use start, stop, or restart.",
+        }));
+    }
+
+    match perform_runtime_service_action(&state, &action) {
+        Ok(service_snapshot) => HttpResponse::Ok().json(json!({
+            "ok": true,
+            "result": service_snapshot,
+        })),
+        Err(error) => HttpResponse::Ok().json(json!({
+            "ok": false,
+            "error_code": error.code,
+            "description": error.description,
+        })),
+    }
+}
+
+#[get("/client-api/runtime/env")]
+pub async fn runtime_env_get() -> impl Responder {
+    match read_runtime_env_file() {
+        Ok(values) => HttpResponse::Ok().json(json!({
+            "ok": true,
+            "result": {
+                "file_path": runtime_env_file_path().to_string_lossy().to_string(),
+                "values": values,
+            }
+        })),
+        Err(error) => HttpResponse::Ok().json(json!({
+            "ok": false,
+            "error_code": error.code,
+            "description": error.description,
+        })),
+    }
+}
+
+#[put("/client-api/runtime/env")]
+pub async fn runtime_env_set(payload: web::Json<RuntimeEnvPatchRequest>) -> impl Responder {
+    let mut current_values = match read_runtime_env_file() {
+        Ok(values) => values,
+        Err(error) => {
+            return HttpResponse::Ok().json(json!({
+                "ok": false,
+                "error_code": error.code,
+                "description": error.description,
+            }));
+        }
+    };
+
+    for (key, value) in &payload.values {
+        let normalized_key = key.trim();
+        if normalized_key.is_empty() {
+            continue;
+        }
+
+        match value {
+            Some(raw_value) => {
+                current_values.insert(normalized_key.to_string(), raw_value.clone());
+            }
+            None => {
+                current_values.remove(normalized_key);
+            }
+        }
+    }
+
+    match write_runtime_env_file(&current_values) {
+        Ok(()) => HttpResponse::Ok().json(json!({
+            "ok": true,
+            "result": {
+                "file_path": runtime_env_file_path().to_string_lossy().to_string(),
+                "values": current_values,
+            }
+        })),
+        Err(error) => HttpResponse::Ok().json(json!({
+            "ok": false,
+            "error_code": error.code,
+            "description": error.description,
+        })),
+    }
 }
 
 #[get("/bot{token}/{method}")]
@@ -81,10 +307,21 @@ pub async fn bot_api_get(
 ) -> impl Responder {
     let (token, method) = path.into_inner();
     let params = query_to_json_map(&query.into_inner());
+    let request_payload = Value::Object(params.clone().into_iter().collect());
+    let started_at = Utc::now().timestamp_millis();
+    let timer = Instant::now();
     let actor_user_id = extract_request_actor_user_id(req.headers());
     let result = with_request_actor_user_id(actor_user_id, || {
         dispatch_method(&state, &token, &method, params)
     });
+    log_route_json_result(
+        &state,
+        &req,
+        request_payload,
+        &result,
+        started_at,
+        timer.elapsed().as_millis() as u64,
+    );
     into_telegram_response(result)
 }
 
@@ -98,6 +335,8 @@ pub async fn bot_api_post(
 ) -> impl Responder {
     let (token, method) = path.into_inner();
     let mut params = query_to_json_map(&query.into_inner());
+    let started_at = Utc::now().timestamp_millis();
+    let timer = Instant::now();
 
     let content_type = req
         .headers()
@@ -109,7 +348,19 @@ pub async fn bot_api_post(
     if content_type.starts_with("multipart/form-data") {
         let multipart_params = match parse_multipart_payload(req.headers(), payload).await {
             Ok(v) => v,
-            Err(err) => return into_telegram_response(Err(err)),
+            Err(err) => {
+                let request_payload = Value::Object(params.clone().into_iter().collect());
+                let error_result = Err(err);
+                log_route_json_result(
+                    &state,
+                    &req,
+                    request_payload,
+                    &error_result,
+                    started_at,
+                    timer.elapsed().as_millis() as u64,
+                );
+                return into_telegram_response(error_result);
+            }
         };
 
         for (k, v) in multipart_params {
@@ -120,7 +371,19 @@ pub async fn bot_api_post(
         while let Some(chunk) = payload.next().await {
             let chunk = match chunk {
                 Ok(bytes) => bytes,
-                Err(_) => return into_telegram_response(Err(ApiError::bad_request("invalid request body"))),
+                Err(_) => {
+                    let request_payload = Value::Object(params.clone().into_iter().collect());
+                    let error_result = Err(ApiError::bad_request("invalid request body"));
+                    log_route_json_result(
+                        &state,
+                        &req,
+                        request_payload,
+                        &error_result,
+                        started_at,
+                        timer.elapsed().as_millis() as u64,
+                    );
+                    return into_telegram_response(error_result);
+                }
             };
             if body.is_empty() {
                 body = chunk;
@@ -147,10 +410,19 @@ pub async fn bot_api_post(
         }
     }
 
+    let request_payload = Value::Object(params.clone().into_iter().collect());
     let actor_user_id = extract_request_actor_user_id(req.headers());
     let result = with_request_actor_user_id(actor_user_id, || {
         dispatch_method(&state, &token, &method, params)
     });
+    log_route_json_result(
+        &state,
+        &req,
+        request_payload,
+        &result,
+        started_at,
+        timer.elapsed().as_millis() as u64,
+    );
     into_telegram_response(result)
 }
 
@@ -753,6 +1025,597 @@ pub async fn file_download(
         }
         Err(err) => into_telegram_response(Err(err)),
     }
+}
+
+fn log_route_json_result(
+    state: &Data<AppState>,
+    req: &HttpRequest,
+    request_payload: Value,
+    result: &Result<Value, ApiError>,
+    started_at: i64,
+    duration_ms: u64,
+) {
+    let response_payload = match result {
+        Ok(value) => json!({
+            "ok": true,
+            "result": strip_nulls(value.clone()),
+        }),
+        Err(error) => json!({
+            "ok": false,
+            "error_code": error.code,
+            "description": error.description,
+        }),
+    };
+
+    push_runtime_request_log(
+        state,
+        RuntimeRequestLogEntry {
+            id: Uuid::new_v4().to_string(),
+            at: started_at,
+            method: req.method().as_str().to_string(),
+            path: req.path().to_string(),
+            query: if req.query_string().trim().is_empty() {
+                None
+            } else {
+                Some(req.query_string().to_string())
+            },
+            status: result.as_ref().map(|_| 200).unwrap_or_else(|error| error.code),
+            duration_ms,
+            remote_addr: req
+                .connection_info()
+                .realip_remote_addr()
+                .map(|value| value.to_string()),
+            request: Some(request_payload),
+            response: Some(response_payload),
+        },
+    );
+}
+
+fn runtime_service_mode() -> String {
+    std::env::var("RUNTIME_SERVICE_MODE")
+    .unwrap_or_else(|_| "auto".to_string())
+        .trim()
+        .to_ascii_lowercase()
+}
+
+fn runtime_service_name() -> String {
+    std::env::var("RUNTIME_SERVICE_NAME")
+        .unwrap_or_else(|_| "laragram-api-server".to_string())
+        .trim()
+        .to_string()
+}
+
+fn command_available(command: &str) -> bool {
+    Command::new(command).output().is_ok()
+}
+
+fn systemctl_available() -> bool {
+    command_available("systemctl")
+}
+
+fn launchctl_available() -> bool {
+    command_available("launchctl")
+}
+
+fn windows_sc_available() -> bool {
+    command_available("sc")
+}
+
+fn systemd_load_state(service_name: &str) -> Option<String> {
+    let output = Command::new("systemctl")
+        .args(["show", service_name, "--property", "LoadState", "--value"])
+        .output()
+        .ok()?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_ascii_lowercase();
+    if stdout.is_empty() {
+        None
+    } else {
+        Some(stdout)
+    }
+}
+
+fn systemd_unit_loaded(service_name: &str) -> bool {
+    matches!(systemd_load_state(service_name).as_deref(), Some("loaded"))
+}
+
+fn read_systemd_service_state(service_name: &str) -> (String, bool) {
+    if !systemctl_available() {
+        return ("systemctl-not-found".to_string(), false);
+    }
+    if !systemd_unit_loaded(service_name) {
+        return ("not-loaded".to_string(), false);
+    }
+
+    let output = Command::new("systemctl")
+        .arg("is-active")
+        .arg(service_name)
+        .output();
+
+    match output {
+        Ok(value) => {
+            let stdout = String::from_utf8_lossy(&value.stdout).trim().to_ascii_lowercase();
+            let stderr = String::from_utf8_lossy(&value.stderr).trim().to_ascii_lowercase();
+            let status = if !stdout.is_empty() {
+                stdout
+            } else if !stderr.is_empty() {
+                stderr
+            } else {
+                "unknown".to_string()
+            };
+            let active = status == "active";
+            (status, active)
+        }
+        Err(_) => ("unknown".to_string(), false),
+    }
+}
+
+fn read_launchctl_service_state(service_name: &str) -> (String, bool, bool) {
+    if !launchctl_available() {
+        return ("launchctl-not-found".to_string(), false, false);
+    }
+
+    let output = Command::new("launchctl").arg("list").output();
+    match output {
+        Ok(value) => {
+            let stdout = String::from_utf8_lossy(&value.stdout);
+            let mut loaded = false;
+            let mut active = false;
+
+            for line in stdout.lines() {
+                if !line.contains(service_name) {
+                    continue;
+                }
+                loaded = true;
+                let cols: Vec<&str> = line.split_whitespace().collect();
+                if cols.len() >= 3 {
+                    let pid = cols[0].trim();
+                    if pid != "-" && pid != "0" {
+                        active = true;
+                    }
+                }
+                break;
+            }
+
+            if !loaded {
+                ("not-loaded".to_string(), false, false)
+            } else if active {
+                ("running".to_string(), true, true)
+            } else {
+                ("loaded".to_string(), false, true)
+            }
+        }
+        Err(_) => ("unknown".to_string(), false, false),
+    }
+}
+
+fn read_windows_service_state(service_name: &str) -> (String, bool, bool) {
+    if !windows_sc_available() {
+        return ("sc-not-found".to_string(), false, false);
+    }
+
+    let output = Command::new("sc").args(["query", service_name]).output();
+    match output {
+        Ok(value) => {
+            let text = format!(
+                "{}\n{}",
+                String::from_utf8_lossy(&value.stdout),
+                String::from_utf8_lossy(&value.stderr)
+            )
+            .to_ascii_lowercase();
+
+            if text.contains("1060") || text.contains("does not exist") {
+                return ("not-loaded".to_string(), false, false);
+            }
+
+            let active = text.contains("running");
+            if active {
+                ("running".to_string(), true, true)
+            } else if text.contains("stopped") {
+                ("stopped".to_string(), false, true)
+            } else {
+                ("installed".to_string(), false, true)
+            }
+        }
+        Err(_) => ("unknown".to_string(), false, false),
+    }
+}
+
+fn resolve_runtime_service_mode(service_name: &str) -> (String, Option<String>) {
+    let requested_mode = runtime_service_mode();
+    if requested_mode == "runtime-gate" {
+        return ("runtime-gate".to_string(), None);
+    }
+
+    if requested_mode == "systemd" {
+        if systemctl_available() && systemd_unit_loaded(service_name) {
+            return ("systemd".to_string(), None);
+        }
+        return (
+            "runtime-gate".to_string(),
+            Some("Requested systemd but no loaded unit was found; using runtime gate control.".to_string()),
+        );
+    }
+
+    if requested_mode == "launchctl" {
+        let (_, _, loaded) = read_launchctl_service_state(service_name);
+        if loaded {
+            return ("launchctl".to_string(), None);
+        }
+        return (
+            "runtime-gate".to_string(),
+            Some("Requested launchctl but no loaded job was found; using runtime gate control.".to_string()),
+        );
+    }
+
+    if requested_mode == "windows-service" {
+        let (_, _, loaded) = read_windows_service_state(service_name);
+        if loaded {
+            return ("windows-service".to_string(), None);
+        }
+        return (
+            "runtime-gate".to_string(),
+            Some("Requested Windows service manager but service was not found; using runtime gate control.".to_string()),
+        );
+    }
+
+    if requested_mode != "auto" {
+        return (
+            "runtime-gate".to_string(),
+            Some(format!("Unknown requested service mode '{}'; using runtime gate control.", requested_mode)),
+        );
+    }
+
+    match std::env::consts::OS {
+        "linux" => {
+            if systemctl_available() && systemd_unit_loaded(service_name) {
+                ("systemd".to_string(), None)
+            } else {
+                (
+                    "runtime-gate".to_string(),
+                    Some("No loaded systemd unit found; using runtime gate control.".to_string()),
+                )
+            }
+        }
+        "macos" => {
+            let (_, _, loaded) = read_launchctl_service_state(service_name);
+            if loaded {
+                ("launchctl".to_string(), None)
+            } else {
+                (
+                    "runtime-gate".to_string(),
+                    Some("No loaded launchctl job found; using runtime gate control.".to_string()),
+                )
+            }
+        }
+        "windows" => {
+            let (_, _, loaded) = read_windows_service_state(service_name);
+            if loaded {
+                ("windows-service".to_string(), None)
+            } else {
+                (
+                    "runtime-gate".to_string(),
+                    Some("No installed Windows service found; using runtime gate control.".to_string()),
+                )
+            }
+        }
+        _ => (
+            "runtime-gate".to_string(),
+            Some("OS service manager not configured; using runtime gate control.".to_string()),
+        ),
+    }
+}
+
+fn runtime_service_snapshot(state: &Data<AppState>) -> Value {
+    let service_name = runtime_service_name();
+    let requested_mode = runtime_service_mode();
+    let (mode, note) = resolve_runtime_service_mode(&service_name);
+
+    match mode.as_str() {
+        "systemd" => {
+            let (status, active) = read_systemd_service_state(&service_name);
+            json!({
+                "mode": mode,
+                "requested_mode": requested_mode,
+                "name": service_name,
+                "available": status != "systemctl-not-found" && status != "not-loaded",
+                "active": active,
+                "status": status,
+                "note": note,
+            })
+        }
+        "launchctl" => {
+            let (status, active, loaded) = read_launchctl_service_state(&service_name);
+            json!({
+                "mode": mode,
+                "requested_mode": requested_mode,
+                "name": service_name,
+                "available": loaded,
+                "active": active,
+                "status": status,
+                "note": note,
+            })
+        }
+        "windows-service" => {
+            let (status, active, loaded) = read_windows_service_state(&service_name);
+            json!({
+                "mode": mode,
+                "requested_mode": requested_mode,
+                "name": service_name,
+                "available": loaded,
+                "active": active,
+                "status": status,
+                "note": note,
+            })
+        }
+        "runtime-gate" => {
+            let active = is_api_enabled(state);
+            json!({
+                "mode": mode,
+                "requested_mode": requested_mode,
+                "name": service_name,
+                "available": true,
+                "active": active,
+                "status": if active { "enabled" } else { "disabled" },
+                "note": note,
+            })
+        }
+        _ => json!({
+            "mode": mode,
+            "requested_mode": requested_mode,
+            "name": service_name,
+            "available": false,
+            "active": false,
+            "status": "unsupported-manager",
+            "note": Some("Unsupported runtime service mode."),
+        }),
+    }
+}
+
+fn run_systemd_action(action: &str, service_name: &str) -> Result<(), ApiError> {
+    if !systemctl_available() {
+        return Err(ApiError::bad_request("systemctl command was not found"));
+    }
+
+    let output = Command::new("systemctl")
+        .arg(action)
+        .arg(service_name)
+        .output()
+        .map_err(ApiError::internal)?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let reason = if !stderr.is_empty() { stderr } else { stdout };
+
+    Err(ApiError::bad_request(format!(
+        "systemctl {} {} failed: {}",
+        action,
+        service_name,
+        if reason.is_empty() { "unknown error" } else { &reason }
+    )))
+}
+
+fn run_launchctl_action(action: &str, service_name: &str) -> Result<(), ApiError> {
+    if !launchctl_available() {
+        return Err(ApiError::bad_request("launchctl command was not found"));
+    }
+
+    let uid = std::env::var("UID").unwrap_or_else(|_| "0".to_string());
+    let targets = vec![
+        format!("system/{}", service_name),
+        format!("gui/{}/{}", uid, service_name),
+    ];
+
+    let mut failures = Vec::<String>::new();
+    for target in targets {
+        let output = match action {
+            "start" | "restart" => Command::new("launchctl")
+                .args(["kickstart", "-k", &target])
+                .output(),
+            "stop" => Command::new("launchctl").args(["bootout", &target]).output(),
+            _ => {
+                return Err(ApiError::bad_request("unsupported launchctl action"));
+            }
+        }
+        .map_err(ApiError::internal)?;
+
+        if output.status.success() {
+            return Ok(());
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let reason = if !stderr.is_empty() { stderr } else { stdout };
+        failures.push(format!("{} => {}", target, if reason.is_empty() { "unknown error" } else { &reason }));
+    }
+
+    Err(ApiError::bad_request(format!(
+        "launchctl {} {} failed: {}",
+        action,
+        service_name,
+        failures.join(" | ")
+    )))
+}
+
+fn run_windows_sc_action(action: &str, service_name: &str) -> Result<(), ApiError> {
+    if !windows_sc_available() {
+        return Err(ApiError::bad_request("sc command was not found"));
+    }
+
+    let output = Command::new("sc")
+        .arg(action)
+        .arg(service_name)
+        .output()
+        .map_err(ApiError::internal)?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let reason = if !stderr.is_empty() { stderr } else { stdout };
+    Err(ApiError::bad_request(format!(
+        "sc {} {} failed: {}",
+        action,
+        service_name,
+        if reason.is_empty() { "unknown error" } else { &reason }
+    )))
+}
+
+fn run_windows_service_action(action: &str, service_name: &str) -> Result<(), ApiError> {
+    if action == "restart" {
+        let _ = run_windows_sc_action("stop", service_name);
+        return run_windows_sc_action("start", service_name);
+    }
+
+    match action {
+        "start" | "stop" => run_windows_sc_action(action, service_name),
+        _ => Err(ApiError::bad_request("unsupported windows-service action")),
+    }
+}
+
+fn run_runtime_gate_action(state: &Data<AppState>, action: &str) -> Result<(), ApiError> {
+    match action {
+        "start" => {
+            set_api_enabled(state, true);
+            Ok(())
+        }
+        "stop" => {
+            set_api_enabled(state, false);
+            Ok(())
+        }
+        "restart" => {
+            set_api_enabled(state, false);
+            set_api_enabled(state, true);
+            Ok(())
+        }
+        _ => Err(ApiError::bad_request("unsupported runtime-gate action")),
+    }
+}
+
+fn perform_runtime_service_action(
+    state: &Data<AppState>,
+    action: &str,
+) -> Result<Value, ApiError> {
+    let service_name = runtime_service_name();
+    let (mode, _) = resolve_runtime_service_mode(&service_name);
+
+    match mode.as_str() {
+        "systemd" => run_systemd_action(action, &service_name)?,
+        "launchctl" => run_launchctl_action(action, &service_name)?,
+        "windows-service" => run_windows_service_action(action, &service_name)?,
+        "runtime-gate" => run_runtime_gate_action(state, action)?,
+        _ => {
+            return Err(ApiError::bad_request(format!(
+                "Unsupported runtime service mode: {}",
+                mode
+            )));
+        }
+    }
+
+    Ok(runtime_service_snapshot(state))
+}
+
+fn runtime_env_defaults() -> BTreeMap<String, String> {
+    BTreeMap::from([
+        ("API_HOST".to_string(), "127.0.0.1".to_string()),
+        ("API_PORT".to_string(), "8080".to_string()),
+        ("WEB_APP_PORT".to_string(), "5173".to_string()),
+        ("DATABASE_URL".to_string(), "laragram.db".to_string()),
+        ("FILE_STORAGE_DIR".to_string(), "files".to_string()),
+        ("LOG_DIR".to_string(), "stdout".to_string()),
+        ("RUNTIME_SERVICE_MODE".to_string(), "auto".to_string()),
+        ("RUNTIME_SERVICE_NAME".to_string(), "laragram-api-server".to_string()),
+    ])
+}
+
+fn runtime_env_file_path() -> PathBuf {
+    std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join(".env")
+}
+
+fn read_runtime_env_file() -> Result<BTreeMap<String, String>, ApiError> {
+    let path = runtime_env_file_path();
+    let mut values = runtime_env_defaults();
+
+    if !path.exists() {
+        return Ok(values);
+    }
+
+    let content = fs::read_to_string(path).map_err(ApiError::internal)?;
+    for raw_line in content.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        let (raw_key, raw_value) = match line.split_once('=') {
+            Some(parts) => parts,
+            None => continue,
+        };
+
+        let key = raw_key.trim().trim_start_matches("export ").trim().to_string();
+        if key.is_empty() {
+            continue;
+        }
+
+        let value = raw_value.trim();
+        let normalized_value = if value.len() >= 2
+            && ((value.starts_with('"') && value.ends_with('"'))
+                || (value.starts_with('\'') && value.ends_with('\'')))
+        {
+            value[1..value.len() - 1].to_string()
+        } else {
+            value.to_string()
+        };
+        values.insert(key, normalized_value);
+    }
+
+    Ok(values)
+}
+
+fn encode_env_value(raw: &str) -> String {
+    let is_simple = !raw.is_empty()
+        && raw
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/' | ':' | ','));
+    if is_simple {
+        return raw.to_string();
+    }
+
+    let escaped = raw
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r");
+    format!("\"{}\"", escaped)
+}
+
+fn write_runtime_env_file(values: &BTreeMap<String, String>) -> Result<(), ApiError> {
+    let path = runtime_env_file_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(ApiError::internal)?;
+    }
+
+    let mut lines = String::new();
+    for (key, value) in values {
+        let normalized_key = key.trim();
+        if normalized_key.is_empty() {
+            continue;
+        }
+        lines.push_str(normalized_key);
+        lines.push('=');
+        lines.push_str(&encode_env_value(value));
+        lines.push('\n');
+    }
+
+    fs::write(path, lines).map_err(ApiError::internal)
 }
 
 fn query_to_json_map(query: &HashMap<String, String>) -> HashMap<String, Value> {

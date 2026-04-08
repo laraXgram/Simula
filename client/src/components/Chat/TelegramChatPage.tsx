@@ -1,6 +1,8 @@
-import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
+  BadgeCheck,
+  Bug,
   ChevronLeft,
   ChevronDown,
   ChevronRight,
@@ -21,10 +23,14 @@ import {
   Play,
   Reply,
   Pencil,
+  PanelLeftClose,
+  PanelLeftOpen,
   Paperclip,
   Plus,
+  RefreshCw,
   Search,
   SendHorizonal,
+  Settings2,
   ShieldCheck,
   Smile,
   Star,
@@ -34,6 +40,7 @@ import {
   Wallet,
   Wrench,
   X,
+  MessageCircle,
 } from 'lucide-react';
 import {
   chooseInlineResult,
@@ -190,7 +197,6 @@ import {
   addSimUserChatBoosts,
   removeSimUserChatBoosts,
   updateSimulationGroup,
-  deleteSimUser,
   updateSimBot,
   upsertSimUser,
 } from '../../services/botApi';
@@ -267,6 +273,7 @@ const HIDDEN_STORY_KEYS_BY_BOT_KEY = 'laragram-hidden-story-keys-by-bot';
 const MANAGED_BOT_SETTINGS_BY_BOT_KEY = 'laragram-managed-bot-settings-by-bot';
 const USER_EMOJI_STATUS_BY_KEY = 'laragram-user-emoji-status-by-key';
 const CHAT_BOOST_COUNTS_BY_ACTOR_CHAT_KEY = 'laragram-chat-boost-counts-by-actor-chat';
+const SIDEBAR_SECTIONS_KEY = 'laragram-sidebar-sections';
 const GENERAL_FORUM_TOPIC_THREAD_ID = 1;
 const DEFAULT_FORUM_ICON_COLOR = 0x6FB9F0;
 const DEFAULT_WALLET_STATE = {
@@ -280,7 +287,7 @@ const STORY_ACTIVE_PERIOD_OPTIONS = [
   { value: '86400', label: '24 hours' },
   { value: '172800', label: '48 hours' },
 ] as const;
-type SidebarTab = 'chats' | 'bots' | 'users';
+type SidebarTab = 'chats' | 'users' | 'bots' | 'debugger' | 'settings';
 type ChatScopeTab = 'private' | 'group' | 'channel';
 type BotModalMode = 'create' | 'edit';
 type UserModalMode = 'create' | 'edit';
@@ -307,6 +314,61 @@ interface StoryPreviewSnapshot {
   caption?: string;
   contentRef?: string;
   contentType?: 'photo' | 'video';
+}
+
+interface SidebarSectionState {
+  chats: boolean;
+  privateChats: boolean;
+  groupChats: boolean;
+  channelChats: boolean;
+  users: boolean;
+  bots: boolean;
+  debugger: boolean;
+  settings: boolean;
+}
+
+interface DebugEventLog {
+  id: string;
+  at: number;
+  method: string;
+  path?: string;
+  source: 'bot' | 'webhook';
+  query?: string;
+  statusCode?: number;
+  durationMs?: number;
+  remoteAddr?: string;
+  status: 'ok' | 'error';
+  request?: unknown;
+  response?: unknown;
+  error?: string;
+}
+
+interface RuntimeInfoState {
+  api_host: string;
+  api_port: string;
+  web_port: string;
+  database_path: string;
+  storage_path: string;
+  logs_path: string;
+  workspace_dir: string;
+  api_enabled?: boolean;
+  env_file_path?: string;
+  env_values?: Record<string, string>;
+  service?: {
+    mode: string;
+    name: string;
+    available: boolean;
+    active: boolean;
+    status: string;
+    requested_mode?: string;
+    note?: string;
+  };
+}
+
+interface RuntimeEnvRow {
+  id: string;
+  key: string;
+  value: string;
 }
 
 interface StoryShelfEntry {
@@ -545,6 +607,8 @@ function normalizeSimUser(raw?: Partial<SimUser> | null): SimUser {
     business_intro: optionalTrimmedText(raw?.business_intro),
     business_location: optionalTrimmedText(raw?.business_location),
     gift_count: nonNegativeInteger(raw?.gift_count, 0),
+    is_verified: typeof raw?.is_verified === 'boolean' ? raw.is_verified : false,
+    verification_description: optionalTrimmedText(raw?.verification_description),
   };
 }
 
@@ -676,6 +740,47 @@ function defaultManagedBotSettings(): ManagedBotSettingsState {
   return {
     enabled: true,
   };
+}
+
+function defaultSidebarSections(): SidebarSectionState {
+  return {
+    chats: true,
+    privateChats: true,
+    groupChats: true,
+    channelChats: true,
+    users: true,
+    bots: true,
+    debugger: true,
+    settings: true,
+  };
+}
+
+function normalizeRuntimeEnvValues(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== 'object') {
+    return {};
+  }
+
+  const values: Record<string, string> = {};
+  Object.entries(raw as Record<string, unknown>).forEach(([key, value]) => {
+    const normalizedKey = key.trim();
+    if (!normalizedKey) {
+      return;
+    }
+    values[normalizedKey] = String(value ?? '');
+  });
+  return values;
+}
+
+function buildRuntimeEnvRows(values: Record<string, string>): RuntimeEnvRow[] {
+  const rows = Object.entries(values)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value], index) => ({
+      id: `${key}-${index}`,
+      key,
+      value,
+    }));
+
+  return rows.length > 0 ? rows : [{ id: `env-${Date.now()}`, key: '', value: '' }];
 }
 
 function normalizeManagedBotUsernameDraft(raw: string): string {
@@ -861,6 +966,8 @@ interface GroupChatItem {
   type: 'group' | 'supergroup' | 'channel';
   title: string;
   username?: string;
+  isVerified?: boolean;
+  verificationDescription?: string;
   description?: string;
   isForum?: boolean;
   isDirectMessages?: boolean;
@@ -1689,6 +1796,41 @@ function buildMenuButtonFromDraft(draft: GroupMenuButtonDraft): GeneratedMenuBut
 
 export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatPageProps) {
   const [activeTab, setActiveTab] = useState<SidebarTab>(initialTab);
+  const [isSidebarPanelOpen, setIsSidebarPanelOpen] = useState(true);
+  const [sidebarSections, setSidebarSections] = useState<SidebarSectionState>(() => {
+    try {
+      const raw = localStorage.getItem(SIDEBAR_SECTIONS_KEY);
+      const parsed = raw ? (JSON.parse(raw) as Partial<SidebarSectionState>) : {};
+      const defaults = defaultSidebarSections();
+      return {
+        chats: typeof parsed.chats === 'boolean' ? parsed.chats : defaults.chats,
+        privateChats: typeof parsed.privateChats === 'boolean' ? parsed.privateChats : defaults.privateChats,
+        groupChats: typeof parsed.groupChats === 'boolean' ? parsed.groupChats : defaults.groupChats,
+        channelChats: typeof parsed.channelChats === 'boolean' ? parsed.channelChats : defaults.channelChats,
+        users: typeof parsed.users === 'boolean' ? parsed.users : defaults.users,
+        bots: typeof parsed.bots === 'boolean' ? parsed.bots : defaults.bots,
+        debugger: typeof parsed.debugger === 'boolean' ? parsed.debugger : defaults.debugger,
+        settings: typeof parsed.settings === 'boolean' ? parsed.settings : defaults.settings,
+      };
+    } catch {
+      return defaultSidebarSections();
+    }
+  });
+  const [debugEventLogs, setDebugEventLogs] = useState<DebugEventLog[]>([]);
+  const [debuggerSearch, setDebuggerSearch] = useState('');
+  const [debuggerStatusFilter, setDebuggerStatusFilter] = useState<'all' | 'ok' | 'error'>('all');
+  const [debuggerSourceFilter, setDebuggerSourceFilter] = useState<'all' | 'bot' | 'webhook'>('all');
+  const [isDebuggerHistoryExpanded, setIsDebuggerHistoryExpanded] = useState(true);
+  const [serverHealth, setServerHealth] = useState<{
+    status: 'checking' | 'online' | 'offline';
+    checkedAt?: number;
+    error?: string;
+  }>({ status: 'checking' });
+  const [runtimeInfo, setRuntimeInfo] = useState<RuntimeInfoState | null>(null);
+  const [runtimeEnvRows, setRuntimeEnvRows] = useState<RuntimeEnvRow[]>([]);
+  const [runtimeEnvSource, setRuntimeEnvSource] = useState<Record<string, string>>({});
+  const [isRuntimeEnvSaving, setIsRuntimeEnvSaving] = useState(false);
+  const [runtimeServiceActionInFlight, setRuntimeServiceActionInFlight] = useState<'' | 'start' | 'stop' | 'restart'>('');
   const [chatScopeTab, setChatScopeTab] = useState<ChatScopeTab>(() => {
     const raw = localStorage.getItem(CHAT_SCOPE_KEY);
     if (raw === 'group' || raw === 'channel' || raw === 'private') {
@@ -1726,6 +1868,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_USER.id;
   });
   const [chatSearch, setChatSearch] = useState('');
+  const [usersTabSearch, setUsersTabSearch] = useState('');
   const [groupChats, setGroupChats] = useState<GroupChatItem[]>(() => {
     try {
       const raw = localStorage.getItem(GROUP_CHATS_KEY);
@@ -2461,20 +2604,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
     return [] as GroupChatItem[];
   }, [chatScopeTab, groupChats]);
-
-  const filteredGroups = useMemo(() => {
-    const keyword = chatSearch.trim().toLowerCase();
-    if (!keyword) {
-      return scopedGroupChats;
-    }
-
-    return scopedGroupChats.filter((group) => {
-      const title = group.title.toLowerCase();
-      const username = (group.username || '').toLowerCase();
-      const idText = String(group.id);
-      return title.includes(keyword) || username.includes(keyword) || idText.includes(keyword);
-    });
-  }, [chatSearch, scopedGroupChats]);
 
   const selectedGroup = useMemo(
     () => groupChats.find((group) => group.id === selectedGroupChatId) || null,
@@ -3955,6 +4084,127 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     });
   }, [availableUsers, chatSearch]);
 
+  const filteredUsersForManagement = useMemo(() => {
+    const keyword = usersTabSearch.trim().toLowerCase();
+    if (!keyword) {
+      return availableUsers;
+    }
+
+    return availableUsers.filter((user) => {
+      const fullName = `${user.first_name} ${user.last_name || ''}`.toLowerCase();
+      const username = (user.username || '').toLowerCase();
+      const idText = String(user.id);
+      return fullName.includes(keyword) || username.includes(keyword) || idText.includes(keyword);
+    });
+  }, [availableUsers, usersTabSearch]);
+
+  const filteredDebugEventLogs = useMemo(() => {
+    const keyword = debuggerSearch.trim().toLowerCase();
+
+    return debugEventLogs.filter((entry) => {
+      if (debuggerStatusFilter !== 'all' && entry.status !== debuggerStatusFilter) {
+        return false;
+      }
+
+      if (debuggerSourceFilter !== 'all' && entry.source !== debuggerSourceFilter) {
+        return false;
+      }
+
+      if (!keyword) {
+        return true;
+      }
+
+      const method = entry.method.toLowerCase();
+      const path = (entry.path || '').toLowerCase();
+      const query = (entry.query || '').toLowerCase();
+      const statusCode = String(entry.statusCode || '');
+      const requestText = JSON.stringify(entry.request || '').toLowerCase();
+      const responseText = JSON.stringify(entry.response || '').toLowerCase();
+      const errorText = (entry.error || '').toLowerCase();
+      return method.includes(keyword)
+        || path.includes(keyword)
+        || query.includes(keyword)
+        || statusCode.includes(keyword)
+        || requestText.includes(keyword)
+        || responseText.includes(keyword)
+        || errorText.includes(keyword);
+    });
+  }, [debugEventLogs, debuggerSearch, debuggerStatusFilter, debuggerSourceFilter]);
+
+  const webhookDebugCount = useMemo(
+    () => debugEventLogs.filter((entry) => entry.source === 'webhook').length,
+    [debugEventLogs],
+  );
+
+  const latestDebugLog = useMemo(
+    () => (filteredDebugEventLogs.length > 0 ? filteredDebugEventLogs[0] : null),
+    [filteredDebugEventLogs],
+  );
+
+  const historicalDebugLogs = useMemo(
+    () => (filteredDebugEventLogs.length > 1 ? filteredDebugEventLogs.slice(1) : []),
+    [filteredDebugEventLogs],
+  );
+
+  const runtimeEnvDraftByKey = useMemo(() => {
+    const values: Record<string, string> = {};
+    runtimeEnvRows.forEach((row) => {
+      const key = row.key.trim();
+      if (!key) {
+        return;
+      }
+      values[key] = row.value;
+    });
+    return values;
+  }, [runtimeEnvRows]);
+
+  const runtimeEnvDirty = useMemo(() => {
+    const sourceKeys = Object.keys(runtimeEnvSource).sort();
+    const draftKeys = Object.keys(runtimeEnvDraftByKey).sort();
+    if (sourceKeys.length !== draftKeys.length) {
+      return true;
+    }
+    for (let index = 0; index < sourceKeys.length; index += 1) {
+      if (sourceKeys[index] !== draftKeys[index]) {
+        return true;
+      }
+      if (runtimeEnvSource[sourceKeys[index]] !== runtimeEnvDraftByKey[draftKeys[index]]) {
+        return true;
+      }
+    }
+    return false;
+  }, [runtimeEnvDraftByKey, runtimeEnvSource]);
+
+  const filteredGroupChatsBySearch = useMemo(() => {
+    const keyword = chatSearch.trim().toLowerCase();
+    const base = groupChats.filter((group) => group.type === 'group' || group.type === 'supergroup');
+    if (!keyword) {
+      return base;
+    }
+
+    return base.filter((group) => {
+      const title = group.title.toLowerCase();
+      const username = (group.username || '').toLowerCase();
+      const idText = String(group.id);
+      return title.includes(keyword) || username.includes(keyword) || idText.includes(keyword);
+    });
+  }, [chatSearch, groupChats]);
+
+  const filteredChannelChatsBySearch = useMemo(() => {
+    const keyword = chatSearch.trim().toLowerCase();
+    const base = groupChats.filter((group) => group.type === 'channel' && !group.isDirectMessages);
+    if (!keyword) {
+      return base;
+    }
+
+    return base.filter((group) => {
+      const title = group.title.toLowerCase();
+      const username = (group.username || '').toLowerCase();
+      const idText = String(group.id);
+      return title.includes(keyword) || username.includes(keyword) || idText.includes(keyword);
+    });
+  }, [chatSearch, groupChats]);
+
   const stickerSetNamesFromMessages = useMemo(() => {
     const names = new Set<string>();
     visibleMessages.forEach((message) => {
@@ -4099,6 +4349,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   useEffect(() => {
     localStorage.setItem(BOTS_KEY, JSON.stringify(availableBots));
   }, [availableBots]);
+
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_SECTIONS_KEY, JSON.stringify(sidebarSections));
+  }, [sidebarSections]);
 
   useEffect(() => {
     localStorage.setItem(USERS_KEY, JSON.stringify(availableUsers));
@@ -5744,6 +5998,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               type: chat.type as 'group' | 'supergroup' | 'channel',
               title: chat.title || (isDirectMessages ? `Direct Messages ${Math.abs(chat.id)}` : `Group ${Math.abs(chat.id)}`),
               username: chat.username || undefined,
+              isVerified: Boolean(chat.is_verified),
+              verificationDescription: optionalTrimmedText(chat.verification_description),
               description: settingsByChatId.get(chat.id)?.description,
               isForum: Boolean(chat.is_forum) && !isDirectMessages,
               isDirectMessages,
@@ -10771,17 +11027,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }));
   };
 
-  const openCreateUserModal = () => {
-    const randomId = Math.floor(Math.random() * 900000 + 10000);
-    setUserModalMode('create');
-    setUserDraft(randomUserDraft(randomId));
-    setBusinessDraftBotToken(selectedBotToken);
-    setBusinessConnectionDraftId('');
-    setBusinessConnectionDraftEnabled(true);
-    setBusinessRightsDraft(defaultBusinessRightsDraft());
-    setShowUserModal(true);
-  };
-
   const randomizeUserDraft = () => {
     const parsedId = Math.floor(Number(userDraft.id));
     const randomId = userModalMode === 'edit' && Number.isFinite(parsedId) && parsedId > 0
@@ -10835,6 +11080,305 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     } finally {
       setIsManagedBotTokenActionRunning(false);
     }
+  };
+
+  const onSelectSidebarTab = (tab: SidebarTab) => {
+    if (activeTab === tab) {
+      setIsSidebarPanelOpen((prev) => !prev);
+      return;
+    }
+    setActiveTab(tab);
+    setIsSidebarPanelOpen(true);
+    if (tab === 'debugger') {
+      void onLoadRuntimeLogs();
+    }
+    if (tab === 'settings') {
+      void onLoadRuntimeInfo();
+      void onCheckServerHealth();
+    }
+  };
+
+  const onToggleSidebarSection = (section: keyof SidebarSectionState) => {
+    setSidebarSections((prev) => ({
+      ...prev,
+      [section]: !prev[section],
+    }));
+  };
+
+  const onCheckServerHealth = useCallback(async () => {
+    const apiBase = API_BASE_URL.replace(/\/$/, '');
+
+    setServerHealth((prev) => ({
+      ...prev,
+      status: 'checking',
+      error: undefined,
+    }));
+    try {
+      const response = await fetch(`${apiBase}/health`);
+      if (!response.ok) {
+        throw new Error(`health check failed (${response.status})`);
+      }
+      setServerHealth({
+        status: 'online',
+        checkedAt: Date.now(),
+      });
+    } catch (error) {
+      setServerHealth({
+        status: 'offline',
+        checkedAt: Date.now(),
+        error: error instanceof Error ? error.message : 'server unreachable',
+      });
+    }
+  }, []);
+
+  const onLoadRuntimeLogs = useCallback(async () => {
+    const apiBase = API_BASE_URL.replace(/\/$/, '');
+    try {
+      const response = await fetch(`${apiBase}/client-api/runtime/logs?limit=300`);
+      if (!response.ok) {
+        throw new Error(`runtime logs failed (${response.status})`);
+      }
+
+      const payload = await response.json();
+      const items = Array.isArray(payload?.result?.items)
+        ? payload.result.items as Array<Record<string, unknown>>
+        : [];
+
+      const mapped: DebugEventLog[] = items
+        .filter((entry) => {
+          const path = String(entry.path || '');
+          return path.startsWith('/bot') || path.startsWith('/webhook');
+        })
+        .map((entry, index) => {
+        const path = String(entry.path || '');
+        const responsePayload = entry.response;
+        const statusCode = Number(entry.status || 0);
+        const inferredError = typeof responsePayload === 'object'
+          && responsePayload
+          && (responsePayload as Record<string, unknown>).ok === false;
+        const description = typeof responsePayload === 'object' && responsePayload
+          ? (responsePayload as Record<string, unknown>).description
+          : undefined;
+
+        return {
+          id: String(entry.id || `${Date.now()}-${index}`),
+          at: Number(entry.at || Date.now()),
+          method: String(entry.method || 'UNKNOWN'),
+          path,
+          source: path.startsWith('/webhook') ? 'webhook' : 'bot',
+          query: typeof entry.query === 'string' ? entry.query : undefined,
+          statusCode,
+          durationMs: Number(entry.duration_ms || 0),
+          remoteAddr: typeof entry.remote_addr === 'string' ? entry.remote_addr : undefined,
+          status: inferredError || statusCode >= 400 ? 'error' : 'ok',
+          request: entry.request,
+          response: entry.response,
+          error: typeof description === 'string' ? description : undefined,
+        };
+      });
+
+      setDebugEventLogs(mapped);
+    } catch {
+      // Keep debugger usable with last-known logs when runtime endpoint is unavailable.
+    }
+  }, []);
+
+  const onLoadRuntimeInfo = useCallback(async () => {
+    const apiBase = API_BASE_URL.replace(/\/$/, '');
+    try {
+      const response = await fetch(`${apiBase}/client-api/runtime/info`);
+      if (!response.ok) {
+        throw new Error(`runtime info failed (${response.status})`);
+      }
+      const payload = await response.json();
+      const runtime = payload?.runtime as Partial<RuntimeInfoState> | undefined;
+      if (!runtime) {
+        return;
+      }
+      const envValues = normalizeRuntimeEnvValues(runtime.env_values);
+      const rawService = runtime.service && typeof runtime.service === 'object'
+        ? runtime.service as Record<string, unknown>
+        : undefined;
+      setRuntimeInfo({
+        api_host: String(runtime.api_host || ''),
+        api_port: String(runtime.api_port || ''),
+        web_port: String(runtime.web_port || ''),
+        database_path: String(runtime.database_path || ''),
+        storage_path: String(runtime.storage_path || ''),
+        logs_path: String(runtime.logs_path || ''),
+        workspace_dir: String(runtime.workspace_dir || ''),
+        api_enabled: Boolean(runtime.api_enabled),
+        env_file_path: typeof runtime.env_file_path === 'string' ? runtime.env_file_path : undefined,
+        env_values: envValues,
+        service: rawService ? {
+          mode: String(rawService.mode || ''),
+          name: String(rawService.name || ''),
+          available: Boolean(rawService.available),
+          active: Boolean(rawService.active),
+          status: String(rawService.status || 'unknown'),
+          requested_mode: typeof rawService.requested_mode === 'string' ? rawService.requested_mode : undefined,
+          note: typeof rawService.note === 'string' ? rawService.note : undefined,
+        } : undefined,
+      });
+
+      if (!runtimeEnvDirty) {
+        setRuntimeEnvSource(envValues);
+        setRuntimeEnvRows(buildRuntimeEnvRows(envValues));
+      }
+    } catch {
+      // Keep settings usable even when runtime info endpoint is unreachable.
+    }
+  }, [runtimeEnvDirty]);
+
+  const onRuntimeServiceAction = async (action: 'start' | 'stop' | 'restart') => {
+    setRuntimeServiceActionInFlight(action);
+    setErrorText('');
+    try {
+      const apiBase = API_BASE_URL.replace(/\/$/, '');
+      const response = await fetch(`${apiBase}/client-api/runtime/service`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action }),
+      });
+
+      const payload = await response.json();
+      if (!payload?.ok) {
+        throw new Error(payload?.description || `Unable to ${action} service`);
+      }
+
+      await onLoadRuntimeInfo();
+      await onCheckServerHealth();
+      setCallbackToast(`Service action executed: ${action}.`);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : `Service ${action} failed`);
+    } finally {
+      setRuntimeServiceActionInFlight('');
+    }
+  };
+
+  const onClearRuntimeLogs = async () => {
+    setErrorText('');
+    try {
+      const apiBase = API_BASE_URL.replace(/\/$/, '');
+      const response = await fetch(`${apiBase}/client-api/runtime/logs/clear`, {
+        method: 'POST',
+      });
+      const payload = await response.json();
+      if (!payload?.ok) {
+        throw new Error(payload?.description || 'Unable to clear debugger logs');
+      }
+      await onLoadRuntimeLogs();
+      setCallbackToast('Debugger logs cleared.');
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Unable to clear debugger logs');
+    }
+  };
+
+  const onAddRuntimeEnvRow = () => {
+    setRuntimeEnvRows((prev) => [...prev, { id: `env-${Date.now()}`, key: '', value: '' }]);
+  };
+
+  const onUpdateRuntimeEnvRow = (id: string, field: 'key' | 'value', value: string) => {
+    setRuntimeEnvRows((prev) => prev.map((row) => (
+      row.id === id
+        ? {
+          ...row,
+          [field]: value,
+        }
+        : row
+    )));
+  };
+
+  const onRemoveRuntimeEnvRow = (id: string) => {
+    setRuntimeEnvRows((prev) => {
+      const next = prev.filter((row) => row.id !== id);
+      return next.length > 0 ? next : [{ id: `env-${Date.now()}`, key: '', value: '' }];
+    });
+  };
+
+  const onSaveRuntimeEnv = async () => {
+    setIsRuntimeEnvSaving(true);
+    setErrorText('');
+    try {
+      const payloadValues: Record<string, string | null> = {};
+      Object.keys(runtimeEnvSource).forEach((key) => {
+        if (!(key in runtimeEnvDraftByKey)) {
+          payloadValues[key] = null;
+        }
+      });
+      Object.entries(runtimeEnvDraftByKey).forEach(([key, value]) => {
+        payloadValues[key] = value;
+      });
+
+      if (Object.keys(payloadValues).length === 0) {
+        setCallbackToast('No env changes to save.');
+        setIsRuntimeEnvSaving(false);
+        return;
+      }
+
+      const apiBase = API_BASE_URL.replace(/\/$/, '');
+      const response = await fetch(`${apiBase}/client-api/runtime/env`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ values: payloadValues }),
+      });
+      const payload = await response.json();
+      if (!payload?.ok) {
+        throw new Error(payload?.description || 'Unable to save env values');
+      }
+
+      const nextValues = normalizeRuntimeEnvValues(payload?.result?.values);
+      setRuntimeEnvSource(nextValues);
+      setRuntimeEnvRows(buildRuntimeEnvRows(nextValues));
+      setCallbackToast('.env saved.');
+      await onLoadRuntimeInfo();
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Saving env failed');
+    } finally {
+      setIsRuntimeEnvSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    void onCheckServerHealth();
+    void onLoadRuntimeInfo();
+    void onLoadRuntimeLogs();
+
+    const timer = window.setInterval(() => {
+      void onCheckServerHealth();
+      void onLoadRuntimeInfo();
+      void onLoadRuntimeLogs();
+    }, 15_000);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [onCheckServerHealth, onLoadRuntimeInfo, onLoadRuntimeLogs]);
+
+  useEffect(() => {
+    void onLoadRuntimeLogs();
+    const timer = window.setInterval(() => {
+      void onLoadRuntimeLogs();
+    }, 1000);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [onLoadRuntimeLogs]);
+
+  const openCreateUserModal = () => {
+    const randomId = Math.floor(Math.random() * 900000 + 10000);
+    setUserModalMode('create');
+    setUserDraft(randomUserDraft(randomId));
+    setBusinessDraftBotToken(selectedBotToken);
+    setBusinessConnectionDraftId('');
+    setBusinessConnectionDraftEnabled(true);
+    setBusinessRightsDraft(defaultBusinessRightsDraft());
+    setShowUserModal(true);
   };
 
   const openEditUserModal = (user: SimUser) => {
@@ -11015,7 +11559,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       setSelectedUserId(normalized.id);
       setUserDraft(emptyUserDraft());
       setShowUserModal(false);
-      setActiveTab('users');
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'User could not be saved');
     }
@@ -12367,6 +12910,50 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
   };
 
+  const formatDebugValue = (value: unknown): string => {
+    if (typeof value === 'undefined') {
+      return 'undefined';
+    }
+    if (value === null) {
+      return 'null';
+    }
+    if (typeof value === 'string') {
+      return value;
+    }
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
+  };
+
+  const copyDebugLogPart = async (label: string, value: unknown) => {
+    try {
+      await navigator.clipboard.writeText(formatDebugValue(value));
+      setCallbackToast(`${label} copied.`);
+    } catch {
+      setErrorText(`${label} copy failed`);
+    }
+  };
+
+  const copyWholeDebugLog = async (entry: DebugEventLog) => {
+    const payload = {
+      at: new Date(entry.at).toISOString(),
+      source: entry.source,
+      method: entry.method,
+      path: entry.path,
+      query: entry.query,
+      status_code: entry.statusCode,
+      duration_ms: entry.durationMs,
+      remote_addr: entry.remoteAddr,
+      status: entry.status,
+      request: entry.request,
+      response: entry.response,
+      error: entry.error,
+    };
+    await copyDebugLogPart('Debug log', payload);
+  };
+
   const removeBot = (token: string) => {
     if (availableBots.length <= 1) {
       setErrorText('At least one bot must remain in simulator.');
@@ -12377,50 +12964,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     setAvailableBots(next);
     if (selectedBotToken === token) {
       setSelectedBotToken(next[0].token);
-    }
-  };
-
-  const removeUser = async (id: number) => {
-    if (availableUsers.length <= 1) {
-      setErrorText('At least one user must remain in simulator.');
-      return;
-    }
-
-    setIsBootstrapping(true);
-    setErrorText('');
-    try {
-      try {
-        await deleteSimUser({ id });
-      } catch (error) {
-        const message = error instanceof Error ? error.message.toLowerCase() : '';
-        if (!message.includes('user not found')) {
-          throw error;
-        }
-      }
-
-      const next = availableUsers.filter((user) => user.id !== id);
-      setAvailableUsers(next);
-      if (selectedUserId === id) {
-        setSelectedUserId(next[0].id);
-      }
-
-      setBusinessConnectionByUserKey((prev) => Object.fromEntries(
-        Object.entries(prev).filter(([key]) => !key.endsWith(`:${id}`)),
-      ));
-      setGroupMembershipByUser((prev) => Object.fromEntries(
-        Object.entries(prev).filter(([key]) => !key.endsWith(`:${id}`)),
-      ));
-      setPendingJoinRequestsByChat((prev) => Object.fromEntries(
-        Object.entries(prev).map(([key, requests]) => [
-          key,
-          requests.filter((request) => request.userId !== id),
-        ]),
-      ));
-      setErrorText(`User ${id} deleted.`);
-    } catch (error) {
-      setErrorText(error instanceof Error ? error.message : 'Unable to delete user');
-    } finally {
-      setIsBootstrapping(false);
     }
   };
 
@@ -14572,393 +15115,798 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   return (
     <div className="h-screen overflow-hidden bg-app-pattern text-telegram-text">
       <div className="mx-auto flex h-full w-full min-w-0 max-w-[1500px] border-x border-white/10 backdrop-blur-md">
-        <aside className="w-[260px] shrink-0 overflow-y-auto border-r border-white/10 bg-[#152434]/95 sm:w-[280px] lg:w-[300px]">
-          <div className="border-b border-white/10 px-4 py-3">
-            <div className="mb-2 flex items-center justify-between">
-              <h1 className="text-xl font-semibold tracking-wide">LaraGram Studio</h1>
-              <ShieldCheck className="h-5 w-5 text-[#66c1ff]" />
+        <aside className={`shrink-0 border-r border-white/10 bg-[#152434]/95 transition-all ${isSidebarPanelOpen
+          ? ((activeTab === 'debugger' || activeTab === 'settings')
+            ? 'w-[min(97vw,520px)] sm:w-[420px] lg:w-[460px]'
+            : 'w-[min(92vw,340px)] sm:w-[340px]')
+          : 'w-[70px]'} flex`}>
+          <div className="flex w-[70px] flex-col items-center border-r border-white/10 bg-[#0f1a26] py-3">
+            <button
+              type="button"
+              onClick={() => setIsSidebarPanelOpen((prev) => !prev)}
+              className="mb-3 rounded-lg border border-white/15 bg-black/20 p-2 text-white hover:bg-white/10"
+              title={isSidebarPanelOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+            >
+              {isSidebarPanelOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+            </button>
+
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => onSelectSidebarTab('chats')}
+                className={`rounded-lg p-2 ${activeTab === 'chats' ? 'bg-[#2b5278] text-white' : 'text-telegram-textSecondary hover:bg-white/10 hover:text-white'}`}
+                title="Chats"
+              >
+                <MessageCircle className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onSelectSidebarTab('users')}
+                className={`rounded-lg p-2 ${activeTab === 'users' ? 'bg-[#2b5278] text-white' : 'text-telegram-textSecondary hover:bg-white/10 hover:text-white'}`}
+                title="Users"
+              >
+                <UserPlus className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onSelectSidebarTab('bots')}
+                className={`rounded-lg p-2 ${activeTab === 'bots' ? 'bg-[#2b5278] text-white' : 'text-telegram-textSecondary hover:bg-white/10 hover:text-white'}`}
+                title="Bots"
+              >
+                <Bot className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onSelectSidebarTab('debugger')}
+                className={`rounded-lg p-2 ${activeTab === 'debugger' ? 'bg-[#2b5278] text-white' : 'text-telegram-textSecondary hover:bg-white/10 hover:text-white'}`}
+                title="Debugger"
+              >
+                <Bug className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onSelectSidebarTab('settings')}
+                className={`rounded-lg p-2 ${activeTab === 'settings' ? 'bg-[#2b5278] text-white' : 'text-telegram-textSecondary hover:bg-white/10 hover:text-white'}`}
+                title="Settings"
+              >
+                <Settings2 className="h-5 w-5" />
+              </button>
             </div>
-            <p className="text-xs text-telegram-textSecondary">Telegram-like Bot Simulator</p>
           </div>
 
-          <div className="p-3">
-            <div className="mb-3 grid grid-cols-3 gap-2 rounded-xl bg-black/20 p-1.5">
-              <button
-                type="button"
-                onClick={() => setActiveTab('chats')}
-                className={`rounded-lg px-2 py-2 text-xs font-medium ${activeTab === 'chats' ? 'bg-[#2b5278] text-white' : 'text-telegram-textSecondary'}`}
-              >
-                Chats
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('bots')}
-                className={`rounded-lg px-2 py-2 text-xs font-medium ${activeTab === 'bots' ? 'bg-[#2b5278] text-white' : 'text-telegram-textSecondary'}`}
-              >
-                Bots
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('users')}
-                className={`rounded-lg px-2 py-2 text-xs font-medium ${activeTab === 'users' ? 'bg-[#2b5278] text-white' : 'text-telegram-textSecondary'}`}
-              >
-                Users
-              </button>
-            </div>
-            <div className="mb-3 grid grid-cols-3 gap-1 rounded-xl border border-white/10 bg-black/20 p-1 text-[11px]">
-              <button
-                type="button"
-                onClick={() => setChatScopeTab('private')}
-                className={`rounded-md px-2 py-1.5 ${chatScopeTab === 'private' ? 'bg-[#2b5278] text-white' : 'text-telegram-textSecondary'}`}
-              >
-                Private
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setChatScopeTab('group');
-                  setGroupDraft((prev) => ({
-                    ...prev,
-                    type: prev.type === 'channel' ? 'supergroup' : prev.type,
-                  }));
-                }}
-                className={`rounded-md px-2 py-1.5 ${chatScopeTab === 'group' ? 'bg-[#2b5278] text-white' : 'text-telegram-textSecondary'}`}
-              >
-                Group
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setChatScopeTab('channel');
-                  setGroupDraft((prev) => ({
-                    ...prev,
-                    type: 'channel',
-                    isForum: false,
-                  }));
-                }}
-                className={`rounded-md px-2 py-1.5 ${chatScopeTab === 'channel' ? 'bg-[#2b5278] text-white' : 'text-telegram-textSecondary'}`}
-              >
-                Channel
-              </button>
-            </div>
-
-            <div className="mb-3 flex items-center justify-between rounded-xl bg-white/5 px-3 py-2">
-              <div className="min-w-0 text-xs text-telegram-textSecondary">
-                <p className="font-medium text-white">Bot: {selectedBot?.first_name || 'Loading'}</p>
-                <p className="break-all text-[11px] leading-4">Token: {selectedBotToken}</p>
+          {isSidebarPanelOpen ? (
+            <div className="min-w-0 flex-1 overflow-y-auto">
+              <div className="border-b border-white/10 px-4 py-3">
+                <div className="mb-1 flex items-center justify-between">
+                  <h1 className="text-sm font-semibold tracking-wide text-white">
+                    {activeTab === 'chats'
+                      ? 'Chats'
+                      : activeTab === 'users'
+                        ? 'Users'
+                      : activeTab === 'bots'
+                        ? 'Bots'
+                        : activeTab === 'debugger'
+                          ? 'Debugger'
+                          : 'Settings'}
+                  </h1>
+                  <ShieldCheck className="h-4 w-4 text-[#66c1ff]" />
+                </div>
+                <p className="truncate text-[11px] text-telegram-textSecondary">Bot: {selectedBot?.first_name || 'Loading'} · @{selectedBot?.username || 'unknown'}</p>
+                <p className="truncate text-[10px] text-[#9ec3dc]">Token: {selectedBotToken}</p>
               </div>
-              <div className="ml-3 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => void copyToken(selectedBotToken)}
-                  className="rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
-                  title="Copy token"
-                >
-                  <Copy className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => (activeTab === 'users' ? openCreateUserModal() : onCreateBot())}
-                  className="rounded-full bg-[#2f6ea1] p-2 text-white hover:bg-[#3b82bf]"
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-            {copiedToken ? <p className="mb-2 text-[11px] text-[#9bd1f5]">Token copied.</p> : null}
 
-            {activeTab === 'chats' && chatScopeTab === 'private' ? (
-              <>
-                <div className="mb-3 flex items-center gap-2 rounded-xl bg-white/5 px-3 py-2 text-sm text-telegram-textSecondary">
-                  <Search className="h-4 w-4" />
-                  <input
-                    value={chatSearch}
-                    onChange={(e) => setChatSearch(e.target.value)}
-                    className="w-full bg-transparent text-sm text-white outline-none placeholder:text-telegram-textSecondary"
-                    placeholder="Search users"
-                  />
-                </div>
+              <div className="space-y-3 p-3">
+                {copiedToken ? <p className="text-[11px] text-[#9bd1f5]">Token copied.</p> : null}
 
-                <div className="space-y-2">
-                  {filteredUsers.map((user) => {
-                    const isActive = user.id === selectedUserId;
-                    const userChatKey = `${selectedBotToken}:${user.id}`;
-                    const started = Boolean(startedChats[userChatKey]);
-                    return (
-                      <button
-                        key={user.id}
-                        type="button"
-                        onClick={() => setSelectedUserId(user.id)}
-                        className={`w-full rounded-xl border px-3 py-2 text-left transition ${isActive ? 'border-[#5ca9df] bg-[#2b5278]/60' : 'border-white/10 bg-black/20 hover:bg-black/30'}`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <p className="font-medium text-white">{user.first_name}</p>
-                          <span className="text-[10px] text-[#b5cfdf]">{started ? 'Started' : 'Tap to chat'}</span>
-                        </div>
-                        <p className="text-xs text-telegram-textSecondary">@{user.username || `user_${user.id}`}</p>
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            ) : null}
-
-            {activeTab === 'chats' && (chatScopeTab === 'group' || chatScopeTab === 'channel') ? (
-              <>
-                <div className="mb-3 flex items-center gap-2 rounded-xl bg-white/5 px-3 py-2 text-sm text-telegram-textSecondary">
-                  <Search className="h-4 w-4" />
-                  <input
-                    value={chatSearch}
-                    onChange={(e) => setChatSearch(e.target.value)}
-                    className="w-full bg-transparent text-sm text-white outline-none placeholder:text-telegram-textSecondary"
-                    placeholder={chatScopeTab === 'channel' ? 'Search channels' : 'Search groups'}
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setShowCreateGroupForm((prev) => !prev)}
-                  className="mb-2 w-full rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-left text-xs text-white hover:bg-black/30"
-                >
-                  {showCreateGroupForm
-                    ? `Close ${chatScopeTab === 'channel' ? 'channel' : 'group'} creator`
-                    : `Create new ${chatScopeTab === 'channel' ? 'channel' : 'group'}`}
-                </button>
-
-                {showCreateGroupForm ? (
-                  <div className="mb-3 space-y-2 rounded-xl border border-white/10 bg-black/20 p-3 text-xs">
-                    <input
-                      value={groupDraft.title}
-                      onChange={(e) => setGroupDraft((prev) => ({ ...prev, title: e.target.value }))}
-                      className="w-full rounded-lg border border-white/15 bg-[#0f1a26] px-2 py-1.5 text-white outline-none"
-                      placeholder={chatScopeTab === 'channel' ? 'Channel title' : 'Group title'}
-                    />
-                    {chatScopeTab === 'group' ? (
-                      <div className="grid grid-cols-2 gap-2">
-                        <select
-                          value={groupDraft.type === 'channel' ? 'supergroup' : groupDraft.type}
-                          onChange={(e) => setGroupDraft((prev) => ({ ...prev, type: e.target.value as 'group' | 'supergroup' }))}
-                          className="rounded-lg border border-white/15 bg-[#0f1a26] px-2 py-1.5 text-white outline-none"
-                        >
-                          <option value="group">group</option>
-                          <option value="supergroup">supergroup</option>
-                        </select>
-                        <input
-                          value={groupDraft.username}
-                          onChange={(e) => setGroupDraft((prev) => ({ ...prev, username: e.target.value }))}
-                          className="rounded-lg border border-white/15 bg-[#0f1a26] px-2 py-1.5 text-white outline-none"
-                          placeholder="public username"
-                        />
-                      </div>
-                    ) : (
+                {activeTab === 'chats' ? (
+                  <>
+                    <div className="flex items-center gap-2 rounded-xl bg-white/5 px-3 py-2 text-sm text-telegram-textSecondary">
+                      <Search className="h-4 w-4" />
                       <input
-                        value={groupDraft.username}
-                        onChange={(e) => setGroupDraft((prev) => ({ ...prev, username: e.target.value }))}
-                        className="w-full rounded-lg border border-white/15 bg-[#0f1a26] px-2 py-1.5 text-white outline-none"
-                        placeholder="public username"
+                        value={chatSearch}
+                        onChange={(e) => setChatSearch(e.target.value)}
+                        className="w-full bg-transparent text-sm text-white outline-none placeholder:text-telegram-textSecondary"
+                        placeholder="Search chats"
                       />
-                    )}
-                    <input
-                      value={groupDraft.description}
-                      onChange={(e) => setGroupDraft((prev) => ({ ...prev, description: e.target.value }))}
-                      className="w-full rounded-lg border border-white/15 bg-[#0f1a26] px-2 py-1.5 text-white outline-none"
-                      placeholder="description"
-                    />
-                    {chatScopeTab === 'group' && groupDraft.type === 'supergroup' ? (
-                      <label className="flex items-center gap-2 text-telegram-textSecondary">
-                        <input
-                          type="checkbox"
-                          checked={groupDraft.isForum}
-                          onChange={(e) => setGroupDraft((prev) => ({ ...prev, isForum: e.target.checked }))}
-                        />
-                        Enable forum topics
-                      </label>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => void onCreateGroup()}
-                      disabled={isCreatingGroup || !groupDraft.title.trim()}
-                      className="w-full rounded-lg bg-[#2b5278] px-3 py-2 text-white disabled:opacity-50"
-                    >
-                      {isCreatingGroup
-                        ? 'Creating...'
-                        : (chatScopeTab === 'channel'
-                          ? 'Create Channel'
-                          : (groupDraft.type === 'supergroup' ? 'Create Supergroup' : 'Create Group'))}
-                    </button>
-                  </div>
-                ) : null}
+                    </div>
 
-                <div className="mb-3 space-y-2 rounded-xl border border-white/10 bg-black/20 p-3 text-xs">
-                  <p className="text-[11px] text-telegram-textSecondary">
-                    {chatScopeTab === 'channel' ? 'Join channel by invite link' : 'Join group by invite link'}
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <input
-                      value={groupInviteLinkInput}
-                      onChange={(e) => setGroupInviteLinkInput(e.target.value)}
-                      className="min-w-0 flex-1 rounded-lg border border-white/15 bg-[#0f1a26] px-2 py-1.5 text-white outline-none"
-                      placeholder="https://t.me/+..."
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void onJoinGroupByInviteLink()}
-                      disabled={isBootstrapping || !groupInviteLinkInput.trim()}
-                      className="rounded-lg bg-[#2b5278] px-3 py-1.5 text-white disabled:opacity-50"
-                    >
-                      Join
-                    </button>
-                  </div>
-                  {selectedGroupInviteLink ? (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(selectedGroupInviteLink);
-                          setErrorText('Invite link copied.');
-                        } catch {
-                          setErrorText('Invite link copy failed.');
-                        }
-                      }}
-                      className="w-full truncate rounded-lg border border-white/15 bg-[#0f1a26] px-2 py-1.5 text-left text-[11px] text-[#bfe4ff] hover:bg-[#14283a]"
-                      title={selectedGroupInviteLink}
-                    >
-                      Latest invite: {selectedGroupInviteLink}
-                    </button>
-                  ) : null}
-                </div>
-
-                <div className="space-y-2">
-                  {filteredGroups.map((group) => {
-                    const isActive = group.id === selectedGroupChatId;
-                    const memberState = groupMembershipByUser[`${selectedBotToken}:${group.id}:${selectedUser.id}`] || 'unknown';
-                    return (
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-2">
                       <button
-                        key={group.id}
                         type="button"
-                        onClick={() => setSelectedGroupChatId(group.id)}
-                        className={`w-full rounded-xl border px-3 py-2 text-left transition ${isActive ? 'border-[#5ca9df] bg-[#2b5278]/60' : 'border-white/10 bg-black/20 hover:bg-black/30'}`}
+                        onClick={() => onToggleSidebarSection('privateChats')}
+                        className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-xs font-medium text-white hover:bg-white/10"
                       >
-                        <div className="flex items-center justify-between">
-                          <p className="font-medium text-white truncate">{group.title}</p>
-                          <span className="text-[10px] text-[#b5cfdf]">{group.isDirectMessages ? 'direct-messages' : group.type}</span>
-                        </div>
-                        <p className="text-xs text-telegram-textSecondary truncate">
-                          {group.username ? `@${group.username}` : `id ${group.id}`}
-                        </p>
-                        {group.isDirectMessages && group.parentChannelChatId ? (
-                          <p className="text-[10px] text-[#9ec6df]">channel #{group.parentChannelChatId}</p>
-                        ) : null}
-                        <p className="text-[10px] text-telegram-textSecondary">membership: {memberState}</p>
+                        <span>Private</span>
+                        <ChevronDown className={`h-4 w-4 transition-transform ${sidebarSections.privateChats ? 'rotate-0' : '-rotate-90'}`} />
                       </button>
-                    );
-                  })}
-                  {filteredGroups.length === 0 ? (
-                    <p className="rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-xs text-telegram-textSecondary">
-                      {chatScopeTab === 'channel'
-                        ? 'No channels yet. Create your first channel.'
-                        : 'No groups yet. Create your first group.'}
-                    </p>
-                  ) : null}
-                </div>
-              </>
-            ) : null}
+                      {sidebarSections.privateChats ? (
+                        <div className="mt-2 space-y-1.5">
+                          {filteredUsers.map((user) => {
+                            const isActive = chatScopeTab === 'private' && user.id === selectedUserId;
+                            const userChatKey = `${selectedBotToken}:${user.id}`;
+                            const started = Boolean(startedChats[userChatKey]);
+                            return (
+                              <button
+                                key={user.id}
+                                type="button"
+                                onClick={() => {
+                                  setChatScopeTab('private');
+                                  setSelectedUserId(user.id);
+                                }}
+                                className={`w-full rounded-lg border px-2.5 py-2 text-left transition ${isActive ? 'border-[#5ca9df] bg-[#2b5278]/60' : 'border-white/10 bg-black/20 hover:bg-black/30'}`}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="truncate text-sm font-medium text-white">
+                                    {user.first_name}
+                                    {user.is_verified ? (
+                                      <span className="ml-1 inline-flex align-middle text-sky-200"><BadgeCheck className="h-3.5 w-3.5" /></span>
+                                    ) : null}
+                                  </p>
+                                  <span className="text-[10px] text-[#b5cfdf]">{started ? 'Started' : 'Tap to chat'}</span>
+                                </div>
+                                <p className="truncate text-[11px] text-telegram-textSecondary">@{user.username || `user_${user.id}`}</p>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
 
-            {activeTab === 'bots' ? (
-              <div className="space-y-2">
-                {availableBots.map((bot) => {
-                  const isActive = bot.token === selectedBotToken;
-                  return (
-                    <div
-                      key={bot.token}
-                      className={`rounded-xl border px-3 py-2 ${isActive ? 'border-[#5ca9df] bg-[#2b5278]/60' : 'border-white/10 bg-black/20'}`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-2">
+                      <button
+                        type="button"
+                        onClick={() => onToggleSidebarSection('groupChats')}
+                        className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-xs font-medium text-white hover:bg-white/10"
+                      >
+                        <span>Groups</span>
+                        <ChevronDown className={`h-4 w-4 transition-transform ${sidebarSections.groupChats ? 'rotate-0' : '-rotate-90'}`} />
+                      </button>
+                      {sidebarSections.groupChats ? (
+                        <div className="mt-2 space-y-1.5">
+                          {filteredGroupChatsBySearch.map((group) => {
+                            const isActive = chatScopeTab === 'group' && group.id === selectedGroupChatId;
+                            const memberState = groupMembershipByUser[`${selectedBotToken}:${group.id}:${selectedUser.id}`] || 'unknown';
+                            return (
+                              <button
+                                key={group.id}
+                                type="button"
+                                onClick={() => {
+                                  setChatScopeTab('group');
+                                  setSelectedGroupChatId(group.id);
+                                }}
+                                className={`w-full rounded-lg border px-2.5 py-2 text-left transition ${isActive ? 'border-[#5ca9df] bg-[#2b5278]/60' : 'border-white/10 bg-black/20 hover:bg-black/30'}`}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="truncate text-sm font-medium text-white">
+                                    {group.title}
+                                    {group.isVerified ? (
+                                      <span className="ml-1 inline-flex align-middle text-sky-200"><BadgeCheck className="h-3.5 w-3.5" /></span>
+                                    ) : null}
+                                  </p>
+                                  <span className="text-[10px] text-[#b5cfdf]">{group.type}</span>
+                                </div>
+                                <p className="truncate text-[11px] text-telegram-textSecondary">{group.username ? `@${group.username}` : `id ${group.id}`} · {memberState}</p>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-2">
+                      <button
+                        type="button"
+                        onClick={() => onToggleSidebarSection('channelChats')}
+                        className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-xs font-medium text-white hover:bg-white/10"
+                      >
+                        <span>Channels</span>
+                        <ChevronDown className={`h-4 w-4 transition-transform ${sidebarSections.channelChats ? 'rotate-0' : '-rotate-90'}`} />
+                      </button>
+                      {sidebarSections.channelChats ? (
+                        <div className="mt-2 space-y-1.5">
+                          {filteredChannelChatsBySearch.map((group) => {
+                            const isActive = chatScopeTab === 'channel' && group.id === selectedGroupChatId;
+                            const memberState = groupMembershipByUser[`${selectedBotToken}:${group.id}:${selectedUser.id}`] || 'unknown';
+                            return (
+                              <button
+                                key={group.id}
+                                type="button"
+                                onClick={() => {
+                                  setChatScopeTab('channel');
+                                  setSelectedGroupChatId(group.id);
+                                }}
+                                className={`w-full rounded-lg border px-2.5 py-2 text-left transition ${isActive ? 'border-[#5ca9df] bg-[#2b5278]/60' : 'border-white/10 bg-black/20 hover:bg-black/30'}`}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="truncate text-sm font-medium text-white">
+                                    {group.title}
+                                    {group.isVerified ? (
+                                      <span className="ml-1 inline-flex align-middle text-sky-200"><BadgeCheck className="h-3.5 w-3.5" /></span>
+                                    ) : null}
+                                  </p>
+                                  <span className="text-[10px] text-[#b5cfdf]">channel</span>
+                                </div>
+                                <p className="truncate text-[11px] text-telegram-textSecondary">{group.username ? `@${group.username}` : `id ${group.id}`} · {memberState}</p>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs">
+                      <div className="mb-2 grid grid-cols-2 gap-2">
                         <button
                           type="button"
                           onClick={() => {
-                            setSelectedBotToken(bot.token);
+                            setChatScopeTab('group');
+                            setGroupDraft((prev) => ({ ...prev, type: prev.type === 'channel' ? 'supergroup' : prev.type }));
                           }}
-                          className="min-w-0 flex-1 text-left"
+                          className={`rounded-md px-2 py-1.5 ${chatScopeTab === 'group' ? 'bg-[#2b5278] text-white' : 'bg-black/20 text-telegram-textSecondary'}`}
                         >
-                          <p className="truncate font-medium text-white">{bot.first_name}</p>
-                          <p className="truncate text-xs text-telegram-textSecondary">@{bot.username}</p>
+                          Group
                         </button>
                         <button
                           type="button"
-                          onClick={() => openEditBotModal(bot)}
-                          className="rounded-full p-1 text-telegram-textSecondary hover:bg-white/10 hover:text-white"
-                          title="Edit bot"
+                          onClick={() => {
+                            setChatScopeTab('channel');
+                            setGroupDraft((prev) => ({ ...prev, type: 'channel', isForum: false }));
+                          }}
+                          className={`rounded-md px-2 py-1.5 ${chatScopeTab === 'channel' ? 'bg-[#2b5278] text-white' : 'bg-black/20 text-telegram-textSecondary'}`}
                         >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeBot(bot.token)}
-                          className="rounded-full p-1 text-telegram-textSecondary hover:bg-white/10 hover:text-white"
-                          title="Delete bot"
-                        >
-                          <Trash2 className="h-4 w-4" />
+                          Channel
                         </button>
                       </div>
-                      <p className="mt-1 truncate text-[11px] text-[#aac4d7]">{bot.token}</p>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
 
-            {activeTab === 'users' ? (
-              <div className="space-y-2">
-                {availableUsers.map((user) => {
-                  const isActive = user.id === selectedUserId;
-                  const userBusinessConnection = businessConnectionByUserKey[`${selectedBotToken}:${user.id}`];
-                  return (
-                    <div
-                      key={user.id}
-                      className={`rounded-xl border px-3 py-2 ${isActive ? 'border-[#5ca9df] bg-[#2b5278]/60' : 'border-white/10 bg-black/20'}`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedUserId(user.id)}
-                          className="min-w-0 flex-1 text-left"
-                        >
-                          <p className="truncate font-medium text-white">
-                            {formatSimUserDisplayName(user)}
-                            {user.is_premium ? ' · Premium' : ''}
-                          </p>
-                          <p className="truncate text-xs text-telegram-textSecondary">@{user.username || `user_${user.id}`}</p>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openEditUserModal(user)}
-                          className="rounded-full p-1 text-telegram-textSecondary hover:bg-white/10 hover:text-white"
-                          title="Edit user"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void removeUser(user.id)}
-                          className="rounded-full p-1 text-telegram-textSecondary hover:bg-white/10 hover:text-white"
-                          title="Delete user"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                      {(chatScopeTab === 'group' || chatScopeTab === 'channel') ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setShowCreateGroupForm((prev) => !prev)}
+                            className="mb-2 w-full rounded-lg border border-white/15 bg-black/20 px-2.5 py-2 text-left text-xs text-white hover:bg-black/30"
+                          >
+                            {showCreateGroupForm
+                              ? `Close ${chatScopeTab === 'channel' ? 'channel' : 'group'} creator`
+                              : `Create new ${chatScopeTab === 'channel' ? 'channel' : 'group'}`}
+                          </button>
+
+                          {showCreateGroupForm ? (
+                            <div className="space-y-2">
+                              <input
+                                value={groupDraft.title}
+                                onChange={(e) => setGroupDraft((prev) => ({ ...prev, title: e.target.value }))}
+                                className="w-full rounded-lg border border-white/15 bg-[#0f1a26] px-2 py-1.5 text-white outline-none"
+                                placeholder={chatScopeTab === 'channel' ? 'Channel title' : 'Group title'}
+                              />
+                              <input
+                                value={groupDraft.username}
+                                onChange={(e) => setGroupDraft((prev) => ({ ...prev, username: e.target.value }))}
+                                className="w-full rounded-lg border border-white/15 bg-[#0f1a26] px-2 py-1.5 text-white outline-none"
+                                placeholder="public username"
+                              />
+                              <input
+                                value={groupDraft.description}
+                                onChange={(e) => setGroupDraft((prev) => ({ ...prev, description: e.target.value }))}
+                                className="w-full rounded-lg border border-white/15 bg-[#0f1a26] px-2 py-1.5 text-white outline-none"
+                                placeholder="description"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => void onCreateGroup()}
+                                disabled={isCreatingGroup || !groupDraft.title.trim()}
+                                className="w-full rounded-lg bg-[#2b5278] px-3 py-2 text-white disabled:opacity-50"
+                              >
+                                {isCreatingGroup ? 'Creating...' : (chatScopeTab === 'channel' ? 'Create Channel' : 'Create Group')}
+                              </button>
+                            </div>
+                          ) : null}
+
+                          <div className="mt-2 flex items-center gap-2">
+                            <input
+                              value={groupInviteLinkInput}
+                              onChange={(e) => setGroupInviteLinkInput(e.target.value)}
+                              className="min-w-0 flex-1 rounded-lg border border-white/15 bg-[#0f1a26] px-2 py-1.5 text-white outline-none"
+                              placeholder="https://t.me/+..."
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void onJoinGroupByInviteLink()}
+                              disabled={isBootstrapping || !groupInviteLinkInput.trim()}
+                              className="rounded-lg bg-[#2b5278] px-3 py-1.5 text-white disabled:opacity-50"
+                            >
+                              Join
+                            </button>
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
+                  </>
+                ) : null}
+
+                {activeTab === 'users' ? (
+                  <>
+                    <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 p-2">
+                      <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg bg-[#0f1c28] px-2 py-1.5 text-xs text-telegram-textSecondary">
+                        <Search className="h-3.5 w-3.5" />
+                        <input
+                          value={usersTabSearch}
+                          onChange={(event) => setUsersTabSearch(event.target.value)}
+                          className="w-full bg-transparent text-xs text-white outline-none placeholder:text-telegram-textSecondary"
+                          placeholder="Search users"
+                        />
                       </div>
-                      <p className="mt-1 text-[11px] text-[#aac4d7]">id: {user.id}</p>
-                      {userBusinessConnection ? (
-                        <p className="mt-1 text-[11px] text-[#9ec3dc]">
-                          business: {userBusinessConnection.id} · {userBusinessConnection.is_enabled ? 'enabled' : 'disabled'}
+                      <button
+                        type="button"
+                        onClick={openCreateUserModal}
+                        className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-2.5 py-1.5 text-xs text-white hover:bg-[#245a80]"
+                      >
+                        Create
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      {filteredUsersForManagement.map((user) => {
+                        const isActive = user.id === selectedUserId;
+                        return (
+                          <div
+                            key={user.id}
+                            className={`rounded-xl border px-3 py-2 ${isActive ? 'border-[#5ca9df] bg-[#2b5278]/60' : 'border-white/10 bg-black/20'}`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setChatScopeTab('private');
+                                  setSelectedUserId(user.id);
+                                }}
+                                className="min-w-0 flex-1 text-left"
+                              >
+                                <p className="truncate font-medium text-white">
+                                  {formatSimUserDisplayName(user)}
+                                  {user.is_verified ? (
+                                    <span className="ml-1 inline-flex align-middle text-sky-200"><BadgeCheck className="h-3.5 w-3.5" /></span>
+                                  ) : null}
+                                </p>
+                                <p className="truncate text-xs text-telegram-textSecondary">@{user.username || `user_${user.id}`}</p>
+                                <p className="mt-1 text-[11px] text-[#aac4d7]">id: {user.id}{user.is_premium ? ' · Premium' : ''}</p>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openEditUserModal(user)}
+                                className="rounded-full p-1 text-telegram-textSecondary hover:bg-white/10 hover:text-white"
+                                title="Edit user"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {filteredUsersForManagement.length === 0 ? (
+                        <p className="rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-xs text-telegram-textSecondary">
+                          No users found.
                         </p>
                       ) : null}
                     </div>
-                  );
-                })}
+                  </>
+                ) : null}
+
+                {activeTab === 'bots' ? (
+                  <>
+                    <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 p-2">
+                      <button
+                        type="button"
+                        onClick={() => void copyToken(selectedBotToken)}
+                        className="rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
+                        title="Copy token"
+                      >
+                        <Copy className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onCreateBot()}
+                        className="rounded-full bg-[#2f6ea1] p-2 text-white hover:bg-[#3b82bf]"
+                        title="Create bot"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      {availableBots.map((bot) => {
+                        const isActive = bot.token === selectedBotToken;
+                        return (
+                          <div
+                            key={bot.token}
+                            className={`rounded-xl border px-3 py-2 ${isActive ? 'border-[#5ca9df] bg-[#2b5278]/60' : 'border-white/10 bg-black/20'}`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedBotToken(bot.token);
+                                }}
+                                className="min-w-0 flex-1 text-left"
+                              >
+                                <p className="truncate font-medium text-white">{bot.first_name}</p>
+                                <p className="truncate text-xs text-telegram-textSecondary">@{bot.username}</p>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openEditBotModal(bot)}
+                                className="rounded-full p-1 text-telegram-textSecondary hover:bg-white/10 hover:text-white"
+                                title="Edit bot"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeBot(bot.token)}
+                                className="rounded-full p-1 text-telegram-textSecondary hover:bg-white/10 hover:text-white"
+                                title="Delete bot"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                            <p className="mt-1 truncate text-[11px] text-[#aac4d7]">{bot.token}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : null}
+
+                {activeTab === 'debugger' ? (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs text-[#cfe7f8]">
+                          Request/Response logs ({filteredDebugEventLogs.length}/{debugEventLogs.length})
+                        </p>
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void copyDebugLogPart(
+                              'Filtered logs',
+                              filteredDebugEventLogs.map((entry) => ({
+                                at: new Date(entry.at).toISOString(),
+                                source: entry.source,
+                                method: entry.method,
+                                status: entry.status,
+                                request: entry.request,
+                                response: entry.response,
+                                error: entry.error,
+                              })),
+                            )}
+                            disabled={filteredDebugEventLogs.length === 0}
+                            className="rounded-md border border-white/20 bg-black/20 px-2 py-1 text-[11px] text-white hover:bg-white/10 disabled:opacity-50"
+                          >
+                            Copy filtered
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void onClearRuntimeLogs()}
+                            className="rounded-md border border-white/20 bg-black/20 px-2 py-1 text-[11px] text-white hover:bg-white/10"
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg bg-[#0f1c28] px-2 py-1.5 text-xs text-telegram-textSecondary">
+                          <Search className="h-3.5 w-3.5" />
+                          <input
+                            value={debuggerSearch}
+                            onChange={(event) => setDebuggerSearch(event.target.value)}
+                            className="w-full bg-transparent text-xs text-white outline-none placeholder:text-telegram-textSecondary"
+                            placeholder="Search method, request or response"
+                          />
+                        </div>
+                        <select
+                          value={debuggerStatusFilter}
+                          onChange={(event) => setDebuggerStatusFilter(event.target.value as 'all' | 'ok' | 'error')}
+                          className="rounded-lg border border-white/15 bg-[#0f1c28] px-2 py-1.5 text-xs text-white outline-none"
+                        >
+                          <option value="all">all statuses</option>
+                          <option value="ok">ok</option>
+                          <option value="error">error</option>
+                        </select>
+                        <select
+                          value={debuggerSourceFilter}
+                          onChange={(event) => setDebuggerSourceFilter(event.target.value as 'all' | 'bot' | 'webhook')}
+                          className="rounded-lg border border-white/15 bg-[#0f1c28] px-2 py-1.5 text-xs text-white outline-none"
+                        >
+                          <option value="all">all sources</option>
+                          <option value="bot">telegram api</option>
+                          <option value="webhook">webhook</option>
+                        </select>
+                      </div>
+                      {webhookDebugCount === 0 ? (
+                        <p className="mt-2 rounded-lg border border-amber-300/25 bg-amber-900/10 px-2 py-1.5 text-[11px] text-amber-100">
+                          No webhook dispatch log yet. Make sure selected bot has setWebhook configured.
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-xs font-medium text-white">Latest Request (Live)</p>
+                        {latestDebugLog ? (
+                          <div className="flex items-center gap-1">
+                            <span className="rounded-full border border-sky-300/30 bg-sky-900/20 px-2 py-0.5 text-[10px] text-sky-100">
+                              {latestDebugLog.source}
+                            </span>
+                            <span className={`rounded-full border px-2 py-0.5 text-[10px] ${latestDebugLog.status === 'ok' ? 'border-emerald-300/30 bg-emerald-900/20 text-emerald-100' : 'border-red-300/30 bg-red-900/20 text-red-100'}`}>
+                              {latestDebugLog.status}
+                            </span>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {latestDebugLog ? (
+                        <div className="space-y-2 text-[11px]">
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void copyDebugLogPart('Request payload', latestDebugLog.request)}
+                              className="rounded-md border border-white/20 bg-black/20 px-2 py-1 text-[11px] text-white hover:bg-white/10"
+                            >
+                              Copy request
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void copyDebugLogPart(latestDebugLog.status === 'ok' ? 'Response payload' : 'Error payload', latestDebugLog.status === 'ok' ? latestDebugLog.response : (latestDebugLog.error || 'Unknown error'))}
+                              className="rounded-md border border-white/20 bg-black/20 px-2 py-1 text-[11px] text-white hover:bg-white/10"
+                            >
+                              Copy {latestDebugLog.status === 'ok' ? 'response' : 'error'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void copyWholeDebugLog(latestDebugLog)}
+                              className="rounded-md border border-white/20 bg-black/20 px-2 py-1 text-[11px] text-white hover:bg-white/10"
+                            >
+                              Copy full log
+                            </button>
+                          </div>
+
+                          <div className="rounded-lg border border-white/10 bg-[#0f1c28] px-2 py-2 text-[11px] text-[#d8ecfb]">
+                            <p className="break-all text-white">
+                              <span className="mr-1 rounded border border-white/20 bg-black/20 px-1 py-0.5 text-[10px]">{latestDebugLog.method}</span>
+                              {latestDebugLog.path || '/'}
+                            </p>
+                            {latestDebugLog.query ? (
+                              <details className="mt-1 rounded border border-white/10 bg-black/20 px-2 py-1">
+                                <summary className="cursor-pointer text-[10px] text-[#9ec3dc]">Query string</summary>
+                                <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-all text-[#d7ecfb]">{latestDebugLog.query}</pre>
+                              </details>
+                            ) : null}
+                            <p className="mt-1 text-[#9ec3dc]">
+                              {new Date(latestDebugLog.at).toLocaleString()}
+                              {typeof latestDebugLog.statusCode === 'number' && latestDebugLog.statusCode > 0 ? ` · status ${latestDebugLog.statusCode}` : ''}
+                              {typeof latestDebugLog.durationMs === 'number' && latestDebugLog.durationMs > 0 ? ` · ${latestDebugLog.durationMs}ms` : ''}
+                            </p>
+                            {latestDebugLog.remoteAddr ? (
+                              <p className="mt-1 break-all text-[#9ec3dc]">remote: {latestDebugLog.remoteAddr}</p>
+                            ) : null}
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-2">
+                            <div>
+                              <p className="mb-1 text-[#9ec3dc]">Request</p>
+                              <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded border border-white/10 bg-black/30 p-2 text-[#d7ecfb]">{formatDebugValue(latestDebugLog.request)}</pre>
+                            </div>
+                            <div>
+                              <p className="mb-1 text-[#9ec3dc]">{latestDebugLog.status === 'ok' ? 'Response' : 'Error'}</p>
+                              <pre className={`max-h-60 overflow-auto whitespace-pre-wrap break-all rounded border p-2 ${latestDebugLog.status === 'ok' ? 'border-white/10 bg-black/30 text-[#d7ecfb]' : 'border-red-300/25 bg-red-900/20 text-red-100'}`}>{latestDebugLog.status === 'ok' ? formatDebugValue(latestDebugLog.response) : (latestDebugLog.error || 'Unknown error')}</pre>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="rounded-lg border border-white/10 bg-[#0f1c28] px-3 py-3 text-xs text-telegram-textSecondary">
+                          No live requests yet. Any server call will appear here instantly.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="rounded-xl border border-white/10 bg-black/20">
+                      <button
+                        type="button"
+                        onClick={() => setIsDebuggerHistoryExpanded((prev) => !prev)}
+                        className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-medium text-white hover:bg-white/5"
+                      >
+                        <span>History ({historicalDebugLogs.length})</span>
+                        <ChevronDown className={`h-4 w-4 transition-transform ${isDebuggerHistoryExpanded ? 'rotate-0' : '-rotate-90'}`} />
+                      </button>
+
+                      {isDebuggerHistoryExpanded ? (
+                        <div className="max-h-[40vh] space-y-2 overflow-y-auto px-3 pb-3">
+                          {historicalDebugLogs.map((entry) => (
+                            <details
+                              key={entry.id}
+                              className={`rounded-lg border px-2.5 py-2 ${entry.status === 'ok' ? 'border-emerald-300/25 bg-emerald-900/10' : 'border-red-300/25 bg-red-900/10'}`}
+                            >
+                              <summary className="cursor-pointer list-none text-xs text-white">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="rounded-full border border-sky-300/30 bg-sky-900/20 px-1.5 py-0.5 text-[10px] text-sky-100">{entry.source}</span>
+                                  <span className="rounded-full border border-white/15 px-1.5 py-0.5 text-[10px]">{entry.status}</span>
+                                  <span className="rounded border border-white/20 bg-black/20 px-1 py-0.5 text-[10px]">{entry.method}</span>
+                                  <span className="text-[#9ec3dc]">{new Date(entry.at).toLocaleTimeString()}</span>
+                                </div>
+                                <p className="mt-1 break-all text-[11px] text-[#d7ecfb]">{entry.path || '/'}{entry.query ? `?${entry.query}` : ''}</p>
+                              </summary>
+
+                              <div className="mt-2 space-y-2">
+                                <div className="grid grid-cols-1 gap-2">
+                                  <div>
+                                    <p className="mb-1 text-[10px] text-[#9ec3dc]">Request</p>
+                                    <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-all rounded border border-white/10 bg-black/30 p-2 text-[10px] text-[#d7ecfb]">{formatDebugValue(entry.request)}</pre>
+                                  </div>
+                                  <div>
+                                    <p className="mb-1 text-[10px] text-[#9ec3dc]">{entry.status === 'ok' ? 'Response' : 'Error'}</p>
+                                    <pre className={`max-h-36 overflow-auto whitespace-pre-wrap break-all rounded border p-2 text-[10px] ${entry.status === 'ok' ? 'border-white/10 bg-black/30 text-[#d7ecfb]' : 'border-red-300/25 bg-red-900/20 text-red-100'}`}>{entry.status === 'ok' ? formatDebugValue(entry.response) : (entry.error || 'Unknown error')}</pre>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => void copyWholeDebugLog(entry)}
+                                  className="rounded-md border border-white/20 bg-black/20 px-2 py-1 text-[11px] text-white hover:bg-white/10"
+                                >
+                                  Copy full log
+                                </button>
+                              </div>
+                            </details>
+                          ))}
+                          {historicalDebugLogs.length === 0 ? (
+                            <p className="rounded-lg border border-white/10 bg-[#0f1c28] px-3 py-2 text-xs text-telegram-textSecondary">
+                              No historical logs for current filter.
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+
+                {activeTab === 'settings' ? (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                      <p className="mb-2 text-[11px] uppercase tracking-wide text-[#8fb7d6]">Server Service Control</p>
+                      <div className="space-y-2 text-xs">
+                        <p className="rounded-lg border border-white/10 bg-[#0f1c28] px-2 py-2 text-[#d8ecfb]">
+                          API Base: <span className="text-white">{API_BASE_URL}</span>
+                        </p>
+
+                        <div className="rounded-lg border border-white/10 bg-[#0f1c28] px-2 py-2 text-[11px] text-[#d8ecfb]">
+                          <p>
+                            Health: {' '}
+                            <span className={serverHealth.status === 'online' ? 'text-emerald-300' : serverHealth.status === 'checking' ? 'text-amber-300' : 'text-red-300'}>
+                              {serverHealth.status}
+                            </span>
+                          </p>
+                          <p className="mt-1">
+                            Service: <span className={runtimeInfo?.service?.active ? 'text-emerald-300' : 'text-red-300'}>{runtimeInfo?.service?.status || 'unknown'}</span>
+                          </p>
+                          <p className="mt-1 text-[#9ec3dc]">
+                            Manager: {runtimeInfo?.service?.mode || 'unknown'}
+                            {runtimeInfo?.service?.requested_mode ? ` (requested: ${runtimeInfo.service.requested_mode})` : ''}
+                            {' '}· Name: {runtimeInfo?.service?.name || 'not-set'}
+                            {' '}· Available: {runtimeInfo?.service?.available ? 'yes' : 'no'}
+                          </p>
+                          {runtimeInfo?.service?.note ? (
+                            <p className="mt-1 break-words text-amber-200">{runtimeInfo.service.note}</p>
+                          ) : null}
+                          {serverHealth.error ? <p className="mt-1 text-red-200">{serverHealth.error}</p> : null}
+                          {serverHealth.checkedAt ? <p className="mt-1 text-[#9ec3dc]">checked at {new Date(serverHealth.checkedAt).toLocaleTimeString()}</p> : null}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void onCheckServerHealth()}
+                            className="rounded-md border border-white/20 bg-black/20 px-2 py-1 text-[11px] text-white hover:bg-white/10"
+                          >
+                            <span className="inline-flex items-center gap-1"><RefreshCw className="h-3 w-3" /> Refresh status</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void onRuntimeServiceAction('start')}
+                            disabled={runtimeServiceActionInFlight !== ''}
+                            className="rounded-md border border-emerald-300/35 bg-emerald-900/20 px-2 py-1 text-[11px] text-emerald-100 hover:bg-emerald-900/30 disabled:opacity-50"
+                          >
+                            {runtimeServiceActionInFlight === 'start' ? 'Starting...' : 'Start service'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void onRuntimeServiceAction('stop')}
+                            disabled={runtimeServiceActionInFlight !== ''}
+                            className="rounded-md border border-red-300/35 bg-red-900/20 px-2 py-1 text-[11px] text-red-100 hover:bg-red-900/30 disabled:opacity-50"
+                          >
+                            {runtimeServiceActionInFlight === 'stop' ? 'Stopping...' : 'Stop service'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void onRuntimeServiceAction('restart')}
+                            disabled={runtimeServiceActionInFlight !== ''}
+                            className="rounded-md border border-amber-300/35 bg-amber-900/20 px-2 py-1 text-[11px] text-amber-100 hover:bg-amber-900/30 disabled:opacity-50"
+                          >
+                            {runtimeServiceActionInFlight === 'restart' ? 'Restarting...' : 'Restart service'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#d8ecfb]">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-[11px] uppercase tracking-wide text-[#8fb7d6]">Environment Variables</p>
+                        <button
+                          type="button"
+                          onClick={onAddRuntimeEnvRow}
+                          className="rounded-md border border-white/20 bg-black/20 px-2 py-1 text-[11px] text-white hover:bg-white/10"
+                        >
+                          Add variable
+                        </button>
+                      </div>
+
+                      <p className="mb-2 break-all rounded-lg border border-white/10 bg-[#0f1c28] px-2 py-2 text-[11px] text-[#9ec3dc]">
+                        file: {runtimeInfo?.env_file_path || '.env'}
+                      </p>
+
+                      <div className="max-h-[32vh] space-y-2 overflow-y-auto pr-1">
+                        {runtimeEnvRows.map((row) => (
+                          <div key={row.id} className="grid grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                            <input
+                              value={row.key}
+                              onChange={(event) => onUpdateRuntimeEnvRow(row.id, 'key', event.target.value)}
+                              placeholder="KEY"
+                              className="rounded-lg border border-white/15 bg-[#0f1c28] px-2 py-1.5 text-xs text-white outline-none"
+                            />
+                            <input
+                              value={row.value}
+                              onChange={(event) => onUpdateRuntimeEnvRow(row.id, 'value', event.target.value)}
+                              placeholder="value"
+                              className="rounded-lg border border-white/15 bg-[#0f1c28] px-2 py-1.5 text-xs text-white outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => onRemoveRuntimeEnvRow(row.id)}
+                              className="w-full rounded-lg border border-red-300/30 bg-red-900/20 px-2 py-1.5 text-xs text-red-100 hover:bg-red-900/30 xl:w-auto"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void onSaveRuntimeEnv()}
+                          disabled={!runtimeEnvDirty || isRuntimeEnvSaving}
+                          className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-2.5 py-1.5 text-[11px] text-white hover:bg-[#245a80] disabled:opacity-50"
+                        >
+                          {isRuntimeEnvSaving ? 'Saving...' : 'Save .env'}
+                        </button>
+                        <span className={`text-[11px] ${runtimeEnvDirty ? 'text-amber-200' : 'text-[#9ec3dc]'}`}>
+                          {runtimeEnvDirty ? 'Unsaved changes' : 'Synced'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#d8ecfb]">
+                      <p className="mb-2 text-[11px] uppercase tracking-wide text-[#8fb7d6]">Runtime Paths</p>
+                      <p className="break-all">Database: {runtimeInfo?.database_path || 'laragram.db'}</p>
+                      <p className="mt-1 break-all">Storage: {runtimeInfo?.storage_path || 'files'}</p>
+                      <p className="mt-1 break-all">Logs: {runtimeInfo?.logs_path || 'stdout (env_logger)'}</p>
+                      <p className="mt-1 break-all">Workspace: {runtimeInfo?.workspace_dir || '-'}</p>
+                      <p className="mt-1 break-all">API bind: {runtimeInfo?.api_host || '127.0.0.1'}:{runtimeInfo?.api_port || '8080'}</p>
+                      <p className="mt-1 break-all">Web app port: {runtimeInfo?.web_port || '5173'}</p>
+                    </div>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
         </aside>
 
         <section className="flex min-w-0 flex-1 flex-col bg-[#0f1e2d]/70">
@@ -14990,6 +15938,16 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         ? selectedUserDisplayName
                         : (selectedGroup?.title || (chatScopeTab === 'channel' ? 'Channel' : 'Group'))}
                     </span>
+                    {chatScopeTab === 'private' && selectedUser.is_verified ? (
+                      <span className="inline-flex items-center rounded-full border border-sky-300/45 bg-sky-700/25 px-1.5 py-0.5 text-[10px] text-sky-100" title={selectedUser.verification_description || 'Verified user'}>
+                        <BadgeCheck className="h-3 w-3" />
+                      </span>
+                    ) : null}
+                    {(chatScopeTab === 'group' || chatScopeTab === 'channel') && selectedGroup?.isVerified ? (
+                      <span className="inline-flex items-center rounded-full border border-sky-300/45 bg-sky-700/25 px-1.5 py-0.5 text-[10px] text-sky-100" title={selectedGroup.verificationDescription || 'Verified chat'}>
+                        <BadgeCheck className="h-3 w-3" />
+                      </span>
+                    ) : null}
                     {chatScopeTab === 'private' && selectedUserEmojiStatus ? (
                       <span className="inline-flex items-center gap-1 rounded-full border border-amber-300/45 bg-amber-700/25 px-1.5 py-0.5 text-[10px] text-amber-100">
                         <span className="tg-premium-emoji text-[12px] leading-none" title="Active emoji status">
@@ -15001,10 +15959,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   </h2>
                   <p className="truncate text-xs text-telegram-textSecondary">
                     {chatScopeTab === 'private'
-                      ? `${selectedUserSecondaryLine}${selectedUser.is_premium ? ' · Premium' : ''}${selectedUserEmojiStatus ? ` · emoji: ${selectedUserEmojiStatusRemainingText}` : ''}`
+                      ? `${selectedUserSecondaryLine}${selectedUser.is_premium ? ' · Premium' : ''}${selectedUser.is_verified ? ' · Verified' : ''}${selectedUserEmojiStatus ? ` · emoji: ${selectedUserEmojiStatusRemainingText}` : ''}`
                       : `@${selectedBot?.username || 'unknown'} · ${isDiscussionThreadView
                         ? `Discussion · ${activeDiscussionCommentContext?.commentsCount || 0} comments`
-                        : (chatScopeTab === 'channel' ? 'Channel chat' : 'Group chat')}${selectedActorChatBoostCount > 0 ? ` · boosts: ${selectedActorChatBoostCount}` : ''}`}
+                        : (chatScopeTab === 'channel' ? 'Channel chat' : 'Group chat')}${selectedGroup?.isVerified ? ' · Verified' : ''}${selectedActorChatBoostCount > 0 ? ` · boosts: ${selectedActorChatBoostCount}` : ''}`}
                     {chatScopeTab === 'group' && !isDiscussionThreadView && (selectedGroup?.isForum || selectedGroup?.isDirectMessages) && activeForumTopic
                       ? ` · ${selectedGroup?.isDirectMessages ? 'DM Topic' : 'Topic'}: ${activeForumTopic.name}`
                       : ''}

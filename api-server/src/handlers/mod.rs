@@ -10,14 +10,17 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::database::{ensure_bot, ensure_chat, lock_db, AppState};
+use crate::database::{
+    ensure_bot, ensure_chat, lock_db, push_runtime_request_log, AppState,
+    RuntimeRequestLogEntry,
+};
 use crate::generated::methods::{
     AddStickerToSetRequest, AnswerCallbackQueryRequest, AnswerInlineQueryRequest,
     AnswerWebAppQueryRequest,
     ApproveChatJoinRequestRequest,
     ApproveSuggestedPostRequest,
     AnswerPreCheckoutQueryRequest, AnswerShippingQueryRequest, BanChatMemberRequest,
-    BanChatSenderChatRequest, CreateInvoiceLinkRequest, CreateNewStickerSetRequest,
+    BanChatSenderChatRequest, CloseRequest, CreateInvoiceLinkRequest, CreateNewStickerSetRequest,
     CopyMessageRequest, CopyMessagesRequest,
     CreateChatInviteLinkRequest, CreateChatSubscriptionInviteLinkRequest,
     DeleteChatPhotoRequest, DeleteChatStickerSetRequest, DeleteMessageRequest,
@@ -32,6 +35,7 @@ use crate::generated::methods::{
     GetChatRequest, GetChatAdministratorsRequest, GetChatMemberCountRequest,
     GetChatMemberRequest, GetChatMenuButtonRequest, GetForumTopicIconStickersRequest,
     GetAvailableGiftsRequest, GetChatGiftsRequest, GetGameHighScoresRequest,
+    GetWebhookInfoRequest,
     GetMeRequest, GetMyCommandsRequest, GetMyDefaultAdministratorRightsRequest,
     GetMyDescriptionRequest, GetMyNameRequest, GetMyShortDescriptionRequest,
     GetMyStarBalanceRequest,
@@ -43,7 +47,9 @@ use crate::generated::methods::{
     GetBusinessConnectionRequest,
     ForwardMessageRequest, ForwardMessagesRequest,
     PinChatMessageRequest, PromoteChatMemberRequest, RefundStarPaymentRequest,
+    RemoveChatVerificationRequest,
     RemoveMyProfilePhotoRequest,
+    RemoveUserVerificationRequest,
     RevokeChatInviteLinkRequest,
     ReplaceManagedBotTokenRequest,
     ReplaceStickerInSetRequest, RestrictChatMemberRequest, SendAnimationRequest,
@@ -72,6 +78,8 @@ use crate::generated::methods::{
     GetBusinessAccountGiftsRequest,
     SetStickerMaskPositionRequest, SetStickerPositionInSetRequest,
     SetStickerSetThumbnailRequest, SetStickerSetTitleRequest, SetWebhookRequest,
+    VerifyChatRequest, VerifyUserRequest,
+    LogOutRequest,
     StopMessageLiveLocationRequest, StopPollRequest, UnbanChatMemberRequest,
     UnbanChatSenderChatRequest, UnpinAllChatMessagesRequest, UnpinChatMessageRequest,
     CreateForumTopicRequest, EditForumTopicRequest, CloseForumTopicRequest,
@@ -80,7 +88,7 @@ use crate::generated::methods::{
     ReopenGeneralForumTopicRequest, HideGeneralForumTopicRequest,
     UnhideGeneralForumTopicRequest, UnpinAllGeneralForumTopicMessagesRequest,
 };
-use crate::generated::types::{AcceptedGiftTypes, Animation, Audio, BotCommand, BotCommandScope, BotDescription, BotName, BotShortDescription, BusinessBotRights, BusinessConnection, BusinessMessagesDeleted, CallbackQuery, Chat, ChatAdministratorRights, ChatBoost, ChatBoostSource, ChatFullInfo, ChatInviteLink, ChatJoinRequest, ChatMember, ChatMemberAdministrator, ChatMemberBanned, ChatMemberLeft, ChatMemberMember, ChatMemberOwner, ChatMemberRestricted, ChatMemberUpdated, ChatPermissions, ChatPhoto, ChatShared, Checklist, ChecklistTask, ChosenInlineResult, Contact, Dice, DirectMessagesTopic, Document, File, ForumTopic, Game, GameHighScore, Gift, GiftBackground, Gifts, InlineKeyboardMarkup, InlineQuery, InputChecklist, InputChecklistTask, InputSticker, Invoice, KeyboardButtonRequestManagedBot, Location, ManagedBotCreated, ManagedBotUpdated, MaskPosition, MaybeInaccessibleMessage, MenuButton, Message, MessageEntity, MessageReactionCountUpdated, MessageReactionUpdated, OrderInfo, OwnedGift, OwnedGifts, PaidMediaPurchased, PhotoSize, Poll, PollAnswer, PollOption, PreCheckoutQuery, PreparedInlineMessage, PreparedKeyboardButton, ReactionCount, ReactionType, ReplyKeyboardMarkup, ReplyKeyboardRemove, SentWebAppMessage, ShippingAddress, ShippingQuery, StarAmount, Sticker, StickerSet, StoryArea, SuggestedPostInfo, SuggestedPostParameters, SuggestedPostPrice, SuccessfulPayment, Update, User, UserChatBoosts, UserProfileAudios, UserProfilePhotos, UsersShared, Venue, Video, VideoNote, Voice, WebAppData};
+use crate::generated::types::{AcceptedGiftTypes, Animation, Audio, BotCommand, BotCommandScope, BotDescription, BotName, BotShortDescription, BusinessBotRights, BusinessConnection, BusinessMessagesDeleted, CallbackQuery, Chat, ChatAdministratorRights, ChatBoost, ChatBoostSource, ChatFullInfo, ChatInviteLink, ChatJoinRequest, ChatMember, ChatMemberAdministrator, ChatMemberBanned, ChatMemberLeft, ChatMemberMember, ChatMemberOwner, ChatMemberRestricted, ChatMemberUpdated, ChatPermissions, ChatPhoto, ChatShared, Checklist, ChecklistTask, ChosenInlineResult, Contact, Dice, DirectMessagesTopic, Document, File, ForumTopic, Game, GameHighScore, Gift, GiftBackground, Gifts, InlineKeyboardMarkup, InlineQuery, InputChecklist, InputChecklistTask, InputSticker, Invoice, KeyboardButtonRequestManagedBot, Location, ManagedBotCreated, ManagedBotUpdated, MaskPosition, MaybeInaccessibleMessage, MenuButton, Message, MessageEntity, MessageReactionCountUpdated, MessageReactionUpdated, OrderInfo, OwnedGift, OwnedGifts, PaidMediaPurchased, PhotoSize, Poll, PollAnswer, PollOption, PreCheckoutQuery, PreparedInlineMessage, PreparedKeyboardButton, ReactionCount, ReactionType, ReplyKeyboardMarkup, ReplyKeyboardRemove, SentWebAppMessage, ShippingAddress, ShippingQuery, StarAmount, Sticker, StickerSet, StoryArea, SuggestedPostInfo, SuggestedPostParameters, SuggestedPostPrice, SuccessfulPayment, Update, User, UserChatBoosts, UserProfileAudios, UserProfilePhotos, UsersShared, Venue, Video, VideoNote, Voice, WebAppData, WebhookInfo};
 use crate::types::{strip_nulls, ApiError, ApiResult};
 
 thread_local! {
@@ -522,6 +530,7 @@ pub fn handle_sim_get_poll_voters(
 ) -> ApiResult {
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_verifications_storage(&mut conn)?;
     let chat_key = chat_id.to_string();
 
     let row: Option<(String, i64)> = conn
@@ -687,8 +696,11 @@ pub fn dispatch_method(
         "getuserprofileaudios" => handle_get_user_profile_audios(state, token, &params),
         "setuseremojistatus" => handle_set_user_emoji_status(state, token, &params),
         "getupdates" => handle_get_updates(state, token, &params),
+        "getwebhookinfo" => handle_get_webhook_info(state, token, &params),
         "setwebhook" => handle_set_webhook(state, token, &params),
         "deletewebhook" => handle_delete_webhook(state, token, &params),
+        "logout" => handle_log_out(state, token, &params),
+        "close" => handle_close(state, token, &params),
         "setmessagereaction" => handle_set_message_reaction(state, token, &params),
         "stoppoll" => handle_stop_poll(state, token, &params),
         "approvesuggestedpost" => handle_approve_suggested_post(state, token, &params),
@@ -723,6 +735,10 @@ pub fn dispatch_method(
         "savepreparedinlinemessage" => handle_save_prepared_inline_message(state, token, &params),
         "savepreparedkeyboardbutton" => handle_save_prepared_keyboard_button(state, token, &params),
         "setpassportdataerrors" => handle_set_passport_data_errors(state, token, &params),
+        "verifyuser" => handle_verify_user(state, token, &params),
+        "verifychat" => handle_verify_chat(state, token, &params),
+        "removeuserverification" => handle_remove_user_verification(state, token, &params),
+        "removechatverification" => handle_remove_chat_verification(state, token, &params),
         "getstickerset" => handle_get_sticker_set(state, token, &params),
         "getcustomemojistickers" => handle_get_custom_emoji_stickers(state, token, &params),
         "uploadstickerfile" => handle_upload_sticker_file(state, token, &params),
@@ -2373,7 +2389,23 @@ fn handle_get_chat(
         paid_message_star_count: None,
     };
 
-    serde_json::to_value(chat_full).map_err(ApiError::internal)
+    let mut chat_value = serde_json::to_value(chat_full).map_err(ApiError::internal)?;
+    let verification_description =
+        load_chat_verification_description(&mut conn, bot.id, &chat_key)?;
+    if let Some(object) = chat_value.as_object_mut() {
+        object.insert(
+            "is_verified".to_string(),
+            Value::Bool(verification_description.is_some()),
+        );
+        if let Some(description) = verification_description {
+            object.insert(
+                "verification_description".to_string(),
+                Value::String(description),
+            );
+        }
+    }
+
+    Ok(chat_value)
 }
 
 fn handle_get_chat_administrators(
@@ -4798,6 +4830,68 @@ fn ensure_sim_user_chat_boosts_storage(
         CREATE INDEX IF NOT EXISTS idx_sim_user_chat_boosts_lookup
             ON sim_user_chat_boosts (bot_id, chat_key, user_id, expiration_date DESC, add_date DESC);",
     )
+    .map_err(ApiError::internal)
+}
+
+fn ensure_sim_verifications_storage(
+    conn: &mut rusqlite::Connection,
+) -> Result<(), ApiError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sim_user_verifications (
+            bot_id               INTEGER NOT NULL,
+            user_id              INTEGER NOT NULL,
+            custom_description   TEXT,
+            verified_at          INTEGER NOT NULL,
+            updated_at           INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, user_id),
+            FOREIGN KEY(bot_id) REFERENCES bots(id)
+        );
+        CREATE TABLE IF NOT EXISTS sim_chat_verifications (
+            bot_id               INTEGER NOT NULL,
+            chat_key             TEXT NOT NULL,
+            custom_description   TEXT,
+            verified_at          INTEGER NOT NULL,
+            updated_at           INTEGER NOT NULL,
+            PRIMARY KEY (bot_id, chat_key),
+            FOREIGN KEY(bot_id) REFERENCES bots(id),
+            FOREIGN KEY(chat_key) REFERENCES chats(chat_key)
+        );",
+    )
+    .map_err(ApiError::internal)
+}
+
+fn normalize_verification_custom_description(
+    value: Option<&str>,
+) -> Result<Option<String>, ApiError> {
+    let normalized = value
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string);
+
+    if let Some(text) = normalized.as_deref() {
+        if text.chars().count() > 70 {
+            return Err(ApiError::bad_request(
+                "custom_description must be at most 70 characters",
+            ));
+        }
+    }
+
+    Ok(normalized)
+}
+
+fn load_chat_verification_description(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    chat_key: &str,
+) -> Result<Option<String>, ApiError> {
+    conn.query_row(
+        "SELECT custom_description
+         FROM sim_chat_verifications
+         WHERE bot_id = ?1 AND chat_key = ?2",
+        params![bot_id, chat_key],
+        |row| row.get(0),
+    )
+    .optional()
     .map_err(ApiError::internal)
 }
 
@@ -9936,7 +10030,7 @@ fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap<Str
 
     let clean_update = strip_nulls(update_value);
     state.ws_hub.publish_json(token, &clean_update);
-    dispatch_webhook_if_configured(&mut conn, bot.id, clean_update.clone());
+    dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update.clone());
 
     if is_channel_post {
         ensure_linked_discussion_forward_for_channel_post(
@@ -14969,7 +15063,7 @@ fn send_paid_media_message(
 
     let clean_update = strip_nulls(update_value);
     state.ws_hub.publish_json(token, &clean_update);
-    dispatch_webhook_if_configured(&mut conn, bot.id, clean_update.clone());
+    dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update.clone());
 
     if is_channel_post {
         forward_channel_post_to_linked_discussion_best_effort(
@@ -15115,7 +15209,7 @@ fn send_payload_message(
 
     let clean_update = strip_nulls(update_value);
     state.ws_hub.publish_json(token, &clean_update);
-    dispatch_webhook_if_configured(&mut conn, bot.id, clean_update.clone());
+    dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update.clone());
 
     if is_channel_post {
         forward_channel_post_to_linked_discussion_best_effort(
@@ -15269,7 +15363,7 @@ fn send_media_message_with_group(
 
     let clean_update = strip_nulls(update_value);
     state.ws_hub.publish_json(token, &clean_update);
-    dispatch_webhook_if_configured(&mut conn, bot.id, clean_update.clone());
+    dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update.clone());
 
     if is_channel_post {
         forward_channel_post_to_linked_discussion_best_effort(
@@ -16125,17 +16219,22 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     ensure_default_user(&mut conn)?;
+    ensure_sim_verifications_storage(&mut conn)?;
 
     let mut users_stmt = conn
         .prepare(
-            "SELECT id, username, first_name, last_name, phone_number, photo_url, bio, is_premium,
-                    business_name, business_intro, business_location, gift_count
-             FROM users
-             ORDER BY id ASC",
+            "SELECT u.id, u.username, u.first_name, u.last_name, u.phone_number, u.photo_url, u.bio, u.is_premium,
+                    u.business_name, u.business_intro, u.business_location, u.gift_count,
+                    v.custom_description
+             FROM users u
+             LEFT JOIN sim_user_verifications v
+                ON v.bot_id = ?1 AND v.user_id = u.id
+             ORDER BY u.id ASC",
         )
         .map_err(ApiError::internal)?;
     let users_rows = users_stmt
-        .query_map([], |row| {
+        .query_map(params![bot.id], |row| {
+            let verification_description: Option<String> = row.get(12)?;
             Ok(json!({
                 "id": row.get::<_, i64>(0)?,
                 "username": row.get::<_, Option<String>>(1)?,
@@ -16149,6 +16248,8 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
                 "business_intro": row.get::<_, Option<String>>(9)?,
                 "business_location": row.get::<_, Option<String>>(10)?,
                 "gift_count": row.get::<_, i64>(11)?,
+                "is_verified": verification_description.is_some(),
+                "verification_description": verification_description,
             }))
         })
         .map_err(ApiError::internal)?;
@@ -16159,12 +16260,15 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
 
     let mut chats_stmt = conn
         .prepare(
-                        "SELECT c.chat_id, c.chat_type, c.title, c.username, c.is_forum, c.is_direct_messages
+                        "SELECT c.chat_id, c.chat_type, c.title, c.username, c.is_forum, c.is_direct_messages,
+                                cv.custom_description
                          FROM sim_chats c
                          LEFT JOIN sim_chats parent
                              ON parent.bot_id = c.bot_id
                             AND parent.chat_type = 'channel'
                             AND c.parent_channel_chat_id = parent.chat_id
+                         LEFT JOIN sim_chat_verifications cv
+                            ON cv.bot_id = c.bot_id AND cv.chat_key = c.chat_key
                          WHERE c.bot_id = ?1
                              AND (
                                         COALESCE(c.is_direct_messages, 0) = 0
@@ -16175,7 +16279,7 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
         .map_err(ApiError::internal)?;
     let chats_rows = chats_stmt
         .query_map(params![bot.id], |row| {
-            Ok(Chat {
+            let chat = Chat {
                 id: row.get(0)?,
                 r#type: row.get(1)?,
                 title: row.get(2)?,
@@ -16188,12 +16292,28 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
                 } else {
                     None
                 },
-            })
+            };
+            let verification_description: Option<String> = row.get(6)?;
+            Ok((chat, verification_description))
         })
         .map_err(ApiError::internal)?;
-    let mut chats = Vec::<Chat>::new();
+    let mut chats = Vec::<Value>::new();
     for row in chats_rows {
-        chats.push(row.map_err(ApiError::internal)?);
+        let (chat, verification_description) = row.map_err(ApiError::internal)?;
+        let mut chat_value = serde_json::to_value(chat).map_err(ApiError::internal)?;
+        if let Some(object) = chat_value.as_object_mut() {
+            object.insert(
+                "is_verified".to_string(),
+                Value::Bool(verification_description.is_some()),
+            );
+            if let Some(description) = verification_description {
+                object.insert(
+                    "verification_description".to_string(),
+                    Value::String(description),
+                );
+            }
+        }
+        chats.push(chat_value);
     }
 
     let mut channel_direct_messages_stmt = conn
@@ -17133,7 +17253,7 @@ pub fn handle_sim_send_user_message(
     let clean_update = strip_nulls(update_value);
     state.ws_hub.publish_json(token, &clean_update);
     if bot_visible {
-        dispatch_webhook_if_configured(&mut conn, bot.id, clean_update);
+        dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update);
     }
 
     if is_channel_post {
@@ -17626,7 +17746,7 @@ pub fn handle_sim_send_user_media(
     let clean_update = strip_nulls(update_value);
     state.ws_hub.publish_json(token, &clean_update);
     if bot_visible {
-        dispatch_webhook_if_configured(&mut conn, bot.id, clean_update);
+        dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update);
     }
 
     if is_channel_post {
@@ -17916,7 +18036,7 @@ pub fn handle_sim_edit_user_message_media(
 
     let clean_update = strip_nulls(update_value);
     state.ws_hub.publish_json(token, &clean_update);
-    dispatch_webhook_if_configured(&mut conn, bot.id, clean_update);
+    dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update);
 
     Ok(edited_message)
 }
@@ -21491,6 +21611,211 @@ fn handle_get_updates(state: &Data<AppState>, token: &str, params: &HashMap<Stri
     Ok(Value::Array(updates))
 }
 
+fn handle_get_webhook_info(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let _request: GetWebhookInfoRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let row: Option<(String, Option<String>, Option<i64>)> = conn
+        .query_row(
+            "SELECT url, ip_address, max_connections FROM webhooks WHERE bot_id = ?1",
+            params![bot.id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    let pending_update_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM updates WHERE bot_id = ?1 AND bot_visible = 1",
+            params![bot.id],
+            |row| row.get(0),
+        )
+        .map_err(ApiError::internal)?;
+
+    let (url, ip_address, max_connections) = if let Some((url, ip_address, max_connections)) = row {
+        let normalized_ip = ip_address
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        (url, normalized_ip, max_connections)
+    } else {
+        (String::new(), None, None)
+    };
+
+    serde_json::to_value(WebhookInfo {
+        url,
+        has_custom_certificate: false,
+        pending_update_count,
+        ip_address,
+        last_error_date: None,
+        last_error_message: None,
+        last_synchronization_error_date: None,
+        max_connections,
+        allowed_updates: None,
+    })
+    .map_err(ApiError::internal)
+}
+
+fn handle_log_out(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let _request: LogOutRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    conn.execute("DELETE FROM webhooks WHERE bot_id = ?1", params![bot.id])
+        .map_err(ApiError::internal)?;
+    conn.execute("DELETE FROM updates WHERE bot_id = ?1", params![bot.id])
+        .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_close(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let _request: CloseRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let _bot = ensure_bot(&mut conn, token)?;
+
+    Ok(json!(true))
+}
+
+fn handle_verify_user(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: VerifyUserRequest = parse_request(params)?;
+    if request.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
+
+    let custom_description =
+        normalize_verification_custom_description(request.custom_description.as_deref())?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_verifications_storage(&mut conn)?;
+    ensure_sim_user_record(&mut conn, request.user_id)?;
+
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO sim_user_verifications
+         (bot_id, user_id, custom_description, verified_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?4)
+         ON CONFLICT(bot_id, user_id)
+         DO UPDATE SET
+             custom_description = excluded.custom_description,
+             verified_at = excluded.verified_at,
+             updated_at = excluded.updated_at",
+        params![bot.id, request.user_id, custom_description, now],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_verify_chat(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: VerifyChatRequest = parse_request(params)?;
+    let custom_description =
+        normalize_verification_custom_description(request.custom_description.as_deref())?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_verifications_storage(&mut conn)?;
+
+    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    if is_direct_messages_chat(&sim_chat) {
+        return Err(ApiError::bad_request(
+            "verification is not supported for channel direct messages chats",
+        ));
+    }
+
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO sim_chat_verifications
+         (bot_id, chat_key, custom_description, verified_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?4)
+         ON CONFLICT(bot_id, chat_key)
+         DO UPDATE SET
+             custom_description = excluded.custom_description,
+             verified_at = excluded.verified_at,
+             updated_at = excluded.updated_at",
+        params![bot.id, chat_key, custom_description, now],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_remove_user_verification(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: RemoveUserVerificationRequest = parse_request(params)?;
+    if request.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_verifications_storage(&mut conn)?;
+
+    conn.execute(
+        "DELETE FROM sim_user_verifications WHERE bot_id = ?1 AND user_id = ?2",
+        params![bot.id, request.user_id],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
+fn handle_remove_chat_verification(
+    state: &Data<AppState>,
+    token: &str,
+    params: &HashMap<String, Value>,
+) -> ApiResult {
+    let request: RemoveChatVerificationRequest = parse_request(params)?;
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+    ensure_sim_verifications_storage(&mut conn)?;
+
+    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    if is_direct_messages_chat(&sim_chat) {
+        return Err(ApiError::bad_request(
+            "verification is not supported for channel direct messages chats",
+        ));
+    }
+
+    conn.execute(
+        "DELETE FROM sim_chat_verifications WHERE bot_id = ?1 AND chat_key = ?2",
+        params![bot.id, chat_key],
+    )
+    .map_err(ApiError::internal)?;
+
+    Ok(json!(true))
+}
+
 fn update_targets_deleted_message(
     conn: &mut rusqlite::Connection,
     bot_id: i64,
@@ -22711,7 +23036,7 @@ fn send_sim_user_payload_message(
     let clean_update = strip_nulls(update_value);
     state.ws_hub.publish_json(token, &clean_update);
     if bot_visible {
-        dispatch_webhook_if_configured(&mut conn, bot.id, clean_update);
+        dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update);
     }
 
     if is_channel_post {
@@ -24832,7 +25157,7 @@ fn persist_and_dispatch_update(
 
     let clean_update = strip_nulls(update_value);
     state.ws_hub.publish_json(token, &clean_update);
-    dispatch_webhook_if_configured(conn, bot_id, clean_update.clone());
+    dispatch_webhook_if_configured(state, conn, bot_id, clean_update.clone());
 
     if let Some(channel_post_value) = clean_update.get("channel_post") {
         let bot_record: Option<crate::database::BotInfoRecord> = conn
@@ -28065,7 +28390,12 @@ fn ensure_user(
     .map_err(ApiError::internal)
 }
 
-fn dispatch_webhook_if_configured(conn: &mut rusqlite::Connection, bot_id: i64, update: Value) {
+fn dispatch_webhook_if_configured(
+    state: &Data<AppState>,
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    update: Value,
+) {
     let webhook: Result<Option<(String, String)>, ApiError> = conn
         .query_row(
             "SELECT url, secret_token FROM webhooks WHERE bot_id = ?1",
@@ -28080,21 +28410,106 @@ fn dispatch_webhook_if_configured(conn: &mut rusqlite::Connection, bot_id: i64, 
     };
 
     let payload = strip_nulls(update);
+    let state_for_log = state.clone();
     std::thread::spawn(move || {
+        let started_at = Utc::now().timestamp_millis();
+        let timer = std::time::Instant::now();
+        let request_payload = json!({
+            "url": url.clone(),
+            "secret_token_set": !secret_token.is_empty(),
+            "update": payload,
+        });
+
         let client = match reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(4))
             .build()
         {
             Ok(client) => client,
-            Err(_) => return,
+            Err(error) => {
+                push_runtime_request_log(
+                    &state_for_log,
+                    RuntimeRequestLogEntry {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        at: started_at,
+                        method: "POST".to_string(),
+                        path: "/webhook/dispatch".to_string(),
+                        query: None,
+                        status: 599,
+                        duration_ms: timer.elapsed().as_millis() as u64,
+                        remote_addr: None,
+                        request: Some(request_payload),
+                        response: Some(json!({
+                            "ok": false,
+                            "description": format!("webhook client build failed: {}", error),
+                        })),
+                    },
+                );
+                return;
+            }
         };
 
-        let mut request = client.post(url).json(&payload);
+        let webhook_update = request_payload
+            .get("update")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let mut request = client.post(url).json(&webhook_update);
         if !secret_token.is_empty() {
             request = request.header("X-Telegram-Bot-Api-Secret-Token", secret_token);
         }
 
-        let _ = request.send();
+        let (status, response_payload) = match request.send() {
+            Ok(response) => {
+                let status = response.status().as_u16();
+                let response_ok = response.status().is_success();
+                let mut response_body_text = response.text().unwrap_or_default();
+                let mut truncated = false;
+                if response_body_text.chars().count() > 4000 {
+                    response_body_text = response_body_text.chars().take(4000).collect::<String>();
+                    truncated = true;
+                }
+                let response_body_value = if response_body_text.trim().is_empty() {
+                    Value::Null
+                } else {
+                    serde_json::from_str::<Value>(&response_body_text)
+                        .unwrap_or_else(|_| Value::String(response_body_text))
+                };
+                (
+                    status,
+                    json!({
+                        "ok": response_ok,
+                        "status": status,
+                        "body": response_body_value,
+                        "truncated": truncated,
+                    }),
+                )
+            }
+            Err(error) => {
+                let status = error.status().map(|value| value.as_u16()).unwrap_or(599);
+                (
+                    status,
+                    json!({
+                        "ok": false,
+                        "description": error.to_string(),
+                    }),
+                )
+            }
+        };
+
+        push_runtime_request_log(
+            &state_for_log,
+            RuntimeRequestLogEntry {
+                id: uuid::Uuid::new_v4().to_string(),
+                at: started_at,
+                method: "POST".to_string(),
+                path: "/webhook/dispatch".to_string(),
+                query: None,
+                status,
+                duration_ms: timer.elapsed().as_millis() as u64,
+                remote_addr: None,
+                request: Some(request_payload),
+                response: Some(response_payload),
+            },
+        );
     });
 }
 
