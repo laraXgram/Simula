@@ -55,7 +55,7 @@ async fn main() -> std::io::Result<()> {
         .ok()
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(8080);
-    let db_path = env::var("DATABASE_URL").unwrap_or_else(|_| "laragram.db".to_string());
+    let db_path = env::var("DATABASE_URL").unwrap_or_else(|_| "simula.db".to_string());
 
     let mut conn = Connection::open(db_path).map_err(std::io::Error::other)?;
     init_database(&mut conn).map_err(std::io::Error::other)?;
@@ -80,7 +80,7 @@ async fn main() -> std::io::Result<()> {
         }
     });
 
-    println!("LaraGram API Server starting on http://{host}:{port}");
+    println!("Simula API Server starting on http://{host}:{port}");
 
     HttpServer::new(move || {
         App::new()

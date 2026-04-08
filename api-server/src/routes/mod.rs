@@ -105,7 +105,7 @@ pub async fn health() -> impl Responder {
 pub async fn runtime_info(state: Data<AppState>) -> impl Responder {
     let api_host = std::env::var("API_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let api_port = std::env::var("API_PORT").unwrap_or_else(|_| "8080".to_string());
-    let database_path = std::env::var("DATABASE_URL").unwrap_or_else(|_| "laragram.db".to_string());
+    let database_path = std::env::var("DATABASE_URL").unwrap_or_else(|_| "simula.db".to_string());
     let storage_path = std::env::var("FILE_STORAGE_DIR").unwrap_or_else(|_| "files".to_string());
     let web_port = std::env::var("WEB_APP_PORT").unwrap_or_else(|_| "5173".to_string());
     let logs_path = std::env::var("LOG_DIR").unwrap_or_else(|_| "stdout (env_logger)".to_string());
@@ -1080,7 +1080,7 @@ fn runtime_service_mode() -> String {
 
 fn runtime_service_name() -> String {
     std::env::var("RUNTIME_SERVICE_NAME")
-        .unwrap_or_else(|_| "laragram-api-server".to_string())
+        .unwrap_or_else(|_| "simula-api-server".to_string())
         .trim()
         .to_string()
 }
@@ -1526,11 +1526,11 @@ fn runtime_env_defaults() -> BTreeMap<String, String> {
         ("API_HOST".to_string(), "127.0.0.1".to_string()),
         ("API_PORT".to_string(), "8080".to_string()),
         ("WEB_APP_PORT".to_string(), "5173".to_string()),
-        ("DATABASE_URL".to_string(), "laragram.db".to_string()),
+        ("DATABASE_URL".to_string(), "simula.db".to_string()),
         ("FILE_STORAGE_DIR".to_string(), "files".to_string()),
         ("LOG_DIR".to_string(), "stdout".to_string()),
         ("RUNTIME_SERVICE_MODE".to_string(), "auto".to_string()),
-        ("RUNTIME_SERVICE_NAME".to_string(), "laragram-api-server".to_string()),
+        ("RUNTIME_SERVICE_NAME".to_string(), "simula-api-server".to_string()),
     ])
 }
 
@@ -1627,7 +1627,7 @@ fn query_to_json_map(query: &HashMap<String, String>) -> HashMap<String, Value> 
 
 fn extract_request_actor_user_id(headers: &actix_web::http::header::HeaderMap) -> Option<i64> {
     headers
-        .get("x-laragram-actor-user-id")
+        .get("x-simula-actor-user-id")
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.trim().parse::<i64>().ok())
         .filter(|value| *value > 0)

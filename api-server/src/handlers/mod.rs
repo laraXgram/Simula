@@ -4067,7 +4067,7 @@ fn handle_create_invoice_link(
         .chars()
         .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
         .collect::<String>();
-    Ok(json!(format!("https://laragram.local/invoice/{}/{}", bot.id, slug)))
+    Ok(json!(format!("https://simula.local/invoice/{}/{}", bot.id, slug)))
 }
 
 fn handle_get_my_star_balance(
@@ -6594,7 +6594,7 @@ fn sim_available_gift_catalog() -> Vec<SimGiftCatalogEntry> {
             false,
             false,
             "🌹",
-            "laragram_gifts",
+            "simula_gifts",
         ),
         build_sim_catalog_gift(
             "gift_star_box",
@@ -6604,7 +6604,7 @@ fn sim_available_gift_catalog() -> Vec<SimGiftCatalogEntry> {
             true,
             false,
             "🎁",
-            "laragram_gifts",
+            "simula_gifts",
         ),
         build_sim_catalog_gift(
             "gift_premium_badge",
@@ -6614,7 +6614,7 @@ fn sim_available_gift_catalog() -> Vec<SimGiftCatalogEntry> {
             false,
             false,
             "💎",
-            "laragram_gifts",
+            "simula_gifts",
         ),
     ]
 }
@@ -6637,7 +6637,7 @@ fn fallback_sim_gift(gift_id: &str) -> Gift {
                 true,
                 false,
                 "🎁",
-                "laragram_gifts",
+                "simula_gifts",
             )
             .gift
         })
@@ -9630,7 +9630,7 @@ fn handle_gift_premium_subscription(
     let premium_gift_id = format!("premium_subscription_{}m", request.month_count);
     let premium_gift = Gift {
         id: premium_gift_id.clone(),
-        sticker: build_sim_gift_sticker("premium_subscription", "💎", "laragram_premium_gifts"),
+        sticker: build_sim_gift_sticker("premium_subscription", "💎", "simula_premium_gifts"),
         star_count: request.star_count,
         upgrade_star_count: None,
         is_premium: Some(true),
@@ -14569,7 +14569,7 @@ pub fn handle_sim_pay_invoice(
             name: if need_name == 1 { Some(user.first_name.clone()) } else { None },
             phone_number: if need_phone_number == 1 { Some("+10000000000".to_string()) } else { None },
             email: if need_email == 1 {
-                Some(format!("{}@laragram.local", user.username.clone().unwrap_or_else(|| format!("user{}", user.id))))
+                Some(format!("{}@simula.local", user.username.clone().unwrap_or_else(|| format!("user{}", user.id))))
             } else {
                 None
             },
@@ -18052,13 +18052,13 @@ pub fn handle_sim_create_bot(state: &Data<AppState>, body: SimCreateBotRequest) 
         .first_name
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| format!("LaraGram Bot {}", &suffix[..4]));
+        .unwrap_or_else(|| format!("Simula Bot {}", &suffix[..4]));
 
     let username = body
         .username
         .map(|v| sanitize_username(&v))
         .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| format!("laragram_{}", suffix));
+        .unwrap_or_else(|| format!("simula_{}", suffix));
 
     conn.execute(
         "INSERT INTO bots (token, username, first_name, created_at) VALUES (?1, ?2, ?3, ?4)",

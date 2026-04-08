@@ -214,7 +214,7 @@ function emitBotApiDebugEvent(detail: {
   }
 
   try {
-    window.dispatchEvent(new CustomEvent('laragram:bot-api-log', { detail }));
+    window.dispatchEvent(new CustomEvent('simula:bot-api-log', { detail }));
   } catch {
     // Ignore debug event failures to keep API calls unaffected.
   }
@@ -242,7 +242,7 @@ function normalizeTextInput(value: unknown): string {
 function actorHeader(actorUserId?: number): Record<string, string> {
   if (typeof actorUserId === 'number' && Number.isFinite(actorUserId)) {
     return {
-      'X-LaraGram-Actor-User-Id': String(Math.trunc(actorUserId)),
+      'X-Simula-Actor-User-Id': String(Math.trunc(actorUserId)),
     };
   }
 
@@ -260,7 +260,7 @@ export async function callBotMethod<T>(
   };
 
   if (typeof options.actorUserId === 'number' && Number.isFinite(options.actorUserId)) {
-    headers['X-LaraGram-Actor-User-Id'] = String(Math.trunc(options.actorUserId));
+    headers['X-Simula-Actor-User-Id'] = String(Math.trunc(options.actorUserId));
   }
 
   let emitted = false;
@@ -634,7 +634,7 @@ export async function setChatPhoto(token: string, payload: {
 
   const headers: Record<string, string> = {};
   if (typeof actorUserId === 'number' && Number.isFinite(actorUserId)) {
-    headers['X-LaraGram-Actor-User-Id'] = String(Math.trunc(actorUserId));
+    headers['X-Simula-Actor-User-Id'] = String(Math.trunc(actorUserId));
   }
 
   const response = await fetch(`${API_BASE_URL}/bot${token}/setChatPhoto`, {
@@ -2284,7 +2284,7 @@ export async function editBotMessageMedia(token: string, payload: {
 
   const headers: Record<string, string> = {};
   if (typeof actorUserId === 'number' && Number.isFinite(actorUserId)) {
-    headers['X-LaraGram-Actor-User-Id'] = String(Math.trunc(actorUserId));
+    headers['X-Simula-Actor-User-Id'] = String(Math.trunc(actorUserId));
   }
 
   const response = await fetch(`${API_BASE_URL}/bot${token}/editMessageMedia`, {
@@ -2333,7 +2333,7 @@ export async function editUserMessageMedia(token: string, payload: {
 
   const headers: Record<string, string> = {};
   if (typeof actorUserId === 'number' && Number.isFinite(actorUserId)) {
-    headers['X-LaraGram-Actor-User-Id'] = String(Math.trunc(actorUserId));
+    headers['X-Simula-Actor-User-Id'] = String(Math.trunc(actorUserId));
   }
 
   const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/editUserMessageMedia`, {
@@ -2418,7 +2418,7 @@ export async function sendBotMediaFile(token: string, payload: {
 
   const headers: Record<string, string> = {};
   if (typeof actorUserId === 'number' && Number.isFinite(actorUserId)) {
-    headers['X-LaraGram-Actor-User-Id'] = String(Math.trunc(actorUserId));
+    headers['X-Simula-Actor-User-Id'] = String(Math.trunc(actorUserId));
   }
 
   const response = await fetch(`${API_BASE_URL}/bot${encodeURIComponent(token)}/${payload.method}`, {
@@ -2731,7 +2731,7 @@ export async function sendBotPaidMedia(token: string, payload: {
 
   const headers: Record<string, string> = {};
   if (typeof actorUserId === 'number' && Number.isFinite(actorUserId)) {
-    headers['X-LaraGram-Actor-User-Id'] = String(Math.trunc(actorUserId));
+    headers['X-Simula-Actor-User-Id'] = String(Math.trunc(actorUserId));
   }
 
   const response = await fetch(`${API_BASE_URL}/bot${encodeURIComponent(token)}/sendPaidMedia`, {

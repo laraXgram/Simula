@@ -104,8 +104,8 @@ pub fn ensure_bot(conn: &mut Connection, token: &str) -> Result<BotInfoRecord, A
         return Ok(bot);
     }
 
-    let generated_username = format!("laragram_bot_{}", short_token_suffix(token));
-    let first_name = "LaraGram Bot".to_string();
+    let generated_username = format!("simula_bot_{}", short_token_suffix(token));
+    let first_name = "Simula Bot".to_string();
     let now = Utc::now().timestamp();
 
     conn.execute(

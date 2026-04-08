@@ -248,32 +248,32 @@ const DEFAULT_USER: SimUser = {
   gift_count: 0,
 };
 
-const START_KEY = 'laragram-started-chats';
-const BOTS_KEY = 'laragram-sim-bots';
-const USERS_KEY = 'laragram-sim-users';
-const MESSAGES_KEY = 'laragram-sim-messages';
-const LAST_UPDATES_KEY = 'laragram-last-update-ids';
-const SELECTED_BOT_KEY = 'laragram-selected-bot-token';
-const SELECTED_USER_KEY = 'laragram-selected-user-id';
-const CHAT_SCOPE_KEY = 'laragram-chat-scope';
-const GROUP_CHATS_KEY = 'laragram-group-chats';
-const GROUP_MEMBERSHIP_KEY = 'laragram-group-memberships';
-const SELECTED_GROUP_BY_BOT_KEY = 'laragram-selected-group-by-bot';
-const GROUP_INVITE_LINKS_KEY = 'laragram-group-invite-links';
-const GROUP_JOIN_REQUESTS_KEY = 'laragram-group-join-requests';
-const GROUP_PINNED_MESSAGES_KEY = 'laragram-group-pinned-messages';
-const INVOICE_META_KEY = 'laragram-invoice-meta-by-message';
-const FORUM_TOPICS_KEY = 'laragram-forum-topics-by-chat';
-const SELECTED_FORUM_TOPIC_KEY = 'laragram-selected-forum-topic-by-chat';
-const BUSINESS_CONNECTIONS_KEY = 'laragram-business-connections';
-const USER_WALLETS_KEY = 'laragram-user-wallets';
-const PAID_MEDIA_PURCHASES_KEY = 'laragram-paid-media-purchases';
-const STORY_SHELF_BY_BOT_KEY = 'laragram-story-shelf-by-bot';
-const HIDDEN_STORY_KEYS_BY_BOT_KEY = 'laragram-hidden-story-keys-by-bot';
-const MANAGED_BOT_SETTINGS_BY_BOT_KEY = 'laragram-managed-bot-settings-by-bot';
-const USER_EMOJI_STATUS_BY_KEY = 'laragram-user-emoji-status-by-key';
-const CHAT_BOOST_COUNTS_BY_ACTOR_CHAT_KEY = 'laragram-chat-boost-counts-by-actor-chat';
-const SIDEBAR_SECTIONS_KEY = 'laragram-sidebar-sections';
+const START_KEY = 'simula-started-chats';
+const BOTS_KEY = 'simula-sim-bots';
+const USERS_KEY = 'simula-sim-users';
+const MESSAGES_KEY = 'simula-sim-messages';
+const LAST_UPDATES_KEY = 'simula-last-update-ids';
+const SELECTED_BOT_KEY = 'simula-selected-bot-token';
+const SELECTED_USER_KEY = 'simula-selected-user-id';
+const CHAT_SCOPE_KEY = 'simula-chat-scope';
+const GROUP_CHATS_KEY = 'simula-group-chats';
+const GROUP_MEMBERSHIP_KEY = 'simula-group-memberships';
+const SELECTED_GROUP_BY_BOT_KEY = 'simula-selected-group-by-bot';
+const GROUP_INVITE_LINKS_KEY = 'simula-group-invite-links';
+const GROUP_JOIN_REQUESTS_KEY = 'simula-group-join-requests';
+const GROUP_PINNED_MESSAGES_KEY = 'simula-group-pinned-messages';
+const INVOICE_META_KEY = 'simula-invoice-meta-by-message';
+const FORUM_TOPICS_KEY = 'simula-forum-topics-by-chat';
+const SELECTED_FORUM_TOPIC_KEY = 'simula-selected-forum-topic-by-chat';
+const BUSINESS_CONNECTIONS_KEY = 'simula-business-connections';
+const USER_WALLETS_KEY = 'simula-user-wallets';
+const PAID_MEDIA_PURCHASES_KEY = 'simula-paid-media-purchases';
+const STORY_SHELF_BY_BOT_KEY = 'simula-story-shelf-by-bot';
+const HIDDEN_STORY_KEYS_BY_BOT_KEY = 'simula-hidden-story-keys-by-bot';
+const MANAGED_BOT_SETTINGS_BY_BOT_KEY = 'simula-managed-bot-settings-by-bot';
+const USER_EMOJI_STATUS_BY_KEY = 'simula-user-emoji-status-by-key';
+const CHAT_BOOST_COUNTS_BY_ACTOR_CHAT_KEY = 'simula-chat-boost-counts-by-actor-chat';
+const SIDEBAR_SECTIONS_KEY = 'simula-sidebar-sections';
 const GENERAL_FORUM_TOPIC_THREAD_ID = 1;
 const DEFAULT_FORUM_ICON_COLOR = 0x6FB9F0;
 const DEFAULT_WALLET_STATE = {
@@ -694,8 +694,8 @@ function normalizeWalletState(raw?: Partial<WalletState>): WalletState {
 
 function randomBotIdentityDraft(): Pick<BotDraftState, 'first_name' | 'username'> {
   return {
-    first_name: `LaraGram Bot ${Math.floor(Math.random() * 9000 + 1000)}`,
-    username: `laragram_${Math.random().toString(36).slice(2, 8)}`,
+    first_name: `Simula Bot ${Math.floor(Math.random() * 9000 + 1000)}`,
+    username: `simula_${Math.random().toString(36).slice(2, 8)}`,
   };
 }
 
@@ -2322,7 +2322,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const [lastChecklistMessageIdDraft, setLastChecklistMessageIdDraft] = useState('');
   const [webAppLab, setWebAppLab] = useState({
     lastQueryId: '',
-    answerMessageText: 'Mini App result from LaraGram simulator',
+    answerMessageText: 'Mini App result from Simula',
     answerTitle: 'Mini App Result',
     answerDescription: '',
     answerUrl: '',
@@ -15895,7 +15895,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#d8ecfb]">
                       <p className="mb-2 text-[11px] uppercase tracking-wide text-[#8fb7d6]">Runtime Paths</p>
-                      <p className="break-all">Database: {runtimeInfo?.database_path || 'laragram.db'}</p>
+                      <p className="break-all">Database: {runtimeInfo?.database_path || 'simula.db'}</p>
                       <p className="mt-1 break-all">Storage: {runtimeInfo?.storage_path || 'files'}</p>
                       <p className="mt-1 break-all">Logs: {runtimeInfo?.logs_path || 'stdout (env_logger)'}</p>
                       <p className="mt-1 break-all">Workspace: {runtimeInfo?.workspace_dir || '-'}</p>
