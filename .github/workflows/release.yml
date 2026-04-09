@@ -5,12 +5,6 @@ on:
     types:
       - published
   workflow_dispatch:
-    inputs:
-      include_linux:
-        description: Include Linux desktop build in manual runs
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: write
@@ -50,16 +44,63 @@ jobs:
             scraper/output/methods.json
             scraper/output/types.json
 
-  build-desktop:
+  build-web-client:
     needs: generate-code
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download generated code
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-code
+          path: .
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: Build client assets
+        working-directory: client
+        run: npm run build
+
+      - name: Package web assets
+        run: |
+          mkdir -p dist
+          tar -C client/dist -czf dist/simula-web-client.tar.gz .
+
+      - name: Upload web assets artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-client-dist
+          path: dist/simula-web-client.tar.gz
+
+  build-web-bundle:
+    needs:
+      - generate-code
+      - build-web-client
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - macos-latest
-          - windows-latest
+        include:
+          - os: ubuntu-22.04
+            platform: linux
+          - os: macos-latest
+            platform: macos
+          - os: windows-latest
+            platform: windows
 
     steps:
       - name: Checkout repository
@@ -71,6 +112,12 @@ jobs:
           name: generated-code
           path: .
 
+      - name: Download web assets artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: web-client-dist
+          path: incoming/web-client
+
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -79,187 +126,120 @@ jobs:
         with:
           workspaces: |
             api-server -> target
-            client/src-tauri -> client/src-tauri/target
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
-          cache-dependency-path: client/package-lock.json
+      - name: Build API server binary
+        run: cargo build --manifest-path api-server/Cargo.toml --release
 
-      - name: Install client dependencies
-        working-directory: client
-        run: npm ci
-
-      - name: Build desktop app
-        working-directory: client
-        run: npm run tauri:build -- --bundles none
-
-      - name: Package macOS desktop artifact
-        if: runner.os == 'macOS'
+      - name: Package web bundle (Linux/macOS)
+        if: runner.os != 'Windows'
         run: |
           set -euo pipefail
-          mkdir -p dist
 
-          APP_BUNDLE=$(find client/src-tauri/target -type d -name '*.app' -path '*/release/*' | sed -n '1p' || true)
-          if [ -n "$APP_BUNDLE" ]; then
-            echo "Using macOS app bundle: $APP_BUNDLE"
-            ditto -c -k --keepParent "$APP_BUNDLE" dist/simula-desktop-macos.zip
-            exit 0
+          mkdir -p web-bundle/bin web-bundle/web dist
+          tar -xzf incoming/web-client/simula-web-client.tar.gz -C web-bundle/web
+
+          cp api-server/target/release/simula-api-server web-bundle/bin/simula-api-server
+          chmod +x web-bundle/bin/simula-api-server
+
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            cat > web-bundle/run-web.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+API_BIN="$ROOT_DIR/bin/simula-api-server"
+
+chmod +x "$API_BIN"
+export API_HOST=127.0.0.1
+export API_PORT=8081
+export WEB_APP_PORT=8888
+export SIMULA_WEB_DIST_DIR="$ROOT_DIR/web"
+
+if command -v xdg-open >/dev/null 2>&1; then
+  xdg-open "http://127.0.0.1:8888" >/dev/null 2>&1 || true
+elif command -v open >/dev/null 2>&1; then
+  open "http://127.0.0.1:8888" >/dev/null 2>&1 || true
+fi
+
+"$API_BIN"
+EOF
+            chmod +x web-bundle/run-web.sh
+            (cd web-bundle && zip -qr ../dist/simula-web-linux.zip .)
+          else
+            cat > web-bundle/run-web.command <<'EOF'
+#!/bin/bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+API_BIN="$ROOT_DIR/bin/simula-api-server"
+
+chmod +x "$API_BIN"
+export API_HOST=127.0.0.1
+export API_PORT=8081
+export WEB_APP_PORT=8888
+export SIMULA_WEB_DIST_DIR="$ROOT_DIR/web"
+
+open "http://127.0.0.1:8888" >/dev/null 2>&1 || true
+"$API_BIN"
+EOF
+            chmod +x web-bundle/run-web.command
+            (cd web-bundle && zip -qr ../dist/simula-web-macos.zip .)
           fi
 
-          DESKTOP_FILE=$(find client/src-tauri/target -type f -perm -111 \
-            \( -name 'simula-desktop' -o -name 'simula_desktop' \) \
-            -path '*/release/*' ! -path '*/deps/*' | sed -n '1p' || true)
-
-          if [ -z "$DESKTOP_FILE" ]; then
-            DESKTOP_FILE=$(find client/src-tauri/target -type f -perm -111 \
-              \( -name 'simula-desktop*' -o -name 'simula_desktop*' \) \
-              -path '*/release/*' | sed -n '1p' || true)
-          fi
-
-          if [ -z "$DESKTOP_FILE" ]; then
-            echo "No macOS desktop binary produced"
-            find client/src-tauri/target -maxdepth 7 -type f | sed -n '1,250p' || true
-            exit 1
-          fi
-
-          echo "Using macOS desktop binary: $DESKTOP_FILE"
-          chmod +x "$DESKTOP_FILE"
-          zip -j dist/simula-desktop-macos.zip "$DESKTOP_FILE"
-
-      - name: Package Windows desktop artifact
+      - name: Package web bundle (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          New-Item -ItemType Directory -Path web-bundle/bin,web-bundle/web,dist -Force | Out-Null
 
-          $desktopFile = Get-ChildItem -Path client/src-tauri/target -Recurse -File |
-            Where-Object {
-              ($_.Name -match '^simula[-_]desktop.*\.exe$') -and
-              $_.FullName -match '\\release\\'
-            } |
-            Sort-Object @{ Expression = { if ($_.Name -eq 'simula-desktop.exe' -or $_.Name -eq 'simula_desktop.exe') { 0 } else { 1 } } }, Length |
-            Select-Object -First 1
+          tar -xzf incoming/web-client/simula-web-client.tar.gz -C web-bundle/web
+          Copy-Item api-server/target/release/simula-api-server.exe web-bundle/bin/simula-api-server.exe -Force
 
-          if (-not $desktopFile) {
-            Write-Host "No Windows desktop binary produced"
-            Get-ChildItem -Path client/src-tauri/target -Recurse -File | Select-Object -First 250 FullName
-            throw "No Windows desktop binary produced"
-          }
+          @"
+@echo off
+setlocal
+set ROOT_DIR=%~dp0
+set API_BIN=%ROOT_DIR%bin\simula-api-server.exe
+set API_HOST=127.0.0.1
+set API_PORT=8081
+set WEB_APP_PORT=8888
+set SIMULA_WEB_DIST_DIR=%ROOT_DIR%web
 
-          Write-Host "Using Windows desktop binary: $($desktopFile.FullName)"
-          Compress-Archive -Path $desktopFile.FullName -DestinationPath dist/simula-desktop-windows.zip -Force
+start "" http://127.0.0.1:8888
+"%API_BIN%"
+"@ | Set-Content -Path web-bundle/run-web.bat -Encoding ascii
 
-      - name: Upload desktop artifact
+          Compress-Archive -Path web-bundle\* -DestinationPath dist/simula-web-windows.zip -Force
+
+      - name: Upload web bundle artifact
         uses: actions/upload-artifact@v4
         with:
-          name: desktop-${{ runner.os }}
-          path: dist/simula-desktop-*.zip
-
-  build-desktop-linux:
-    if: github.event_name == 'release' || inputs.include_linux == true
-    needs: generate-code
-    runs-on: ubuntu-22.04
-    timeout-minutes: 60
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download generated code
-        uses: actions/download-artifact@v4
-        with:
-          name: generated-code
-          path: .
-
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Restore Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            api-server -> target
-            client/src-tauri -> client/src-tauri/target
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
-          cache-dependency-path: client/package-lock.json
-
-      - name: Install Linux desktop dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libglib2.0-dev libgtk-3-dev libjavascriptcoregtk-4.0-dev libwebkit2gtk-4.0-dev libsoup2.4-dev libayatana-appindicator3-dev librsvg2-dev patchelf
-
-      - name: Install client dependencies
-        working-directory: client
-        run: npm ci
-
-      - name: Build desktop app
-        working-directory: client
-        run: npm run tauri:build -- --bundles none
-
-      - name: Package Linux desktop artifact
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-
-          DESKTOP_FILE=$(find client/src-tauri/target -type f -perm -111 \
-            \( -name 'simula-desktop' -o -name 'simula_desktop' \) \
-            -path '*/release/*' ! -path '*/deps/*' | sed -n '1p' || true)
-
-          if [ -z "$DESKTOP_FILE" ]; then
-            DESKTOP_FILE=$(find client/src-tauri/target -type f -perm -111 \
-              \( -name 'simula-desktop*' -o -name 'simula_desktop*' \) \
-              -path '*/release/*' | sed -n '1p' || true)
-          fi
-
-          if [ -z "$DESKTOP_FILE" ]; then
-            echo "No Linux desktop binary produced"
-            find client/src-tauri/target -maxdepth 7 -type f | sed -n '1,250p' || true
-            exit 1
-          fi
-
-          echo "Using Linux desktop binary: $DESKTOP_FILE"
-          chmod +x "$DESKTOP_FILE"
-          zip -j dist/simula-desktop-linux.zip "$DESKTOP_FILE"
-
-      - name: Upload Linux desktop artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-Linux
-          path: dist/simula-desktop-linux.zip
+          name: web-bundle-${{ matrix.platform }}
+          path: dist/simula-web-${{ matrix.platform }}.zip
 
   publish-release:
     if: github.event_name == 'release'
-    needs:
-      - build-desktop
-      - build-desktop-linux
+    needs: build-web-bundle
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - name: Download Linux desktop artifact
+      - name: Download Linux web bundle artifact
         uses: actions/download-artifact@v4
         with:
-          name: desktop-Linux
+          name: web-bundle-linux
           path: release-assets
 
-      - name: Download macOS desktop artifact
+      - name: Download macOS web bundle artifact
         uses: actions/download-artifact@v4
         with:
-          name: desktop-macOS
+          name: web-bundle-macos
           path: release-assets
 
-      - name: Download Windows desktop artifact
+      - name: Download Windows web bundle artifact
         uses: actions/download-artifact@v4
         with:
-          name: desktop-Windows
+          name: web-bundle-windows
           path: release-assets
 
       - name: Publish assets to GitHub Release
