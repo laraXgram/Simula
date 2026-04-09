@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::Mutex;
 
-use tauri::{api::path::resource_dir, AppHandle, Manager, RunEvent};
+use tauri::{AppHandle, Manager, RunEvent};
 
 struct ApiProcess(Mutex<Option<Child>>);
 
@@ -19,7 +19,7 @@ fn server_binary_name() -> &'static str {
 fn resolve_server_binary(app: &AppHandle) -> Result<PathBuf, String> {
     let binary_name = server_binary_name();
 
-    if let Some(resource_root) = resource_dir(&app.config()) {
+    if let Some(resource_root) = app.path_resolver().resource_dir() {
         let resource_path = resource_root.join(binary_name);
         if resource_path.exists() {
             return Ok(resource_path);
