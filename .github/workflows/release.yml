@@ -272,7 +272,6 @@ jobs:
     if: github.event_name == 'release'
     needs:
       - package-web
-      - build-desktop
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
