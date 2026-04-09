@@ -1,5 +1,6 @@
 # LaraGram Simula
 
+![Chat interface](docs/art/chat.png)
 Telegram Bot API simulator with a Simulated client, realtime updates, runtime controls, and traceable debug tooling.
 
 ## Quick Start (Release Profile)
@@ -91,6 +92,7 @@ Operational note:
 
 ## Observability and Debug Workflow
 
+![Debug console](docs/art/debug.png)
 Use /debug for end-to-end debugging:
 
 - Realtime request/response logs from runtime endpoints
