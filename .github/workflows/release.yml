@@ -44,8 +44,99 @@ jobs:
             scraper/output/methods.json
             scraper/output/types.json
 
-  build-web-client:
+  quality-gate:
     needs: generate-code
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download generated code
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-code
+          path: .
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: Lint frontend
+        working-directory: client
+        run: npm run lint
+
+      - name: Build frontend
+        working-directory: client
+        run: npm run build
+
+      - name: Check backend compilation
+        run: cargo check --manifest-path api-server/Cargo.toml
+
+  build-api:
+    needs:
+      - generate-code
+      - quality-gate
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download generated code
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-code
+          path: .
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build API server release binary
+        run: cargo build --manifest-path api-server/Cargo.toml --release
+
+      - name: Package API binary (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          tar -C api-server/target/release -czf "dist/simula-api-server-${{ runner.os }}-x64.tar.gz" simula-api-server
+
+      - name: Package API binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Compress-Archive -Path api-server/target/release/simula-api-server.exe -DestinationPath dist/simula-api-server-Windows-x64.zip -Force
+
+      - name: Upload API artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-${{ runner.os }}
+          path: dist/*
+
+  build-web-dist:
+    needs:
+      - generate-code
+      - quality-gate
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -74,172 +165,121 @@ jobs:
         working-directory: client
         run: npm run build
 
-      - name: Package web assets
+      - name: Package client assets
         run: |
           mkdir -p dist
-          tar -C client/dist -czf dist/simula-web-client.tar.gz .
+          tar -C client/dist -czf dist/simula-client-web.tar.gz .
 
-      - name: Upload web assets artifact
+      - name: Upload client artifact
         uses: actions/upload-artifact@v4
         with:
-          name: web-client-dist
-          path: dist/simula-web-client.tar.gz
+          name: client-web
+          path: dist/simula-client-web.tar.gz
 
-  build-web-bundle:
+  package-web:
     needs:
-      - generate-code
-      - build-web-client
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            platform: linux
-          - os: macos-latest
-            platform: macos
-          - os: windows-latest
-            platform: windows
+      - build-api
+      - build-web-dist
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download generated code
+      - name: Download API artifacts
         uses: actions/download-artifact@v4
         with:
-          name: generated-code
-          path: .
+          pattern: api-*
+          path: incoming/api
+          merge-multiple: true
 
-      - name: Download web assets artifact
+      - name: Download web dist artifact
         uses: actions/download-artifact@v4
         with:
-          name: web-client-dist
-          path: incoming/web-client
+          name: client-web
+          path: incoming/client
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Restore Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            api-server -> target
-
-      - name: Build API server binary
-        run: cargo build --manifest-path api-server/Cargo.toml --release
-
-      - name: Package web bundle (Linux/macOS)
-        if: runner.os != 'Windows'
+      - name: Build single web bundle
         run: |
           set -euo pipefail
 
-          mkdir -p web-bundle/bin web-bundle/web dist
-          tar -xzf incoming/web-client/simula-web-client.tar.gz -C web-bundle/web
+          mkdir -p dist
+          mkdir -p web-bundle/bin/linux web-bundle/bin/macos web-bundle/bin/windows web-bundle/web
 
-          cp api-server/target/release/simula-api-server web-bundle/bin/simula-api-server
-          chmod +x web-bundle/bin/simula-api-server
+          tar -xzf incoming/client/simula-client-web.tar.gz -C web-bundle/web
+          tar -xzf incoming/api/simula-api-server-Linux-x64.tar.gz -C web-bundle/bin/linux
+          tar -xzf incoming/api/simula-api-server-macOS-x64.tar.gz -C web-bundle/bin/macos
+          unzip -q incoming/api/simula-api-server-Windows-x64.zip -d web-bundle/bin/windows
 
-          if [ "${{ matrix.platform }}" = "linux" ]; then
-            cat > web-bundle/run-web.sh <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
+          cat > web-bundle/run-web.sh <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-API_BIN="$ROOT_DIR/bin/simula-api-server"
+          ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          case "$(uname -s)" in
+            Linux*) API_BIN="$ROOT_DIR/bin/linux/simula-api-server" ;;
+            Darwin*) API_BIN="$ROOT_DIR/bin/macos/simula-api-server" ;;
+            *)
+              echo "Unsupported OS for run-web.sh"
+              exit 1
+              ;;
+          esac
 
-chmod +x "$API_BIN"
-export API_HOST=127.0.0.1
-export API_PORT=8081
-export WEB_APP_PORT=8888
-export SIMULA_WEB_DIST_DIR="$ROOT_DIR/web"
+          chmod +x "$API_BIN"
+          export API_HOST=127.0.0.1
+          export API_PORT=8081
+          export WEB_APP_PORT=8888
+          export SIMULA_WEB_DIST_DIR="$ROOT_DIR/web"
 
-if command -v xdg-open >/dev/null 2>&1; then
-  xdg-open "http://127.0.0.1:8888" >/dev/null 2>&1 || true
-elif command -v open >/dev/null 2>&1; then
-  open "http://127.0.0.1:8888" >/dev/null 2>&1 || true
-fi
+          "$API_BIN" &
+          API_PID=$!
+          trap 'kill "$API_PID" 2>/dev/null || true' EXIT
 
-"$API_BIN"
-EOF
-            chmod +x web-bundle/run-web.sh
-            (cd web-bundle && zip -qr ../dist/simula-web-linux.zip .)
-          else
-            cat > web-bundle/run-web.command <<'EOF'
-#!/bin/bash
-set -euo pipefail
-
-ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-API_BIN="$ROOT_DIR/bin/simula-api-server"
-
-chmod +x "$API_BIN"
-export API_HOST=127.0.0.1
-export API_PORT=8081
-export WEB_APP_PORT=8888
-export SIMULA_WEB_DIST_DIR="$ROOT_DIR/web"
-
-open "http://127.0.0.1:8888" >/dev/null 2>&1 || true
-"$API_BIN"
-EOF
-            chmod +x web-bundle/run-web.command
-            (cd web-bundle && zip -qr ../dist/simula-web-macos.zip .)
+          if command -v xdg-open >/dev/null 2>&1; then
+            xdg-open "http://127.0.0.1:8888" >/dev/null 2>&1 || true
+          elif command -v open >/dev/null 2>&1; then
+            open "http://127.0.0.1:8888" >/dev/null 2>&1 || true
           fi
 
-      - name: Package web bundle (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path web-bundle/bin,web-bundle/web,dist -Force | Out-Null
+          wait "$API_PID"
+          EOF
 
-          tar -xzf incoming/web-client/simula-web-client.tar.gz -C web-bundle/web
-          Copy-Item api-server/target/release/simula-api-server.exe web-bundle/bin/simula-api-server.exe -Force
+          cat > web-bundle/run-web.bat <<'EOF'
+          @echo off
+          set ROOT_DIR=%~dp0
+          set API_BIN=%ROOT_DIR%bin\windows\simula-api-server.exe
+          set API_HOST=127.0.0.1
+          set API_PORT=8081
+          set WEB_APP_PORT=8888
+          set SIMULA_WEB_DIST_DIR=%ROOT_DIR%web
 
-          @"
-@echo off
-setlocal
-set ROOT_DIR=%~dp0
-set API_BIN=%ROOT_DIR%bin\simula-api-server.exe
-set API_HOST=127.0.0.1
-set API_PORT=8081
-set WEB_APP_PORT=8888
-set SIMULA_WEB_DIST_DIR=%ROOT_DIR%web
+          start "" http://127.0.0.1:8888
+          "%API_BIN%"
+          EOF
 
-start "" http://127.0.0.1:8888
-"%API_BIN%"
-"@ | Set-Content -Path web-bundle/run-web.bat -Encoding ascii
+          chmod +x web-bundle/run-web.sh
 
-          Compress-Archive -Path web-bundle\* -DestinationPath dist/simula-web-windows.zip -Force
+          (
+            cd web-bundle
+            zip -qr ../dist/simula-web.zip .
+          )
 
-      - name: Upload web bundle artifact
+      - name: Upload packaged web bundle
         uses: actions/upload-artifact@v4
         with:
-          name: web-bundle-${{ matrix.platform }}
-          path: dist/simula-web-${{ matrix.platform }}.zip
+          name: web-bundle
+          path: dist/simula-web.zip
 
   publish-release:
     if: github.event_name == 'release'
-    needs: build-web-bundle
+    needs:
+      - package-web
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - name: Download Linux web bundle artifact
+      - name: Download web bundle artifact
         uses: actions/download-artifact@v4
         with:
-          name: web-bundle-linux
-          path: release-assets
-
-      - name: Download macOS web bundle artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: web-bundle-macos
-          path: release-assets
-
-      - name: Download Windows web bundle artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: web-bundle-windows
+          name: web-bundle
           path: release-assets
 
       - name: Publish assets to GitHub Release
