@@ -22,6 +22,10 @@
       "active": true,
       "targets": "all",
       "identifier": "com.laraxgram.simula",
+      "icon": [
+        "icons/icon.png",
+        "icons/icon.ico"
+      ],
       "resources": [
         "resources/*"
       ]

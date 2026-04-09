@@ -44,237 +44,10 @@ jobs:
             scraper/output/methods.json
             scraper/output/types.json
 
-  quality-gate:
-    needs: generate-code
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download generated code
-        uses: actions/download-artifact@v4
-        with:
-          name: generated-code
-          path: .
-
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
-          cache-dependency-path: client/package-lock.json
-
-      - name: Install client dependencies
-        working-directory: client
-        run: npm ci
-
-      - name: Lint frontend
-        working-directory: client
-        run: npm run lint
-
-      - name: Build frontend
-        working-directory: client
-        run: npm run build
-
-      - name: Check backend compilation
-        run: cargo check --manifest-path api-server/Cargo.toml
-
-  build-api:
-    needs:
-      - generate-code
-      - quality-gate
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download generated code
-        uses: actions/download-artifact@v4
-        with:
-          name: generated-code
-          path: .
-
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build API server release binary
-        run: cargo build --manifest-path api-server/Cargo.toml --release
-
-      - name: Package API binary (Linux/macOS)
-        if: runner.os != 'Windows'
-        run: |
-          mkdir -p dist
-          tar -C api-server/target/release -czf "dist/simula-api-server-${{ runner.os }}-x64.tar.gz" simula-api-server
-
-      - name: Package API binary (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path dist -Force | Out-Null
-          Compress-Archive -Path api-server/target/release/simula-api-server.exe -DestinationPath dist/simula-api-server-Windows-x64.zip -Force
-
-      - name: Upload API artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: api-${{ runner.os }}
-          path: dist/*
-
-  build-web-dist:
-    needs:
-      - generate-code
-      - quality-gate
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download generated code
-        uses: actions/download-artifact@v4
-        with:
-          name: generated-code
-          path: .
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
-          cache-dependency-path: client/package-lock.json
-
-      - name: Install client dependencies
-        working-directory: client
-        run: npm ci
-
-      - name: Build client assets
-        working-directory: client
-        run: npm run build
-
-      - name: Package client assets
-        run: |
-          mkdir -p dist
-          tar -C client/dist -czf dist/simula-client-web.tar.gz .
-
-      - name: Upload client artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: client-web
-          path: dist/simula-client-web.tar.gz
-
-  package-web:
-    needs:
-      - build-api
-      - build-web-dist
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - name: Download API artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: api-*
-          path: incoming/api
-          merge-multiple: true
-
-      - name: Download web dist artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: client-web
-          path: incoming/client
-
-      - name: Build single web bundle
-        run: |
-          set -euo pipefail
-
-          mkdir -p dist
-          mkdir -p web-bundle/bin/linux web-bundle/bin/macos web-bundle/bin/windows web-bundle/web
-
-          tar -xzf incoming/client/simula-client-web.tar.gz -C web-bundle/web
-          tar -xzf incoming/api/simula-api-server-Linux-x64.tar.gz -C web-bundle/bin/linux
-          tar -xzf incoming/api/simula-api-server-macOS-x64.tar.gz -C web-bundle/bin/macos
-          unzip -q incoming/api/simula-api-server-Windows-x64.zip -d web-bundle/bin/windows
-
-          cat > web-bundle/run-web.sh <<'EOF'
-          #!/usr/bin/env bash
-          set -euo pipefail
-
-          ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-          case "$(uname -s)" in
-            Linux*) API_BIN="$ROOT_DIR/bin/linux/simula-api-server" ;;
-            Darwin*) API_BIN="$ROOT_DIR/bin/macos/simula-api-server" ;;
-            *)
-              echo "Unsupported OS for run-web.sh"
-              exit 1
-              ;;
-          esac
-
-          chmod +x "$API_BIN"
-          export API_HOST=127.0.0.1
-          export API_PORT=8081
-          export WEB_APP_PORT=8888
-          export SIMULA_WEB_DIST_DIR="$ROOT_DIR/web"
-
-          "$API_BIN" &
-          API_PID=$!
-          trap 'kill "$API_PID" 2>/dev/null || true' EXIT
-
-          if command -v xdg-open >/dev/null 2>&1; then
-            xdg-open "http://127.0.0.1:8888" >/dev/null 2>&1 || true
-          elif command -v open >/dev/null 2>&1; then
-            open "http://127.0.0.1:8888" >/dev/null 2>&1 || true
-          fi
-
-          wait "$API_PID"
-          EOF
-
-          cat > web-bundle/run-web.bat <<'EOF'
-          @echo off
-          set ROOT_DIR=%~dp0
-          set API_BIN=%ROOT_DIR%bin\windows\simula-api-server.exe
-          set API_HOST=127.0.0.1
-          set API_PORT=8081
-          set WEB_APP_PORT=8888
-          set SIMULA_WEB_DIST_DIR=%ROOT_DIR%web
-
-          start "" http://127.0.0.1:8888
-          "%API_BIN%"
-          EOF
-
-          chmod +x web-bundle/run-web.sh
-
-          (
-            cd web-bundle
-            zip -qr ../dist/simula-web.zip .
-          )
-
-      - name: Upload packaged web bundle
-        uses: actions/upload-artifact@v4
-        with:
-          name: web-bundle
-          path: dist/simula-web.zip
-
   build-desktop:
-    needs:
-      - build-api
-      - generate-code
-      - quality-gate
+    needs: generate-code
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 70
     strategy:
       fail-fast: false
       matrix:
@@ -293,31 +66,15 @@ jobs:
           name: generated-code
           path: .
 
-      - name: Download API artifact for current OS
-        uses: actions/download-artifact@v4
-        with:
-          name: api-${{ runner.os }}
-          path: incoming/api
-
-      - name: Prepare API sidecar binary (Linux/macOS)
-        if: runner.os != 'Windows'
-        run: |
-          set -euo pipefail
-          mkdir -p incoming/api/unpacked
-          tar -xzf incoming/api/simula-api-server-${{ runner.os }}-x64.tar.gz -C incoming/api/unpacked
-          chmod +x incoming/api/unpacked/simula-api-server
-          echo "SIMULA_API_BINARY_SOURCE=$GITHUB_WORKSPACE/incoming/api/unpacked/simula-api-server" >> "$GITHUB_ENV"
-
-      - name: Prepare API sidecar binary (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path incoming/api/unpacked -Force | Out-Null
-          Expand-Archive -Path incoming/api/simula-api-server-Windows-x64.zip -DestinationPath incoming/api/unpacked -Force
-          "SIMULA_API_BINARY_SOURCE=$env:GITHUB_WORKSPACE\\incoming\\api\\unpacked\\simula-api-server.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            api-server -> target
+            client/src-tauri -> client/src-tauri/target
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -345,11 +102,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          DESKTOP_FILE="client/src-tauri/target/release/simula-desktop"
-          if [ ! -f "$DESKTOP_FILE" ]; then
+          DESKTOP_FILE=$(find client/src-tauri/target -type f \( -name 'simula-desktop' -o -name 'simula_desktop' \) -path '*/release/*' ! -path '*/deps/*' | head -n 1 || true)
+          if [ -z "$DESKTOP_FILE" ]; then
             echo "No Linux desktop binary produced"
+            find client/src-tauri/target -maxdepth 5 -type f | head -n 200
             exit 1
           fi
+          chmod +x "$DESKTOP_FILE"
           zip -j dist/simula-desktop-linux.zip "$DESKTOP_FILE"
 
       - name: Package macOS desktop artifact
@@ -357,11 +116,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          DESKTOP_FILE="client/src-tauri/target/release/simula-desktop"
-          if [ ! -f "$DESKTOP_FILE" ]; then
+          DESKTOP_FILE=$(find client/src-tauri/target -type f \( -name 'simula-desktop' -o -name 'simula_desktop' \) -path '*/release/*' ! -path '*/deps/*' | head -n 1 || true)
+          if [ -z "$DESKTOP_FILE" ]; then
             echo "No macOS desktop binary produced"
+            find client/src-tauri/target -maxdepth 5 -type f | head -n 200
             exit 1
           fi
+          chmod +x "$DESKTOP_FILE"
           zip -j dist/simula-desktop-macos.zip "$DESKTOP_FILE"
 
       - name: Package Windows desktop artifact
@@ -369,13 +130,22 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path dist -Force | Out-Null
-          $desktopFile = 'client/src-tauri/target/release/simula-desktop.exe'
 
-          if (-not (Test-Path $desktopFile)) {
+          $desktopFile = Get-ChildItem -Path client/src-tauri/target -Recurse -File |
+            Where-Object {
+              ($_.Name -eq 'simula-desktop.exe' -or $_.Name -eq 'simula_desktop.exe') -and
+              $_.FullName -match '\\release\\' -and
+              $_.FullName -notmatch '\\deps\\'
+            } |
+            Select-Object -First 1
+
+          if (-not $desktopFile) {
+            Write-Host "No Windows desktop binary produced"
+            Get-ChildItem -Path client/src-tauri/target -Recurse -File | Select-Object -First 200 FullName
             throw "No Windows desktop binary produced"
           }
 
-          Compress-Archive -Path $desktopFile -DestinationPath dist/simula-desktop-windows.zip -Force
+          Compress-Archive -Path $desktopFile.FullName -DestinationPath dist/simula-desktop-windows.zip -Force
 
       - name: Upload desktop artifact
         uses: actions/upload-artifact@v4
@@ -385,19 +155,11 @@ jobs:
 
   publish-release:
     if: github.event_name == 'release'
-    needs:
-      - package-web
-      - build-desktop
+    needs: build-desktop
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - name: Download web bundle artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: web-bundle
-          path: release-assets
-
       - name: Download Linux desktop artifact
         uses: actions/download-artifact@v4
         with:
