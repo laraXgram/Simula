@@ -143,45 +143,45 @@ jobs:
 
           if [ "${{ matrix.platform }}" = "linux" ]; then
             cat > web-bundle/run-web.sh <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
+            #!/usr/bin/env bash
+            set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-API_BIN="$ROOT_DIR/bin/simula-api-server"
+            ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+            API_BIN="$ROOT_DIR/bin/simula-api-server"
 
-chmod +x "$API_BIN"
-export API_HOST=127.0.0.1
-export API_PORT=8081
-export WEB_APP_PORT=8888
-export SIMULA_WEB_DIST_DIR="$ROOT_DIR/web"
+            chmod +x "$API_BIN"
+            export API_HOST=127.0.0.1
+            export API_PORT=8081
+            export WEB_APP_PORT=8888
+            export SIMULA_WEB_DIST_DIR="$ROOT_DIR/web"
 
-if command -v xdg-open >/dev/null 2>&1; then
-  xdg-open "http://127.0.0.1:8888" >/dev/null 2>&1 || true
-elif command -v open >/dev/null 2>&1; then
-  open "http://127.0.0.1:8888" >/dev/null 2>&1 || true
-fi
+            if command -v xdg-open >/dev/null 2>&1; then
+              xdg-open "http://127.0.0.1:8888" >/dev/null 2>&1 || true
+            elif command -v open >/dev/null 2>&1; then
+              open "http://127.0.0.1:8888" >/dev/null 2>&1 || true
+            fi
 
-"$API_BIN"
-EOF
+            "$API_BIN"
+            EOF
             chmod +x web-bundle/run-web.sh
             (cd web-bundle && zip -qr ../dist/simula-web-linux.zip .)
           else
             cat > web-bundle/run-web.command <<'EOF'
-#!/bin/bash
-set -euo pipefail
+            #!/bin/bash
+            set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-API_BIN="$ROOT_DIR/bin/simula-api-server"
+            ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+            API_BIN="$ROOT_DIR/bin/simula-api-server"
 
-chmod +x "$API_BIN"
-export API_HOST=127.0.0.1
-export API_PORT=8081
-export WEB_APP_PORT=8888
-export SIMULA_WEB_DIST_DIR="$ROOT_DIR/web"
+            chmod +x "$API_BIN"
+            export API_HOST=127.0.0.1
+            export API_PORT=8081
+            export WEB_APP_PORT=8888
+            export SIMULA_WEB_DIST_DIR="$ROOT_DIR/web"
 
-open "http://127.0.0.1:8888" >/dev/null 2>&1 || true
-"$API_BIN"
-EOF
+            open "http://127.0.0.1:8888" >/dev/null 2>&1 || true
+            "$API_BIN"
+            EOF
             chmod +x web-bundle/run-web.command
             (cd web-bundle && zip -qr ../dist/simula-web-macos.zip .)
           fi
@@ -195,19 +195,20 @@ EOF
           tar -xzf incoming/web-client/simula-web-client.tar.gz -C web-bundle/web
           Copy-Item api-server/target/release/simula-api-server.exe web-bundle/bin/simula-api-server.exe -Force
 
-          @"
-@echo off
-setlocal
-set ROOT_DIR=%~dp0
-set API_BIN=%ROOT_DIR%bin\simula-api-server.exe
-set API_HOST=127.0.0.1
-set API_PORT=8081
-set WEB_APP_PORT=8888
-set SIMULA_WEB_DIST_DIR=%ROOT_DIR%web
-
-start "" http://127.0.0.1:8888
-"%API_BIN%"
-"@ | Set-Content -Path web-bundle/run-web.bat -Encoding ascii
+          $launcher = @(
+            '@echo off',
+            'setlocal',
+            'set ROOT_DIR=%~dp0',
+            'set API_BIN=%ROOT_DIR%bin\\simula-api-server.exe',
+            'set API_HOST=127.0.0.1',
+            'set API_PORT=8081',
+            'set WEB_APP_PORT=8888',
+            'set SIMULA_WEB_DIST_DIR=%ROOT_DIR%web',
+            '',
+            'start "" http://127.0.0.1:8888',
+            '"%API_BIN%"'
+          )
+          $launcher | Set-Content -Path web-bundle/run-web.bat -Encoding ascii
 
           Compress-Archive -Path web-bundle\* -DestinationPath dist/simula-web-windows.zip -Force
 
