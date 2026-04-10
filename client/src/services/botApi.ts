@@ -1144,7 +1144,21 @@ export async function deleteOwnedGift(token: string, payload: {
   user_id?: number;
   chat_id?: number;
 }, actorUserId?: number): Promise<boolean> {
-  return callBotMethod<boolean>(token, 'deleteOwnedGift', payload, { actorUserId });
+  const response = await fetch(`${API_BASE_URL}/client-api/bot${encodeURIComponent(token)}/deleteOwnedGift`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...actorHeader(actorUserId),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.description || 'Unable to delete owned gift');
+  }
+
+  return data.result as boolean;
 }
 
 export async function convertGiftToStars(token: string, payload: ConvertGiftToStarsRequest): Promise<boolean> {

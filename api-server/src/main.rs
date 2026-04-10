@@ -29,6 +29,7 @@ use crate::routes::{
     sim_upload_user_profile_audio,
     sim_add_user_chat_boosts,
     sim_remove_user_chat_boosts,
+    sim_delete_owned_gift,
     sim_set_user_profile_audio,
     sim_get_privacy_mode,
     sim_open_channel_direct_messages,
@@ -194,6 +195,7 @@ async fn main() -> std::io::Result<()> {
             .service(sim_delete_user_profile_audio)
             .service(sim_add_user_chat_boosts)
             .service(sim_remove_user_chat_boosts)
+            .service(sim_delete_owned_gift)
             .service(sim_clear_history)
     })
     .bind((host.clone(), port))?

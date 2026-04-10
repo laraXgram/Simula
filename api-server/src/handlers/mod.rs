@@ -738,19 +738,6 @@ pub fn dispatch_method(
         "setstickersetthumbnail" => stickers::handle_set_sticker_set_thumbnail(state, token, &params),
         "setcustomemojistickersetthumbnail" => stickers::handle_set_custom_emoji_sticker_set_thumbnail(state, token, &params),
         "deletestickerset" => stickers::handle_delete_sticker_set(state, token, &params),
-        _ => dispatch_custom_method(state, token, method, &params),
-    }
-}
-
-fn dispatch_custom_method(
-    state: &Data<AppState>,
-    token: &str,
-    method: &str,
-    params: &HashMap<String, Value>,
-) -> ApiResult {
-    match method.to_ascii_lowercase().as_str() {
-        // Simulator-only method, not part of official Telegram Bot API.
-        "deleteownedgift" => handle_delete_owned_gift(state, token, params),
         _ => Err(ApiError::not_found(format!("method {} not found", method))),
     }
 }
@@ -2370,25 +2357,20 @@ fn map_owned_gift_record(
     })
 }
 
-fn handle_delete_owned_gift(
+pub fn handle_sim_delete_owned_gift(
     state: &Data<AppState>,
     token: &str,
-    params: &HashMap<String, Value>,
+    body: SimDeleteOwnedGiftRequest,
 ) -> ApiResult {
-    let owned_gift_id = params
-        .get("owned_gift_id")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| ApiError::bad_request("owned_gift_id is required"))?
-        .to_string();
+    let owned_gift_id = body.owned_gift_id.trim();
+    if owned_gift_id.is_empty() {
+        return Err(ApiError::bad_request("owned_gift_id is required"));
+    }
+    let owned_gift_id = owned_gift_id.to_string();
 
-    let requested_user_id = params
-        .get("user_id")
-        .and_then(Value::as_i64)
-        .filter(|value| *value > 0);
+    let requested_user_id = body.user_id.filter(|value| *value > 0);
 
-    let requested_chat_id = if let Some(chat_value) = params.get("chat_id") {
+    let requested_chat_id = if let Some(chat_value) = body.chat_id.as_ref() {
         let chat_key = value_to_chat_key(chat_value)?;
         Some(chat_id_as_i64(chat_value, &chat_key))
     } else {
@@ -2464,7 +2446,7 @@ struct SimBusinessStoryRecord {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct DeleteOwnedGiftCompatRequest {
+pub struct SimDeleteOwnedGiftRequest {
     owned_gift_id: String,
     user_id: Option<i64>,
     chat_id: Option<Value>,

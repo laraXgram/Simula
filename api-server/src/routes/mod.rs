@@ -55,6 +55,7 @@ use crate::handlers::{
     handle_sim_set_user_profile_audio,
     handle_sim_set_user_reaction,
     handle_sim_set_privacy_mode,
+    handle_sim_delete_owned_gift,
     handle_sim_vote_poll,
     handle_sim_update_bot,
     handle_sim_upsert_user,
@@ -73,6 +74,7 @@ use crate::handlers::{
     SimOpenChannelDirectMessagesRequest,
     SimVotePollRequest,
     SimUpsertUserRequest,
+    SimDeleteOwnedGiftRequest,
 };
 use crate::types::{into_telegram_response, strip_nulls, ApiError};
 
@@ -995,6 +997,16 @@ pub async fn sim_remove_user_chat_boosts(
 ) -> impl Responder {
     let token = path.into_inner();
     into_telegram_response(handle_sim_remove_user_chat_boosts(&state, &token, payload.into_inner()))
+}
+
+#[post("/client-api/bot{token}/deleteOwnedGift")]
+pub async fn sim_delete_owned_gift(
+    state: Data<AppState>,
+    path: web::Path<String>,
+    payload: web::Json<SimDeleteOwnedGiftRequest>,
+) -> impl Responder {
+    let token = path.into_inner();
+    into_telegram_response(handle_sim_delete_owned_gift(&state, &token, payload.into_inner()))
 }
 
 #[post("/client-api/bot{token}/clearHistory")]
