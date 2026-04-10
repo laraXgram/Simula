@@ -1,0 +1,21 @@
+use super::*;
+
+pub mod chats;
+pub mod messages;
+pub mod bot;
+pub mod stickers;
+pub mod bussines;
+pub mod topics;
+pub mod gifts;
+pub mod links;
+pub mod users;
+pub mod inline;
+pub mod callback;
+pub mod webapp;
+pub mod stars;
+pub mod payments;
+pub mod games;
+pub mod channels;
+pub mod files;
+pub mod stories;
+pub mod passport;

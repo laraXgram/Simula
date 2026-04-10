@@ -16,6 +16,12 @@ use crate::generated::methods::{
     StopMessageLiveLocationRequest, StopPollRequest,
 };
 
+use crate::handlers::utils::updates::{current_request_actor_user_id, value_to_chat_key};
+
+use crate::handlers::client::chats::ChatSendKind;
+
+use crate::handlers::client::{channels, chats, groups, messages, users, webhook};
+
 pub fn handle_copy_message(
     state: &Data<AppState>,
     token: &str,
@@ -35,7 +41,7 @@ pub fn handle_copy_message(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
 
-    let copied_message = copy_message_internal(
+    let copied_message = messages::copy_message_internal(
         state,
         &mut conn,
         token,
@@ -80,7 +86,7 @@ pub fn handle_copy_messages(
     let mut copied = Vec::new();
 
     for message_id in request.message_ids {
-        match copy_message_internal(
+        match messages::copy_message_internal(
             state,
             &mut conn,
             token,
@@ -127,8 +133,8 @@ pub fn handle_delete_message(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let (chat_key, chat_id) = resolve_chat_key_and_id(&mut conn, bot.id, &request.chat_id)?;
-    let direct_messages_chat = load_sim_chat_record(&mut conn, bot.id, &chat_key)?
-        .filter(|chat| is_direct_messages_chat(chat));
+    let direct_messages_chat = chats::load_sim_chat_record(&mut conn, bot.id, &chat_key)?
+        .filter(|chat| channels::is_direct_messages_chat(chat));
 
     match ensure_message_can_be_deleted_by_actor(&mut conn, bot.id, &chat_key, request.message_id) {
         Ok(()) => {}
@@ -173,8 +179,8 @@ pub fn handle_delete_messages(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let (chat_key, chat_id) = resolve_chat_key_and_id(&mut conn, bot.id, &request.chat_id)?;
-    let direct_messages_chat = load_sim_chat_record(&mut conn, bot.id, &chat_key)?
-        .filter(|chat| is_direct_messages_chat(chat));
+    let direct_messages_chat = chats::load_sim_chat_record(&mut conn, bot.id, &chat_key)?
+        .filter(|chat| channels::is_direct_messages_chat(chat));
 
     let placeholders = std::iter::repeat("?")
         .take(message_ids.len())
@@ -279,8 +285,8 @@ pub fn handle_edit_message_caption(
         via_inline_message,
     )?;
 
-    let mut edited_message = load_message_value(&mut conn, &bot, message_id)?;
-    if !message_has_media(&edited_message) {
+    let mut edited_message = messages::load_message_value(&mut conn, &bot, message_id)?;
+    if !messages::message_has_media(&edited_message) {
         return Err(ApiError::bad_request(
             "message has no media caption to edit; use editMessageText",
         ));
@@ -373,7 +379,7 @@ pub fn handle_edit_message_checklist(
 
     ensure_message_can_be_edited_by_bot(&mut conn, bot.id, &chat_key, request.message_id, false)?;
 
-    let mut edited_message = load_message_value(&mut conn, &bot, request.message_id)?;
+    let mut edited_message = messages::load_message_value(&mut conn, &bot, request.message_id)?;
     if edited_message.get("checklist").is_none() {
         return Err(ApiError::bad_request("message has no checklist to edit"));
     }
@@ -431,7 +437,7 @@ pub fn handle_edit_message_live_location(
         via_inline_message,
     )?;
 
-    let mut edited_message = load_message_value(&mut conn, &bot, message_id)?;
+    let mut edited_message = messages::load_message_value(&mut conn, &bot, message_id)?;
 
     if edited_message.get("location").is_none() && edited_message.get("venue").is_none() {
         return Err(ApiError::bad_request("message has no live location to edit"));
@@ -525,7 +531,7 @@ pub fn handle_edit_message_media(
         via_inline_message,
     )?;
 
-    let mut edited_message = load_message_value(&mut conn, &bot, message_id)?;
+    let mut edited_message = messages::load_message_value(&mut conn, &bot, message_id)?;
     let media_payload = match media_type.as_str() {
         "photo" => {
             let file = resolve_media_file(state, token, media_ref, "photo")?;
@@ -643,7 +649,7 @@ pub fn handle_edit_message_reply_markup(
         via_inline_message,
     )?;
 
-    let mut edited_message = load_message_value(&mut conn, &bot, message_id)?;
+    let mut edited_message = messages::load_message_value(&mut conn, &bot, message_id)?;
     apply_inline_reply_markup(&mut edited_message, request.reply_markup);
 
     publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
@@ -713,7 +719,7 @@ pub fn handle_edit_message_text(
         return Err(ApiError::not_found("message to edit was not found"));
     }
 
-    let mut edited_message = load_message_value(&mut conn, &bot, message_id)?;
+    let mut edited_message = messages::load_message_value(&mut conn, &bot, message_id)?;
     apply_inline_reply_markup(&mut edited_message, request.reply_markup);
     if let Some(entities) = parsed_entities {
         edited_message["entities"] = entities;
@@ -997,8 +1003,8 @@ pub fn handle_send_chat_action(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let chat_key = value_to_chat_key(&request.chat_id)?;
-    let chat_id = chat_id_as_i64(&request.chat_id, &chat_key);
-    let sim_chat = load_sim_chat_record(&mut conn, bot.id, &chat_key)?;
+    let chat_id = chats::chat_id_as_i64(&request.chat_id, &chat_key);
+    let sim_chat = chats::load_sim_chat_record(&mut conn, bot.id, &chat_key)?;
 
     if sim_chat.is_none() && chat_id <= 0 {
         return Err(ApiError::not_found("chat not found"));
@@ -1013,11 +1019,11 @@ pub fn handle_send_chat_action(
     let actor_name = if actor_user_id == bot.id {
         bot.first_name.clone()
     } else {
-        ensure_sim_user_record(&mut conn, actor_user_id)?.first_name
+        users::ensure_sim_user_record(&mut conn, actor_user_id)?.first_name
     };
 
     if chat_type != "private" {
-        ensure_sender_can_send_in_chat(
+        chats::ensure_sender_can_send_in_chat(
             &mut conn,
             bot.id,
             &chat_key,
@@ -1058,7 +1064,7 @@ pub fn handle_send_checklist(
     let bot = ensure_bot(&mut conn, token)?;
 
     let chat_id_value = Value::from(request.chat_id);
-    let (chat_key, chat) = resolve_bot_outbound_chat(
+    let (chat_key, chat) = chats::resolve_bot_outbound_chat(
         &mut conn,
         bot.id,
         &chat_id_value,
@@ -1090,7 +1096,7 @@ pub fn handle_send_checklist(
         .reply_markup
         .as_ref()
         .and_then(|markup| serde_json::to_value(markup).ok());
-    let reply_markup = handle_reply_markup_state(
+    let reply_markup = messages::handle_reply_markup_state(
         &mut conn,
         bot.id,
         &chat_key,
@@ -1105,7 +1111,7 @@ pub fn handle_send_checklist(
     .map_err(ApiError::internal)?;
 
     let message_id = conn.last_insert_rowid();
-    let mut message_value = load_message_value(&mut conn, &bot, message_id)?;
+    let mut message_value = messages::load_message_value(&mut conn, &bot, message_id)?;
     message_value["checklist"] = serde_json::to_value(&checklist).map_err(ApiError::internal)?;
     message_value["business_connection_id"] = Value::String(business_connection_id);
 
@@ -1128,7 +1134,7 @@ pub fn handle_send_checklist(
             None => chat_key.clone(),
         };
 
-        if let Ok(reply_value) = load_message_value(&mut conn, &bot, reply_parameters.message_id) {
+        if let Ok(reply_value) = messages::load_message_value(&mut conn, &bot, reply_parameters.message_id) {
             let belongs_to_chat = reply_value
                 .get("chat")
                 .and_then(|v| v.get("id"))
@@ -1356,13 +1362,13 @@ pub fn handle_send_invoice(state: &Data<AppState>, token: &str, params: &HashMap
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
 
-    let (chat_key, chat) = resolve_bot_outbound_chat(
+    let (chat_key, chat) = chats::resolve_bot_outbound_chat(
         &mut conn,
         bot.id,
         &request.chat_id,
         ChatSendKind::Invoice,
     )?;
-    let message_thread_id = resolve_forum_message_thread_for_chat_key(
+    let message_thread_id = groups::resolve_forum_message_thread_for_chat_key(
         &mut conn,
         bot.id,
         &chat_key,
@@ -1381,7 +1387,7 @@ pub fn handle_send_invoice(state: &Data<AppState>, token: &str, params: &HashMap
         .as_ref()
         .and_then(|markup| serde_json::to_value(markup).ok());
 
-    let reply_markup = handle_reply_markup_state(
+    let reply_markup = messages::handle_reply_markup_state(
         &mut conn,
         bot.id,
         &chat_key,
@@ -1396,7 +1402,7 @@ pub fn handle_send_invoice(state: &Data<AppState>, token: &str, params: &HashMap
     .map_err(ApiError::internal)?;
 
     let message_id = conn.last_insert_rowid();
-    let mut message_value = load_message_value(&mut conn, &bot, message_id)?;
+    let mut message_value = messages::load_message_value(&mut conn, &bot, message_id)?;
     message_value.as_object_mut().map(|obj| obj.remove("text"));
     if let Some(thread_id) = message_thread_id {
         message_value["message_thread_id"] = Value::from(thread_id);
@@ -1406,7 +1412,7 @@ pub fn handle_send_invoice(state: &Data<AppState>, token: &str, params: &HashMap
         .get("chat")
         .and_then(|chat| chat.get("id"))
         .and_then(Value::as_i64)
-        .unwrap_or_else(|| chat_id_as_i64(&request.chat_id, &chat_key));
+        .unwrap_or_else(|| chats::chat_id_as_i64(&request.chat_id, &chat_key));
 
     let invoice_title = request.title.clone();
     let invoice_description = request.description.clone();
@@ -1482,7 +1488,7 @@ pub fn handle_send_invoice(state: &Data<AppState>, token: &str, params: &HashMap
             None => chat_key.clone(),
         };
 
-        if let Ok(reply_value) = load_message_value(&mut conn, &bot, reply_parameters.message_id) {
+        if let Ok(reply_value) = messages::load_message_value(&mut conn, &bot, reply_parameters.message_id) {
             let belongs_to_chat = reply_value
                 .get("chat")
                 .and_then(|v| v.get("id"))
@@ -1904,7 +1910,7 @@ pub fn handle_send_gift(
         if user_id <= 0 {
             return Err(ApiError::bad_request("user_id is invalid"));
         }
-        let recipient = ensure_user(&mut conn, Some(user_id), None, None)?;
+        let recipient = users::ensure_user(&mut conn, Some(user_id), None, None)?;
         owner_user_id = Some(recipient.id);
 
         let chat_key = recipient.id.to_string();
@@ -1924,9 +1930,9 @@ pub fn handle_send_gift(
         ));
     } else if let Some(chat_value) = request.chat_id.as_ref() {
         let chat_key = value_to_chat_key(chat_value)?;
-        let chat_id = chat_id_as_i64(chat_value, &chat_key);
-        let sim_chat = load_sim_chat_record(&mut conn, bot.id, &chat_key)?
-            .or(load_sim_chat_record_by_chat_id(&mut conn, bot.id, chat_id)?)
+        let chat_id = chats::chat_id_as_i64(chat_value, &chat_key);
+        let sim_chat = chats::load_sim_chat_record(&mut conn, bot.id, &chat_key)?
+            .or(chats::load_sim_chat_record_by_chat_id(&mut conn, bot.id, chat_id)?)
             .ok_or_else(|| ApiError::not_found("chat not found"))?;
 
         if sim_chat.chat_type != "channel" {
@@ -2033,7 +2039,7 @@ pub fn handle_send_gift(
     }
 
     if let Some((chat_key, chat)) = gift_message_chat {
-        let sender_user = build_user_from_sim_record(&sender, false);
+        let sender_user = users::build_user_from_sim_record(&sender, false);
         let mut gift_payload = Map::<String, Value>::new();
         gift_payload.insert(
             "gift".to_string(),
@@ -2120,7 +2126,7 @@ pub fn handle_send_message_draft(
         let mut conn = lock_db(state)?;
         let bot = ensure_bot(&mut conn, token)?;
 
-        let (chat_key, chat) = resolve_bot_outbound_chat(
+        let (chat_key, chat) = chats::resolve_bot_outbound_chat(
             &mut conn,
             bot.id,
             &chat_id_value,
@@ -2131,7 +2137,7 @@ pub fn handle_send_message_draft(
                 "sendMessageDraft is available only in private chats",
             ));
         }
-        let resolved_message_thread_id = resolve_forum_message_thread_for_chat_key(
+        let resolved_message_thread_id = groups::resolve_forum_message_thread_for_chat_key(
             &mut conn,
             bot.id,
             &chat_key,
@@ -2200,7 +2206,7 @@ pub fn handle_send_message_draft(
             )
             .map_err(ApiError::internal)?;
         } else {
-            let mut streamed_message = load_message_value(&mut conn, &bot, message_id)?;
+            let mut streamed_message = messages::load_message_value(&mut conn, &bot, message_id)?;
             if let Some(entities) = parsed_entities {
                 streamed_message["entities"] = entities;
             } else {
@@ -2340,7 +2346,7 @@ pub fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
 
-    let (chat_key, chat) = resolve_bot_outbound_chat(
+    let (chat_key, chat) = chats::resolve_bot_outbound_chat(
         &mut conn,
         bot.id,
         &request.chat_id,
@@ -2352,7 +2358,7 @@ pub fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap
         &chat,
         request.business_connection_id.as_deref(),
     )?;
-    let message_thread_id = resolve_forum_message_thread_for_chat_key(
+    let message_thread_id = groups::resolve_forum_message_thread_for_chat_key(
         &mut conn,
         bot.id,
         &chat_key,
@@ -2366,7 +2372,7 @@ pub fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap
         ChatSendKind::Text,
     )?;
 
-    let reply_markup = handle_reply_markup_state(
+    let reply_markup = messages::handle_reply_markup_state(
         &mut conn,
         bot.id,
         &chat_key,
@@ -2472,7 +2478,7 @@ pub fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap
         update_value["message"] = message_value.clone();
     }
 
-    enrich_channel_post_payloads(&mut conn, bot.id, &mut update_value)?;
+    channels::enrich_channel_post_payloads(&mut conn, bot.id, &mut update_value)?;
     if is_channel_post {
         if let Some(enriched_message) = update_value.get("channel_post").cloned() {
             message_value = enriched_message;
@@ -2487,10 +2493,10 @@ pub fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap
 
     let clean_update = strip_nulls(update_value);
     state.ws_hub.publish_json(token, &clean_update);
-    dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update.clone());
+    webhook::dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update.clone());
 
     if is_channel_post {
-        ensure_linked_discussion_forward_for_channel_post(
+        channels::ensure_linked_discussion_forward_for_channel_post(
             state,
             &mut conn,
             token,
@@ -2680,13 +2686,13 @@ pub fn handle_send_poll(state: &Data<AppState>, token: &str, params: &HashMap<St
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, chat) = resolve_bot_outbound_chat(
+    let (chat_key, chat) = chats::resolve_bot_outbound_chat(
         &mut conn,
         bot.id,
         &request.chat_id,
         ChatSendKind::Poll,
     )?;
-    let message_thread_id = resolve_forum_message_thread_for_chat_key(
+    let message_thread_id = groups::resolve_forum_message_thread_for_chat_key(
         &mut conn,
         bot.id,
         &chat_key,
@@ -2700,7 +2706,7 @@ pub fn handle_send_poll(state: &Data<AppState>, token: &str, params: &HashMap<St
         ChatSendKind::Poll,
     )?;
 
-    let reply_markup = handle_reply_markup_state(
+    let reply_markup = messages::handle_reply_markup_state(
         &mut conn,
         bot.id,
         &chat_key,
@@ -2796,7 +2802,7 @@ pub fn handle_send_poll(state: &Data<AppState>, token: &str, params: &HashMap<St
     )
     .map_err(ApiError::internal)?;
 
-    let mut message_value = load_message_value(&mut conn, &bot, message_id)?;
+    let mut message_value = messages::load_message_value(&mut conn, &bot, message_id)?;
     message_value["poll"] = serde_json::to_value(&poll).map_err(ApiError::internal)?;
     message_value.as_object_mut().map(|obj| obj.remove("text"));
     message_value.as_object_mut().map(|obj| obj.remove("edit_date"));
@@ -2815,7 +2821,7 @@ pub fn handle_send_poll(state: &Data<AppState>, token: &str, params: &HashMap<St
             None => chat_key.clone(),
         };
 
-        if let Ok(reply_value) = load_message_value(&mut conn, &bot, reply_parameters.message_id) {
+        if let Ok(reply_value) = messages::load_message_value(&mut conn, &bot, reply_parameters.message_id) {
             let belongs_to_chat = reply_value
                 .get("chat")
                 .and_then(|v| v.get("id"))
@@ -3086,7 +3092,7 @@ pub fn handle_set_message_reaction(
     }))?;
 
     let chat_key = value_to_chat_key(&request.chat_id)?;
-    let chat_id = chat_id_as_i64(&request.chat_id, &chat_key);
+    let chat_id = chats::chat_id_as_i64(&request.chat_id, &chat_key);
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
@@ -3149,7 +3155,7 @@ pub fn handle_stop_message_live_location(
         via_inline_message,
     )?;
 
-    let mut edited_message = load_message_value(&mut conn, &bot, message_id)?;
+    let mut edited_message = messages::load_message_value(&mut conn, &bot, message_id)?;
     if let Some(location_obj) = edited_message.get_mut("location").and_then(Value::as_object_mut) {
         location_obj.remove("live_period");
         location_obj.remove("heading");
@@ -3277,7 +3283,7 @@ pub fn handle_stop_poll(state: &Data<AppState>, token: &str, params: &HashMap<St
         description_entities,
     };
 
-    let mut edited_message = load_message_value(&mut conn, &bot, request.message_id)?;
+    let mut edited_message = messages::load_message_value(&mut conn, &bot, request.message_id)?;
     edited_message["poll"] = serde_json::to_value(&poll).map_err(ApiError::internal)?;
     edited_message.as_object_mut().map(|obj| obj.remove("text"));
     apply_inline_reply_markup(&mut edited_message, request.reply_markup);

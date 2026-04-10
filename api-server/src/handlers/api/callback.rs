@@ -1,6 +1,8 @@
 use super::*;
 use crate::generated::methods::AnswerCallbackQueryRequest;
 
+use crate::handlers::utils::updates::value_to_optional_bool_loose;
+
 pub fn handle_answer_callback_query(
     state: &Data<AppState>,
     token: &str,

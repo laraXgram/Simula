@@ -9,6 +9,8 @@ use crate::generated::methods::{
     GetBusinessAccountGiftsRequest,
 };
 
+use crate::handlers::client::users;
+
 pub fn handle_get_business_connection(
     state: &Data<AppState>,
     token: &str,
@@ -310,7 +312,7 @@ pub fn handle_delete_business_messages(
     }
 
     if !deleted_ids.is_empty() {
-        let user_record = ensure_sim_user_record(&mut conn, record.user_id)?;
+        let user_record = users::ensure_sim_user_record(&mut conn, record.user_id)?;
         let chat = Chat {
             id: record.user_chat_id,
             r#type: "private".to_string(),

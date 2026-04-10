@@ -9,6 +9,8 @@ use crate::generated::methods::{
     SetMyShortDescriptionRequest, SetWebhookRequest, LogOutRequest,
 };
 
+use crate::handlers::client::{channels, users};
+
 pub fn handle_close(
     state: &Data<AppState>,
     token: &str,
@@ -310,7 +312,7 @@ pub fn handle_get_managed_bot_token(
     let bot = ensure_bot(&mut conn, token)?;
     ensure_sim_managed_bots_storage(&mut conn)?;
 
-    let owner = ensure_sim_user_record(&mut conn, request.user_id)?;
+    let owner = users::ensure_sim_user_record(&mut conn, request.user_id)?;
     let _ = ensure_managed_bot_record(&mut conn, bot.id, owner.id, None, None)?;
     Ok(json!(true))
 }
@@ -377,7 +379,7 @@ pub fn handle_get_updates(state: &Data<AppState>, token: &str, params: &HashMap<
     let mut stale_update_ids = Vec::new();
     for (update_id, raw) in fetched_rows {
         let mut parsed: Value = serde_json::from_str(&raw).map_err(ApiError::internal)?;
-        enrich_channel_post_payloads(&mut conn, bot.id, &mut parsed)?;
+        channels::enrich_channel_post_payloads(&mut conn, bot.id, &mut parsed)?;
 
         if update_targets_deleted_message(&mut conn, bot.id, &parsed)? {
             stale_update_ids.push(update_id);
@@ -446,7 +448,7 @@ pub fn handle_replace_managed_bot_token(
     let bot = ensure_bot(&mut conn, token)?;
     ensure_sim_managed_bots_storage(&mut conn)?;
 
-    let owner = ensure_sim_user_record(&mut conn, request.user_id)?;
+    let owner = users::ensure_sim_user_record(&mut conn, request.user_id)?;
     let _ = ensure_managed_bot_record(&mut conn, bot.id, owner.id, None, None)?;
     let record = rotate_managed_bot_token(&mut conn, bot.id, owner.id)?;
 

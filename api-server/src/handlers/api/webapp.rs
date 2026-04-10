@@ -3,6 +3,8 @@ use crate::generated::methods::{
     AnswerWebAppQueryRequest, SavePreparedInlineMessageRequest, SavePreparedKeyboardButtonRequest,
 };
 
+use crate::handlers::client::users;
+
 pub fn handle_answer_web_app_query(
     state: &Data<AppState>,
     token: &str,
@@ -70,7 +72,7 @@ pub fn handle_save_prepared_inline_message(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let _ = ensure_sim_user_record(&mut conn, request.user_id)?;
+    let _ = users::ensure_sim_user_record(&mut conn, request.user_id)?;
     ensure_sim_prepared_inline_messages_storage(&mut conn)?;
 
     let now = Utc::now().timestamp();
@@ -120,7 +122,7 @@ pub fn handle_save_prepared_keyboard_button(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let _ = ensure_sim_user_record(&mut conn, request.user_id)?;
+    let _ = users::ensure_sim_user_record(&mut conn, request.user_id)?;
     ensure_sim_prepared_keyboard_buttons_storage(&mut conn)?;
 
     let now = Utc::now().timestamp();

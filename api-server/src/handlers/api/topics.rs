@@ -8,6 +8,10 @@ use crate::generated::methods::{
     UnhideGeneralForumTopicRequest, UnpinAllGeneralForumTopicMessagesRequest,
 };
 
+use crate::handlers::utils::updates::current_request_actor_user_id;
+
+use crate::handlers::client::{channels, groups};
+
 pub fn handle_get_forum_topic_icon_stickers(
     state: &Data<AppState>,
     token: &str,
@@ -361,7 +365,7 @@ pub fn handle_delete_forum_topic(
     let bot = ensure_bot(&mut conn, token)?;
     let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
 
-    if is_direct_messages_chat(&sim_chat) {
+    if channels::is_direct_messages_chat(&sim_chat) {
         if request.message_thread_id <= 0 {
             return Err(ApiError::bad_request("message_thread_id is invalid"));
         }
@@ -379,7 +383,7 @@ pub fn handle_delete_forum_topic(
             .parent_channel_chat_id
             .ok_or_else(|| ApiError::bad_request("direct messages chat parent channel is missing"))?;
         let parent_channel_chat_key = parent_channel_chat_id.to_string();
-        let actor_can_manage_direct_messages = ensure_channel_member_can_manage_direct_messages(
+        let actor_can_manage_direct_messages = channels::ensure_channel_member_can_manage_direct_messages(
             &mut conn,
             bot.id,
             &parent_channel_chat_key,
@@ -496,7 +500,7 @@ pub fn handle_edit_general_forum_topic(
         resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
     let now = Utc::now().timestamp();
 
-    let (current_name, _, _) = ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
+    let (current_name, _, _) = groups::ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
     conn.execute(
         "UPDATE forum_topic_general_states
          SET name = ?1, updated_at = ?2
@@ -553,7 +557,7 @@ pub fn handle_close_general_forum_topic(
         resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
     let now = Utc::now().timestamp();
 
-    ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
+    groups::ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
     conn.execute(
         "UPDATE forum_topic_general_states
          SET is_closed = 1, updated_at = ?1
@@ -599,7 +603,7 @@ pub fn handle_reopen_general_forum_topic(
         resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
     let now = Utc::now().timestamp();
 
-    ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
+    groups::ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
     conn.execute(
         "UPDATE forum_topic_general_states
          SET is_closed = 0, updated_at = ?1
@@ -645,7 +649,7 @@ pub fn handle_hide_general_forum_topic(
         resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
     let now = Utc::now().timestamp();
 
-    ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
+    groups::ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
     conn.execute(
         "UPDATE forum_topic_general_states
          SET is_hidden = 1, updated_at = ?1
@@ -691,7 +695,7 @@ pub fn handle_unhide_general_forum_topic(
         resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
     let now = Utc::now().timestamp();
 
-    ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
+    groups::ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
     conn.execute(
         "UPDATE forum_topic_general_states
          SET is_hidden = 0, updated_at = ?1
@@ -736,6 +740,6 @@ pub fn handle_unpin_all_general_forum_topic_messages(
     let (chat_key, _sim_chat, _chat, _actor) =
         resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
 
-    ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
+    groups::ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
     Ok(Value::Bool(true))
 }

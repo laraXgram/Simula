@@ -3,6 +3,10 @@ use crate::generated::methods::{
     ApproveSuggestedPostRequest, DeclineSuggestedPostRequest,
 };
 
+use crate::handlers::utils::updates::current_request_actor_user_id;
+
+use crate::handlers::client::{bot, channels, users};
+
 pub fn handle_approve_suggested_post(
     state: &Data<AppState>,
     token: &str,
@@ -115,10 +119,10 @@ pub fn handle_approve_suggested_post(
             )?;
 
             let actor = if actor_user_id == bot.id {
-                build_bot_user(&bot)
+                bot::build_bot_user(&bot)
             } else {
                 let actor_record = ensure_user(&mut conn, Some(actor_user_id), None, None)?;
-                build_user_from_sim_record(&actor_record, false)
+                users::build_user_from_sim_record(&actor_record, false)
             };
             let mut approval_failed_payload = Map::<String, Value>::new();
             approval_failed_payload.insert(
@@ -166,10 +170,10 @@ pub fn handle_approve_suggested_post(
     )?;
 
     let actor = if actor_user_id == bot.id {
-        build_bot_user(&bot)
+        bot::build_bot_user(&bot)
     } else {
         let actor_record = ensure_user(&mut conn, Some(actor_user_id), None, None)?;
-        build_user_from_sim_record(&actor_record, false)
+        users::build_user_from_sim_record(&actor_record, false)
     };
     let mut approved_payload = Map::<String, Value>::new();
     approved_payload.insert(
@@ -248,7 +252,7 @@ pub fn handle_decline_suggested_post(
         .ok_or_else(|| ApiError::bad_request("direct messages chat parent channel is missing"))?
         .to_string();
     let actor_user_id = current_request_actor_user_id().unwrap_or(bot.id);
-    ensure_channel_member_can_manage_direct_messages(
+    channels::ensure_channel_member_can_manage_direct_messages(
         &mut conn,
         bot.id,
         &parent_channel_chat_key,
@@ -307,10 +311,10 @@ pub fn handle_decline_suggested_post(
     )?;
 
     let actor = if actor_user_id == bot.id {
-        build_bot_user(&bot)
+        bot::build_bot_user(&bot)
     } else {
         let actor_record = ensure_user(&mut conn, Some(actor_user_id), None, None)?;
-        build_user_from_sim_record(&actor_record, false)
+        users::build_user_from_sim_record(&actor_record, false)
     };
     let mut declined_payload = Map::<String, Value>::new();
     declined_payload.insert("suggested_post_message".to_string(), suggested_message);

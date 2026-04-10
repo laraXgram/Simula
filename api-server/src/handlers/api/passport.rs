@@ -1,6 +1,8 @@
 use super::*;
 use crate::generated::methods::SetPassportDataErrorsRequest;
 
+use crate::handlers::client::users;
+
 pub fn handle_set_passport_data_errors(
     state: &Data<AppState>,
     token: &str,
@@ -16,7 +18,7 @@ pub fn handle_set_passport_data_errors(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let _ = ensure_sim_user_record(&mut conn, request.user_id)?;
+    let _ = users::ensure_sim_user_record(&mut conn, request.user_id)?;
     ensure_sim_passport_data_errors_storage(&mut conn)?;
 
     let now = Utc::now().timestamp();

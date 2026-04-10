@@ -5,6 +5,8 @@ use crate::generated::methods::{
     ExportChatInviteLinkRequest, RevokeChatInviteLinkRequest,
 };
 
+use crate::handlers::client::types::groups::SimChatInviteLinkRecord;
+
 pub fn handle_create_chat_invite_link(
     state: &Data<AppState>,
     token: &str,

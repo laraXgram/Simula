@@ -5,6 +5,8 @@ use crate::generated::methods::{
     RemoveUserVerificationRequest, SetUserEmojiStatusRequest, VerifyUserRequest,
 };
 
+use crate::handlers::client::{chats, users};
+
 pub fn handle_edit_user_star_subscription(
     state: &Data<AppState>,
     token: &str,
@@ -48,7 +50,7 @@ pub fn handle_get_user_profile_audios(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    ensure_sim_user_record(&mut conn, request.user_id)?;
+    users::ensure_sim_user_record(&mut conn, request.user_id)?;
     ensure_sim_user_profile_audios_storage(&mut conn)?;
 
     let mut stmt = conn
@@ -103,7 +105,7 @@ pub fn handle_get_user_profile_photos(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let _ = ensure_sim_user_record(&mut conn, request.user_id)?;
+    let _ = users::ensure_sim_user_record(&mut conn, request.user_id)?;
     ensure_sim_user_profile_photos_storage(&mut conn)?;
 
     let existing_count: i64 = conn
@@ -218,9 +220,9 @@ pub fn handle_get_user_chat_boosts(
     ensure_sim_user_chat_boosts_storage(&mut conn)?;
 
     let (chat_key, _sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    ensure_sender_is_chat_member(&mut conn, bot.id, &chat_key, request.user_id)?;
+    chats::ensure_sender_is_chat_member(&mut conn, bot.id, &chat_key, request.user_id)?;
 
-    ensure_sim_user_record(&mut conn, request.user_id)?;
+    users::ensure_sim_user_record(&mut conn, request.user_id)?;
 
     let mut stmt = conn
         .prepare(
@@ -315,7 +317,7 @@ pub fn handle_set_user_emoji_status(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let _ = ensure_sim_user_record(&mut conn, request.user_id)?;
+    let _ = users::ensure_sim_user_record(&mut conn, request.user_id)?;
     ensure_sim_user_emoji_statuses_storage(&mut conn)?;
 
     conn.execute(
@@ -356,7 +358,7 @@ pub fn handle_verify_user(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     ensure_sim_verifications_storage(&mut conn)?;
-    ensure_sim_user_record(&mut conn, request.user_id)?;
+    users::ensure_sim_user_record(&mut conn, request.user_id)?;
 
     let now = Utc::now().timestamp();
     conn.execute(

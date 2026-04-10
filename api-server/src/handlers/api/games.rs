@@ -3,6 +3,8 @@ use crate::generated::methods::{
     GetGameHighScoresRequest, SetGameScoreRequest,
 };
 
+use crate::handlers::client::messages;
+
 pub fn handle_get_game_high_scores(
     state: &Data<AppState>,
     token: &str,
@@ -20,7 +22,7 @@ pub fn handle_get_game_high_scores(
         request.inline_message_id.as_deref(),
     )?;
 
-    let target_message = load_message_value(&mut conn, &bot, message_id)?;
+    let target_message = messages::load_message_value(&mut conn, &bot, message_id)?;
     if target_message.get("game").is_none() {
         return Err(ApiError::bad_request("target message is not a game message"));
     }
@@ -97,7 +99,7 @@ pub fn handle_set_game_score(
         request.inline_message_id.as_deref(),
     )?;
 
-    let mut target_message = load_message_value(&mut conn, &bot, message_id)?;
+    let mut target_message = messages::load_message_value(&mut conn, &bot, message_id)?;
     if target_message.get("game").is_none() {
         return Err(ApiError::bad_request("target message is not a game message"));
     }

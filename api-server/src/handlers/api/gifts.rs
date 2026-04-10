@@ -5,6 +5,10 @@ use crate::generated::methods::{
     ConvertGiftToStarsRequest, UpgradeGiftRequest, TransferGiftRequest,
 };
 
+use crate::handlers::utils::updates::{value_to_chat_key, current_request_actor_user_id};
+
+use crate::handlers::client::{chats, users, types::gifts::SimOwnedGiftFilterOptions};
+
 pub fn handle_get_available_gifts(
     state: &Data<AppState>,
     token: &str,
@@ -35,9 +39,9 @@ pub fn handle_get_chat_gifts(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let chat_key = value_to_chat_key(&request.chat_id)?;
-    let chat_id = chat_id_as_i64(&request.chat_id, &chat_key);
-    let sim_chat = load_sim_chat_record(&mut conn, bot.id, &chat_key)?
-        .or(load_sim_chat_record_by_chat_id(&mut conn, bot.id, chat_id)?)
+    let chat_id = chats::chat_id_as_i64(&request.chat_id, &chat_key);
+    let sim_chat = chats::load_sim_chat_record(&mut conn, bot.id, &chat_key)?
+        .or(chats::load_sim_chat_record_by_chat_id(&mut conn, bot.id, chat_id)?)
         .ok_or_else(|| ApiError::not_found("chat not found"))?;
 
     let filter_options = SimOwnedGiftFilterOptions {
@@ -95,7 +99,7 @@ pub fn handle_get_user_gifts(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
 
-    if load_sim_user_record(&mut conn, request.user_id)?.is_none() {
+    if users::load_sim_user_record(&mut conn, request.user_id)?.is_none() {
         return Err(ApiError::not_found("user not found"));
     }
 
@@ -266,7 +270,7 @@ pub fn handle_gift_premium_subscription(
     )
     .map_err(ApiError::internal)?;
 
-    let sender_user = build_user_from_sim_record(&sender, false);
+    let sender_user = users::build_user_from_sim_record(&sender, false);
     let recipient_chat_key = recipient.id.to_string();
     ensure_chat(&mut conn, &recipient_chat_key)?;
     let recipient_chat = Chat {
@@ -659,7 +663,7 @@ pub fn handle_transfer_gift(
     let mut next_owner_user_id: Option<i64> = None;
     let mut next_owner_chat_id: Option<i64> = None;
 
-    if let Some(sim_chat) = load_sim_chat_record_by_chat_id(
+    if let Some(sim_chat) = chats::load_sim_chat_record_by_chat_id(
         &mut conn,
         bot.id,
         request.new_owner_chat_id,
