@@ -1,4 +1,15 @@
-use super::*;
+use actix_web::web::Data;
+use chrono::Utc;
+use rusqlite::{params, OptionalExtension};
+use serde_json::{json, Map, Value};
+use std::collections::HashMap;
+
+use crate::database::{
+    ensure_bot, lock_db, AppState
+};
+
+use crate::types::{ApiError, ApiResult};
+
 use crate::generated::methods::{
     ApproveChatJoinRequestRequest, BanChatMemberRequest, BanChatSenderChatRequest,
     DeleteChatPhotoRequest, DeleteChatStickerSetRequest, DeclineChatJoinRequestRequest,
@@ -11,12 +22,18 @@ use crate::generated::methods::{
     UnbanChatMemberRequest, UnbanChatSenderChatRequest, UnpinAllChatMessagesRequest,
     UnpinChatMessageRequest, VerifyChatRequest,
 };
+use crate::generated::types::{
+    AcceptedGiftTypes, ChatFullInfo, ChatMember, ChatPermissions, ChatPhoto, MenuButton, Message
+};
+
+use crate::handlers::client::{bot, channels, chats, groups, messages, users, webhook};
+
+use crate::handlers::{parse_request, sql_value_to_rusqlite, chat_id_to_chat_key};
 
 use crate::handlers::utils::updates::{current_request_actor_user_id, value_to_chat_key};
+use crate::handlers::utils::storage::ensure_sim_verifications_storage;
 
 use crate::handlers::client::types::chats::SimChatMemberRecord;
-
-use crate::handlers::client::{bot, channels, chats, groups, messages, users};
 
 pub fn handle_approve_chat_join_request(
     state: &Data<AppState>,
@@ -27,11 +44,11 @@ pub fn handle_approve_chat_join_request(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    chats::ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
     if sim_chat.chat_type == "channel" {
         let actor_user_id = current_request_actor_user_id().unwrap_or(bot.id);
-        ensure_channel_actor_can_manage_invite_links(&mut conn, bot.id, &chat_key, actor_user_id)?;
+        channels::ensure_channel_actor_can_manage_invite_links(&mut conn, bot.id, &chat_key, actor_user_id)?;
     }
 
     let request_row: Option<(Option<String>, String)> = conn
@@ -74,9 +91,9 @@ pub fn handle_approve_chat_join_request(
 
     let target_user = users::ensure_sim_user_record(&mut conn, request.user_id)?;
     let invite = if let Some(raw_link) = invite_link {
-        if let Some(record) = load_invite_link_record(&mut conn, bot.id, &chat_key, &raw_link)? {
-            Some(chat_invite_link_from_record(
-                resolve_invite_creator_user(&mut conn, &bot, record.creator_user_id)?,
+        if let Some(record) = chats::load_invite_link_record(&mut conn, bot.id, &chat_key, &raw_link)? {
+            Some(chats::chat_invite_link_from_record(
+                chats::resolve_invite_creator_user(&mut conn, &bot, record.creator_user_id)?,
                 &record,
                 None,
             ))
@@ -87,7 +104,7 @@ pub fn handle_approve_chat_join_request(
         None
     };
 
-    join_user_to_group(
+    groups::join_user_to_group(
         state,
         &mut conn,
         token,
@@ -111,11 +128,11 @@ pub fn handle_ban_chat_member(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
     if sim_chat.chat_type == "channel" {
         return Err(ApiError::bad_request("channel members do not support tags"));
     }
-    let actor = resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
+    let actor = chats::resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
 
     if request.user_id == bot.id {
         return Err(ApiError::bad_request("bot can't ban itself"));
@@ -153,10 +170,10 @@ pub fn handle_ban_chat_member(
 
     let new_record = chats::load_chat_member_record(&mut conn, bot.id, &chat_key, request.user_id)?;
 
-    let chat = build_chat_from_group_record(&sim_chat);
+    let chat = groups::build_chat_from_group_record(&sim_chat);
     let target = users::build_user_from_sim_record(&target_record, false);
 
-    emit_chat_member_transition_update_with_records(
+    chats::emit_chat_member_transition_update_with_records(
         state,
         &mut conn,
         token,
@@ -177,7 +194,7 @@ pub fn handle_ban_chat_member(
             "left_chat_member".to_string(),
             serde_json::to_value(target.clone()).map_err(ApiError::internal)?,
         );
-        emit_service_message_update(
+        messages::emit_service_message_update(
             state,
             &mut conn,
             token,
@@ -186,7 +203,7 @@ pub fn handle_ban_chat_member(
             &chat,
             &actor,
             now,
-            service_text_left_chat_member(&actor, &target),
+            messages::service_text_left_chat_member(&actor, &target),
             service_fields,
         )?;
     }
@@ -203,8 +220,8 @@ pub fn handle_ban_chat_sender_chat(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    ensure_request_actor_can_manage_sender_chat_in_linked_context(
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    chats::ensure_request_actor_can_manage_sender_chat_in_linked_context(
         &mut conn,
         &bot,
         &chat_key,
@@ -233,8 +250,8 @@ pub fn handle_delete_chat_photo(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    let actor = resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    let actor = chats::resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
 
     let had_photo: Option<String> = conn
         .query_row(
@@ -254,10 +271,10 @@ pub fn handle_delete_chat_photo(
     .map_err(ApiError::internal)?;
 
     if had_photo.is_some() {
-        let chat = build_chat_from_group_record(&sim_chat);
+        let chat = groups::build_chat_from_group_record(&sim_chat);
         let mut service_fields = Map::<String, Value>::new();
         service_fields.insert("delete_chat_photo".to_string(), Value::Bool(true));
-        emit_service_message_update(
+        messages::emit_service_message_update(
             state,
             &mut conn,
             token,
@@ -266,7 +283,7 @@ pub fn handle_delete_chat_photo(
             &chat,
             &actor,
             now,
-            format!("{} deleted the group photo", display_name_for_service_user(&actor)),
+            format!("{} deleted the group photo", messages::display_name_for_service_user(&actor)),
             service_fields,
         )?;
     }
@@ -283,8 +300,8 @@ pub fn handle_delete_chat_sticker_set(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    chats::ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
 
     if sim_chat.chat_type != "supergroup" {
         return Err(ApiError::bad_request("sticker set can only be removed for supergroups"));
@@ -311,11 +328,11 @@ pub fn handle_decline_chat_join_request(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    chats::ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
     if sim_chat.chat_type == "channel" {
         let actor_user_id = current_request_actor_user_id().unwrap_or(bot.id);
-        ensure_channel_actor_can_manage_invite_links(&mut conn, bot.id, &chat_key, actor_user_id)?;
+        channels::ensure_channel_actor_can_manage_invite_links(&mut conn, bot.id, &chat_key, actor_user_id)?;
     }
 
     let status: Option<String> = conn
@@ -380,7 +397,7 @@ pub fn handle_get_chat(
                 actor_user_id,
             )?;
         } else {
-            ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
+            chats::ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
         }
     }
 
@@ -429,7 +446,7 @@ pub fn handle_get_chat(
         None
     };
 
-    let latest_pinned_message_id = load_latest_pinned_message_id(&mut conn, bot.id, &chat_key)?
+    let latest_pinned_message_id = chats::load_latest_pinned_message_id(&mut conn, bot.id, &chat_key)?
         .or(pinned_message_id);
 
     let pinned_message = if let Some(message_id) = latest_pinned_message_id {
@@ -467,13 +484,13 @@ pub fn handle_get_chat(
     let linked_chat_id = if is_direct_messages {
         None
     } else {
-        resolve_linked_chat_id_for_chat(&mut conn, bot.id, &sim_chat)?
+        chats::resolve_linked_chat_id_for_chat(&mut conn, bot.id, &sim_chat)?
     };
     let parent_chat = if is_direct_messages {
         let parent_channel_chat_id = sim_chat.parent_channel_chat_id.unwrap_or_default();
         let parent_channel_chat = chats::load_sim_chat_record(&mut conn, bot.id, &parent_channel_chat_id.to_string())?
             .ok_or_else(|| ApiError::not_found("parent channel not found"))?;
-        Some(build_chat_from_group_record(&parent_channel_chat))
+        Some(groups::build_chat_from_group_record(&parent_channel_chat))
     } else {
         None
     };
@@ -556,7 +573,7 @@ pub fn handle_get_chat(
 
     let mut chat_value = serde_json::to_value(chat_full).map_err(ApiError::internal)?;
     let verification_description =
-        load_chat_verification_description(&mut conn, bot.id, &chat_key)?;
+        chats::load_chat_verification_description(&mut conn, bot.id, &chat_key)?;
     if let Some(object) = chat_value.as_object_mut() {
         object.insert(
             "is_verified".to_string(),
@@ -582,8 +599,8 @@ pub fn handle_get_chat_administrators(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    chats::ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
 
     if sim_chat.chat_type == "private" {
         return Err(ApiError::bad_request("private chats do not have administrators list"));
@@ -630,7 +647,7 @@ pub fn handle_get_chat_administrators(
             continue;
         }
         let user = users::build_user_from_sim_record(&users::ensure_sim_user_record(&mut conn, user_id)?, false);
-        admins.push(chat_member_from_record(&record, &user, sim_chat.chat_type.as_str())?);
+        admins.push(chats::chat_member_from_record(&record, &user, sim_chat.chat_type.as_str())?);
     }
 
     serde_json::to_value(admins).map_err(ApiError::internal)
@@ -645,8 +662,8 @@ pub fn handle_get_chat_member_count(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, _sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
+    let (chat_key, _sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    chats::ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
 
     let count: i64 = conn
         .query_row(
@@ -670,16 +687,16 @@ pub fn handle_get_chat_member(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    chats::ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
 
     let member_record = chats::load_chat_member_record(&mut conn, bot.id, &chat_key, request.user_id)?;
     let user = users::build_user_from_sim_record(&users::ensure_sim_user_record(&mut conn, request.user_id)?, false);
 
     let member = if let Some(record) = member_record {
-        chat_member_from_record(&record, &user, sim_chat.chat_type.as_str())?
+        chats::chat_member_from_record(&record, &user, sim_chat.chat_type.as_str())?
     } else {
-        chat_member_from_status("left", &user)?
+        chats::chat_member_from_status("left", &user)?
     };
 
     serde_json::to_value(member).map_err(ApiError::internal)
@@ -706,7 +723,7 @@ pub fn handle_get_chat_menu_button(
         }
     }
 
-    let scoped_key = menu_button_scope_key(request.chat_id);
+    let scoped_key = bot::menu_button_scope_key(request.chat_id);
     let mut stored: Option<String> = conn
         .query_row(
             "SELECT menu_button_json
@@ -732,9 +749,9 @@ pub fn handle_get_chat_menu_button(
     }
 
     let menu_button = if let Some(raw) = stored {
-        serde_json::from_str::<MenuButton>(&raw).unwrap_or_else(|_| default_menu_button())
+        serde_json::from_str::<MenuButton>(&raw).unwrap_or_else(|_| bot::default_menu_button())
     } else {
-        default_menu_button()
+        bot::default_menu_button()
     };
 
     serde_json::to_value(menu_button).map_err(ApiError::internal)
@@ -749,7 +766,7 @@ pub fn handle_leave_chat(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
 
     let old_record = chats::load_chat_member_record(&mut conn, bot.id, &chat_key, bot.id)?;
     let Some(old_record) = old_record else {
@@ -785,10 +802,10 @@ pub fn handle_leave_chat(
 
     let new_record = chats::load_chat_member_record(&mut conn, bot.id, &chat_key, bot.id)?;
 
-    let chat = build_chat_from_group_record(&sim_chat);
+    let chat = groups::build_chat_from_group_record(&sim_chat);
     let bot_user = bot::build_bot_user(&bot);
 
-    emit_my_chat_member_transition_update_with_records(
+    chats::emit_my_chat_member_transition_update_with_records(
         state,
         &mut conn,
         token,
@@ -808,7 +825,7 @@ pub fn handle_leave_chat(
             "left_chat_member".to_string(),
             serde_json::to_value(bot_user.clone()).map_err(ApiError::internal)?,
         );
-        emit_service_message_update(
+        messages::emit_service_message_update(
             state,
             &mut conn,
             token,
@@ -817,7 +834,7 @@ pub fn handle_leave_chat(
             &chat,
             &bot_user,
             now,
-            service_text_left_chat_member(&bot_user, &bot_user),
+            messages::service_text_left_chat_member(&bot_user, &bot_user),
             service_fields,
         )?;
     }
@@ -837,8 +854,8 @@ pub fn handle_pin_chat_message(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    let actor = resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    let actor = chats::resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
 
     let exists: Option<i64> = conn
         .query_row(
@@ -873,11 +890,11 @@ pub fn handle_pin_chat_message(
     )
     .map_err(ApiError::internal)?;
 
-    let chat = build_chat_from_group_record(&sim_chat);
+    let chat = groups::build_chat_from_group_record(&sim_chat);
     let pinned_message = messages::load_message_value(&mut conn, &bot, request.message_id)?;
     let mut service_fields = Map::<String, Value>::new();
     service_fields.insert("pinned_message".to_string(), pinned_message);
-    emit_service_message_update(
+    messages::emit_service_message_update(
         state,
         &mut conn,
         token,
@@ -886,7 +903,7 @@ pub fn handle_pin_chat_message(
         &chat,
         &actor,
         now,
-        format!("{} pinned a message", display_name_for_service_user(&actor)),
+        format!("{} pinned a message", messages::display_name_for_service_user(&actor)),
         service_fields,
     )?;
 
@@ -902,9 +919,9 @@ pub fn handle_promote_chat_member(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
     let is_channel_chat = sim_chat.chat_type == "channel";
-    let actor = resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
+    let actor = chats::resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
 
     if request.user_id == bot.id {
         return Err(ApiError::bad_request("bot can't change its own admin role with promoteChatMember"));
@@ -939,7 +956,7 @@ pub fn handle_promote_chat_member(
 
     let new_status = if should_promote { "admin" } else { "member" };
     let desired_channel_admin_rights = if is_channel_chat && new_status == "admin" {
-        Some(channel_admin_rights_from_promote_request(&request))
+        Some(channels::channel_admin_rights_from_promote_request(&request))
     } else {
         None
     };
@@ -1022,10 +1039,10 @@ pub fn handle_promote_chat_member(
 
     let new_record = chats::load_chat_member_record(&mut conn, bot.id, &chat_key, request.user_id)?;
 
-    let chat = build_chat_from_group_record(&sim_chat);
+    let chat = groups::build_chat_from_group_record(&sim_chat);
     let target = users::build_user_from_sim_record(&target_record, false);
 
-    emit_chat_member_transition_update_with_records(
+    chats::emit_chat_member_transition_update_with_records(
         state,
         &mut conn,
         token,
@@ -1054,7 +1071,7 @@ pub fn handle_remove_chat_verification(
     let bot = ensure_bot(&mut conn, token)?;
     ensure_sim_verifications_storage(&mut conn)?;
 
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
     if channels::is_direct_messages_chat(&sim_chat) {
         return Err(ApiError::bad_request(
             "verification is not supported for channel direct messages chats",
@@ -1079,11 +1096,11 @@ pub fn handle_restrict_chat_member(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
     if sim_chat.chat_type == "channel" {
         return Err(ApiError::bad_request("channel members do not support restrictions"));
     }
-    let actor = resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
+    let actor = chats::resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
 
     if request.user_id == bot.id {
         return Err(ApiError::bad_request("bot can't restrict itself"));
@@ -1160,10 +1177,10 @@ pub fn handle_restrict_chat_member(
     )?;
 
     let new_record = chats::load_chat_member_record(&mut conn, bot.id, &chat_key, request.user_id)?;
-    let chat = build_chat_from_group_record(&sim_chat);
+    let chat = groups::build_chat_from_group_record(&sim_chat);
     let target = users::build_user_from_sim_record(&target_record, false);
 
-    emit_chat_member_transition_update_with_records(
+    chats::emit_chat_member_transition_update_with_records(
         state,
         &mut conn,
         token,
@@ -1197,11 +1214,11 @@ pub fn handle_set_chat_administrator_custom_title(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
     if sim_chat.chat_type == "channel" {
         return Err(ApiError::bad_request("channel members do not support custom titles"));
     }
-    let actor = resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
+    let actor = chats::resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
 
     let Some(old_record) = chats::load_chat_member_record(&mut conn, bot.id, &chat_key, request.user_id)? else {
         return Err(ApiError::not_found("chat member not found"));
@@ -1234,10 +1251,10 @@ pub fn handle_set_chat_administrator_custom_title(
     };
 
     let target_user = users::ensure_sim_user_record(&mut conn, request.user_id)?;
-    let chat = build_chat_from_group_record(&sim_chat);
+    let chat = groups::build_chat_from_group_record(&sim_chat);
     let target = users::build_user_from_sim_record(&target_user, false);
 
-    emit_chat_member_transition_update_with_records(
+    chats::emit_chat_member_transition_update_with_records(
         state,
         &mut conn,
         token,
@@ -1276,8 +1293,8 @@ pub fn handle_set_chat_description(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, _sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
+    let (chat_key, _sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    chats::ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
 
     let now = Utc::now().timestamp();
     conn.execute(
@@ -1312,11 +1329,11 @@ pub fn handle_set_chat_member_tag(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
     if sim_chat.chat_type == "channel" {
         return Err(ApiError::bad_request("channel members do not support tags"));
     }
-    let actor = resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
+    let actor = chats::resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
 
     let Some(old_record) = chats::load_chat_member_record(&mut conn, bot.id, &chat_key, request.user_id)? else {
         return Err(ApiError::not_found("chat member not found"));
@@ -1349,10 +1366,10 @@ pub fn handle_set_chat_member_tag(
     };
 
     let target_user = users::ensure_sim_user_record(&mut conn, request.user_id)?;
-    let chat = build_chat_from_group_record(&sim_chat);
+    let chat = groups::build_chat_from_group_record(&sim_chat);
     let target = users::build_user_from_sim_record(&target_user, false);
 
-    emit_chat_member_transition_update_with_records(
+    chats::emit_chat_member_transition_update_with_records(
         state,
         &mut conn,
         token,
@@ -1379,8 +1396,8 @@ pub fn handle_set_chat_permissions(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, _sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
+    let (chat_key, _sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    chats::ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
 
     let permissions_json = serde_json::to_string(&request.permissions).map_err(ApiError::internal)?;
     let now = Utc::now().timestamp();
@@ -1403,14 +1420,14 @@ pub fn handle_set_chat_photo(
 ) -> ApiResult {
     let request: SetChatPhotoRequest = parse_request(params)?;
     let photo_value = serde_json::to_value(&request.photo).map_err(ApiError::internal)?;
-    let normalized_photo = parse_input_file_value(&photo_value, "photo")?;
+    let normalized_photo = messages::parse_input_file_value(&photo_value, "photo")?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    let actor = resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    let actor = chats::resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
 
-    let stored_file = resolve_media_file_with_conn(&mut conn, bot.id, &normalized_photo, "photo")?;
+    let stored_file = messages::resolve_media_file_with_conn(&mut conn, bot.id, &normalized_photo, "photo")?;
     let now = Utc::now().timestamp();
     conn.execute(
         "UPDATE sim_chats
@@ -1420,10 +1437,10 @@ pub fn handle_set_chat_photo(
     )
     .map_err(ApiError::internal)?;
 
-    let chat = build_chat_from_group_record(&sim_chat);
+    let chat = groups::build_chat_from_group_record(&sim_chat);
     let mut service_fields = Map::<String, Value>::new();
     service_fields.insert("new_chat_photo".to_string(), Value::Bool(true));
-    emit_service_message_update(
+    messages::emit_service_message_update(
         state,
         &mut conn,
         token,
@@ -1432,7 +1449,7 @@ pub fn handle_set_chat_photo(
         &chat,
         &actor,
         now,
-        format!("{} changed the group photo", display_name_for_service_user(&actor)),
+        format!("{} changed the group photo", messages::display_name_for_service_user(&actor)),
         service_fields,
     )?;
 
@@ -1452,8 +1469,8 @@ pub fn handle_set_chat_sticker_set(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    chats::ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
 
     if sim_chat.chat_type != "supergroup" {
         return Err(ApiError::bad_request("sticker set can only be set for supergroups"));
@@ -1508,7 +1525,7 @@ pub fn handle_set_chat_menu_button(
     let menu_button_value = if let Some(menu_button) = request.menu_button {
         serde_json::to_value(menu_button).map_err(ApiError::internal)?
     } else {
-        serde_json::to_value(default_menu_button()).map_err(ApiError::internal)?
+        serde_json::to_value(bot::default_menu_button()).map_err(ApiError::internal)?
     };
 
     if !menu_button_value.is_object() {
@@ -1516,7 +1533,7 @@ pub fn handle_set_chat_menu_button(
     }
 
     let now = Utc::now().timestamp();
-    let scope_key = menu_button_scope_key(request.chat_id);
+    let scope_key = bot::menu_button_scope_key(request.chat_id);
     conn.execute(
         "INSERT INTO bot_chat_menu_buttons (bot_id, scope_key, menu_button_json, updated_at)
          VALUES (?1, ?2, ?3, ?4)
@@ -1547,8 +1564,8 @@ pub fn handle_set_chat_title(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    let actor = resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    let actor = chats::resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
 
     let now = Utc::now().timestamp();
     let title_changed = sim_chat.title.as_deref() != Some(title.as_str());
@@ -1568,11 +1585,11 @@ pub fn handle_set_chat_title(
     .map_err(ApiError::internal)?;
 
     if title_changed {
-        let mut chat = build_chat_from_group_record(&sim_chat);
+        let mut chat = groups::build_chat_from_group_record(&sim_chat);
         chat.title = Some(title.clone());
         let mut service_fields = Map::<String, Value>::new();
         service_fields.insert("new_chat_title".to_string(), Value::String(title.clone()));
-        emit_service_message_update(
+        messages::emit_service_message_update(
             state,
             &mut conn,
             token,
@@ -1581,7 +1598,7 @@ pub fn handle_set_chat_title(
             &chat,
             &actor,
             now,
-            service_text_group_title_changed(&actor, &title),
+            messages::service_text_group_title_changed(&actor, &title),
             service_fields,
         )?;
     }
@@ -1598,11 +1615,11 @@ pub fn handle_unban_chat_member(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
     if sim_chat.chat_type == "channel" {
         return Err(ApiError::bad_request("channel members do not support tags"));
     }
-    let actor = resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
+    let actor = chats::resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
 
     if request.user_id == bot.id {
         return Err(ApiError::bad_request("bot can't unban itself"));
@@ -1640,10 +1657,10 @@ pub fn handle_unban_chat_member(
 
     let new_record = chats::load_chat_member_record(&mut conn, bot.id, &chat_key, request.user_id)?;
 
-    let chat = build_chat_from_group_record(&sim_chat);
+    let chat = groups::build_chat_from_group_record(&sim_chat);
     let target = users::build_user_from_sim_record(&target_record, false);
 
-    emit_chat_member_transition_update_with_records(
+    chats::emit_chat_member_transition_update_with_records(
         state,
         &mut conn,
         token,
@@ -1670,8 +1687,8 @@ pub fn handle_unban_chat_sender_chat(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    ensure_request_actor_can_manage_sender_chat_in_linked_context(
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    chats::ensure_request_actor_can_manage_sender_chat_in_linked_context(
         &mut conn,
         &bot,
         &chat_key,
@@ -1697,8 +1714,8 @@ pub fn handle_unpin_all_chat_messages(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, _sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
+    let (chat_key, _sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    chats::ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
 
     let now = Utc::now().timestamp();
     conn.execute(
@@ -1729,13 +1746,13 @@ pub fn handle_unpin_chat_message(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, _sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
+    let (chat_key, _sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    chats::ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
 
     let target_message_id = if let Some(message_id) = request.message_id {
         Some(message_id)
     } else {
-        load_latest_pinned_message_id(&mut conn, bot.id, &chat_key)?
+        chats::load_latest_pinned_message_id(&mut conn, bot.id, &chat_key)?
     };
 
     if let Some(message_id) = target_message_id {
@@ -1748,7 +1765,7 @@ pub fn handle_unpin_chat_message(
     }
 
     let now = Utc::now().timestamp();
-    let _ = sync_latest_pinned_message_id(&mut conn, bot.id, &chat_key, now)?;
+    let _ = chats::sync_latest_pinned_message_id(&mut conn, bot.id, &chat_key, now)?;
 
     Ok(json!(true))
 }
@@ -1760,13 +1777,13 @@ pub fn handle_verify_chat(
 ) -> ApiResult {
     let request: VerifyChatRequest = parse_request(params)?;
     let custom_description =
-        normalize_verification_custom_description(request.custom_description.as_deref())?;
+        chats::normalize_verification_custom_description(request.custom_description.as_deref())?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     ensure_sim_verifications_storage(&mut conn)?;
 
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
     if channels::is_direct_messages_chat(&sim_chat) {
         return Err(ApiError::bad_request(
             "verification is not supported for channel direct messages chats",

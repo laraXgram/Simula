@@ -1,4 +1,15 @@
-use super::*;
+use actix_web::web::Data;
+use chrono::Utc;
+use rusqlite::params;
+use serde_json::Value;
+use std::collections::HashMap;
+
+use crate::database::{
+    ensure_bot, lock_db, AppState
+};
+
+use crate::types::{ApiError, ApiResult};
+
 use crate::generated::methods::{
     CreateChatInviteLinkRequest, CreateChatSubscriptionInviteLinkRequest,
     EditChatInviteLinkRequest, EditChatSubscriptionInviteLinkRequest,
@@ -6,6 +17,10 @@ use crate::generated::methods::{
 };
 
 use crate::handlers::client::types::groups::SimChatInviteLinkRecord;
+
+use crate::handlers::client::{chats, channels};
+
+use crate::handlers::parse_request;
 
 pub fn handle_create_chat_invite_link(
     state: &Data<AppState>,
@@ -16,10 +31,10 @@ pub fn handle_create_chat_invite_link(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    let actor = resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    let actor = chats::resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
     if sim_chat.chat_type == "channel" {
-        ensure_channel_actor_can_manage_invite_links(&mut conn, bot.id, &chat_key, actor.id)?;
+        channels::ensure_channel_actor_can_manage_invite_links(&mut conn, bot.id, &chat_key, actor.id)?;
     }
 
     let now = Utc::now().timestamp();
@@ -37,7 +52,7 @@ pub fn handle_create_chat_invite_link(
         return Err(ApiError::bad_request("member_limit can't be used when creates_join_request is true"));
     }
 
-    let invite_link = generate_unique_invite_link_for_bot(&mut conn, bot.id)?;
+    let invite_link = chats::generate_unique_invite_link_for_bot(&mut conn, bot.id)?;
     conn.execute(
         "INSERT INTO sim_chat_invite_links
          (bot_id, chat_key, invite_link, creator_user_id, creates_join_request, is_primary, is_revoked, name, expire_date, member_limit, subscription_period, subscription_price, created_at, updated_at)
@@ -69,8 +84,8 @@ pub fn handle_create_chat_invite_link(
         subscription_price: None,
     };
 
-    let pending_count = pending_join_request_count_for_link(&mut conn, bot.id, &chat_key, &record.invite_link)?;
-    let invite = chat_invite_link_from_record(actor, &record, Some(pending_count));
+    let pending_count = chats::pending_join_request_count_for_link(&mut conn, bot.id, &chat_key, &record.invite_link)?;
+    let invite = chats::chat_invite_link_from_record(actor, &record, Some(pending_count));
     serde_json::to_value(invite).map_err(ApiError::internal)
 }
 
@@ -83,13 +98,13 @@ pub fn handle_create_chat_subscription_invite_link(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    let actor = resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    let actor = chats::resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
 
     if sim_chat.chat_type != "channel" {
         return Err(ApiError::bad_request("subscription invite links are only available for channels"));
     }
-    ensure_channel_actor_can_manage_invite_links(&mut conn, bot.id, &chat_key, actor.id)?;
+    channels::ensure_channel_actor_can_manage_invite_links(&mut conn, bot.id, &chat_key, actor.id)?;
     if request.subscription_period <= 0 {
         return Err(ApiError::bad_request("subscription_period must be greater than zero"));
     }
@@ -105,7 +120,7 @@ pub fn handle_create_chat_subscription_invite_link(
         .map(str::to_string);
 
     let now = Utc::now().timestamp();
-    let invite_link = generate_unique_invite_link_for_bot(&mut conn, bot.id)?;
+    let invite_link = chats::generate_unique_invite_link_for_bot(&mut conn, bot.id)?;
     conn.execute(
         "INSERT INTO sim_chat_invite_links
          (bot_id, chat_key, invite_link, creator_user_id, creates_join_request, is_primary, is_revoked, name, expire_date, member_limit, subscription_period, subscription_price, created_at, updated_at)
@@ -135,7 +150,7 @@ pub fn handle_create_chat_subscription_invite_link(
         subscription_period: Some(request.subscription_period),
         subscription_price: Some(request.subscription_price),
     };
-    let invite = chat_invite_link_from_record(actor, &record, Some(0));
+    let invite = chats::chat_invite_link_from_record(actor, &record, Some(0));
     serde_json::to_value(invite).map_err(ApiError::internal)
 }
 
@@ -148,13 +163,13 @@ pub fn handle_edit_chat_invite_link(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    let actor = resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    let actor = chats::resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
     if sim_chat.chat_type == "channel" {
-        ensure_channel_actor_can_manage_invite_links(&mut conn, bot.id, &chat_key, actor.id)?;
+        channels::ensure_channel_actor_can_manage_invite_links(&mut conn, bot.id, &chat_key, actor.id)?;
     }
 
-    let Some(existing) = load_invite_link_record(&mut conn, bot.id, &chat_key, &request.invite_link)? else {
+    let Some(existing) = chats::load_invite_link_record(&mut conn, bot.id, &chat_key, &request.invite_link)? else {
         return Err(ApiError::not_found("invite link not found"));
     };
     if existing.is_primary {
@@ -225,9 +240,9 @@ pub fn handle_edit_chat_invite_link(
         subscription_price: existing.subscription_price,
     };
 
-    let pending_count = pending_join_request_count_for_link(&mut conn, bot.id, &chat_key, &updated.invite_link)?;
-    let invite = chat_invite_link_from_record(
-        resolve_invite_creator_user(&mut conn, &bot, updated.creator_user_id)?,
+    let pending_count = chats::pending_join_request_count_for_link(&mut conn, bot.id, &chat_key, &updated.invite_link)?;
+    let invite = chats::chat_invite_link_from_record(
+        chats::resolve_invite_creator_user(&mut conn, &bot, updated.creator_user_id)?,
         &updated,
         Some(pending_count),
     );
@@ -243,15 +258,15 @@ pub fn handle_edit_chat_subscription_invite_link(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    let actor = resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    let actor = chats::resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
 
     if sim_chat.chat_type != "channel" {
         return Err(ApiError::bad_request("subscription invite links are only available for channels"));
     }
-    ensure_channel_actor_can_manage_invite_links(&mut conn, bot.id, &chat_key, actor.id)?;
+    channels::ensure_channel_actor_can_manage_invite_links(&mut conn, bot.id, &chat_key, actor.id)?;
 
-    let Some(existing) = load_invite_link_record(&mut conn, bot.id, &chat_key, &request.invite_link)? else {
+    let Some(existing) = chats::load_invite_link_record(&mut conn, bot.id, &chat_key, &request.invite_link)? else {
         return Err(ApiError::not_found("invite link not found"));
     };
     if existing.creator_user_id != actor.id {
@@ -288,8 +303,8 @@ pub fn handle_edit_chat_subscription_invite_link(
         subscription_period: existing.subscription_period,
         subscription_price: existing.subscription_price,
     };
-    let invite = chat_invite_link_from_record(
-        resolve_invite_creator_user(&mut conn, &bot, updated.creator_user_id)?,
+    let invite = chats::chat_invite_link_from_record(
+        chats::resolve_invite_creator_user(&mut conn, &bot, updated.creator_user_id)?,
         &updated,
         Some(0),
     );
@@ -305,10 +320,10 @@ pub fn handle_export_chat_invite_link(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    let actor = resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    let actor = chats::resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
     if sim_chat.chat_type == "channel" {
-        ensure_channel_actor_can_manage_invite_links(&mut conn, bot.id, &chat_key, actor.id)?;
+        channels::ensure_channel_actor_can_manage_invite_links(&mut conn, bot.id, &chat_key, actor.id)?;
     }
 
     let now = Utc::now().timestamp();
@@ -320,7 +335,7 @@ pub fn handle_export_chat_invite_link(
     )
     .map_err(ApiError::internal)?;
 
-    let invite_link = generate_unique_invite_link_for_bot(&mut conn, bot.id)?;
+    let invite_link = chats::generate_unique_invite_link_for_bot(&mut conn, bot.id)?;
     conn.execute(
         "INSERT INTO sim_chat_invite_links
          (bot_id, chat_key, invite_link, creator_user_id, creates_join_request, is_primary, is_revoked, name, expire_date, member_limit, subscription_period, subscription_price, created_at, updated_at)
@@ -341,13 +356,13 @@ pub fn handle_revoke_chat_invite_link(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    let actor = resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    let actor = chats::resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
     if sim_chat.chat_type == "channel" {
-        ensure_channel_actor_can_manage_invite_links(&mut conn, bot.id, &chat_key, actor.id)?;
+        channels::ensure_channel_actor_can_manage_invite_links(&mut conn, bot.id, &chat_key, actor.id)?;
     }
 
-    let Some(existing) = load_invite_link_record(&mut conn, bot.id, &chat_key, &request.invite_link)? else {
+    let Some(existing) = chats::load_invite_link_record(&mut conn, bot.id, &chat_key, &request.invite_link)? else {
         return Err(ApiError::not_found("invite link not found"));
     };
 
@@ -361,7 +376,7 @@ pub fn handle_revoke_chat_invite_link(
     .map_err(ApiError::internal)?;
 
     if existing.is_primary {
-        let new_primary_link = generate_unique_invite_link_for_bot(&mut conn, bot.id)?;
+        let new_primary_link = chats::generate_unique_invite_link_for_bot(&mut conn, bot.id)?;
         conn.execute(
             "INSERT INTO sim_chat_invite_links
              (bot_id, chat_key, invite_link, creator_user_id, creates_join_request, is_primary, is_revoked, name, expire_date, member_limit, subscription_period, subscription_price, created_at, updated_at)
@@ -384,9 +399,9 @@ pub fn handle_revoke_chat_invite_link(
         subscription_price: existing.subscription_price,
     };
 
-    let pending_count = pending_join_request_count_for_link(&mut conn, bot.id, &chat_key, &revoked.invite_link)?;
-    let invite = chat_invite_link_from_record(
-        resolve_invite_creator_user(&mut conn, &bot, revoked.creator_user_id)?,
+    let pending_count = chats::pending_join_request_count_for_link(&mut conn, bot.id, &chat_key, &revoked.invite_link)?;
+    let invite = chats::chat_invite_link_from_record(
+        chats::resolve_invite_creator_user(&mut conn, &bot, revoked.creator_user_id)?,
         &revoked,
         Some(pending_count),
     );

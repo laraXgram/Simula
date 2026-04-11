@@ -1,4 +1,15 @@
-use super::*;
+use actix_web::web::Data;
+use chrono::Utc;
+use rusqlite::{params, OptionalExtension};
+use serde_json::{json, Map, Value};
+use std::collections::HashMap;
+
+use crate::database::{
+    ensure_bot, ensure_chat, lock_db, AppState
+};
+
+use crate::types::{strip_nulls, ApiError, ApiResult};
+
 use crate::generated::methods::{
     CopyMessageRequest, CopyMessagesRequest,
     DeleteMessageRequest, DeleteMessagesRequest,
@@ -16,11 +27,25 @@ use crate::generated::methods::{
     StopMessageLiveLocationRequest, StopPollRequest,
 };
 
+use crate::generated::types::{
+    Animation, Chat, Contact, Dice, Game, Invoice, Location, MaskPosition,
+    Message, PhotoSize, Poll, PollOption, Sticker, Update, User, Venue, VideoNote,
+};
+
 use crate::handlers::utils::updates::{current_request_actor_user_id, value_to_chat_key};
+use crate::handlers::utils::text::{
+    parse_optional_formatted_text, parse_formatted_text, merge_auto_message_entities,
+};
 
 use crate::handlers::client::chats::ChatSendKind;
 
-use crate::handlers::client::{channels, chats, groups, messages, users, webhook};
+use crate::handlers::client::{bot, business, channels, chats, gifts, groups, inlines, messages, users, webhook};
+
+use crate::handlers::{
+    parse_request, sql_value_to_rusqlite, generate_telegram_numeric_id, value_to_optional_string,
+    generate_telegram_file_id, generate_telegram_file_unique_id, parse_request_ignoring_prefixed_fields,
+    publish_sim_client_event
+};
 
 pub fn handle_copy_message(
     state: &Data<AppState>,
@@ -132,18 +157,18 @@ pub fn handle_delete_message(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, chat_id) = resolve_chat_key_and_id(&mut conn, bot.id, &request.chat_id)?;
+    let (chat_key, chat_id) = chats::resolve_chat_key_and_id(&mut conn, bot.id, &request.chat_id)?;
     let direct_messages_chat = chats::load_sim_chat_record(&mut conn, bot.id, &chat_key)?
         .filter(|chat| channels::is_direct_messages_chat(chat));
 
-    match ensure_message_can_be_deleted_by_actor(&mut conn, bot.id, &chat_key, request.message_id) {
+    match messages::ensure_message_can_be_deleted_by_actor(&mut conn, bot.id, &chat_key, request.message_id) {
         Ok(()) => {}
         Err(err) if err.code == 404 => return Ok(Value::Bool(false)),
         Err(err) => return Err(err),
     }
 
     if let Some(chat) = direct_messages_chat.as_ref() {
-        emit_suggested_post_refunded_updates_before_delete(
+        channels::emit_suggested_post_refunded_updates_before_delete(
             state,
             &mut conn,
             token,
@@ -153,7 +178,7 @@ pub fn handle_delete_message(
         )?;
     }
 
-    let deleted = delete_messages_with_dependencies(
+    let deleted = messages::delete_messages_with_dependencies(
         &mut conn,
         bot.id,
         &chat_key,
@@ -178,7 +203,7 @@ pub fn handle_delete_messages(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, chat_id) = resolve_chat_key_and_id(&mut conn, bot.id, &request.chat_id)?;
+    let (chat_key, chat_id) = chats::resolve_chat_key_and_id(&mut conn, bot.id, &request.chat_id)?;
     let direct_messages_chat = chats::load_sim_chat_record(&mut conn, bot.id, &chat_key)?
         .filter(|chat| channels::is_direct_messages_chat(chat));
 
@@ -213,11 +238,11 @@ pub fn handle_delete_messages(
     drop(existing_stmt);
 
     for message_id in &existing_ids {
-        ensure_message_can_be_deleted_by_actor(&mut conn, bot.id, &chat_key, *message_id)?;
+        messages::ensure_message_can_be_deleted_by_actor(&mut conn, bot.id, &chat_key, *message_id)?;
     }
 
     if let Some(chat) = direct_messages_chat.as_ref() {
-        emit_suggested_post_refunded_updates_before_delete(
+        channels::emit_suggested_post_refunded_updates_before_delete(
             state,
             &mut conn,
             token,
@@ -227,7 +252,7 @@ pub fn handle_delete_messages(
         )?;
     }
 
-    let deleted = delete_messages_with_dependencies(
+    let deleted = messages::delete_messages_with_dependencies(
         &mut conn,
         bot.id,
         &chat_key,
@@ -244,7 +269,7 @@ pub fn handle_edit_message_caption(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: EditMessageCaptionRequest = parse_request(params)?;
-    let sim_parse_mode = normalize_sim_parse_mode(request.parse_mode.as_deref());
+    let sim_parse_mode = messages::normalize_sim_parse_mode(request.parse_mode.as_deref());
 
     let explicit_entities = request
         .caption_entities
@@ -268,7 +293,7 @@ pub fn handle_edit_message_caption(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, message_id, via_inline_message) = resolve_edit_target(
+    let (chat_key, message_id, via_inline_message) = messages::resolve_edit_target(
         &mut conn,
         bot.id,
         request.chat_id.clone(),
@@ -277,7 +302,7 @@ pub fn handle_edit_message_caption(
         "editMessageCaption",
     )?;
 
-    ensure_message_can_be_edited_by_bot(
+    messages::ensure_message_can_be_edited_by_bot(
         &mut conn,
         bot.id,
         &chat_key,
@@ -291,7 +316,7 @@ pub fn handle_edit_message_caption(
             "message has no media caption to edit; use editMessageText",
         ));
     }
-    apply_inline_reply_markup(&mut edited_message, request.reply_markup);
+    inlines::apply_inline_reply_markup(&mut edited_message, request.reply_markup);
 
     let new_caption = parsed_caption.unwrap_or_default();
     conn.execute(
@@ -317,7 +342,7 @@ pub fn handle_edit_message_caption(
     }
     edited_message.as_object_mut().map(|obj| obj.remove("text"));
 
-    publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
+    messages::publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
 
     if via_inline_message {
         Ok(json!(true))
@@ -331,17 +356,17 @@ pub fn handle_edit_message_checklist(
     token: &str,
     params: &HashMap<String, Value>,
 ) -> ApiResult {
-    let request: EditMessageChecklistRequest = parse_request_with_legacy_checklist(params)?;
+    let request: EditMessageChecklistRequest = messages::parse_request_with_legacy_checklist(params)?;
     if request.business_connection_id.trim().is_empty() {
         return Err(ApiError::bad_request("business_connection_id is empty"));
     }
 
-    let checklist = normalize_input_checklist(&request.checklist)?;
+    let checklist = messages::normalize_input_checklist(&request.checklist)?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
 
-    let connection = load_business_connection_or_404(
+    let connection = business::load_business_connection_or_404(
         &mut conn,
         bot.id,
         request.business_connection_id.trim(),
@@ -355,15 +380,15 @@ pub fn handle_edit_message_checklist(
         ));
     }
 
-    let business_connection = build_business_connection(&mut conn, bot.id, &connection)?;
-    ensure_business_right(
+    let business_connection = business::build_business_connection(&mut conn, bot.id, &connection)?;
+    business::ensure_business_right(
         &business_connection,
         |rights| rights.can_reply,
         "not enough rights to edit business checklists",
     )?;
 
     let chat_id_value = Value::from(request.chat_id);
-    let (chat_key, _) = resolve_chat_key_and_id(&mut conn, bot.id, &chat_id_value)?;
+    let (chat_key, _) = chats::resolve_chat_key_and_id(&mut conn, bot.id, &chat_id_value)?;
 
     let exists_in_chat: Option<i64> = conn
         .query_row(
@@ -377,7 +402,7 @@ pub fn handle_edit_message_checklist(
         return Err(ApiError::not_found("message to edit was not found"));
     }
 
-    ensure_message_can_be_edited_by_bot(&mut conn, bot.id, &chat_key, request.message_id, false)?;
+    messages::ensure_message_can_be_edited_by_bot(&mut conn, bot.id, &chat_key, request.message_id, false)?;
 
     let mut edited_message = messages::load_message_value(&mut conn, &bot, request.message_id)?;
     if edited_message.get("checklist").is_none() {
@@ -405,9 +430,9 @@ pub fn handle_edit_message_checklist(
 
     edited_message["checklist"] = serde_json::to_value(&checklist).map_err(ApiError::internal)?;
     edited_message["business_connection_id"] = Value::String(connection.connection_id);
-    apply_inline_reply_markup(&mut edited_message, request.reply_markup);
+    inlines::apply_inline_reply_markup(&mut edited_message, request.reply_markup);
 
-    publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
+    messages::publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
     Ok(edited_message)
 }
 
@@ -420,7 +445,7 @@ pub fn handle_edit_message_live_location(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, message_id, via_inline_message) = resolve_edit_target(
+    let (chat_key, message_id, via_inline_message) = messages::resolve_edit_target(
         &mut conn,
         bot.id,
         request.chat_id.clone(),
@@ -429,7 +454,7 @@ pub fn handle_edit_message_live_location(
         "editMessageLiveLocation",
     )?;
 
-    ensure_message_can_be_edited_by_bot(
+    messages::ensure_message_can_be_edited_by_bot(
         &mut conn,
         bot.id,
         &chat_key,
@@ -460,8 +485,8 @@ pub fn handle_edit_message_live_location(
         edited_message["location"] = serde_json::to_value(updated_location).map_err(ApiError::internal)?;
     }
 
-    apply_inline_reply_markup(&mut edited_message, request.reply_markup);
-    publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
+    inlines::apply_inline_reply_markup(&mut edited_message, request.reply_markup);
+    messages::publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
 
     if via_inline_message {
         Ok(json!(true))
@@ -496,7 +521,7 @@ pub fn handle_edit_message_media(
     let explicit_caption_entities = media_obj.get("caption_entities").cloned();
     let should_auto_detect_entities = explicit_caption_entities.is_none();
     let parse_mode = media_obj.get("parse_mode").and_then(Value::as_str);
-    let sim_parse_mode = normalize_sim_parse_mode(parse_mode);
+    let sim_parse_mode = messages::normalize_sim_parse_mode(parse_mode);
     let (caption, caption_entities) = parse_optional_formatted_text(
         media_obj.get("caption").and_then(Value::as_str),
         parse_mode,
@@ -514,7 +539,7 @@ pub fn handle_edit_message_media(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, message_id, via_inline_message) = resolve_edit_target(
+    let (chat_key, message_id, via_inline_message) = messages::resolve_edit_target(
         &mut conn,
         bot.id,
         request.chat_id.clone(),
@@ -523,7 +548,7 @@ pub fn handle_edit_message_media(
         "editMessageMedia",
     )?;
 
-    ensure_message_can_be_edited_by_bot(
+    messages::ensure_message_can_be_edited_by_bot(
         &mut conn,
         bot.id,
         &chat_key,
@@ -534,7 +559,7 @@ pub fn handle_edit_message_media(
     let mut edited_message = messages::load_message_value(&mut conn, &bot, message_id)?;
     let media_payload = match media_type.as_str() {
         "photo" => {
-            let file = resolve_media_file(state, token, media_ref, "photo")?;
+            let file = messages::resolve_media_file(state, token, media_ref, "photo")?;
             json!([
                 {
                     "file_id": file.file_id,
@@ -546,7 +571,7 @@ pub fn handle_edit_message_media(
             ])
         }
         "video" => {
-            let file = resolve_media_file(state, token, media_ref, "video")?;
+            let file = messages::resolve_media_file(state, token, media_ref, "video")?;
             json!({
                 "file_id": file.file_id,
                 "file_unique_id": file.file_unique_id,
@@ -558,7 +583,7 @@ pub fn handle_edit_message_media(
             })
         }
         "audio" => {
-            let file = resolve_media_file(state, token, media_ref, "audio")?;
+            let file = messages::resolve_media_file(state, token, media_ref, "audio")?;
             json!({
                 "file_id": file.file_id,
                 "file_unique_id": file.file_unique_id,
@@ -570,7 +595,7 @@ pub fn handle_edit_message_media(
             })
         }
         "document" => {
-            let file = resolve_media_file(state, token, media_ref, "document")?;
+            let file = messages::resolve_media_file(state, token, media_ref, "document")?;
             json!({
                 "file_id": file.file_id,
                 "file_unique_id": file.file_unique_id,
@@ -591,7 +616,7 @@ pub fn handle_edit_message_media(
     }
 
     edited_message[media_type.as_str()] = media_payload;
-    apply_inline_reply_markup(&mut edited_message, request.reply_markup);
+    inlines::apply_inline_reply_markup(&mut edited_message, request.reply_markup);
     if let Some(c) = caption {
         edited_message["caption"] = Value::String(c.clone());
         conn.execute(
@@ -614,7 +639,7 @@ pub fn handle_edit_message_media(
     }
     edited_message.as_object_mut().map(|obj| obj.remove("text"));
 
-    publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
+    messages::publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
 
     if via_inline_message {
         Ok(json!(true))
@@ -632,7 +657,7 @@ pub fn handle_edit_message_reply_markup(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, message_id, via_inline_message) = resolve_edit_target(
+    let (chat_key, message_id, via_inline_message) = messages::resolve_edit_target(
         &mut conn,
         bot.id,
         request.chat_id.clone(),
@@ -641,7 +666,7 @@ pub fn handle_edit_message_reply_markup(
         "editMessageReplyMarkup",
     )?;
 
-    ensure_message_can_be_edited_by_bot(
+    messages::ensure_message_can_be_edited_by_bot(
         &mut conn,
         bot.id,
         &chat_key,
@@ -650,9 +675,9 @@ pub fn handle_edit_message_reply_markup(
     )?;
 
     let mut edited_message = messages::load_message_value(&mut conn, &bot, message_id)?;
-    apply_inline_reply_markup(&mut edited_message, request.reply_markup);
+    inlines::apply_inline_reply_markup(&mut edited_message, request.reply_markup);
 
-    publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
+    messages::publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
 
     if via_inline_message {
         Ok(json!(true))
@@ -667,7 +692,7 @@ pub fn handle_edit_message_text(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: EditMessageTextRequest = parse_request(params)?;
-    let sim_parse_mode = normalize_sim_parse_mode(request.parse_mode.as_deref());
+    let sim_parse_mode = messages::normalize_sim_parse_mode(request.parse_mode.as_deref());
 
     let explicit_entities = request
         .entities
@@ -691,7 +716,7 @@ pub fn handle_edit_message_text(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, message_id, via_inline_message) = resolve_edit_target(
+    let (chat_key, message_id, via_inline_message) = messages::resolve_edit_target(
         &mut conn,
         bot.id,
         request.chat_id.clone(),
@@ -700,7 +725,7 @@ pub fn handle_edit_message_text(
         "editMessageText",
     )?;
 
-    ensure_message_can_be_edited_by_bot(
+    messages::ensure_message_can_be_edited_by_bot(
         &mut conn,
         bot.id,
         &chat_key,
@@ -720,7 +745,7 @@ pub fn handle_edit_message_text(
     }
 
     let mut edited_message = messages::load_message_value(&mut conn, &bot, message_id)?;
-    apply_inline_reply_markup(&mut edited_message, request.reply_markup);
+    inlines::apply_inline_reply_markup(&mut edited_message, request.reply_markup);
     if let Some(entities) = parsed_entities {
         edited_message["entities"] = entities;
     } else {
@@ -734,7 +759,7 @@ pub fn handle_edit_message_text(
             .map(|obj| obj.remove("sim_parse_mode"));
     }
 
-    publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
+    messages::publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
 
     if via_inline_message {
         Ok(json!(true))
@@ -753,7 +778,7 @@ pub fn handle_forward_message(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
 
-    forward_message_internal(
+    messages::forward_message_internal(
         state,
         &mut conn,
         token,
@@ -781,7 +806,7 @@ pub fn handle_forward_messages(
     let mut forwarded = Vec::new();
 
     for message_id in request.message_ids {
-        match forward_message_internal(
+        match messages::forward_message_internal(
             state,
             &mut conn,
             token,
@@ -810,7 +835,7 @@ pub fn handle_forward_messages(
 
 pub fn handle_send_animation(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: SendAnimationRequest = parse_request(params)?;
-    let sim_parse_mode = normalize_sim_parse_mode(request.parse_mode.as_deref());
+    let sim_parse_mode = messages::normalize_sim_parse_mode(request.parse_mode.as_deref());
     let explicit_caption_entities = request
         .caption_entities
         .as_ref()
@@ -820,8 +845,8 @@ pub fn handle_send_animation(state: &Data<AppState>, token: &str, params: &HashM
         request.parse_mode.as_deref(),
         explicit_caption_entities,
     );
-    let animation_input = parse_input_file_value(&request.animation, "animation")?;
-    let file = resolve_media_file(state, token, &animation_input, "animation")?;
+    let animation_input = messages::parse_input_file_value(&request.animation, "animation")?;
+    let file = messages::resolve_media_file(state, token, &animation_input, "animation")?;
 
     let animation = serde_json::to_value(Animation {
         file_id: file.file_id,
@@ -836,7 +861,7 @@ pub fn handle_send_animation(state: &Data<AppState>, token: &str, params: &HashM
     })
     .map_err(ApiError::internal)?;
 
-    send_media_message(
+    messages::send_media_message(
         state,
         token,
         &request.chat_id,
@@ -852,7 +877,7 @@ pub fn handle_send_animation(state: &Data<AppState>, token: &str, params: &HashM
 
 pub fn handle_send_audio(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: SendAudioRequest = parse_request(params)?;
-    let sim_parse_mode = normalize_sim_parse_mode(request.parse_mode.as_deref());
+    let sim_parse_mode = messages::normalize_sim_parse_mode(request.parse_mode.as_deref());
     let explicit_caption_entities = request
         .caption_entities
         .as_ref()
@@ -862,7 +887,7 @@ pub fn handle_send_audio(state: &Data<AppState>, token: &str, params: &HashMap<S
         request.parse_mode.as_deref(),
         explicit_caption_entities,
     );
-    let file = resolve_media_file(state, token, &request.audio, "audio")?;
+    let file = messages::resolve_media_file(state, token, &request.audio, "audio")?;
 
     let audio = json!({
         "file_id": file.file_id,
@@ -874,7 +899,7 @@ pub fn handle_send_audio(state: &Data<AppState>, token: &str, params: &HashMap<S
         "file_size": file.file_size,
     });
 
-    send_media_message(
+    messages::send_media_message(
         state,
         token,
         &request.chat_id,
@@ -905,7 +930,7 @@ pub fn handle_send_contact(state: &Data<AppState>, token: &str, params: &HashMap
         vcard: request.vcard,
     };
 
-    send_payload_message(
+    messages::send_payload_message(
         state,
         token,
         &request.chat_id,
@@ -932,7 +957,7 @@ pub fn handle_send_dice(state: &Data<AppState>, token: &str, params: &HashMap<St
     let value = (now_nanos % (max_value as u64)) as i64 + 1;
 
     let dice = Dice { emoji, value };
-    send_payload_message(
+    messages::send_payload_message(
         state,
         token,
         &request.chat_id,
@@ -947,7 +972,7 @@ pub fn handle_send_dice(state: &Data<AppState>, token: &str, params: &HashMap<St
 
 pub fn handle_send_document(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: SendDocumentRequest = parse_request(params)?;
-    let sim_parse_mode = normalize_sim_parse_mode(request.parse_mode.as_deref());
+    let sim_parse_mode = messages::normalize_sim_parse_mode(request.parse_mode.as_deref());
     let explicit_caption_entities = request
         .caption_entities
         .as_ref()
@@ -957,7 +982,7 @@ pub fn handle_send_document(state: &Data<AppState>, token: &str, params: &HashMa
         request.parse_mode.as_deref(),
         explicit_caption_entities,
     );
-    let file = resolve_media_file(state, token, &request.document, "document")?;
+    let file = messages::resolve_media_file(state, token, &request.document, "document")?;
 
     let document = json!({
         "file_id": file.file_id,
@@ -967,7 +992,7 @@ pub fn handle_send_document(state: &Data<AppState>, token: &str, params: &HashMa
         "file_size": file.file_size,
     });
 
-    send_media_message(
+    messages::send_media_message(
         state,
         token,
         &request.chat_id,
@@ -996,7 +1021,7 @@ pub fn handle_send_chat_action(
     if normalized_action.is_empty() {
         return Err(ApiError::bad_request("action is empty"));
     }
-    if !is_supported_chat_action(&normalized_action) {
+    if !chats::is_supported_chat_action(&normalized_action) {
         return Err(ApiError::bad_request("unsupported action type"));
     }
 
@@ -1054,12 +1079,12 @@ pub fn handle_send_checklist(
     token: &str,
     params: &HashMap<String, Value>,
 ) -> ApiResult {
-    let request: SendChecklistRequest = parse_request_with_legacy_checklist(params)?;
+    let request: SendChecklistRequest = messages::parse_request_with_legacy_checklist(params)?;
     if request.business_connection_id.trim().is_empty() {
         return Err(ApiError::bad_request("business_connection_id is empty"));
     }
 
-    let checklist = normalize_input_checklist(&request.checklist)?;
+    let checklist = messages::normalize_input_checklist(&request.checklist)?;
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
 
@@ -1076,7 +1101,7 @@ pub fn handle_send_checklist(
         ));
     }
 
-    let business_connection_id = resolve_outbound_business_connection_for_bot_message(
+    let business_connection_id = business::resolve_outbound_business_connection_for_bot_message(
         &mut conn,
         bot.id,
         &chat,
@@ -1084,7 +1109,7 @@ pub fn handle_send_checklist(
     )?
     .ok_or_else(|| ApiError::bad_request("business_connection_id is empty"))?;
 
-    let sender = resolve_sender_for_bot_outbound_chat(
+    let sender = chats::resolve_sender_for_bot_outbound_chat(
         &mut conn,
         &bot,
         &chat_key,
@@ -1181,7 +1206,7 @@ pub fn handle_send_checklist(
     })
     .map_err(ApiError::internal)?;
 
-    persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
+    webhook::persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
     Ok(message_value)
 }
 
@@ -1206,7 +1231,7 @@ pub fn handle_send_game(state: &Data<AppState>, token: &str, params: &HashMap<St
         animation: None,
     };
 
-    let message_value = send_payload_message(
+    let message_value = messages::send_payload_message(
         state,
         token,
         &Value::from(request.chat_id),
@@ -1374,7 +1399,7 @@ pub fn handle_send_invoice(state: &Data<AppState>, token: &str, params: &HashMap
         &chat_key,
         request.message_thread_id,
     )?;
-    let sender = resolve_sender_for_bot_outbound_chat(
+    let sender = chats::resolve_sender_for_bot_outbound_chat(
         &mut conn,
         &bot,
         &chat_key,
@@ -1519,7 +1544,7 @@ pub fn handle_send_invoice(state: &Data<AppState>, token: &str, params: &HashMap
         })
     };
 
-    persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
+    webhook::persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
     publish_sim_client_event(
         state,
         token,
@@ -1556,7 +1581,7 @@ pub fn handle_send_location(state: &Data<AppState>, token: &str, params: &HashMa
         proximity_alert_radius: request.proximity_alert_radius,
     };
 
-    send_payload_message(
+    messages::send_payload_message(
         state,
         token,
         &request.chat_id,
@@ -1639,7 +1664,7 @@ pub fn handle_send_media_group(
 
         let explicit_caption_entities = item.get("caption_entities").cloned();
         let parse_mode = item.get("parse_mode").and_then(Value::as_str);
-        let sim_parse_mode = normalize_sim_parse_mode(parse_mode);
+        let sim_parse_mode = messages::normalize_sim_parse_mode(parse_mode);
         let (caption, caption_entities) = parse_optional_formatted_text(
             item.get("caption").and_then(Value::as_str),
             parse_mode,
@@ -1648,7 +1673,7 @@ pub fn handle_send_media_group(
 
         let value = match media_type.as_str() {
             "photo" => {
-                let file = resolve_media_file(state, token, media_ref, "photo")?;
+                let file = messages::resolve_media_file(state, token, media_ref, "photo")?;
                 let payload = json!([
                     {
                         "file_id": file.file_id,
@@ -1658,7 +1683,7 @@ pub fn handle_send_media_group(
                         "file_size": file.file_size,
                     }
                 ]);
-                send_media_message_with_group(
+                messages::send_media_message_with_group(
                     state,
                     token,
                     &request.chat_id,
@@ -1673,7 +1698,7 @@ pub fn handle_send_media_group(
                 )?
             }
             "video" => {
-                let file = resolve_media_file(state, token, media_ref, "video")?;
+                let file = messages::resolve_media_file(state, token, media_ref, "video")?;
                 let payload = json!({
                     "file_id": file.file_id,
                     "file_unique_id": file.file_unique_id,
@@ -1683,7 +1708,7 @@ pub fn handle_send_media_group(
                     "mime_type": file.mime_type,
                     "file_size": file.file_size,
                 });
-                send_media_message_with_group(
+                messages::send_media_message_with_group(
                     state,
                     token,
                     &request.chat_id,
@@ -1698,7 +1723,7 @@ pub fn handle_send_media_group(
                 )?
             }
             "audio" => {
-                let file = resolve_media_file(state, token, media_ref, "audio")?;
+                let file = messages::resolve_media_file(state, token, media_ref, "audio")?;
                 let payload = json!({
                     "file_id": file.file_id,
                     "file_unique_id": file.file_unique_id,
@@ -1708,7 +1733,7 @@ pub fn handle_send_media_group(
                     "mime_type": file.mime_type,
                     "file_size": file.file_size,
                 });
-                send_media_message_with_group(
+                messages::send_media_message_with_group(
                     state,
                     token,
                     &request.chat_id,
@@ -1723,7 +1748,7 @@ pub fn handle_send_media_group(
                 )?
             }
             "document" => {
-                let file = resolve_media_file(state, token, media_ref, "document")?;
+                let file = messages::resolve_media_file(state, token, media_ref, "document")?;
                 let payload = json!({
                     "file_id": file.file_id,
                     "file_unique_id": file.file_unique_id,
@@ -1731,7 +1756,7 @@ pub fn handle_send_media_group(
                     "mime_type": file.mime_type,
                     "file_size": file.file_size,
                 });
-                send_media_message_with_group(
+                messages::send_media_message_with_group(
                     state,
                     token,
                     &request.chat_id,
@@ -1786,7 +1811,7 @@ pub fn handle_send_paid_media(
         request.parse_mode.as_deref(),
         explicit_caption_entities,
     );
-    let sim_parse_mode = normalize_sim_parse_mode(request.parse_mode.as_deref());
+    let sim_parse_mode = messages::normalize_sim_parse_mode(request.parse_mode.as_deref());
 
     let mut paid_media_items = Vec::<Value>::with_capacity(request.media.len());
     for raw_item in &request.media {
@@ -1806,7 +1831,7 @@ pub fn handle_send_paid_media(
 
         let mapped = match media_type.as_str() {
             "photo" => {
-                let file = resolve_media_file(state, token, media_ref, "photo")?;
+                let file = messages::resolve_media_file(state, token, media_ref, "photo")?;
                 json!({
                     "type": "photo",
                     "photo": [{
@@ -1819,7 +1844,7 @@ pub fn handle_send_paid_media(
                 })
             }
             "video" => {
-                let file = resolve_media_file(state, token, media_ref, "video")?;
+                let file = messages::resolve_media_file(state, token, media_ref, "video")?;
                 json!({
                     "type": "video",
                     "video": {
@@ -1848,7 +1873,7 @@ pub fn handle_send_paid_media(
         "paid_media": paid_media_items,
     });
 
-    send_paid_media_message(
+    messages::send_paid_media_message(
         state,
         token,
         &request.chat_id,
@@ -1876,7 +1901,7 @@ pub fn handle_send_gift(
         ));
     }
 
-    let gift_entry = find_sim_catalog_gift(request.gift_id.as_str())
+    let gift_entry = gifts::find_sim_catalog_gift(request.gift_id.as_str())
         .ok_or_else(|| ApiError::bad_request("gift_id is invalid"))?;
 
     let base_star_count = gift_entry.gift.star_count.max(0);
@@ -1900,7 +1925,7 @@ pub fn handle_send_gift(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let sender = ensure_user(&mut conn, current_request_actor_user_id(), None, None)?;
+    let sender = users::ensure_user(&mut conn, current_request_actor_user_id(), None, None)?;
 
     let mut owner_user_id: Option<i64> = None;
     let mut owner_chat_id: Option<i64> = None;
@@ -1945,12 +1970,12 @@ pub fn handle_send_gift(
         ensure_chat(&mut conn, &sim_chat.chat_key)?;
         gift_message_chat = Some((
             sim_chat.chat_key.clone(),
-            build_chat_from_group_record(&sim_chat),
+            groups::build_chat_from_group_record(&sim_chat),
         ));
     }
 
     let now = Utc::now().timestamp();
-    ensure_bot_star_balance_for_charge(&mut conn, bot.id, charge_star_count, now)?;
+    bot::ensure_bot_star_balance_for_charge(&mut conn, bot.id, charge_star_count, now)?;
 
     let owned_gift_id = format!("owned_gift_{}", generate_telegram_numeric_id());
     let ledger_user_id = owner_user_id.unwrap_or(sender.id);
@@ -2082,7 +2107,7 @@ pub fn handle_send_gift(
         let mut service_fields = Map::<String, Value>::new();
         service_fields.insert("gift".to_string(), Value::Object(gift_payload));
 
-        emit_service_message_update(
+        messages::emit_service_message_update(
             state,
             &mut conn,
             token,
@@ -2093,7 +2118,7 @@ pub fn handle_send_gift(
             now,
             format!(
                 "{} sent a gift",
-                display_name_for_service_user(&sender_user)
+                messages::display_name_for_service_user(&sender_user)
             ),
             service_fields,
         )?;
@@ -2165,7 +2190,7 @@ pub fn handle_send_message_draft(
     let message_thread_scope = resolved_message_thread_id.unwrap_or(0);
 
     if let Some(message_id) = existing_message_id {
-        let sim_parse_mode = normalize_sim_parse_mode(request.parse_mode.as_deref());
+        let sim_parse_mode = messages::normalize_sim_parse_mode(request.parse_mode.as_deref());
         let explicit_entities = request
             .entities
             .as_ref()
@@ -2251,7 +2276,7 @@ pub fn handle_send_message_draft(
                 managed_bot: None,
             })
             .map_err(ApiError::internal)?;
-            persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
+            webhook::persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
 
             let now = Utc::now().timestamp();
             conn.execute(
@@ -2326,7 +2351,7 @@ pub fn handle_send_message_draft(
 
 pub fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: SendMessageRequest = parse_request(params)?;
-    let sim_parse_mode = normalize_sim_parse_mode(request.parse_mode.as_deref());
+    let sim_parse_mode = messages::normalize_sim_parse_mode(request.parse_mode.as_deref());
     let explicit_entities = request
         .entities
         .as_ref()
@@ -2352,7 +2377,7 @@ pub fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap
         &request.chat_id,
         ChatSendKind::Text,
     )?;
-    let business_connection_id = resolve_outbound_business_connection_for_bot_message(
+    let business_connection_id = business::resolve_outbound_business_connection_for_bot_message(
         &mut conn,
         bot.id,
         &chat,
@@ -2364,7 +2389,7 @@ pub fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap
         &chat_key,
         request.message_thread_id,
     )?;
-    let sender = resolve_sender_for_bot_outbound_chat(
+    let sender = chats::resolve_sender_for_bot_outbound_chat(
         &mut conn,
         &bot,
         &chat_key,
@@ -2511,7 +2536,7 @@ pub fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap
 
 pub fn handle_send_photo(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: SendPhotoRequest = parse_request(params)?;
-    let sim_parse_mode = normalize_sim_parse_mode(request.parse_mode.as_deref());
+    let sim_parse_mode = messages::normalize_sim_parse_mode(request.parse_mode.as_deref());
     let explicit_caption_entities = request
         .caption_entities
         .as_ref()
@@ -2521,7 +2546,7 @@ pub fn handle_send_photo(state: &Data<AppState>, token: &str, params: &HashMap<S
         request.parse_mode.as_deref(),
         explicit_caption_entities,
     );
-    let file = resolve_media_file(state, token, &request.photo, "photo")?;
+    let file = messages::resolve_media_file(state, token, &request.photo, "photo")?;
     let photo = json!([
         {
             "file_id": file.file_id,
@@ -2532,7 +2557,7 @@ pub fn handle_send_photo(state: &Data<AppState>, token: &str, params: &HashMap<S
         }
     ]);
 
-    send_media_message(
+    messages::send_media_message(
         state,
         token,
         &request.chat_id,
@@ -2698,7 +2723,7 @@ pub fn handle_send_poll(state: &Data<AppState>, token: &str, params: &HashMap<St
         &chat_key,
         request.message_thread_id,
     )?;
-    let sender = resolve_sender_for_bot_outbound_chat(
+    let sender = chats::resolve_sender_for_bot_outbound_chat(
         &mut conn,
         &bot,
         &chat_key,
@@ -2877,24 +2902,24 @@ pub fn handle_send_poll(state: &Data<AppState>, token: &str, params: &HashMap<St
     })
     .map_err(ApiError::internal)?;
 
-    persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
+    webhook::persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
     Ok(message_value)
 }
 
 pub fn handle_send_sticker(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: SendStickerRequest = parse_request(params)?;
-    let sticker_input = parse_input_file_value(&request.sticker, "sticker")?;
-    let file = resolve_media_file(state, token, &sticker_input, "sticker")?;
+    let sticker_input = messages::parse_input_file_value(&request.sticker, "sticker")?;
+    let file = messages::resolve_media_file(state, token, &sticker_input, "sticker")?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let sticker_meta = load_sticker_meta(&mut conn, bot.id, &file.file_id)?;
+    let sticker_meta = messages::load_sticker_meta(&mut conn, bot.id, &file.file_id)?;
     drop(conn);
 
     let format = sticker_meta
         .as_ref()
         .map(|m| m.format.as_str())
-        .or_else(|| infer_sticker_format_from_file(&file))
+        .or_else(|| messages::infer_sticker_format_from_file(&file))
         .unwrap_or("static");
     let is_animated = format == "animated";
     let is_video = format == "video";
@@ -2923,7 +2948,7 @@ pub fn handle_send_sticker(state: &Data<AppState>, token: &str, params: &HashMap
         file_size: file.file_size,
     };
 
-    send_media_message(
+    messages::send_media_message(
         state,
         token,
         &request.chat_id,
@@ -2963,7 +2988,7 @@ pub fn handle_send_venue(state: &Data<AppState>, token: &str, params: &HashMap<S
         google_place_type: request.google_place_type,
     };
 
-    send_payload_message(
+    messages::send_payload_message(
         state,
         token,
         &request.chat_id,
@@ -2978,8 +3003,8 @@ pub fn handle_send_venue(state: &Data<AppState>, token: &str, params: &HashMap<S
 
 pub fn handle_send_video_note(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: SendVideoNoteRequest = parse_request(params)?;
-    let video_note_input = parse_input_file_value(&request.video_note, "video_note")?;
-    let file = resolve_media_file(state, token, &video_note_input, "video_note")?;
+    let video_note_input = messages::parse_input_file_value(&request.video_note, "video_note")?;
+    let file = messages::resolve_media_file(state, token, &video_note_input, "video_note")?;
 
     let length = request.length.unwrap_or(384).max(1);
     let video_note = serde_json::to_value(VideoNote {
@@ -2992,7 +3017,7 @@ pub fn handle_send_video_note(state: &Data<AppState>, token: &str, params: &Hash
     })
     .map_err(ApiError::internal)?;
 
-    send_media_message(
+    messages::send_media_message(
         state,
         token,
         &request.chat_id,
@@ -3008,7 +3033,7 @@ pub fn handle_send_video_note(state: &Data<AppState>, token: &str, params: &Hash
 
 pub fn handle_send_video(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: SendVideoRequest = parse_request(params)?;
-    let sim_parse_mode = normalize_sim_parse_mode(request.parse_mode.as_deref());
+    let sim_parse_mode = messages::normalize_sim_parse_mode(request.parse_mode.as_deref());
     let explicit_caption_entities = request
         .caption_entities
         .as_ref()
@@ -3018,7 +3043,7 @@ pub fn handle_send_video(state: &Data<AppState>, token: &str, params: &HashMap<S
         request.parse_mode.as_deref(),
         explicit_caption_entities,
     );
-    let file = resolve_media_file(state, token, &request.video, "video")?;
+    let file = messages::resolve_media_file(state, token, &request.video, "video")?;
 
     let video = json!({
         "file_id": file.file_id,
@@ -3030,7 +3055,7 @@ pub fn handle_send_video(state: &Data<AppState>, token: &str, params: &HashMap<S
         "file_size": file.file_size,
     });
 
-    send_media_message(
+    messages::send_media_message(
         state,
         token,
         &request.chat_id,
@@ -3046,7 +3071,7 @@ pub fn handle_send_video(state: &Data<AppState>, token: &str, params: &HashMap<S
 
 pub fn handle_send_voice(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: SendVoiceRequest = parse_request(params)?;
-    let sim_parse_mode = normalize_sim_parse_mode(request.parse_mode.as_deref());
+    let sim_parse_mode = messages::normalize_sim_parse_mode(request.parse_mode.as_deref());
     let explicit_caption_entities = request
         .caption_entities
         .as_ref()
@@ -3056,7 +3081,7 @@ pub fn handle_send_voice(state: &Data<AppState>, token: &str, params: &HashMap<S
         request.parse_mode.as_deref(),
         explicit_caption_entities,
     );
-    let file = resolve_media_file(state, token, &request.voice, "voice")?;
+    let file = messages::resolve_media_file(state, token, &request.voice, "voice")?;
 
     let voice = json!({
         "file_id": file.file_id,
@@ -3066,7 +3091,7 @@ pub fn handle_send_voice(state: &Data<AppState>, token: &str, params: &HashMap<S
         "file_size": file.file_size,
     });
 
-    send_media_message(
+    messages::send_media_message(
         state,
         token,
         &request.chat_id,
@@ -3087,7 +3112,7 @@ pub fn handle_set_message_reaction(
 ) -> ApiResult {
     let request: SetMessageReactionRequest = parse_request(params)?;
 
-    let reactions = normalize_reaction_values(request.reaction.as_ref().map(|r| {
+    let reactions = messages::normalize_reaction_values(request.reaction.as_ref().map(|r| {
         r.iter().map(|item| item.extra.clone()).collect::<Vec<Value>>()
     }))?;
 
@@ -3116,7 +3141,7 @@ pub fn handle_set_message_reaction(
         can_manage_bots: None,
     };
 
-    apply_message_reaction_change(
+    messages::apply_message_reaction_change(
         state,
         &mut conn,
         &bot,
@@ -3138,7 +3163,7 @@ pub fn handle_stop_message_live_location(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, message_id, via_inline_message) = resolve_edit_target(
+    let (chat_key, message_id, via_inline_message) = messages::resolve_edit_target(
         &mut conn,
         bot.id,
         request.chat_id.clone(),
@@ -3147,7 +3172,7 @@ pub fn handle_stop_message_live_location(
         "stopMessageLiveLocation",
     )?;
 
-    ensure_message_can_be_edited_by_bot(
+    messages::ensure_message_can_be_edited_by_bot(
         &mut conn,
         bot.id,
         &chat_key,
@@ -3169,8 +3194,8 @@ pub fn handle_stop_message_live_location(
         }
     }
 
-    apply_inline_reply_markup(&mut edited_message, request.reply_markup);
-    publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
+    inlines::apply_inline_reply_markup(&mut edited_message, request.reply_markup);
+    messages::publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
 
     if via_inline_message {
         Ok(json!(true))
@@ -3286,8 +3311,8 @@ pub fn handle_stop_poll(state: &Data<AppState>, token: &str, params: &HashMap<St
     let mut edited_message = messages::load_message_value(&mut conn, &bot, request.message_id)?;
     edited_message["poll"] = serde_json::to_value(&poll).map_err(ApiError::internal)?;
     edited_message.as_object_mut().map(|obj| obj.remove("text"));
-    apply_inline_reply_markup(&mut edited_message, request.reply_markup);
+    inlines::apply_inline_reply_markup(&mut edited_message, request.reply_markup);
 
-    publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
+    messages::publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
     Ok(edited_message)
 }

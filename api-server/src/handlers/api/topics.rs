@@ -1,4 +1,15 @@
-use super::*;
+use actix_web::web::Data;
+use chrono::Utc;
+use rusqlite::{params, OptionalExtension};
+use serde_json::{json, Map, Value};
+use std::collections::HashMap;
+
+use crate::database::{
+    ensure_bot, lock_db, AppState
+};
+
+use crate::types::{ApiError, ApiResult};
+
 use crate::generated::methods::{
     GetForumTopicIconStickersRequest,
     CreateForumTopicRequest, EditForumTopicRequest, CloseForumTopicRequest,
@@ -7,10 +18,13 @@ use crate::generated::methods::{
     ReopenGeneralForumTopicRequest, HideGeneralForumTopicRequest,
     UnhideGeneralForumTopicRequest, UnpinAllGeneralForumTopicMessagesRequest,
 };
+use crate::generated::types::{ForumTopic, Sticker};
 
 use crate::handlers::utils::updates::current_request_actor_user_id;
 
-use crate::handlers::client::{channels, groups};
+use crate::handlers::client::{chats, channels, groups, messages};
+
+use crate::handlers::parse_request;
 
 pub fn handle_get_forum_topic_icon_stickers(
     state: &Data<AppState>,
@@ -76,15 +90,15 @@ pub fn handle_create_forum_topic(
         return Err(ApiError::bad_request("name is empty"));
     }
 
-    let icon_color = request.icon_color.unwrap_or_else(forum_topic_default_icon_color);
-    if !is_allowed_forum_topic_icon_color(icon_color) {
+    let icon_color = request.icon_color.unwrap_or_else(groups::forum_topic_default_icon_color);
+    if !groups::is_allowed_forum_topic_icon_color(icon_color) {
         return Err(ApiError::bad_request("icon_color is invalid"));
     }
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let (chat_key, _sim_chat, chat, actor) =
-        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+        chats::resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
 
     let mut message_thread_id =
         ((Utc::now().timestamp_millis().unsigned_abs() % 2_000_000_000) as i64).max(2);
@@ -139,7 +153,7 @@ pub fn handle_create_forum_topic(
             "icon_custom_emoji_id": icon_custom_emoji_id,
         }),
     );
-    emit_service_message_update(
+    messages::emit_service_message_update(
         state,
         &mut conn,
         token,
@@ -148,7 +162,7 @@ pub fn handle_create_forum_topic(
         &chat,
         &actor,
         now,
-        format!("{} created the topic \"{}\"", display_name_for_service_user(&actor), name),
+        format!("{} created the topic \"{}\"", messages::display_name_for_service_user(&actor), name),
         service_fields,
     )?;
 
@@ -173,9 +187,9 @@ pub fn handle_edit_forum_topic(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let (chat_key, _sim_chat, chat, actor) =
-        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+        chats::resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
 
-    let Some(current_topic) = load_forum_topic(&mut conn, bot.id, &chat_key, request.message_thread_id)? else {
+    let Some(current_topic) = groups::load_forum_topic(&mut conn, bot.id, &chat_key, request.message_thread_id)? else {
         return Err(ApiError::not_found("forum topic not found"));
     };
 
@@ -236,7 +250,7 @@ pub fn handle_edit_forum_topic(
         }),
     );
 
-    emit_service_message_update(
+    messages::emit_service_message_update(
         state,
         &mut conn,
         token,
@@ -247,7 +261,7 @@ pub fn handle_edit_forum_topic(
         now,
         format!(
             "{} edited topic \"{}\"",
-            display_name_for_service_user(&actor),
+            messages::display_name_for_service_user(&actor),
             next_name
         ),
         service_fields,
@@ -266,9 +280,9 @@ pub fn handle_close_forum_topic(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let (chat_key, _sim_chat, chat, actor) =
-        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+        chats::resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
 
-    let Some(_) = load_forum_topic(&mut conn, bot.id, &chat_key, request.message_thread_id)? else {
+    let Some(_) = groups::load_forum_topic(&mut conn, bot.id, &chat_key, request.message_thread_id)? else {
         return Err(ApiError::not_found("forum topic not found"));
     };
 
@@ -289,7 +303,7 @@ pub fn handle_close_forum_topic(
     );
     service_fields.insert("forum_topic_closed".to_string(), json!({}));
 
-    emit_service_message_update(
+    messages::emit_service_message_update(
         state,
         &mut conn,
         token,
@@ -298,7 +312,7 @@ pub fn handle_close_forum_topic(
         &chat,
         &actor,
         now,
-        format!("{} closed a topic", display_name_for_service_user(&actor)),
+        format!("{} closed a topic", messages::display_name_for_service_user(&actor)),
         service_fields,
     )?;
 
@@ -315,9 +329,9 @@ pub fn handle_reopen_forum_topic(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let (chat_key, _sim_chat, chat, actor) =
-        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+        chats::resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
 
-    let Some(_) = load_forum_topic(&mut conn, bot.id, &chat_key, request.message_thread_id)? else {
+    let Some(_) = groups::load_forum_topic(&mut conn, bot.id, &chat_key, request.message_thread_id)? else {
         return Err(ApiError::not_found("forum topic not found"));
     };
 
@@ -338,7 +352,7 @@ pub fn handle_reopen_forum_topic(
     );
     service_fields.insert("forum_topic_reopened".to_string(), json!({}));
 
-    emit_service_message_update(
+    messages::emit_service_message_update(
         state,
         &mut conn,
         token,
@@ -347,7 +361,7 @@ pub fn handle_reopen_forum_topic(
         &chat,
         &actor,
         now,
-        format!("{} reopened a topic", display_name_for_service_user(&actor)),
+        format!("{} reopened a topic", messages::display_name_for_service_user(&actor)),
         service_fields,
     )?;
 
@@ -363,14 +377,14 @@ pub fn handle_delete_forum_topic(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
 
     if channels::is_direct_messages_chat(&sim_chat) {
         if request.message_thread_id <= 0 {
             return Err(ApiError::bad_request("message_thread_id is invalid"));
         }
 
-        let _topic = load_direct_messages_topic_record(
+        let _topic = channels::load_direct_messages_topic_record(
             &mut conn,
             bot.id,
             &chat_key,
@@ -397,13 +411,13 @@ pub fn handle_delete_forum_topic(
             ));
         }
 
-        let topic_message_ids = collect_message_ids_for_thread(
+        let topic_message_ids = groups::collect_message_ids_for_thread(
             &mut conn,
             bot.id,
             &chat_key,
             request.message_thread_id,
         )?;
-        let _ = delete_messages_with_dependencies(
+        let _ = messages::delete_messages_with_dependencies(
             &mut conn,
             bot.id,
             &chat_key,
@@ -434,7 +448,7 @@ pub fn handle_delete_forum_topic(
         ));
     }
 
-    let _actor = resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
+    let _actor = chats::resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
 
     let deleted = conn
         .execute(
@@ -447,13 +461,13 @@ pub fn handle_delete_forum_topic(
         return Err(ApiError::not_found("forum topic not found"));
     }
 
-    let topic_message_ids = collect_message_ids_for_thread(
+    let topic_message_ids = groups::collect_message_ids_for_thread(
         &mut conn,
         bot.id,
         &chat_key,
         request.message_thread_id,
     )?;
-    let _ = delete_messages_with_dependencies(
+    let _ = messages::delete_messages_with_dependencies(
         &mut conn,
         bot.id,
         &chat_key,
@@ -474,9 +488,9 @@ pub fn handle_unpin_all_forum_topic_messages(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let (chat_key, _sim_chat, _chat, _actor) =
-        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+        chats::resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
 
-    let Some(_) = load_forum_topic(&mut conn, bot.id, &chat_key, request.message_thread_id)? else {
+    let Some(_) = groups::load_forum_topic(&mut conn, bot.id, &chat_key, request.message_thread_id)? else {
         return Err(ApiError::not_found("forum topic not found"));
     };
 
@@ -497,7 +511,7 @@ pub fn handle_edit_general_forum_topic(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let (chat_key, _sim_chat, chat, actor) =
-        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+        chats::resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
     let now = Utc::now().timestamp();
 
     let (current_name, _, _) = groups::ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
@@ -524,7 +538,7 @@ pub fn handle_edit_general_forum_topic(
         }),
     );
 
-    emit_service_message_update(
+    messages::emit_service_message_update(
         state,
         &mut conn,
         token,
@@ -535,7 +549,7 @@ pub fn handle_edit_general_forum_topic(
         now,
         format!(
             "{} edited topic \"{}\"",
-            display_name_for_service_user(&actor),
+            messages::display_name_for_service_user(&actor),
             name
         ),
         service_fields,
@@ -554,7 +568,7 @@ pub fn handle_close_general_forum_topic(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let (chat_key, _sim_chat, chat, actor) =
-        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+        chats::resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
     let now = Utc::now().timestamp();
 
     groups::ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
@@ -571,7 +585,7 @@ pub fn handle_close_general_forum_topic(
     service_fields.insert("message_thread_id".to_string(), Value::from(1_i64));
     service_fields.insert("forum_topic_closed".to_string(), json!({}));
 
-    emit_service_message_update(
+    messages::emit_service_message_update(
         state,
         &mut conn,
         token,
@@ -582,7 +596,7 @@ pub fn handle_close_general_forum_topic(
         now,
         format!(
             "{} closed the General topic",
-            display_name_for_service_user(&actor)
+            messages::display_name_for_service_user(&actor)
         ),
         service_fields,
     )?;
@@ -600,7 +614,7 @@ pub fn handle_reopen_general_forum_topic(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let (chat_key, _sim_chat, chat, actor) =
-        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+        chats::resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
     let now = Utc::now().timestamp();
 
     groups::ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
@@ -617,7 +631,7 @@ pub fn handle_reopen_general_forum_topic(
     service_fields.insert("message_thread_id".to_string(), Value::from(1_i64));
     service_fields.insert("forum_topic_reopened".to_string(), json!({}));
 
-    emit_service_message_update(
+    messages::emit_service_message_update(
         state,
         &mut conn,
         token,
@@ -628,7 +642,7 @@ pub fn handle_reopen_general_forum_topic(
         now,
         format!(
             "{} reopened the General topic",
-            display_name_for_service_user(&actor)
+            messages::display_name_for_service_user(&actor)
         ),
         service_fields,
     )?;
@@ -646,7 +660,7 @@ pub fn handle_hide_general_forum_topic(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let (chat_key, _sim_chat, chat, actor) =
-        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+        chats::resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
     let now = Utc::now().timestamp();
 
     groups::ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
@@ -663,7 +677,7 @@ pub fn handle_hide_general_forum_topic(
     service_fields.insert("message_thread_id".to_string(), Value::from(1_i64));
     service_fields.insert("general_forum_topic_hidden".to_string(), json!({}));
 
-    emit_service_message_update(
+    messages::emit_service_message_update(
         state,
         &mut conn,
         token,
@@ -674,7 +688,7 @@ pub fn handle_hide_general_forum_topic(
         now,
         format!(
             "{} hid the General topic",
-            display_name_for_service_user(&actor)
+            messages::display_name_for_service_user(&actor)
         ),
         service_fields,
     )?;
@@ -692,7 +706,7 @@ pub fn handle_unhide_general_forum_topic(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let (chat_key, _sim_chat, chat, actor) =
-        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+        chats::resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
     let now = Utc::now().timestamp();
 
     groups::ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
@@ -709,7 +723,7 @@ pub fn handle_unhide_general_forum_topic(
     service_fields.insert("message_thread_id".to_string(), Value::from(1_i64));
     service_fields.insert("general_forum_topic_unhidden".to_string(), json!({}));
 
-    emit_service_message_update(
+    messages::emit_service_message_update(
         state,
         &mut conn,
         token,
@@ -720,7 +734,7 @@ pub fn handle_unhide_general_forum_topic(
         now,
         format!(
             "{} unhid the General topic",
-            display_name_for_service_user(&actor)
+            messages::display_name_for_service_user(&actor)
         ),
         service_fields,
     )?;
@@ -738,7 +752,7 @@ pub fn handle_unpin_all_general_forum_topic_messages(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let (chat_key, _sim_chat, _chat, _actor) =
-        resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
+        chats::resolve_forum_supergroup_chat(&mut conn, &bot, &request.chat_id)?;
 
     groups::ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
     Ok(Value::Bool(true))

@@ -7,7 +7,7 @@ pub struct LinkedDiscussionTransportContext {
     pub discussion_root_message_id: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct ChannelAdminRights {
     pub can_manage_chat: bool,

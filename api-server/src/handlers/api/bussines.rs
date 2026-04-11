@@ -1,4 +1,15 @@
-use super::*;
+use actix_web::web::Data;
+use chrono::Utc;
+use rusqlite::{params, OptionalExtension};
+use serde_json::{json, Value};
+use std::collections::HashMap;
+
+use crate::database::{
+    ensure_bot, lock_db, AppState
+};
+
+use crate::types::{ApiError, ApiResult};
+
 use crate::generated::methods::{
     GetBusinessConnectionRequest,
     SetBusinessAccountNameRequest, SetBusinessAccountUsernameRequest,
@@ -9,7 +20,13 @@ use crate::generated::methods::{
     GetBusinessAccountGiftsRequest,
 };
 
-use crate::handlers::client::users;
+use crate::generated::types::{
+    BusinessMessagesDeleted, Chat, OwnedGifts, OwnedGift, StarAmount, Update,
+};
+
+use crate::handlers::client::{business, messages, users, webhook};
+
+use crate::handlers::{generate_telegram_numeric_id, parse_request};
 
 pub fn handle_get_business_connection(
     state: &Data<AppState>,
@@ -20,8 +37,8 @@ pub fn handle_get_business_connection(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
 
-    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
-    let connection = build_business_connection(&mut conn, bot.id, &record)?;
+    let record = business::load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = business::build_business_connection(&mut conn, bot.id, &record)?;
     serde_json::to_value(connection).map_err(ApiError::internal)
 }
 
@@ -38,9 +55,9 @@ pub fn handle_set_business_account_name(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
-    let connection = build_business_connection(&mut conn, bot.id, &record)?;
-    ensure_business_right(
+    let record = business::load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = business::build_business_connection(&mut conn, bot.id, &record)?;
+    business::ensure_business_right(
         &connection,
         |rights| rights.can_edit_name,
         "not enough rights to edit business account name",
@@ -79,9 +96,9 @@ pub fn handle_set_business_account_username(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
-    let connection = build_business_connection(&mut conn, bot.id, &record)?;
-    ensure_business_right(
+    let record = business::load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = business::build_business_connection(&mut conn, bot.id, &record)?;
+    business::ensure_business_right(
         &connection,
         |rights| rights.can_edit_username,
         "not enough rights to edit business account username",
@@ -105,9 +122,9 @@ pub fn handle_set_business_account_bio(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
-    let connection = build_business_connection(&mut conn, bot.id, &record)?;
-    ensure_business_right(
+    let record = business::load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = business::build_business_connection(&mut conn, bot.id, &record)?;
+    business::ensure_business_right(
         &connection,
         |rights| rights.can_edit_bio,
         "not enough rights to edit business account bio",
@@ -135,16 +152,16 @@ pub fn handle_set_business_account_profile_photo(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
-    let connection = build_business_connection(&mut conn, bot.id, &record)?;
-    ensure_business_right(
+    let record = business::load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = business::build_business_connection(&mut conn, bot.id, &record)?;
+    business::ensure_business_right(
         &connection,
         |rights| rights.can_edit_profile_photo,
         "not enough rights to edit business account profile photo",
     )?;
 
-    let photo_input = extract_business_profile_photo_media_input(&request.photo.extra)?;
-    let file = resolve_media_file_with_conn(&mut conn, bot.id, &photo_input, "photo")?;
+    let photo_input = business::extract_business_profile_photo_media_input(&request.photo.extra)?;
+    let file = messages::resolve_media_file_with_conn(&mut conn, bot.id, &photo_input, "photo")?;
     let is_public = request.is_public.unwrap_or(false);
     let private_photo_file_id = if is_public {
         None
@@ -189,9 +206,9 @@ pub fn handle_remove_business_account_profile_photo(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
-    let connection = build_business_connection(&mut conn, bot.id, &record)?;
-    ensure_business_right(
+    let record = business::load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = business::build_business_connection(&mut conn, bot.id, &record)?;
+    business::ensure_business_right(
         &connection,
         |rights| rights.can_edit_profile_photo,
         "not enough rights to edit business account profile photo",
@@ -231,9 +248,9 @@ pub fn handle_read_business_message(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
 
-    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
-    let connection = build_business_connection(&mut conn, bot.id, &record)?;
-    ensure_business_right(
+    let record = business::load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = business::build_business_connection(&mut conn, bot.id, &record)?;
+    business::ensure_business_right(
         &connection,
         |rights| rights.can_read_messages,
         "not enough rights to read business messages",
@@ -282,11 +299,11 @@ pub fn handle_delete_business_messages(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
-    let connection = build_business_connection(&mut conn, bot.id, &record)?;
+    let record = business::load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = business::build_business_connection(&mut conn, bot.id, &record)?;
 
-    let can_delete_sent = business_right_enabled(&connection.rights, |rights| rights.can_delete_sent_messages);
-    let can_delete_all = business_right_enabled(&connection.rights, |rights| rights.can_delete_all_messages);
+    let can_delete_sent = business::business_right_enabled(&connection.rights, |rights| rights.can_delete_sent_messages);
+    let can_delete_all = business::business_right_enabled(&connection.rights, |rights| rights.can_delete_all_messages);
     if !can_delete_sent && !can_delete_all {
         return Err(ApiError::bad_request("not enough rights to delete business messages"));
     }
@@ -357,7 +374,7 @@ pub fn handle_delete_business_messages(
             managed_bot: None,
         })
         .map_err(ApiError::internal)?;
-        persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
+        webhook::persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
     }
 
     Ok(json!(true))
@@ -372,9 +389,9 @@ pub fn handle_set_business_account_gift_settings(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
-    let connection = build_business_connection(&mut conn, bot.id, &record)?;
-    ensure_business_right(
+    let record = business::load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = business::build_business_connection(&mut conn, bot.id, &record)?;
+    business::ensure_business_right(
         &connection,
         |rights| rights.can_change_gift_settings,
         "not enough rights to edit business gift settings",
@@ -410,9 +427,9 @@ pub fn handle_get_business_account_star_balance(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
-    let connection = build_business_connection(&mut conn, bot.id, &record)?;
-    ensure_business_right(
+    let record = business::load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = business::build_business_connection(&mut conn, bot.id, &record)?;
+    business::ensure_business_right(
         &connection,
         |rights| rights.can_view_gifts_and_stars,
         "not enough rights to view business stars",
@@ -438,9 +455,9 @@ pub fn handle_transfer_business_account_stars(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
-    let connection = build_business_connection(&mut conn, bot.id, &record)?;
-    ensure_business_right(
+    let record = business::load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = business::build_business_connection(&mut conn, bot.id, &record)?;
+    business::ensure_business_right(
         &connection,
         |rights| rights.can_transfer_stars,
         "not enough rights to transfer business stars",
@@ -492,15 +509,15 @@ pub fn handle_get_business_account_gifts(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let record = load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
-    let connection = build_business_connection(&mut conn, bot.id, &record)?;
-    ensure_business_right(
+    let record = business::load_business_connection_or_404(&mut conn, bot.id, &request.business_connection_id)?;
+    let connection = business::build_business_connection(&mut conn, bot.id, &record)?;
+    business::ensure_business_right(
         &connection,
         |rights| rights.can_view_gifts_and_stars,
         "not enough rights to view business gifts",
     )?;
 
-    let _gift_types = parse_business_accepted_gift_types_json(record.gift_settings_types_json.as_deref());
+    let _gift_types = business::parse_business_accepted_gift_types_json(record.gift_settings_types_json.as_deref());
     let _show_gift_button = record.gift_settings_show_button;
 
     let result = OwnedGifts {

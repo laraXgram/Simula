@@ -1,9 +1,26 @@
-use super::*;
+use actix_web::web::Data;
+use chrono::Utc;
+use rusqlite::{params, OptionalExtension};
+use serde_json::{json, Value};
+use std::collections::HashMap;
+
+use crate::database::{
+    ensure_bot, lock_db, AppState
+};
+
+use crate::types::{ApiError, ApiResult};
+
 use crate::generated::methods::{
     GetGameHighScoresRequest, SetGameScoreRequest,
 };
 
-use crate::handlers::client::messages;
+use crate::generated::types::{
+    GameHighScore, Update, User
+};
+
+use crate::handlers::client::{messages, users, webhook};
+
+use crate::handlers::parse_request;
 
 pub fn handle_get_game_high_scores(
     state: &Data<AppState>,
@@ -14,7 +31,7 @@ pub fn handle_get_game_high_scores(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
 
-    let (chat_key, message_id) = resolve_game_target_message(
+    let (chat_key, message_id) = messages::resolve_game_target_message(
         &mut conn,
         bot.id,
         request.chat_id,
@@ -91,7 +108,7 @@ pub fn handle_set_game_score(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
 
-    let (chat_key, message_id) = resolve_game_target_message(
+    let (chat_key, message_id) = messages::resolve_game_target_message(
         &mut conn,
         bot.id,
         request.chat_id,
@@ -104,7 +121,7 @@ pub fn handle_set_game_score(
         return Err(ApiError::bad_request("target message is not a game message"));
     }
 
-    ensure_user(&mut conn, Some(request.user_id), None, None)?;
+    users::ensure_user(&mut conn, Some(request.user_id), None, None)?;
 
     let existing_score: Option<i64> = conn
         .query_row(
@@ -170,6 +187,6 @@ pub fn handle_set_game_score(
     })
     .map_err(ApiError::internal)?;
 
-    persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
+    webhook::persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
     Ok(target_message)
 }

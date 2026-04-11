@@ -1,4 +1,15 @@
-use super::*;
+use actix_web::web::Data;
+use chrono::Utc;
+use rusqlite::{params, OptionalExtension};
+use serde_json::{json, Value};
+use std::collections::HashMap;
+
+use crate::database::{
+    ensure_bot, lock_db, AppState
+};
+
+use crate::types::{ApiError, ApiResult};
+
 use crate::generated::methods::{
     CloseRequest, DeleteMyCommandsRequest, DeleteWebhookRequest,
     GetWebhookInfoRequest, GetMeRequest, GetMyCommandsRequest, GetMyDefaultAdministratorRightsRequest,
@@ -9,7 +20,14 @@ use crate::generated::methods::{
     SetMyShortDescriptionRequest, SetWebhookRequest, LogOutRequest,
 };
 
-use crate::handlers::client::{channels, users};
+use crate::generated::types::{
+    WebhookInfo, User, BotCommand, ChatAdministratorRights, BotDescription,
+    BotName, BotShortDescription, Update, ManagedBotUpdated
+};
+
+use crate::handlers::client::{bot, channels, messages, users, webhook};
+
+use crate::handlers::{parse_request, sql_value_to_rusqlite};
 
 pub fn handle_close(
     state: &Data<AppState>,
@@ -30,12 +48,12 @@ pub fn handle_delete_my_commands(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: DeleteMyCommandsRequest = parse_request(params)?;
-    let scope_key = normalize_bot_command_scope_key(request.scope.as_ref())?;
-    let language_code = normalize_bot_language_code(request.language_code.as_deref())?;
+    let scope_key = bot::normalize_bot_command_scope_key(request.scope.as_ref())?;
+    let language_code = bot::normalize_bot_language_code(request.language_code.as_deref())?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    ensure_sim_bot_commands_storage(&mut conn)?;
+    bot::ensure_sim_bot_commands_storage(&mut conn)?;
 
     conn.execute(
         "DELETE FROM sim_bot_commands WHERE bot_id = ?1 AND scope_key = ?2 AND language_code = ?3",
@@ -149,12 +167,12 @@ pub fn handle_get_my_commands(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: GetMyCommandsRequest = parse_request(params)?;
-    let scope_key = normalize_bot_command_scope_key(request.scope.as_ref())?;
-    let language_code = normalize_bot_language_code(request.language_code.as_deref())?;
+    let scope_key = bot::normalize_bot_command_scope_key(request.scope.as_ref())?;
+    let language_code = bot::normalize_bot_language_code(request.language_code.as_deref())?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    ensure_sim_bot_commands_storage(&mut conn)?;
+    bot::ensure_sim_bot_commands_storage(&mut conn)?;
 
     let mut commands_json: Option<String> = conn
         .query_row(
@@ -197,7 +215,7 @@ pub fn handle_get_my_default_administrator_rights(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    ensure_sim_bot_default_admin_rights_storage(&mut conn)?;
+    bot::ensure_sim_bot_default_admin_rights_storage(&mut conn)?;
 
     let for_channels = request.for_channels.unwrap_or(false);
     let raw_rights: Option<Option<String>> = conn
@@ -214,7 +232,7 @@ pub fn handle_get_my_default_administrator_rights(
     let rights = raw_rights
         .flatten()
         .and_then(|raw| serde_json::from_str::<ChatAdministratorRights>(&raw).ok())
-        .unwrap_or_else(|| default_bot_administrator_rights(for_channels));
+        .unwrap_or_else(|| bot::default_bot_administrator_rights(for_channels));
 
     Ok(serde_json::to_value(rights).map_err(ApiError::internal)?)
 }
@@ -225,13 +243,13 @@ pub fn handle_get_my_description(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: GetMyDescriptionRequest = parse_request(params)?;
-    let language_code = normalize_bot_language_code(request.language_code.as_deref())?;
+    let language_code = bot::normalize_bot_language_code(request.language_code.as_deref())?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    ensure_sim_bot_profile_texts_storage(&mut conn)?;
+    bot::ensure_sim_bot_profile_texts_storage(&mut conn)?;
 
-    let description = load_bot_profile_text_value(&mut conn, bot.id, &language_code, "description")?
+    let description = bot::load_bot_profile_text_value(&mut conn, bot.id, &language_code, "description")?
         .unwrap_or_default();
 
     Ok(serde_json::to_value(BotDescription { description }).map_err(ApiError::internal)?)
@@ -243,13 +261,13 @@ pub fn handle_get_my_name(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: GetMyNameRequest = parse_request(params)?;
-    let language_code = normalize_bot_language_code(request.language_code.as_deref())?;
+    let language_code = bot::normalize_bot_language_code(request.language_code.as_deref())?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    ensure_sim_bot_profile_texts_storage(&mut conn)?;
+    bot::ensure_sim_bot_profile_texts_storage(&mut conn)?;
 
-    let name = load_bot_profile_text_value(&mut conn, bot.id, &language_code, "name")?
+    let name = bot::load_bot_profile_text_value(&mut conn, bot.id, &language_code, "name")?
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .unwrap_or(bot.first_name);
@@ -263,14 +281,14 @@ pub fn handle_get_my_short_description(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: GetMyShortDescriptionRequest = parse_request(params)?;
-    let language_code = normalize_bot_language_code(request.language_code.as_deref())?;
+    let language_code = bot::normalize_bot_language_code(request.language_code.as_deref())?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    ensure_sim_bot_profile_texts_storage(&mut conn)?;
+    bot::ensure_sim_bot_profile_texts_storage(&mut conn)?;
 
     let short_description =
-        load_bot_profile_text_value(&mut conn, bot.id, &language_code, "short_description")?
+        bot::load_bot_profile_text_value(&mut conn, bot.id, &language_code, "short_description")?
             .unwrap_or_default();
 
     Ok(serde_json::to_value(BotShortDescription { short_description }).map_err(ApiError::internal)?)
@@ -310,10 +328,10 @@ pub fn handle_get_managed_bot_token(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    ensure_sim_managed_bots_storage(&mut conn)?;
+    bot::ensure_sim_managed_bots_storage(&mut conn)?;
 
     let owner = users::ensure_sim_user_record(&mut conn, request.user_id)?;
-    let _ = ensure_managed_bot_record(&mut conn, bot.id, owner.id, None, None)?;
+    let _ = bot::ensure_managed_bot_record(&mut conn, bot.id, owner.id, None, None)?;
     Ok(json!(true))
 }
 
@@ -381,7 +399,7 @@ pub fn handle_get_updates(state: &Data<AppState>, token: &str, params: &HashMap<
         let mut parsed: Value = serde_json::from_str(&raw).map_err(ApiError::internal)?;
         channels::enrich_channel_post_payloads(&mut conn, bot.id, &mut parsed)?;
 
-        if update_targets_deleted_message(&mut conn, bot.id, &parsed)? {
+        if messages::update_targets_deleted_message(&mut conn, bot.id, &parsed)? {
             stale_update_ids.push(update_id);
             continue;
         }
@@ -423,7 +441,7 @@ pub fn handle_remove_my_profile_photo(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    ensure_sim_bot_profile_photos_storage(&mut conn)?;
+    bot::ensure_sim_bot_profile_photos_storage(&mut conn)?;
 
     conn.execute(
         "DELETE FROM sim_bot_profile_photos WHERE bot_id = ?1",
@@ -446,11 +464,11 @@ pub fn handle_replace_managed_bot_token(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    ensure_sim_managed_bots_storage(&mut conn)?;
+    bot::ensure_sim_managed_bots_storage(&mut conn)?;
 
     let owner = users::ensure_sim_user_record(&mut conn, request.user_id)?;
-    let _ = ensure_managed_bot_record(&mut conn, bot.id, owner.id, None, None)?;
-    let record = rotate_managed_bot_token(&mut conn, bot.id, owner.id)?;
+    let _ = bot::ensure_managed_bot_record(&mut conn, bot.id, owner.id, None, None)?;
+    let record = bot::rotate_managed_bot_token(&mut conn, bot.id, owner.id)?;
 
     let update_value = serde_json::to_value(Update {
         update_id: 0,
@@ -478,13 +496,13 @@ pub fn handle_replace_managed_bot_token(
         chat_boost: None,
         removed_chat_boost: None,
         managed_bot: Some(ManagedBotUpdated {
-            user: build_user_with_manage_bots(&owner),
-            bot: managed_bot_user_from_record(&record),
+            user: bot::build_user_with_manage_bots(&owner),
+            bot: bot::managed_bot_user_from_record(&record),
         }),
     })
     .map_err(ApiError::internal)?;
 
-    persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
+    webhook::persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
     Ok(json!(true))
 }
 
@@ -494,13 +512,13 @@ pub fn handle_set_my_commands(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: SetMyCommandsRequest = parse_request(params)?;
-    let normalized_commands = normalize_bot_commands_payload(&request.commands)?;
-    let scope_key = normalize_bot_command_scope_key(request.scope.as_ref())?;
-    let language_code = normalize_bot_language_code(request.language_code.as_deref())?;
+    let normalized_commands = bot::normalize_bot_commands_payload(&request.commands)?;
+    let scope_key = bot::normalize_bot_command_scope_key(request.scope.as_ref())?;
+    let language_code = bot::normalize_bot_language_code(request.language_code.as_deref())?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    ensure_sim_bot_commands_storage(&mut conn)?;
+    bot::ensure_sim_bot_commands_storage(&mut conn)?;
 
     let now = Utc::now().timestamp();
     conn.execute(
@@ -532,7 +550,7 @@ pub fn handle_set_my_default_administrator_rights(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    ensure_sim_bot_default_admin_rights_storage(&mut conn)?;
+    bot::ensure_sim_bot_default_admin_rights_storage(&mut conn)?;
 
     let now = Utc::now().timestamp();
     let for_channels = request.for_channels.unwrap_or(false);
@@ -567,7 +585,7 @@ pub fn handle_set_my_description(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: SetMyDescriptionRequest = parse_request(params)?;
-    let language_code = normalize_bot_language_code(request.language_code.as_deref())?;
+    let language_code = bot::normalize_bot_language_code(request.language_code.as_deref())?;
     let normalized_description = request
         .description
         .as_deref()
@@ -585,7 +603,7 @@ pub fn handle_set_my_description(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    ensure_sim_bot_profile_texts_storage(&mut conn)?;
+    bot::ensure_sim_bot_profile_texts_storage(&mut conn)?;
 
     let now = Utc::now().timestamp();
     conn.execute(
@@ -608,7 +626,7 @@ pub fn handle_set_my_name(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: SetMyNameRequest = parse_request(params)?;
-    let language_code = normalize_bot_language_code(request.language_code.as_deref())?;
+    let language_code = bot::normalize_bot_language_code(request.language_code.as_deref())?;
     let normalized_name = request
         .name
         .as_deref()
@@ -626,7 +644,7 @@ pub fn handle_set_my_name(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    ensure_sim_bot_profile_texts_storage(&mut conn)?;
+    bot::ensure_sim_bot_profile_texts_storage(&mut conn)?;
 
     let now = Utc::now().timestamp();
     conn.execute(
@@ -659,12 +677,12 @@ pub fn handle_set_my_profile_photo(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: SetMyProfilePhotoRequest = parse_request(params)?;
-    let (media_kind, media_input) = extract_bot_profile_photo_media_input(&request.photo.extra)?;
-    let file = resolve_media_file(state, token, &media_input, media_kind)?;
+    let (media_kind, media_input) = bot::extract_bot_profile_photo_media_input(&request.photo.extra)?;
+    let file = messages::resolve_media_file(state, token, &media_input, media_kind)?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    ensure_sim_bot_profile_photos_storage(&mut conn)?;
+    bot::ensure_sim_bot_profile_photos_storage(&mut conn)?;
 
     let now = Utc::now().timestamp();
     conn.execute(
@@ -688,7 +706,7 @@ pub fn handle_set_my_short_description(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: SetMyShortDescriptionRequest = parse_request(params)?;
-    let language_code = normalize_bot_language_code(request.language_code.as_deref())?;
+    let language_code = bot::normalize_bot_language_code(request.language_code.as_deref())?;
     let normalized_short_description = request
         .short_description
         .as_deref()
@@ -706,7 +724,7 @@ pub fn handle_set_my_short_description(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    ensure_sim_bot_profile_texts_storage(&mut conn)?;
+    bot::ensure_sim_bot_profile_texts_storage(&mut conn)?;
 
     let now = Utc::now().timestamp();
     conn.execute(

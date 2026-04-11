@@ -1,7 +1,21 @@
-use super::*;
-use crate::generated::methods::{
+use actix_web::web::Data;
+use chrono::Utc;
+use rusqlite::params;
+use serde_json::{json, Value};
+use std::collections::HashMap;
+
+use crate::database::{
+    ensure_bot, lock_db, AppState
+};
+
+use crate::types::{ApiError, ApiResult};use crate::generated::methods::{
     DeleteStoryRequest, EditStoryRequest, PostStoryRequest, RepostStoryRequest
 };
+
+use crate::handlers::client::{business, stories};
+use crate::handlers::utils::text::{parse_optional_formatted_text};
+
+use crate::handlers::{parse_request, parse_request_ignoring_prefixed_fields};
 
 pub fn handle_delete_story(
     state: &Data<AppState>,
@@ -12,13 +26,13 @@ pub fn handle_delete_story(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (record, _connection) = resolve_story_business_connection_for_request(
+    let (record, _connection) = business::resolve_story_business_connection_for_request(
         &mut conn,
         bot.id,
         Some(request.business_connection_id.as_str()),
     )?;
 
-    ensure_sim_story_storage(&mut conn)?;
+    stories::ensure_sim_story_storage(&mut conn)?;
     let deleted = conn
         .execute(
             "DELETE FROM sim_business_stories
@@ -42,15 +56,15 @@ pub fn handle_edit_story(
     let request: EditStoryRequest =
         parse_request_ignoring_prefixed_fields(params, &["story_file"])?;
 
-    let normalized_story_content = normalize_story_content_payload(
+    let normalized_story_content = stories::normalize_story_content_payload(
         state,
         token,
         params,
         &request.content.extra,
     )?;
 
-    validate_story_content_payload(&normalized_story_content)?;
-    validate_story_areas_payload(request.areas.as_ref())?;
+    stories::validate_story_content_payload(&normalized_story_content)?;
+    stories::validate_story_areas_payload(request.areas.as_ref())?;
 
     let explicit_caption_entities = request
         .caption_entities
@@ -75,14 +89,14 @@ pub fn handle_edit_story(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (record, connection) = resolve_story_business_connection_for_request(
+    let (record, connection) = business::resolve_story_business_connection_for_request(
         &mut conn,
         bot.id,
         Some(request.business_connection_id.as_str()),
     )?;
 
-    ensure_sim_story_storage(&mut conn)?;
-    let existing = load_story_record_for_connection(
+    stories::ensure_sim_story_storage(&mut conn)?;
+    let existing = stories::load_story_record_for_connection(
         &mut conn,
         bot.id,
         &record.connection_id,
@@ -118,8 +132,8 @@ pub fn handle_edit_story(
     )
     .map_err(ApiError::internal)?;
 
-    Ok(build_story_response_payload(
-        story_chat_for_business_connection(&connection),
+    Ok(stories::build_story_response_payload(
+        stories::story_chat_for_business_connection(&connection),
         request.story_id,
         Some(&normalized_story_content),
         caption.as_deref(),
@@ -134,16 +148,16 @@ pub fn handle_post_story(
     let request: PostStoryRequest =
         parse_request_ignoring_prefixed_fields(params, &["story_file"])?;
 
-    let normalized_story_content = normalize_story_content_payload(
+    let normalized_story_content = stories::normalize_story_content_payload(
         state,
         token,
         params,
         &request.content.extra,
     )?;
 
-    ensure_story_active_period(request.active_period)?;
-    validate_story_content_payload(&normalized_story_content)?;
-    validate_story_areas_payload(request.areas.as_ref())?;
+    stories::ensure_story_active_period(request.active_period)?;
+    stories::validate_story_content_payload(&normalized_story_content)?;
+    stories::validate_story_areas_payload(request.areas.as_ref())?;
 
     let explicit_caption_entities = request
         .caption_entities
@@ -168,14 +182,14 @@ pub fn handle_post_story(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (record, connection) = resolve_story_business_connection_for_request(
+    let (record, connection) = business::resolve_story_business_connection_for_request(
         &mut conn,
         bot.id,
         Some(request.business_connection_id.as_str()),
     )?;
 
-    ensure_sim_story_storage(&mut conn)?;
-    let story_id = next_story_id_for_connection(&mut conn, bot.id, &record.connection_id)?;
+    stories::ensure_sim_story_storage(&mut conn)?;
+    let story_id = stories::next_story_id_for_connection(&mut conn, bot.id, &record.connection_id)?;
     let now = Utc::now().timestamp();
 
     conn.execute(
@@ -217,8 +231,8 @@ pub fn handle_post_story(
     )
     .map_err(ApiError::internal)?;
 
-    Ok(build_story_response_payload(
-        story_chat_for_business_connection(&connection),
+    Ok(stories::build_story_response_payload(
+        stories::story_chat_for_business_connection(&connection),
         story_id,
         Some(&normalized_story_content),
         caption.as_deref(),
@@ -231,32 +245,32 @@ pub fn handle_repost_story(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: RepostStoryRequest = parse_request(params)?;
-    ensure_story_active_period(request.active_period)?;
+    stories::ensure_story_active_period(request.active_period)?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (target_record, target_connection) = resolve_story_business_connection_for_request(
+    let (target_record, target_connection) = business::resolve_story_business_connection_for_request(
         &mut conn,
         bot.id,
         Some(request.business_connection_id.as_str()),
     )?;
 
-    let source_connection_record = load_sim_business_connection_for_user(
+    let source_connection_record = business::load_sim_business_connection_for_user(
         &mut conn,
         bot.id,
         request.from_chat_id,
     )?
     .ok_or_else(|| ApiError::bad_request("source business account is not managed by this bot"))?;
     let source_connection =
-        build_business_connection(&mut conn, bot.id, &source_connection_record)?;
-    ensure_business_right(
+        business::build_business_connection(&mut conn, bot.id, &source_connection_record)?;
+    business::ensure_business_right(
         &source_connection,
         |rights| rights.can_manage_stories,
         "not enough rights to manage source stories",
     )?;
 
-    ensure_sim_story_storage(&mut conn)?;
-    let source_story = load_story_record_for_chat(
+    stories::ensure_sim_story_storage(&mut conn)?;
+    let source_story = stories::load_story_record_for_chat(
         &mut conn,
         bot.id,
         request.from_chat_id,
@@ -264,7 +278,7 @@ pub fn handle_repost_story(
     )?
     .ok_or_else(|| ApiError::bad_request("source story was not found"))?;
 
-    let story_id = next_story_id_for_connection(&mut conn, bot.id, &target_record.connection_id)?;
+    let story_id = stories::next_story_id_for_connection(&mut conn, bot.id, &target_record.connection_id)?;
     let now = Utc::now().timestamp();
 
     conn.execute(
@@ -306,8 +320,8 @@ pub fn handle_repost_story(
 
     let source_content_value = serde_json::from_str::<Value>(&source_story.content_json)
         .unwrap_or_else(|_| Value::Null);
-    Ok(build_story_response_payload(
-        story_chat_for_business_connection(&target_connection),
+    Ok(stories::build_story_response_payload(
+        stories::story_chat_for_business_connection(&target_connection),
         story_id,
         if source_content_value.is_null() {
             None

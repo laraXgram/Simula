@@ -1,4 +1,15 @@
-use super::*;
+use actix_web::web::Data;
+use chrono::Utc;
+use rusqlite::{params, OptionalExtension};
+use serde_json::{json, Value};
+use std::collections::HashMap;
+
+use crate::database::{
+    ensure_bot, lock_db, AppState
+};
+
+use crate::types::{ApiError, ApiResult};
+
 use crate::generated::methods::{
     AddStickerToSetRequest, CreateNewStickerSetRequest,
     DeleteStickerFromSetRequest, DeleteStickerSetRequest,
@@ -8,6 +19,12 @@ use crate::generated::methods::{
     SetStickerMaskPositionRequest, SetStickerPositionInSetRequest,
     SetStickerSetThumbnailRequest, SetStickerSetTitleRequest,
 };
+
+use crate::generated::types::{File, StickerSet};
+
+use crate::handlers::client::messages;
+
+use crate::handlers::{parse_request, sql_value_to_rusqlite};
 
 pub fn handle_add_sticker_to_set(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: AddStickerToSetRequest = parse_request(params)?;
@@ -34,7 +51,7 @@ pub fn handle_add_sticker_to_set(state: &Data<AppState>, token: &str, params: &H
         )
         .map_err(ApiError::internal)?;
 
-    upsert_set_sticker(
+    messages::upsert_set_sticker(
         state,
         &mut conn,
         &bot,
@@ -60,7 +77,7 @@ pub fn handle_create_new_sticker_set(state: &Data<AppState>, token: &str, params
         return Err(ApiError::bad_request("stickers must include at least one item"));
     }
 
-    let sticker_type = normalize_sticker_type(request.sticker_type.as_deref().unwrap_or("regular"))?;
+    let sticker_type = messages::normalize_sticker_type(request.sticker_type.as_deref().unwrap_or("regular"))?;
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
 
@@ -95,7 +112,7 @@ pub fn handle_create_new_sticker_set(state: &Data<AppState>, token: &str, params
     .map_err(ApiError::internal)?;
 
     for (index, sticker_input) in request.stickers.iter().enumerate() {
-        upsert_set_sticker(
+        messages::upsert_set_sticker(
             state,
             &mut conn,
             &bot,
@@ -137,7 +154,7 @@ pub fn handle_delete_sticker_from_set(state: &Data<AppState>, token: &str, param
         return Err(ApiError::not_found("sticker not found"));
     }
 
-    compact_sticker_positions(&mut conn, bot.id, &set_name)?;
+    messages::compact_sticker_positions(&mut conn, bot.id, &set_name)?;
     Ok(json!(true))
 }
 
@@ -213,7 +230,7 @@ pub fn handle_get_custom_emoji_stickers(state: &Data<AppState>, token: &str, par
     let mut stickers = Vec::new();
     for row in rows {
         let (file_id, file_unique_id, set_name, sticker_type, format, emoji, mask_position_json, custom_emoji_id, needs_repainting) = row.map_err(ApiError::internal)?;
-        stickers.push(sticker_from_row(
+        stickers.push(messages::sticker_from_row(
             file_id,
             file_unique_id,
             set_name,
@@ -249,7 +266,7 @@ pub fn handle_get_sticker_set(state: &Data<AppState>, token: &str, params: &Hash
         return Err(ApiError::not_found("sticker set not found"));
     };
 
-    let stickers = load_set_stickers(&mut conn, bot.id, &request.name)?;
+    let stickers = messages::load_set_stickers(&mut conn, bot.id, &request.name)?;
     let result = StickerSet {
         name: request.name,
         title,
@@ -293,7 +310,7 @@ pub fn handle_replace_sticker_in_set(state: &Data<AppState>, token: &str, params
     )
     .map_err(ApiError::internal)?;
 
-    upsert_set_sticker(
+    messages::upsert_set_sticker(
         state,
         &mut conn,
         &bot,
@@ -304,7 +321,7 @@ pub fn handle_replace_sticker_in_set(state: &Data<AppState>, token: &str, params
         position,
     )?;
 
-    compact_sticker_positions(&mut conn, bot.id, &set_name)?;
+    messages::compact_sticker_positions(&mut conn, bot.id, &set_name)?;
     Ok(json!(true))
 }
 
@@ -456,10 +473,10 @@ pub fn handle_set_sticker_position_in_set(state: &Data<AppState>, token: &str, p
 
 pub fn handle_set_sticker_set_thumbnail(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: SetStickerSetThumbnailRequest = parse_request(params)?;
-    let format = normalize_sticker_format(&request.format)?;
+    let format = messages::normalize_sticker_format(&request.format)?;
     let thumbnail_file_id = if let Some(value) = request.thumbnail {
-        let normalized = parse_input_file_value(&value, "thumbnail")?;
-        Some(resolve_media_file(state, token, &normalized, "thumbnail")?.file_id)
+        let normalized = messages::parse_input_file_value(&value, "thumbnail")?;
+        Some(messages::resolve_media_file(state, token, &normalized, "thumbnail")?.file_id)
     } else {
         None
     };
@@ -514,18 +531,18 @@ pub fn handle_upload_sticker_file(state: &Data<AppState>, token: &str, params: &
         .and_then(Value::as_str)
         .map(str::to_string)
         .ok_or_else(|| ApiError::bad_request("sticker_format is required"))?;
-    let requested_format = normalize_sticker_format(&sticker_format)?;
+    let requested_format = messages::normalize_sticker_format(&sticker_format)?;
     let sticker_raw = params
         .get("sticker")
         .ok_or_else(|| ApiError::bad_request("sticker is required"))?;
-    let sticker_input = parse_input_file_value(sticker_raw, "sticker")?;
-    let file = resolve_media_file(state, token, &sticker_input, "sticker")?;
-    let format = infer_sticker_format_from_file(&file).unwrap_or(requested_format);
+    let sticker_input = messages::parse_input_file_value(sticker_raw, "sticker")?;
+    let file = messages::resolve_media_file(state, token, &sticker_input, "sticker")?;
+    let format = messages::infer_sticker_format_from_file(&file).unwrap_or(requested_format);
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let now = Utc::now().timestamp();
-    let (is_animated, is_video) = sticker_format_flags(format);
+    let (is_animated, is_video) = messages::sticker_format_flags(format);
 
     conn.execute(
         "INSERT INTO stickers

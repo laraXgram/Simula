@@ -1,11 +1,23 @@
-use super::*;
+use actix_web::web::Data;
+use chrono::Utc;
+use serde_json::{json, Map, Value};
+use std::collections::HashMap;
+
+use crate::database::{
+    ensure_bot, lock_db, AppState
+};
+
+use crate::types::{ApiError, ApiResult};
+
 use crate::generated::methods::{
     ApproveSuggestedPostRequest, DeclineSuggestedPostRequest,
 };
 
-use crate::handlers::utils::updates::current_request_actor_user_id;
+use crate::handlers::client::{bot, channels, groups, messages, users};
 
-use crate::handlers::client::{bot, channels, users};
+use crate::handlers::parse_request;
+
+use crate::handlers::utils::updates::current_request_actor_user_id;
 
 pub fn handle_approve_suggested_post(
     state: &Data<AppState>,
@@ -25,7 +37,7 @@ pub fn handle_approve_suggested_post(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let direct_messages_chat = load_direct_messages_chat_for_request(
+    let direct_messages_chat = channels::load_direct_messages_chat_for_request(
         &mut conn,
         bot.id,
         request.chat_id,
@@ -36,22 +48,22 @@ pub fn handle_approve_suggested_post(
         .ok_or_else(|| ApiError::bad_request("direct messages chat parent channel is missing"))?
         .to_string();
     let actor_user_id = current_request_actor_user_id().unwrap_or(bot.id);
-    ensure_channel_member_can_approve_suggested_posts(
+    channels::ensure_channel_member_can_approve_suggested_posts(
         &mut conn,
         bot.id,
         &parent_channel_chat_key,
         actor_user_id,
     )?;
 
-    let suggested_message = load_suggested_post_message_for_service(
+    let suggested_message = channels::load_suggested_post_message_for_service(
         &mut conn,
         &bot,
         direct_messages_chat.chat_id,
         request.message_id,
     )?;
 
-    ensure_sim_suggested_posts_storage(&mut conn)?;
-    let existing = load_suggested_post_state(
+    channels::ensure_sim_suggested_posts_storage(&mut conn)?;
+    let existing = channels::load_suggested_post_state(
         &mut conn,
         bot.id,
         &direct_messages_chat.chat_key,
@@ -75,7 +87,7 @@ pub fn handle_approve_suggested_post(
         if current_state == "approved" && request.send_date.is_none() {
             let effective_send_date = existing_send_date.unwrap_or(now);
             if effective_send_date <= now {
-                let _ = finalize_due_suggested_post_if_ready(
+                let _ = channels::finalize_due_suggested_post_if_ready(
                     state,
                     &mut conn,
                     token,
@@ -92,7 +104,7 @@ pub fn handle_approve_suggested_post(
     let resolved_send_date = request
         .send_date
         .or_else(|| existing.as_ref().and_then(|(_, send_date)| *send_date))
-        .or_else(|| extract_suggested_post_send_date_from_message(&suggested_message));
+        .or_else(|| channels::extract_suggested_post_send_date_from_message(&suggested_message));
     if let Some(send_date) = resolved_send_date {
         if send_date - now > 2_678_400 {
             return Err(ApiError::bad_request(
@@ -101,13 +113,13 @@ pub fn handle_approve_suggested_post(
         }
 
         if send_date < now {
-            let Some(price) = extract_suggested_post_price_from_message(&suggested_message) else {
+            let Some(price) = channels::extract_suggested_post_price_from_message(&suggested_message) else {
                 return Err(ApiError::bad_request(
                     "suggested post send_date is in the past",
                 ));
             };
 
-            upsert_suggested_post_state(
+            channels::upsert_suggested_post_state(
                 &mut conn,
                 bot.id,
                 &direct_messages_chat.chat_key,
@@ -121,7 +133,7 @@ pub fn handle_approve_suggested_post(
             let actor = if actor_user_id == bot.id {
                 bot::build_bot_user(&bot)
             } else {
-                let actor_record = ensure_user(&mut conn, Some(actor_user_id), None, None)?;
+                let actor_record = users::ensure_user(&mut conn, Some(actor_user_id), None, None)?;
                 users::build_user_from_sim_record(&actor_record, false)
             };
             let mut approval_failed_payload = Map::<String, Value>::new();
@@ -136,8 +148,8 @@ pub fn handle_approve_suggested_post(
                 "suggested_post_approval_failed".to_string(),
                 Value::Object(approval_failed_payload),
             );
-            let direct_messages_chat_obj = build_chat_from_group_record(&direct_messages_chat);
-            emit_service_message_update(
+            let direct_messages_chat_obj = groups::build_chat_from_group_record(&direct_messages_chat);
+            messages::emit_service_message_update(
                 state,
                 &mut conn,
                 token,
@@ -148,7 +160,7 @@ pub fn handle_approve_suggested_post(
                 now,
                 format!(
                     "{} failed to approve a suggested post",
-                    display_name_for_service_user(&actor)
+                    messages::display_name_for_service_user(&actor)
                 ),
                 service_fields,
             )?;
@@ -158,7 +170,7 @@ pub fn handle_approve_suggested_post(
     }
     let approved_send_date = resolved_send_date.unwrap_or(now);
 
-    upsert_suggested_post_state(
+    channels::upsert_suggested_post_state(
         &mut conn,
         bot.id,
         &direct_messages_chat.chat_key,
@@ -172,7 +184,7 @@ pub fn handle_approve_suggested_post(
     let actor = if actor_user_id == bot.id {
         bot::build_bot_user(&bot)
     } else {
-        let actor_record = ensure_user(&mut conn, Some(actor_user_id), None, None)?;
+        let actor_record = users::ensure_user(&mut conn, Some(actor_user_id), None, None)?;
         users::build_user_from_sim_record(&actor_record, false)
     };
     let mut approved_payload = Map::<String, Value>::new();
@@ -181,7 +193,7 @@ pub fn handle_approve_suggested_post(
         suggested_message.clone(),
     );
     approved_payload.insert("send_date".to_string(), Value::from(approved_send_date));
-    if let Some(price) = extract_suggested_post_price_from_message(
+    if let Some(price) = channels::extract_suggested_post_price_from_message(
         approved_payload
             .get("suggested_post_message")
             .unwrap_or(&Value::Null),
@@ -194,8 +206,8 @@ pub fn handle_approve_suggested_post(
         "suggested_post_approved".to_string(),
         Value::Object(approved_payload),
     );
-    let direct_messages_chat_obj = build_chat_from_group_record(&direct_messages_chat);
-    emit_service_message_update(
+    let direct_messages_chat_obj = groups::build_chat_from_group_record(&direct_messages_chat);
+    messages::emit_service_message_update(
         state,
         &mut conn,
         token,
@@ -206,13 +218,13 @@ pub fn handle_approve_suggested_post(
         now,
         format!(
             "{} approved a suggested post",
-            display_name_for_service_user(&actor)
+            messages::display_name_for_service_user(&actor)
         ),
         service_fields,
     )?;
 
     if approved_send_date <= now {
-        let _ = finalize_due_suggested_post_if_ready(
+        let _ = channels::finalize_due_suggested_post_if_ready(
             state,
             &mut conn,
             token,
@@ -241,7 +253,7 @@ pub fn handle_decline_suggested_post(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let direct_messages_chat = load_direct_messages_chat_for_request(
+    let direct_messages_chat = channels::load_direct_messages_chat_for_request(
         &mut conn,
         bot.id,
         request.chat_id,
@@ -259,15 +271,15 @@ pub fn handle_decline_suggested_post(
         actor_user_id,
     )?;
 
-    let suggested_message = load_suggested_post_message_for_service(
+    let suggested_message = channels::load_suggested_post_message_for_service(
         &mut conn,
         &bot,
         direct_messages_chat.chat_id,
         request.message_id,
     )?;
 
-    ensure_sim_suggested_posts_storage(&mut conn)?;
-    let existing = load_suggested_post_state(
+    channels::ensure_sim_suggested_posts_storage(&mut conn)?;
+    let existing = channels::load_suggested_post_state(
         &mut conn,
         bot.id,
         &direct_messages_chat.chat_key,
@@ -299,7 +311,7 @@ pub fn handle_decline_suggested_post(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    upsert_suggested_post_state(
+    channels::upsert_suggested_post_state(
         &mut conn,
         bot.id,
         &direct_messages_chat.chat_key,
@@ -313,7 +325,7 @@ pub fn handle_decline_suggested_post(
     let actor = if actor_user_id == bot.id {
         bot::build_bot_user(&bot)
     } else {
-        let actor_record = ensure_user(&mut conn, Some(actor_user_id), None, None)?;
+        let actor_record = users::ensure_user(&mut conn, Some(actor_user_id), None, None)?;
         users::build_user_from_sim_record(&actor_record, false)
     };
     let mut declined_payload = Map::<String, Value>::new();
@@ -327,8 +339,8 @@ pub fn handle_decline_suggested_post(
         "suggested_post_declined".to_string(),
         Value::Object(declined_payload),
     );
-    let direct_messages_chat_obj = build_chat_from_group_record(&direct_messages_chat);
-    emit_service_message_update(
+    let direct_messages_chat_obj = groups::build_chat_from_group_record(&direct_messages_chat);
+    messages::emit_service_message_update(
         state,
         &mut conn,
         token,
@@ -339,7 +351,7 @@ pub fn handle_decline_suggested_post(
         now,
         format!(
             "{} declined a suggested post",
-            display_name_for_service_user(&actor)
+            messages::display_name_for_service_user(&actor)
         ),
         service_fields,
     )?;

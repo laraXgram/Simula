@@ -1,7 +1,20 @@
-use super::*;
+use actix_web::web::Data;
+use chrono::Utc;
+use rusqlite::params;
+use serde_json::{json, Value};
+use std::collections::HashMap;
+
+use crate::database::{
+    ensure_bot, lock_db, AppState
+};
+
+use crate::types::{ApiError, ApiResult};
+
 use crate::generated::methods::SetPassportDataErrorsRequest;
 
-use crate::handlers::client::users;
+use crate::handlers::client::{bot, users};
+
+use crate::handlers::parse_request;
 
 pub fn handle_set_passport_data_errors(
     state: &Data<AppState>,
@@ -19,7 +32,7 @@ pub fn handle_set_passport_data_errors(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let _ = users::ensure_sim_user_record(&mut conn, request.user_id)?;
-    ensure_sim_passport_data_errors_storage(&mut conn)?;
+    bot::ensure_sim_passport_data_errors_storage(&mut conn)?;
 
     let now = Utc::now().timestamp();
     let mut normalized_errors = Vec::<Value>::with_capacity(request.errors.len());

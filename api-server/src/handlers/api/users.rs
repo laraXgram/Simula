@@ -1,11 +1,28 @@
-use super::*;
+use actix_web::web::Data;
+use chrono::Utc;
+use rusqlite::{params, OptionalExtension};
+use serde_json::{json, Value};
+use std::collections::HashMap;
+
+use crate::database::{
+    ensure_bot, lock_db, AppState
+};
+
+use crate::types::{ApiError, ApiResult};
+
 use crate::generated::methods::{
     EditUserStarSubscriptionRequest,
     GetUserProfileAudiosRequest, GetUserProfilePhotosRequest, GetUserChatBoostsRequest,
     RemoveUserVerificationRequest, SetUserEmojiStatusRequest, VerifyUserRequest,
 };
 
+use crate::generated::types::{
+    Audio, ChatBoost, ChatBoostSource, PhotoSize, UserChatBoosts, UserProfileAudios, UserProfilePhotos
+};
+
 use crate::handlers::client::{chats, users};
+use crate::handlers::utils::storage::ensure_sim_verifications_storage;
+use crate::handlers::{parse_request, generate_telegram_file_id, generate_telegram_file_unique_id};
 
 pub fn handle_edit_user_star_subscription(
     state: &Data<AppState>,
@@ -46,12 +63,12 @@ pub fn handle_get_user_profile_audios(
     if request.user_id <= 0 {
         return Err(ApiError::bad_request("user_id is invalid"));
     }
-    let (offset, limit) = normalize_profile_pagination(request.offset, request.limit)?;
+    let (offset, limit) = chats::normalize_profile_pagination(request.offset, request.limit)?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     users::ensure_sim_user_record(&mut conn, request.user_id)?;
-    ensure_sim_user_profile_audios_storage(&mut conn)?;
+    users::ensure_sim_user_profile_audios_storage(&mut conn)?;
 
     let mut stmt = conn
         .prepare(
@@ -101,12 +118,12 @@ pub fn handle_get_user_profile_photos(
     if request.user_id <= 0 {
         return Err(ApiError::bad_request("user_id is invalid"));
     }
-    let (offset, limit) = normalize_profile_pagination(request.offset, request.limit)?;
+    let (offset, limit) = chats::normalize_profile_pagination(request.offset, request.limit)?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let _ = users::ensure_sim_user_record(&mut conn, request.user_id)?;
-    ensure_sim_user_profile_photos_storage(&mut conn)?;
+    users::ensure_sim_user_profile_photos_storage(&mut conn)?;
 
     let existing_count: i64 = conn
         .query_row(
@@ -217,9 +234,9 @@ pub fn handle_get_user_chat_boosts(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    ensure_sim_user_chat_boosts_storage(&mut conn)?;
+    users::ensure_sim_user_chat_boosts_storage(&mut conn)?;
 
-    let (chat_key, _sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    let (chat_key, _sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
     chats::ensure_sender_is_chat_member(&mut conn, bot.id, &chat_key, request.user_id)?;
 
     users::ensure_sim_user_record(&mut conn, request.user_id)?;
@@ -318,7 +335,7 @@ pub fn handle_set_user_emoji_status(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let _ = users::ensure_sim_user_record(&mut conn, request.user_id)?;
-    ensure_sim_user_emoji_statuses_storage(&mut conn)?;
+    users::ensure_sim_user_emoji_statuses_storage(&mut conn)?;
 
     conn.execute(
         "INSERT INTO sim_user_emoji_statuses
@@ -353,7 +370,7 @@ pub fn handle_verify_user(
     }
 
     let custom_description =
-        normalize_verification_custom_description(request.custom_description.as_deref())?;
+        chats::normalize_verification_custom_description(request.custom_description.as_deref())?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;

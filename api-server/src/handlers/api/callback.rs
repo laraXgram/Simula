@@ -1,7 +1,20 @@
-use super::*;
+use actix_web::web::Data;
+use chrono::Utc;
+use rusqlite::{params, OptionalExtension};
+use serde_json::{json, Value};
+use std::collections::HashMap;
+
+use crate::database::{
+    ensure_bot, lock_db, AppState
+};
+
+use crate::types::{ApiError, ApiResult};
+
 use crate::generated::methods::AnswerCallbackQueryRequest;
 
 use crate::handlers::utils::updates::value_to_optional_bool_loose;
+
+use crate::handlers::parse_request;
 
 pub fn handle_answer_callback_query(
     state: &Data<AppState>,

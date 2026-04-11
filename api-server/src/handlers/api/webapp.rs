@@ -1,9 +1,26 @@
-use super::*;
+use actix_web::web::Data;
+use chrono::Utc;
+use rusqlite::params;
+use serde_json::Value;
+use std::collections::HashMap;
+
+use crate::database::{
+    ensure_bot, lock_db, AppState
+};
+
+use crate::types::{ApiError, ApiResult};
+
 use crate::generated::methods::{
     AnswerWebAppQueryRequest, SavePreparedInlineMessageRequest, SavePreparedKeyboardButtonRequest,
 };
 
-use crate::handlers::client::users;
+use crate::generated::types::{
+    PreparedInlineMessage, PreparedKeyboardButton, SentWebAppMessage
+};
+
+use crate::handlers::client::{users, webapp};
+
+use crate::handlers::{parse_request, generate_telegram_numeric_id};
 
 pub fn handle_answer_web_app_query(
     state: &Data<AppState>,
@@ -18,7 +35,7 @@ pub fn handle_answer_web_app_query(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    ensure_sim_web_app_query_answers_storage(&mut conn)?;
+    webapp::ensure_sim_web_app_query_answers_storage(&mut conn)?;
 
     let now = Utc::now().timestamp();
     let inline_message_id = generate_telegram_numeric_id();
@@ -73,7 +90,7 @@ pub fn handle_save_prepared_inline_message(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let _ = users::ensure_sim_user_record(&mut conn, request.user_id)?;
-    ensure_sim_prepared_inline_messages_storage(&mut conn)?;
+    webapp::ensure_sim_prepared_inline_messages_storage(&mut conn)?;
 
     let now = Utc::now().timestamp();
     let prepared_id = generate_telegram_numeric_id();
@@ -123,7 +140,7 @@ pub fn handle_save_prepared_keyboard_button(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let _ = users::ensure_sim_user_record(&mut conn, request.user_id)?;
-    ensure_sim_prepared_keyboard_buttons_storage(&mut conn)?;
+    webapp::ensure_sim_prepared_keyboard_buttons_storage(&mut conn)?;
 
     let now = Utc::now().timestamp();
     let prepared_id = generate_telegram_numeric_id();

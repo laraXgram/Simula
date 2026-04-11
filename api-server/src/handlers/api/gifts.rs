@@ -1,13 +1,30 @@
-use super::*;
+use actix_web::web::Data;
+use chrono::Utc;
+use rusqlite::{params, OptionalExtension};
+use serde_json::{json, Map, Value};
+use std::collections::HashMap;
+
+use crate::database::{
+    ensure_bot, ensure_chat, lock_db, AppState
+};
+
+use crate::types::{ApiError, ApiResult};
+
 use crate::generated::methods::{
     GetAvailableGiftsRequest, GetChatGiftsRequest,
     GetUserGiftsRequest, GiftPremiumSubscriptionRequest,
     ConvertGiftToStarsRequest, UpgradeGiftRequest, TransferGiftRequest,
 };
 
+use crate::generated::types::{
+    Chat, Gift, GiftBackground, Gifts, OwnedGifts
+};
+
 use crate::handlers::utils::updates::{value_to_chat_key, current_request_actor_user_id};
 
-use crate::handlers::client::{chats, users, types::gifts::SimOwnedGiftFilterOptions};
+use crate::handlers::client::{bot, business, chats, messages, users, gifts, types::gifts::SimOwnedGiftFilterOptions};
+
+use crate::handlers::{parse_request, generate_telegram_numeric_id};
 
 pub fn handle_get_available_gifts(
     state: &Data<AppState>,
@@ -20,7 +37,7 @@ pub fn handle_get_available_gifts(
     let _bot = ensure_bot(&mut conn, token)?;
 
     let result = Gifts {
-        gifts: sim_available_gift_catalog()
+        gifts: gifts::sim_available_gift_catalog()
             .into_iter()
             .map(|entry| entry.gift)
             .collect(),
@@ -55,11 +72,11 @@ pub fn handle_get_chat_gifts(
         sort_by_price: request.sort_by_price.unwrap_or(false),
     };
 
-    let records = load_owned_gift_records(&mut conn, bot.id, None, Some(sim_chat.chat_id))?;
-    let filtered = apply_owned_gift_filters(records, &filter_options);
+    let records = gifts::load_owned_gift_records(&mut conn, bot.id, None, Some(sim_chat.chat_id))?;
+    let filtered = gifts::apply_owned_gift_filters(records, &filter_options);
     let total_count = filtered.len() as i64;
-    let offset = parse_owned_gifts_offset(request.offset.as_deref());
-    let limit = parse_owned_gifts_limit(request.limit);
+    let offset = gifts::parse_owned_gifts_offset(request.offset.as_deref());
+    let limit = gifts::parse_owned_gifts_limit(request.limit);
 
     let page_records = filtered
         .into_iter()
@@ -74,7 +91,7 @@ pub fn handle_get_chat_gifts(
 
     let gifts = page_records
         .iter()
-        .map(|record| map_owned_gift_record(&mut conn, record))
+        .map(|record| gifts::map_owned_gift_record(&mut conn, record))
         .collect::<Result<Vec<_>, _>>()?;
 
     let result = OwnedGifts {
@@ -114,11 +131,11 @@ pub fn handle_get_user_gifts(
         sort_by_price: request.sort_by_price.unwrap_or(false),
     };
 
-    let records = load_owned_gift_records(&mut conn, bot.id, Some(request.user_id), None)?;
-    let filtered = apply_owned_gift_filters(records, &filter_options);
+    let records = gifts::load_owned_gift_records(&mut conn, bot.id, Some(request.user_id), None)?;
+    let filtered = gifts::apply_owned_gift_filters(records, &filter_options);
     let total_count = filtered.len() as i64;
-    let offset = parse_owned_gifts_offset(request.offset.as_deref());
-    let limit = parse_owned_gifts_limit(request.limit);
+    let offset = gifts::parse_owned_gifts_offset(request.offset.as_deref());
+    let limit = gifts::parse_owned_gifts_limit(request.limit);
 
     let page_records = filtered
         .into_iter()
@@ -133,7 +150,7 @@ pub fn handle_get_user_gifts(
 
     let gifts = page_records
         .iter()
-        .map(|record| map_owned_gift_record(&mut conn, record))
+        .map(|record| gifts::map_owned_gift_record(&mut conn, record))
         .collect::<Result<Vec<_>, _>>()?;
 
     let result = OwnedGifts {
@@ -164,11 +181,11 @@ pub fn handle_gift_premium_subscription(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let recipient = ensure_user(&mut conn, Some(request.user_id), None, None)?;
-    let sender = ensure_user(&mut conn, current_request_actor_user_id(), None, None)?;
+    let recipient = users::ensure_user(&mut conn, Some(request.user_id), None, None)?;
+    let sender = users::ensure_user(&mut conn, current_request_actor_user_id(), None, None)?;
 
     let now = Utc::now().timestamp();
-    ensure_bot_star_balance_for_charge(&mut conn, bot.id, request.star_count, now)?;
+    bot::ensure_bot_star_balance_for_charge(&mut conn, bot.id, request.star_count, now)?;
 
     let premium_charge_id = format!(
         "gift_premium_subscription_{}",
@@ -212,7 +229,7 @@ pub fn handle_gift_premium_subscription(
     let premium_gift_id = format!("premium_subscription_{}m", request.month_count);
     let premium_gift = Gift {
         id: premium_gift_id.clone(),
-        sticker: build_sim_gift_sticker("premium_subscription", "💎", "simula_premium_gifts"),
+        sticker: gifts::build_sim_gift_sticker("premium_subscription", "💎", "simula_premium_gifts"),
         star_count: request.star_count,
         upgrade_star_count: None,
         is_premium: Some(true),
@@ -308,7 +325,7 @@ pub fn handle_gift_premium_subscription(
     let mut service_fields = Map::<String, Value>::new();
     service_fields.insert("gift".to_string(), Value::Object(gift_payload));
 
-    emit_service_message_update(
+    messages::emit_service_message_update(
         state,
         &mut conn,
         token,
@@ -319,7 +336,7 @@ pub fn handle_gift_premium_subscription(
         now,
         format!(
             "{} sent a gift",
-            display_name_for_service_user(&sender_user)
+            messages::display_name_for_service_user(&sender_user)
         ),
         service_fields,
     )?;
@@ -336,13 +353,13 @@ pub fn handle_convert_gift_to_stars(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let record = load_business_connection_or_404(
+    let record = business::load_business_connection_or_404(
         &mut conn,
         bot.id,
         &request.business_connection_id,
     )?;
-    let connection = build_business_connection(&mut conn, bot.id, &record)?;
-    ensure_business_right(
+    let connection = business::build_business_connection(&mut conn, bot.id, &record)?;
+    business::ensure_business_right(
         &connection,
         |rights| rights.can_convert_gifts_to_stars,
         "not enough rights to convert gifts to stars",
@@ -449,13 +466,13 @@ pub fn handle_upgrade_gift(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let record = load_business_connection_or_404(
+    let record = business::load_business_connection_or_404(
         &mut conn,
         bot.id,
         &request.business_connection_id,
     )?;
-    let connection = build_business_connection(&mut conn, bot.id, &record)?;
-    ensure_business_right(
+    let connection = business::build_business_connection(&mut conn, bot.id, &record)?;
+    business::ensure_business_right(
         &connection,
         |rights| rights.can_transfer_and_upgrade_gifts,
         "not enough rights to upgrade gifts",
@@ -539,7 +556,7 @@ pub fn handle_upgrade_gift(
     }
 
     let mut gift = serde_json::from_str::<Gift>(&gift_json)
-        .unwrap_or_else(|_| fallback_sim_gift("gift_upgraded"));
+        .unwrap_or_else(|_| gifts::fallback_sim_gift("gift_upgraded"));
     let generated_unique_number = generate_telegram_numeric_id()
         .chars()
         .filter(|ch| ch.is_ascii_digit())
@@ -607,13 +624,13 @@ pub fn handle_transfer_gift(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let record = load_business_connection_or_404(
+    let record = business::load_business_connection_or_404(
         &mut conn,
         bot.id,
         &request.business_connection_id,
     )?;
-    let connection = build_business_connection(&mut conn, bot.id, &record)?;
-    ensure_business_right(
+    let connection = business::build_business_connection(&mut conn, bot.id, &record)?;
+    business::ensure_business_right(
         &connection,
         |rights| rights.can_transfer_and_upgrade_gifts,
         "not enough rights to transfer gifts",
@@ -669,13 +686,13 @@ pub fn handle_transfer_gift(
         request.new_owner_chat_id,
     )? {
         if sim_chat.chat_type == "private" {
-            let recipient = ensure_user(&mut conn, Some(sim_chat.chat_id), None, None)?;
+            let recipient = users::ensure_user(&mut conn, Some(sim_chat.chat_id), None, None)?;
             next_owner_user_id = Some(recipient.id);
         } else {
             next_owner_chat_id = Some(sim_chat.chat_id);
         }
     } else {
-        let recipient = ensure_user(&mut conn, Some(request.new_owner_chat_id), None, None)?;
+        let recipient = users::ensure_user(&mut conn, Some(request.new_owner_chat_id), None, None)?;
         next_owner_user_id = Some(recipient.id);
     }
 
