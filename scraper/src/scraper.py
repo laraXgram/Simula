@@ -10,12 +10,35 @@ Output:
 """
 
 import json
-import re
+import logging
 import os
+import re
+from dataclasses import asdict, dataclass, field
 from typing import Optional
-from dataclasses import dataclass, asdict, field
-from bs4 import BeautifulSoup, Tag
+
 import requests
+from bs4 import BeautifulSoup, Tag
+
+logger = logging.getLogger(__name__)
+
+# Pre-compiled regex patterns for return type extraction
+_RE_RETURNS_TRUE = re.compile(r'Returns?\s+True\b', re.IGNORECASE)
+_RE_ARRAY_OF_LINK = re.compile(
+    r'[Aa]rray\s+of\s+<a[^>]*>([A-Z][a-zA-Z]+)</a>',
+)
+_RE_RETURNS_LINK = re.compile(
+    r'[Rr]eturns?[^<]*<a[^>]*>([A-Z][a-zA-Z]+)</a>',
+)
+_RE_SENT_LINK = re.compile(
+    r'the\s+sent\s+<a[^>]*>([A-Z][a-zA-Z]+)</a>',
+)
+_RE_SUCCESS_LINK = re.compile(
+    r'[Oo]n\s+success[^<]*<a[^>]*>([A-Z][a-zA-Z]+)</a>',
+)
+_RE_FORM_OF_LINK = re.compile(
+    r'form\s+of\s+(?:a|an)\s+<a[^>]*>([A-Z][a-zA-Z]+)</a>',
+)
+_RE_RETURN_OR_SUCCESS = re.compile(r'[Rr]eturn|success')
 
 
 # Data structures
@@ -68,11 +91,11 @@ class TelegramAPIScraper:
         """Fetch the API documentation page."""
         # Check cache first
         if self.use_cache and os.path.exists(self.CACHE_FILE):
-            print(f"📂 Loading from cache: {self.CACHE_FILE}")
+            logger.info("Loading from cache: %s", self.CACHE_FILE)
             with open(self.CACHE_FILE, 'r', encoding='utf-8') as f:
                 return f.read()
 
-        print(f"🌐 Fetching: {self.API_URL}")
+        logger.info("Fetching: %s", self.API_URL)
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
@@ -83,7 +106,7 @@ class TelegramAPIScraper:
         os.makedirs("output", exist_ok=True)
         with open(self.CACHE_FILE, 'w', encoding='utf-8') as f:
             f.write(response.text)
-        print(f"💾 Cached to: {self.CACHE_FILE}")
+        logger.info("Cached to: %s", self.CACHE_FILE)
 
         return response.text
 
@@ -97,10 +120,9 @@ class TelegramAPIScraper:
             raise ValueError("Could not find main content div")
 
         # Process all h4 elements (methods and types are defined under h4)
-        current_section = None
         h4_elements = content.find_all('h4')
 
-        print(f"📝 Found {len(h4_elements)} h4 elements")
+        logger.info("Found %d h4 elements", len(h4_elements))
 
         for h4 in h4_elements:
             name = h4.get_text(strip=True)
@@ -120,8 +142,8 @@ class TelegramAPIScraper:
                 if telegram_type:
                     self.types.append(telegram_type)
 
-        print(f"✅ Parsed {len(self.methods)} methods")
-        print(f"✅ Parsed {len(self.types)} types")
+        logger.info("Parsed %d methods", len(self.methods))
+        logger.info("Parsed %d types", len(self.types))
 
     def _parse_method(self, h4: Tag) -> Optional[Method]:
         """Parse a method definition."""
@@ -171,7 +193,7 @@ class TelegramAPIScraper:
         text = element.get_text()
 
         # Check for True/Boolean return first
-        if re.search(r'Returns?\s+True\b', text, re.IGNORECASE):
+        if _RE_RETURNS_TRUE.search(text):
             return "Boolean"
 
         # Find all links in the element
@@ -189,61 +211,33 @@ class TelegramAPIScraper:
         html = str(element)
 
         # Check for "Array of X" pattern
-        array_match = re.search(r'[Aa]rray\s+of\s+<a[^>]*>([A-Z][a-zA-Z]+)</a>', html)
+        array_match = _RE_ARRAY_OF_LINK.search(html)
         if array_match:
             return f"Array<{array_match.group(1)}>"
 
         # Check for "Returns ... <a>Type</a>" pattern
-        returns_link_match = re.search(
-            r'[Rr]eturns?[^<]*<a[^>]*>([A-Z][a-zA-Z]+)</a>',
-            html
-        )
+        returns_link_match = _RE_RETURNS_LINK.search(html)
         if returns_link_match:
             return returns_link_match.group(1)
 
         # Check for "the sent <a>Message</a>" pattern
-        sent_match = re.search(
-            r'the\s+sent\s+<a[^>]*>([A-Z][a-zA-Z]+)</a>',
-            html
-        )
+        sent_match = _RE_SENT_LINK.search(html)
         if sent_match:
             return sent_match.group(1)
 
         # Check for "On success, <a>Type</a> is returned"
-        success_match = re.search(
-            r'[Oo]n\s+success[^<]*<a[^>]*>([A-Z][a-zA-Z]+)</a>',
-            html
-        )
+        success_match = _RE_SUCCESS_LINK.search(html)
         if success_match:
             return success_match.group(1)
 
         # Check for "form of a <a>Type</a>"
-        form_match = re.search(
-            r'form\s+of\s+(?:a|an)\s+<a[^>]*>([A-Z][a-zA-Z]+)</a>',
-            html
-        )
+        form_match = _RE_FORM_OF_LINK.search(html)
         if form_match:
             return form_match.group(1)
 
         # If we have type links and the text mentions returns/success
-        if type_links and re.search(r'[Rr]eturn|success', text):
-            return type_links[-1]  # Usually the return type is last mentioned
-
-        return None
-
-    def _extract_return_type(self, text: str) -> Optional[str]:
-        """Extract return type from plain text (fallback)."""
-        # Check for True/Boolean return first
-        if re.search(r'Returns?\s+True\b', text, re.IGNORECASE):
-            return "Boolean"
-
-        # Pattern for "Array of X"
-        array_match = re.search(
-            r'(?:Returns?|returns)\s+(?:an?\s+)?[Aa]rray\s+of\s+([A-Z][a-zA-Z]+)',
-            text
-        )
-        if array_match:
-            return f"Array<{array_match.group(1)}>"
+        if type_links and _RE_RETURN_OR_SUCCESS.search(text):
+            return type_links[-1]  # Usually the return type is last
 
         return None
 
@@ -266,12 +260,6 @@ class TelegramAPIScraper:
             if sibling.name == 'p':
                 text = sibling.get_text(strip=True)
                 description_parts.append(text)
-
-                # Check for inheritance
-                subtype_match = re.search(
-                    r'(?:This object represents|Describes)\s+(?:a|an|the)?\s*([a-z\s]+)',
-                    text, re.IGNORECASE
-                )
 
             elif sibling.name == 'ul':
                 # Sometimes types have a list of subtypes
@@ -383,13 +371,13 @@ class TelegramAPIScraper:
         methods_file = os.path.join(output_dir, "methods.json")
         with open(methods_file, 'w', encoding='utf-8') as f:
             json.dump(methods_data, f, indent=2, ensure_ascii=False)
-        print(f"💾 Saved {len(self.methods)} methods to {methods_file}")
+        logger.info("Saved %d methods to %s", len(self.methods), methods_file)
 
         # Save types
         types_file = os.path.join(output_dir, "types.json")
         with open(types_file, 'w', encoding='utf-8') as f:
             json.dump(types_data, f, indent=2, ensure_ascii=False)
-        print(f"💾 Saved {len(self.types)} types to {types_file}")
+        logger.info("Saved %d types to %s", len(self.types), types_file)
 
     def _method_to_dict(self, method: Method) -> dict:
         """Convert Method to dictionary."""
@@ -410,33 +398,33 @@ class TelegramAPIScraper:
             "properties": [asdict(p) for p in t.properties]
         }
 
-    def print_summary(self) -> None:
-        """Print a summary of scraped data."""
-        print("\n" + "="*60)
-        print("📊 SCRAPING SUMMARY")
-        print("="*60)
+    def log_summary(self) -> None:
+        """Log a summary of scraped data."""
+        logger.info("SCRAPING SUMMARY")
 
-        print(f"\n📌 Methods ({len(self.methods)}):")
+        logger.info("Methods (%d):", len(self.methods))
         for m in self.methods[:10]:
             params = len(m.parameters)
-            print(f"   • {m.name}({params} params) -> {m.return_type}")
+            logger.info("  %s(%d params) -> %s", m.name, params, m.return_type)
         if len(self.methods) > 10:
-            print(f"   ... and {len(self.methods) - 10} more")
+            logger.info("  ... and %d more", len(self.methods) - 10)
 
-        print(f"\n📌 Types ({len(self.types)}):")
+        logger.info("Types (%d):", len(self.types))
         for t in self.types[:10]:
             props = len(t.properties)
-            print(f"   • {t.name} ({props} properties)")
+            logger.info("  %s (%d properties)", t.name, props)
         if len(self.types) > 10:
-            print(f"   ... and {len(self.types) - 10} more")
-
-        print("\n" + "="*60)
+            logger.info("  ... and %d more", len(self.types) - 10)
 
 
 def main():
     """Main entry point."""
-    print("🚀 Simula - Telegram Bot API Scraper")
-    print("="*50)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s: %(message)s",
+    )
+
+    logger.info("Simula - Telegram Bot API Scraper")
 
     # Check if we should use cache (for offline development)
     use_cache = os.environ.get('USE_CACHE', '').lower() == 'true'
@@ -451,17 +439,17 @@ def main():
         # Save output
         scraper.save_output()
 
-        # Print summary
-        scraper.print_summary()
+        # Log summary
+        scraper.log_summary()
 
-        print("\n✅ Scraping completed successfully!")
+        logger.info("Scraping completed successfully!")
 
     except requests.RequestException as e:
-        print(f"❌ Network error: {e}")
-        print("💡 Tip: Set USE_CACHE=true to use cached HTML")
+        logger.error("Network error: %s", e)
+        logger.info("Tip: Set USE_CACHE=true to use cached HTML")
         return 1
     except Exception as e:
-        print(f"❌ Error: {e}")
+        logger.error("Error: %s", e)
         raise
 
     return 0
