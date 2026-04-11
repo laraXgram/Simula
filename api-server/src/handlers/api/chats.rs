@@ -26,9 +26,9 @@ use crate::generated::types::{
     AcceptedGiftTypes, ChatFullInfo, ChatMember, ChatPermissions, ChatPhoto, MenuButton, Message
 };
 
-use crate::handlers::client::{bot, channels, chats, groups, messages, users, webhook};
+use crate::handlers::client::{bot, channels, chats, groups, messages, users};
 
-use crate::handlers::{parse_request, sql_value_to_rusqlite, chat_id_to_chat_key};
+use crate::handlers::{parse_request, chat_id_to_chat_key};
 
 use crate::handlers::utils::updates::{current_request_actor_user_id, value_to_chat_key};
 use crate::handlers::utils::storage::ensure_sim_verifications_storage;

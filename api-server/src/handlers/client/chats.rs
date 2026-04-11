@@ -1,18 +1,32 @@
+use actix_web::web::Data;
 use chrono::Utc;
 use rusqlite::{params, OptionalExtension};
-use serde_json::Value;
+use serde_json::{json, Value};
+use serde::Serialize;
+use std::collections::HashSet;
 
-use crate::database::ensure_chat;
+use crate::database::{
+    ensure_bot, ensure_chat, lock_db, AppState
+};
 
-use crate::types::ApiError;
-use crate::handlers::client::types::users::SimUserRecord;
-use crate::handlers::client::types::chats::{SimChatRecord, SimChatMemberRecord};
+use crate::types::{ApiError, ApiResult};
 
-use crate::generated::types::{Chat, ChatPermissions, User};
+use crate::generated::types::{
+    Chat, ChatPermissions, User, ChatMember, ChatMemberAdministrator, ChatMemberOwner,
+    ChatMemberMember, ChatMemberRestricted, ChatMemberBanned, ChatMemberLeft, ChatMemberUpdated,
+    Update, ChatInviteLink,
+};
 
+use crate::handlers::{ensure_default_user, generate_telegram_numeric_id};
 use crate::handlers::utils::updates::{value_to_chat_key, current_request_actor_user_id};
+use crate::handlers::utils::storage::ensure_sim_verifications_storage;
 
-use super::{bot, channels, groups, users};
+use super::types::users::{SimUserRecord, SimAddUserChatBoostsRequest, SimRemoveUserChatBoostsRequest};
+use super::types::chats::{SimChatRecord, SimChatMemberRecord};
+use super::types::channels::{ChannelAdminRights, SimResolveJoinRequestRequest};
+use super::types::groups::SimChatInviteLinkRecord;
+
+use super::{bot, channels, groups, users, webhook};
 
 #[derive(Debug, Clone, Copy)]
 pub enum ChatSendKind {
@@ -63,6 +77,12 @@ pub fn resolve_chat_key_and_id(
     }
 
     Ok((requested_chat_key, requested_chat_id))
+}
+
+pub fn generate_sim_invite_link() -> String {
+    let code = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
+    let compact = code.chars().take(22).collect::<String>();
+    format!("https://t.me/+{}", compact)
 }
 
 pub fn permission_enabled(flag: Option<bool>, fallback: bool) -> bool {
@@ -126,7 +146,7 @@ pub fn resolve_sender_for_bot_outbound_chat(
     send_kind: ChatSendKind,
 ) -> Result<User, ApiError> {
     if destination_chat.r#type == "channel" {
-        return resolve_transport_sender_user(
+        return users::resolve_transport_sender_user(
             conn,
             bot,
             destination_chat_key,
@@ -135,7 +155,7 @@ pub fn resolve_sender_for_bot_outbound_chat(
         );
     }
 
-    Ok(build_bot_user(bot))
+    Ok(bot::build_bot_user(bot))
 }
 
 pub fn normalize_verification_custom_description(
@@ -655,7 +675,7 @@ pub fn resolve_forum_supergroup_chat(
     }
 
     let actor = resolve_chat_admin_actor(conn, bot, &chat_key)?;
-    let chat = build_chat_from_group_record(&sim_chat);
+    let chat = groups::build_chat_from_group_record(&sim_chat);
     Ok((chat_key, sim_chat, chat, actor))
 }
 
@@ -686,25 +706,25 @@ pub fn resolve_chat_admin_actor(
 ) -> Result<User, ApiError> {
     if let Some(actor_user_id) = current_request_actor_user_id() {
         if actor_user_id == bot.id {
-            ensure_bot_is_chat_admin_or_owner(conn, bot.id, chat_key)?;
-            return Ok(build_bot_user(bot));
+            bot::ensure_bot_is_chat_admin_or_owner(conn, bot.id, chat_key)?;
+            return Ok(bot::build_bot_user(bot));
         }
 
         let actor_status = load_chat_member_status(conn, bot.id, chat_key, actor_user_id)?;
         if !actor_status
             .as_deref()
-            .map(is_group_admin_or_owner_status)
+            .map(groups::is_group_admin_or_owner_status)
             .unwrap_or(false)
         {
             return Err(ApiError::bad_request("not enough rights to manage chat"));
         }
 
-        let actor_record = ensure_sim_user_record(conn, actor_user_id)?;
-        return Ok(build_user_from_sim_record(&actor_record, false));
+        let actor_record = users::ensure_sim_user_record(conn, actor_user_id)?;
+        return Ok(users::build_user_from_sim_record(&actor_record, false));
     }
 
-    ensure_bot_is_chat_admin_or_owner(conn, bot.id, chat_key)?;
-    Ok(build_bot_user(bot))
+    bot::ensure_bot_is_chat_admin_or_owner(conn, bot.id, chat_key)?;
+    Ok(bot::build_bot_user(bot))
 }
 
 pub fn ensure_request_actor_is_chat_admin_or_owner(
@@ -744,7 +764,7 @@ pub fn chat_member_from_status_with_details(
         }),
         "admin" => {
             let is_channel = chat_type == Some("channel");
-            let rights = channel_admin_rights.unwrap_or_else(channel_admin_rights_full_access);
+            let rights = channel_admin_rights.unwrap_or_else(channels::channel_admin_rights_full_access);
             to_chat_member(ChatMemberAdministrator {
                 status: "administrator".to_string(),
                 user: user.clone(),
@@ -780,7 +800,7 @@ pub fn chat_member_from_status_with_details(
             until_date,
         }),
         "restricted" => {
-            let effective_permissions = permissions.unwrap_or_else(default_group_permissions);
+            let effective_permissions = permissions.unwrap_or_else(groups::default_group_permissions);
             let restricted_until = until_date.unwrap_or_else(|| Utc::now().timestamp() + 3600);
             to_chat_member(ChatMemberRestricted {
                 status: "restricted".to_string(),
@@ -828,7 +848,7 @@ pub fn chat_member_from_record(
         .and_then(|raw| serde_json::from_str::<ChatPermissions>(raw).ok());
     let is_channel = chat_type == "channel";
     let channel_admin_rights = if is_channel && record.status == "admin" {
-        Some(parse_channel_admin_rights_json(record.admin_rights_json.as_deref()))
+        Some(channels::parse_channel_admin_rights_json(record.admin_rights_json.as_deref()))
     } else {
         None
     };
@@ -973,7 +993,7 @@ pub fn emit_chat_member_transition_update_with_records(
         managed_bot: None,
     };
 
-    persist_and_dispatch_update(
+    webhook::persist_and_dispatch_update(
         state,
         conn,
         token,
@@ -1069,7 +1089,7 @@ pub fn emit_my_chat_member_transition_update_with_records(
         managed_bot: None,
     };
 
-    persist_and_dispatch_update(
+    webhook::persist_and_dispatch_update(
         state,
         conn,
         token,
@@ -1196,7 +1216,7 @@ pub fn ensure_user_is_chat_admin_or_owner(
     let status = load_chat_member_status(conn, bot_id, chat_key, user_id)?;
     if status
         .as_deref()
-        .map(is_group_admin_or_owner_status)
+        .map(groups::is_group_admin_or_owner_status)
         .unwrap_or(false)
     {
         return Ok(());
@@ -1299,20 +1319,20 @@ pub fn resolve_invite_creator_user(
     creator_user_id: i64,
 ) -> Result<User, ApiError> {
     if creator_user_id == bot.id {
-        return Ok(build_bot_user(bot));
+        return Ok(bot::build_bot_user(bot));
     }
 
-    if let Some(record) = load_sim_user_record(conn, creator_user_id)? {
-        return Ok(build_user_from_sim_record(&record, false));
+    if let Some(record) = users::load_sim_user_record(conn, creator_user_id)? {
+        return Ok(users::build_user_from_sim_record(&record, false));
     }
 
-    let fallback = ensure_user(
+    let fallback = users::ensure_user(
         conn,
         Some(creator_user_id),
         Some(format!("User {}", creator_user_id)),
         None,
     )?;
-    Ok(build_user_from_sim_record(&fallback, false))
+    Ok(users::build_user_from_sim_record(&fallback, false))
 }
 
 pub fn clear_chat_member_restrictions(
@@ -1362,7 +1382,7 @@ pub fn resolve_sender_chat_for_sim_user_message(
             "only group owner/admin can send on behalf of this chat",
         )?;
         ensure_sender_chat_not_banned(conn, bot_id, &sim_chat.chat_key, requested_sender_chat_id)?;
-        return Ok(Some(build_chat_from_group_record(sim_chat)));
+        return Ok(Some(groups::build_chat_from_group_record(sim_chat)));
     }
 
     let sender_chat_key = requested_sender_chat_id.to_string();
@@ -1392,7 +1412,7 @@ pub fn resolve_sender_chat_for_sim_user_message(
     )?;
     ensure_sender_chat_not_banned(conn, bot_id, &sim_chat.chat_key, requested_sender_chat_id)?;
 
-    Ok(Some(build_chat_from_group_record(&sender_chat_record)))
+    Ok(Some(groups::build_chat_from_group_record(&sender_chat_record)))
 }
 
 pub fn handle_sim_approve_join_request(
@@ -1410,27 +1430,27 @@ pub fn handle_sim_approve_join_request(
 
     let actor_id = body.actor_user_id.unwrap_or(bot.id);
     let actor = if actor_id == bot.id {
-        build_bot_user(&bot)
+        bot::build_bot_user(&bot)
     } else {
-        let actor_record = get_or_create_user(
+        let actor_record = users::get_or_create_user(
             &mut conn,
             Some(actor_id),
             body.actor_first_name,
             body.actor_username,
         )?;
-        build_user_from_sim_record(&actor_record, false)
+        users::build_user_from_sim_record(&actor_record, false)
     };
 
     let actor_status = load_chat_member_status(&mut conn, bot.id, &chat_key, actor.id)?;
     if !actor_status
         .as_deref()
-        .map(is_group_admin_or_owner_status)
+        .map(groups::is_group_admin_or_owner_status)
         .unwrap_or(false)
     {
         return Err(ApiError::bad_request("only owner or admin can approve join requests"));
     }
     if sim_chat.chat_type == "channel" {
-        ensure_channel_actor_can_manage_invite_links(&mut conn, bot.id, &chat_key, actor.id)?;
+        channels::ensure_channel_actor_can_manage_invite_links(&mut conn, bot.id, &chat_key, actor.id)?;
     }
 
     let request_row: Option<(Option<String>, String)> = conn
@@ -1455,10 +1475,10 @@ pub fn handle_sim_approve_join_request(
         }));
     }
 
-    let target_user = if let Some(record) = load_sim_user_record(&mut conn, body.user_id)? {
+    let target_user = if let Some(record) = users::load_sim_user_record(&mut conn, body.user_id)? {
         record
     } else {
-        ensure_user(
+        users::ensure_user(
             &mut conn,
             Some(body.user_id),
             Some(format!("User {}", body.user_id)),
@@ -1478,7 +1498,7 @@ pub fn handle_sim_approve_join_request(
     let current_status = load_chat_member_status(&mut conn, bot.id, &chat_key, target_user.id)?;
     if current_status
         .as_deref()
-        .map(is_active_chat_member_status)
+        .map(groups::is_active_chat_member_status)
         .unwrap_or(false)
     {
         return Ok(json!({
@@ -1507,12 +1527,12 @@ pub fn handle_sim_approve_join_request(
 
         if let Some((creator_user_id, creates_join_request_raw, is_primary_raw, name, expire_date, member_limit, subscription_period, subscription_price)) = record_row {
             let creator = if creator_user_id == bot.id {
-                build_bot_user(&bot)
-            } else if let Some(record) = load_sim_user_record(&mut conn, creator_user_id)? {
-                build_user_from_sim_record(&record, false)
+                bot::build_bot_user(&bot)
+            } else if let Some(record) = users::load_sim_user_record(&mut conn, creator_user_id)? {
+                users::build_user_from_sim_record(&record, false)
             } else {
-                build_user_from_sim_record(
-                    &ensure_user(
+                users::build_user_from_sim_record(
+                    &users::ensure_user(
                         &mut conn,
                         Some(creator_user_id),
                         Some(format!("User {}", creator_user_id)),
@@ -1544,7 +1564,7 @@ pub fn handle_sim_approve_join_request(
         None
     };
 
-    join_user_to_group(
+    groups::join_user_to_group(
         state,
         &mut conn,
         token,
@@ -1579,27 +1599,27 @@ pub fn handle_sim_decline_join_request(
 
     let actor_id = body.actor_user_id.unwrap_or(bot.id);
     let actor = if actor_id == bot.id {
-        build_bot_user(&bot)
+        bot::build_bot_user(&bot)
     } else {
-        let actor_record = get_or_create_user(
+        let actor_record = users::get_or_create_user(
             &mut conn,
             Some(actor_id),
             body.actor_first_name,
             body.actor_username,
         )?;
-        build_user_from_sim_record(&actor_record, false)
+        users::build_user_from_sim_record(&actor_record, false)
     };
 
     let actor_status = load_chat_member_status(&mut conn, bot.id, &chat_key, actor.id)?;
     if !actor_status
         .as_deref()
-        .map(is_group_admin_or_owner_status)
+        .map(groups::is_group_admin_or_owner_status)
         .unwrap_or(false)
     {
         return Err(ApiError::bad_request("only owner or admin can decline join requests"));
     }
     if sim_chat.chat_type == "channel" {
-        ensure_channel_actor_can_manage_invite_links(&mut conn, bot.id, &chat_key, actor.id)?;
+        channels::ensure_channel_actor_can_manage_invite_links(&mut conn, bot.id, &chat_key, actor.id)?;
     }
 
     let status: Option<String> = conn
@@ -1659,20 +1679,20 @@ pub fn handle_sim_add_user_chat_boosts(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    ensure_sim_user_chat_boosts_storage(&mut conn)?;
+    users::ensure_sim_user_chat_boosts_storage(&mut conn)?;
 
     let chat_id_value = Value::from(body.chat_id);
     let (chat_key, _sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &chat_id_value)?;
     ensure_sender_is_chat_member(&mut conn, bot.id, &chat_key, body.user_id)?;
 
-    let user = ensure_sim_user_record(&mut conn, body.user_id)?;
+    let user = users::ensure_sim_user_record(&mut conn, body.user_id)?;
     if !user.is_premium {
         return Err(ApiError::bad_request("only premium users can boost chats"));
     }
 
     let source_json = serde_json::to_string(&json!({
         "source": "premium",
-        "user": build_user_from_sim_record(&user, false),
+        "user": users::build_user_from_sim_record(&user, false),
     }))
     .map_err(ApiError::internal)?;
 
@@ -1722,13 +1742,13 @@ pub fn handle_sim_remove_user_chat_boosts(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    ensure_sim_user_chat_boosts_storage(&mut conn)?;
+    users::ensure_sim_user_chat_boosts_storage(&mut conn)?;
 
     let chat_id_value = Value::from(body.chat_id);
     let (chat_key, _sim_chat) = resolve_non_private_sim_chat(&mut conn, bot.id, &chat_id_value)?;
     ensure_sender_is_chat_member(&mut conn, bot.id, &chat_key, body.user_id)?;
 
-    ensure_sim_user_record(&mut conn, body.user_id)?;
+    users::ensure_sim_user_record(&mut conn, body.user_id)?;
 
     let mut stmt = conn
         .prepare(
@@ -1932,7 +1952,7 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
             let permissions = permissions_raw
                 .as_deref()
                 .and_then(|raw| serde_json::from_str::<ChatPermissions>(raw).ok())
-                .unwrap_or_else(default_group_permissions);
+                .unwrap_or_else(groups::default_group_permissions);
             Ok(json!({
                 "chat_id": row.get::<_, i64>(0)?,
                 "description": row.get::<_, Option<String>>(1)?,
@@ -2063,7 +2083,7 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
                 "chat_id": row.get::<_, i64>(0)?,
                 "message_thread_id": 1,
                 "name": row.get::<_, String>(1)?,
-                "icon_color": forum_topic_default_icon_color(),
+                "icon_color": groups::forum_topic_default_icon_color(),
                 "icon_custom_emoji_id": Value::Null,
                 "is_closed": row.get::<_, i64>(2)? == 1,
                 "is_hidden": row.get::<_, i64>(3)? == 1,
@@ -2116,7 +2136,7 @@ pub fn handle_sim_bootstrap(state: &Data<AppState>, token: &str) -> ApiResult {
                 "chat_id": row.get::<_, i64>(0)?,
                 "message_thread_id": topic_id,
                 "name": label,
-                "icon_color": forum_topic_default_icon_color(),
+                "icon_color": groups::forum_topic_default_icon_color(),
                 "icon_custom_emoji_id": Value::Null,
                 "is_closed": false,
                 "is_hidden": false,

@@ -1,14 +1,20 @@
 use actix_web::web::Data;
 use chrono::Utc;
 use rusqlite::{params, OptionalExtension};
-use serde_json::{json, Map, Value};
-use std::collections::HashMap;
+use serde_json::{json, Value};
+use std::time::Duration;
 
 use crate::database::{
-    ensure_bot, ensure_chat, lock_db, AppState
+    ensure_bot, lock_db, AppState
+};
+use crate::types::{ApiError, ApiResult};
+use crate::handlers::generate_telegram_numeric_id;
+use crate::generated::methods::AnswerShippingQueryRequest;
+use crate::generated::types::{
+    Update, User, ShippingAddress, ShippingQuery, OrderInfo, PreCheckoutQuery,  SuccessfulPayment
 };
 
-use crate::types::{strip_nulls, ApiError, ApiResult};
+use super::{messages, users, webhook, types::payments::SimPayInvoiceRequest};
 
 pub fn handle_sim_pay_invoice(
     state: &Data<AppState>,
@@ -17,7 +23,7 @@ pub fn handle_sim_pay_invoice(
 ) -> ApiResult {
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let user = ensure_user(&mut conn, body.user_id, body.first_name, body.username)?;
+    let user = users::ensure_user(&mut conn, body.user_id, body.first_name, body.username)?;
     let chat_key = body.chat_id.to_string();
 
     let invoice_row: Option<(String, String, String, i64, i64, i64, i64, i64, i64, i64)> = conn
@@ -160,7 +166,7 @@ pub fn handle_sim_pay_invoice(
         managed_bot: None,
         })
         .map_err(ApiError::internal)?;
-        persist_and_dispatch_update(state, &mut conn, token, bot.id, shipping_update)?;
+        webhook::persist_and_dispatch_update(state, &mut conn, token, bot.id, shipping_update)?;
 
         let mut answer_json: Option<String> = None;
         for _ in 0..15 {
@@ -287,7 +293,7 @@ pub fn handle_sim_pay_invoice(
         managed_bot: None,
     })
     .map_err(ApiError::internal)?;
-    persist_and_dispatch_update(state, &mut conn, token, bot.id, pre_checkout_update)?;
+    webhook::persist_and_dispatch_update(state, &mut conn, token, bot.id, pre_checkout_update)?;
 
     if outcome == "failed" {
         return Ok(json!({
@@ -304,7 +310,7 @@ pub fn handle_sim_pay_invoice(
     .map_err(ApiError::internal)?;
 
     let paid_message_id = conn.last_insert_rowid();
-    let mut paid_message = load_message_value(&mut conn, &bot, paid_message_id)?;
+    let mut paid_message = messages::load_message_value(&mut conn, &bot, paid_message_id)?;
     paid_message.as_object_mut().map(|obj| obj.remove("text"));
 
     let successful_payment = SuccessfulPayment {
@@ -380,7 +386,7 @@ pub fn handle_sim_pay_invoice(
         managed_bot: None,
     })
     .map_err(ApiError::internal)?;
-    persist_and_dispatch_update(state, &mut conn, token, bot.id, paid_update)?;
+    webhook::persist_and_dispatch_update(state, &mut conn, token, bot.id, paid_update)?;
 
     conn.execute(
         "UPDATE invoices SET paid_at = ?1 WHERE bot_id = ?2 AND chat_key = ?3 AND message_id = ?4",

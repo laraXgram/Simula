@@ -1,13 +1,33 @@
+use actix_web::web::Data;
 use chrono::Utc;
 use rusqlite::{params, OptionalExtension};
+use serde_json::{json, Map, Value};
+use std::collections::HashSet;
 
-use crate::types::ApiError;
-use crate::handlers::client::types::chats::SimChatRecord;
-use crate::handlers::client::types::groups::GroupRuntimeSettings;
+use crate::types::{ApiError, ApiResult};
 
-use crate::generated::types::ChatPermissions;
+use crate::database::{
+    ensure_bot, lock_db, AppState
+};
 
-use super::{channels, chats};
+use crate::handlers::sanitize_username;
+
+use super::types::chats::SimChatRecord;
+use super::types::users::SimUserRecord;
+use super::types::groups::{
+    GroupRuntimeSettings, SimCreateGroupRequest, SimDeleteGroupRequest, SimCreateGroupResponse,
+    SimGroupSettingsResponse, SimUpdateGroupRequest, SimJoinGroupRequest, SimLeaveGroupRequest,
+    SimSetBotGroupMembershipRequest, SimCreateGroupInviteLinkRequest, SimChatInviteLinkRecord,
+    SimJoinGroupByInviteLinkRequest
+};
+
+use crate::generated::types::{
+    ChatPermissions, Chat, Update, User, ForumTopic,
+    ChatMemberAdministrator, ChatMemberOwner, ChatMemberLeft, ChatMemberUpdated,
+    ChatInviteLink, ChatJoinRequest 
+};
+
+use super::{bot, channels, chats, messages, users, webhook};
 
 pub fn is_active_chat_member_status(status: &str) -> bool {
     matches!(status, "owner" | "admin" | "member" | "restricted")
@@ -124,7 +144,7 @@ pub fn handle_sim_create_group(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let owner_record = ensure_user(
+    let owner_record = users::ensure_user(
         &mut conn,
         body.owner_user_id,
         body.owner_first_name,
@@ -220,7 +240,7 @@ pub fn handle_sim_create_group(
     .map_err(ApiError::internal)?;
 
     let bot_admin_rights_json = if chat_type == "channel" {
-        Some(serde_json::to_string(&channel_admin_rights_full_access()).map_err(ApiError::internal)?)
+        Some(serde_json::to_string(&channels::channel_admin_rights_full_access()).map_err(ApiError::internal)?)
     } else {
         None
     };
@@ -233,7 +253,7 @@ pub fn handle_sim_create_group(
     .map_err(ApiError::internal)?;
 
     let mut member_users = Vec::<User>::new();
-    let owner_user = build_user_from_sim_record(&owner_record, false);
+    let owner_user = users::build_user_from_sim_record(&owner_record, false);
     member_users.push(owner_user.clone());
 
     if let Some(member_ids) = body.initial_member_ids {
@@ -241,7 +261,7 @@ pub fn handle_sim_create_group(
             if member_id == owner_record.id || member_id == bot.id {
                 continue;
             }
-            let member_record = ensure_user(
+            let member_record = users::ensure_user(
                 &mut conn,
                 Some(member_id),
                 Some(format!("User {}", member_id)),
@@ -255,7 +275,7 @@ pub fn handle_sim_create_group(
                 params![bot.id, chat_key, member_record.id, now],
             )
             .map_err(ApiError::internal)?;
-            member_users.push(build_user_from_sim_record(&member_record, false));
+            member_users.push(users::build_user_from_sim_record(&member_record, false));
         }
     }
 
@@ -286,12 +306,12 @@ pub fn handle_sim_create_group(
         is_direct_messages: None,
     };
 
-    let bot_user = build_bot_user(&bot);
-    let old_left_bot = to_chat_member(ChatMemberLeft {
+    let bot_user = bot::build_bot_user(&bot);
+    let old_left_bot = chats::to_chat_member(ChatMemberLeft {
         status: "left".to_string(),
         user: bot_user.clone(),
     })?;
-    let new_admin_bot = to_chat_member(ChatMemberAdministrator {
+    let new_admin_bot = chats::to_chat_member(ChatMemberAdministrator {
         status: "administrator".to_string(),
         user: bot_user,
         can_be_edited: false,
@@ -351,7 +371,7 @@ pub fn handle_sim_create_group(
         removed_chat_boost: None,
         managed_bot: None,
     };
-    persist_and_dispatch_update(
+    webhook::persist_and_dispatch_update(
         state,
         &mut conn,
         token,
@@ -359,11 +379,11 @@ pub fn handle_sim_create_group(
         serde_json::to_value(my_chat_member_update).map_err(ApiError::internal)?,
     )?;
 
-    let old_left_owner = to_chat_member(ChatMemberLeft {
+    let old_left_owner = chats::to_chat_member(ChatMemberLeft {
         status: "left".to_string(),
         user: owner_user.clone(),
     })?;
-    let new_owner = to_chat_member(ChatMemberOwner {
+    let new_owner = chats::to_chat_member(ChatMemberOwner {
         status: "creator".to_string(),
         user: owner_user.clone(),
         is_anonymous: false,
@@ -406,7 +426,7 @@ pub fn handle_sim_create_group(
         removed_chat_boost: None,
         managed_bot: None,
     };
-    persist_and_dispatch_update(
+    webhook::persist_and_dispatch_update(
         state,
         &mut conn,
         token,
@@ -423,7 +443,7 @@ pub fn handle_sim_create_group(
         service_fields.insert("group_chat_created".to_string(), Value::Bool(true));
     }
 
-    emit_service_message_update(
+    messages::emit_service_message_update(
         state,
         &mut conn,
         token,
@@ -432,7 +452,7 @@ pub fn handle_sim_create_group(
         &chat,
         &owner_user,
         now,
-        service_text_chat_created(&owner_user, &chat.r#type),
+        messages::service_text_chat_created(&owner_user, &chat.r#type),
         service_fields,
     )?;
 
@@ -530,15 +550,15 @@ pub fn handle_sim_update_group(
 
     let actor_id = body.user_id.unwrap_or(bot.id);
     let actor = if actor_id == bot.id {
-        build_bot_user(&bot)
+        bot::build_bot_user(&bot)
     } else {
-        let actor_record = ensure_user(
+        let actor_record = users::ensure_user(
             &mut conn,
             Some(actor_id),
             body.actor_first_name,
             body.actor_username,
         )?;
-        build_user_from_sim_record(&actor_record, false)
+        users::build_user_from_sim_record(&actor_record, false)
     };
 
     let actor_status: Option<String> = conn
@@ -764,7 +784,7 @@ pub fn handle_sim_update_group(
         let mut service_fields = Map::<String, Value>::new();
         service_fields.insert("new_chat_title".to_string(), Value::String(title.clone()));
 
-        emit_service_message_update(
+        messages::emit_service_message_update(
             state,
             &mut conn,
             token,
@@ -773,7 +793,7 @@ pub fn handle_sim_update_group(
             &chat,
             &actor,
             now,
-            service_text_group_title_changed(&actor, &title),
+            messages::service_text_group_title_changed(&actor, &title),
             service_fields,
         )?;
     }
@@ -809,7 +829,7 @@ pub fn handle_sim_delete_group(
     let bot = ensure_bot(&mut conn, token)?;
 
     let chat_key = body.chat_id.to_string();
-    let Some(sim_chat) = load_sim_chat_record(&mut conn, bot.id, &chat_key)? else {
+    let Some(sim_chat) = chats::load_sim_chat_record(&mut conn, bot.id, &chat_key)? else {
         return Err(ApiError::not_found("group not found"));
     };
     if sim_chat.chat_type == "private" {
@@ -819,14 +839,14 @@ pub fn handle_sim_delete_group(
     let Some(actor_id) = body.user_id else {
         return Err(ApiError::bad_request("owner user_id is required to delete group"));
     };
-    let actor = get_or_create_user(
+    let actor = users::get_or_create_user(
         &mut conn,
         Some(actor_id),
         body.actor_first_name,
         body.actor_username,
     )?;
 
-    let actor_status = load_chat_member_status(&mut conn, bot.id, &chat_key, actor.id)?;
+    let actor_status = chats::load_chat_member_status(&mut conn, bot.id, &chat_key, actor.id)?;
     if !actor_status
         .as_deref()
         .map(is_group_owner_status)
@@ -970,10 +990,10 @@ pub fn join_user_to_group(
     )
     .map_err(ApiError::internal)?;
 
-    let from_user = build_user_from_sim_record(user, false);
-    let chat = chat_from_sim_record(sim_chat, user);
-    let old_member = chat_member_from_status(old_status.unwrap_or("left"), &from_user)?;
-    let new_member = chat_member_from_status("member", &from_user)?;
+    let from_user = users::build_user_from_sim_record(user, false);
+    let chat = chats::chat_from_sim_record(sim_chat, user);
+    let old_member = chats::chat_member_from_status(old_status.unwrap_or("left"), &from_user)?;
+    let new_member = chats::chat_member_from_status("member", &from_user)?;
 
     let update = Update {
         update_id: 0,
@@ -1011,7 +1031,7 @@ pub fn join_user_to_group(
         removed_chat_boost: None,
         managed_bot: None,
     };
-    persist_and_dispatch_update(
+    webhook::persist_and_dispatch_update(
         state,
         conn,
         token,
@@ -1025,7 +1045,7 @@ pub fn join_user_to_group(
             "new_chat_members".to_string(),
             serde_json::to_value(vec![from_user.clone()]).map_err(ApiError::internal)?,
         );
-        emit_service_message_update(
+        messages::emit_service_message_update(
             state,
             conn,
             token,
@@ -1034,7 +1054,7 @@ pub fn join_user_to_group(
             &chat,
             &from_user,
             now,
-            service_text_new_chat_members(&from_user, std::slice::from_ref(&from_user)),
+            messages::service_text_new_chat_members(&from_user, std::slice::from_ref(&from_user)),
             service_fields,
         )?;
     }
@@ -1049,17 +1069,17 @@ pub fn handle_sim_join_group(
 ) -> ApiResult {
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let user = ensure_user(&mut conn, body.user_id, body.first_name, body.username)?;
+    let user = users::ensure_user(&mut conn, body.user_id, body.first_name, body.username)?;
 
     let chat_key = body.chat_id.to_string();
-    let Some(sim_chat) = load_sim_chat_record(&mut conn, bot.id, &chat_key)? else {
+    let Some(sim_chat) = chats::load_sim_chat_record(&mut conn, bot.id, &chat_key)? else {
         return Err(ApiError::not_found("chat not found"));
     };
     if sim_chat.chat_type == "private" {
         return Err(ApiError::bad_request("cannot join private chat"));
     }
 
-    let current_status = load_chat_member_status(&mut conn, bot.id, &chat_key, user.id)?;
+    let current_status = chats::load_chat_member_status(&mut conn, bot.id, &chat_key, user.id)?;
 
     if current_status
         .as_deref()
@@ -1091,9 +1111,9 @@ pub fn handle_sim_join_group(
         .map_err(ApiError::internal)?;
 
     let primary_invite = if let Some(raw_link) = primary_invite_link {
-        if let Some(record) = load_invite_link_record(&mut conn, bot.id, &chat_key, &raw_link)? {
-            Some(chat_invite_link_from_record(
-                resolve_invite_creator_user(&mut conn, &bot, record.creator_user_id)?,
+        if let Some(record) = chats::load_invite_link_record(&mut conn, bot.id, &chat_key, &raw_link)? {
+            Some(chats::chat_invite_link_from_record(
+                chats::resolve_invite_creator_user(&mut conn, &bot, record.creator_user_id)?,
                 &record,
                 None,
             ))
@@ -1126,8 +1146,8 @@ pub fn handle_sim_join_group(
         )
         .map_err(ApiError::internal)?;
 
-        let from_user = build_user_from_sim_record(&user, false);
-        let chat = chat_from_sim_record(&sim_chat, &user);
+        let from_user = users::build_user_from_sim_record(&user, false);
+        let chat = chats::chat_from_sim_record(&sim_chat, &user);
         let join_request_update = Update {
             update_id: 0,
             message: None,
@@ -1153,7 +1173,7 @@ pub fn handle_sim_join_group(
             chat_join_request: Some(ChatJoinRequest {
                 chat,
                 from: from_user,
-                user_chat_id: build_sim_user_chat_id(sim_chat.chat_id, user.id),
+                user_chat_id: users::build_sim_user_chat_id(sim_chat.chat_id, user.id),
                 date: now,
                 bio: None,
                 invite_link: primary_invite,
@@ -1162,7 +1182,7 @@ pub fn handle_sim_join_group(
             removed_chat_boost: None,
             managed_bot: None,
         };
-        persist_and_dispatch_update(
+        webhook::persist_and_dispatch_update(
             state,
             &mut conn,
             token,
@@ -1205,10 +1225,10 @@ pub fn handle_sim_leave_group(
 ) -> ApiResult {
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let user = ensure_user(&mut conn, body.user_id, body.first_name, body.username)?;
+    let user = users::ensure_user(&mut conn, body.user_id, body.first_name, body.username)?;
 
     let chat_key = body.chat_id.to_string();
-    let Some(sim_chat) = load_sim_chat_record(&mut conn, bot.id, &chat_key)? else {
+    let Some(sim_chat) = chats::load_sim_chat_record(&mut conn, bot.id, &chat_key)? else {
         return Err(ApiError::not_found("chat not found"));
     };
     if sim_chat.chat_type == "private" {
@@ -1253,10 +1273,10 @@ pub fn handle_sim_leave_group(
     )
     .map_err(ApiError::internal)?;
 
-    let from_user = build_user_from_sim_record(&user, false);
-    let chat = chat_from_sim_record(&sim_chat, &user);
-    let old_member = chat_member_from_status(&status, &from_user)?;
-    let new_member = chat_member_from_status("left", &from_user)?;
+    let from_user = users::build_user_from_sim_record(&user, false);
+    let chat = chats::chat_from_sim_record(&sim_chat, &user);
+    let old_member = chats::chat_member_from_status(&status, &from_user)?;
+    let new_member = chats::chat_member_from_status("left", &from_user)?;
 
     let update = Update {
         update_id: 0,
@@ -1294,7 +1314,7 @@ pub fn handle_sim_leave_group(
         removed_chat_boost: None,
         managed_bot: None,
     };
-    persist_and_dispatch_update(
+    webhook::persist_and_dispatch_update(
         state,
         &mut conn,
         token,
@@ -1308,7 +1328,7 @@ pub fn handle_sim_leave_group(
             "left_chat_member".to_string(),
             serde_json::to_value(from_user.clone()).map_err(ApiError::internal)?,
         );
-        emit_service_message_update(
+        messages::emit_service_message_update(
             state,
             &mut conn,
             token,
@@ -1317,7 +1337,7 @@ pub fn handle_sim_leave_group(
             &chat,
             &from_user,
             now,
-            service_text_left_chat_member(&from_user, &from_user),
+            messages::service_text_left_chat_member(&from_user, &from_user),
             service_fields,
         )?;
     }
@@ -1338,7 +1358,7 @@ pub fn handle_sim_set_bot_group_membership(
     let bot = ensure_bot(&mut conn, token)?;
 
     let chat_key = body.chat_id.to_string();
-    let Some(sim_chat) = load_sim_chat_record(&mut conn, bot.id, &chat_key)? else {
+    let Some(sim_chat) = chats::load_sim_chat_record(&mut conn, bot.id, &chat_key)? else {
         return Err(ApiError::not_found("group not found"));
     };
     if sim_chat.chat_type == "private" {
@@ -1353,18 +1373,18 @@ pub fn handle_sim_set_bot_group_membership(
 
     let actor_id = body.actor_user_id.unwrap_or(bot.id);
     let actor = if actor_id == bot.id {
-        build_bot_user(&bot)
+        bot::build_bot_user(&bot)
     } else {
-        let actor_record = get_or_create_user(
+        let actor_record = users::get_or_create_user(
             &mut conn,
             Some(actor_id),
             body.actor_first_name,
             body.actor_username,
         )?;
-        build_user_from_sim_record(&actor_record, false)
+        users::build_user_from_sim_record(&actor_record, false)
     };
 
-    let actor_status = load_chat_member_status(&mut conn, bot.id, &chat_key, actor.id)?;
+    let actor_status = chats::load_chat_member_status(&mut conn, bot.id, &chat_key, actor.id)?;
     if !actor_status
         .as_deref()
         .map(is_group_admin_or_owner_status)
@@ -1375,7 +1395,7 @@ pub fn handle_sim_set_bot_group_membership(
         ));
     }
 
-    let old_status = load_chat_member_status(&mut conn, bot.id, &chat_key, bot.id)?
+    let old_status = chats::load_chat_member_status(&mut conn, bot.id, &chat_key, bot.id)?
         .unwrap_or_else(|| "left".to_string());
 
     if old_status == target_status {
@@ -1388,7 +1408,7 @@ pub fn handle_sim_set_bot_group_membership(
 
     let now = Utc::now().timestamp();
     let channel_admin_rights_json = if sim_chat.chat_type == "channel" {
-        Some(serde_json::to_string(&channel_admin_rights_full_access()).map_err(ApiError::internal)?)
+        Some(serde_json::to_string(&channels::channel_admin_rights_full_access()).map_err(ApiError::internal)?)
     } else {
         None
     };
@@ -1425,7 +1445,7 @@ pub fn handle_sim_set_bot_group_membership(
         }
     }
 
-    let bot_user = build_bot_user(&bot);
+    let bot_user = bot::build_bot_user(&bot);
     let chat = Chat {
         id: sim_chat.chat_id,
         r#type: sim_chat.chat_type.clone(),
@@ -1441,8 +1461,8 @@ pub fn handle_sim_set_bot_group_membership(
         is_direct_messages: None,
     };
 
-    let old_chat_member = chat_member_from_status(&old_status, &bot_user)?;
-    let new_chat_member = chat_member_from_status(target_status, &bot_user)?;
+    let old_chat_member = chats::chat_member_from_status(&old_status, &bot_user)?;
+    let new_chat_member = chats::chat_member_from_status(target_status, &bot_user)?;
     let membership_update = Update {
         update_id: 0,
         message: None,
@@ -1479,7 +1499,7 @@ pub fn handle_sim_set_bot_group_membership(
         removed_chat_boost: None,
         managed_bot: None,
     };
-    persist_and_dispatch_update(
+    webhook::persist_and_dispatch_update(
         state,
         &mut conn,
         token,
@@ -1496,16 +1516,16 @@ pub fn handle_sim_set_bot_group_membership(
                 "new_chat_members".to_string(),
                 serde_json::to_value(vec![bot_user.clone()]).map_err(ApiError::internal)?,
             );
-            service_text_new_chat_members(&actor, std::slice::from_ref(&bot_user))
+            messages::service_text_new_chat_members(&actor, std::slice::from_ref(&bot_user))
         } else {
             service_fields.insert(
                 "left_chat_member".to_string(),
                 serde_json::to_value(bot_user.clone()).map_err(ApiError::internal)?,
             );
-            service_text_left_chat_member(&actor, &bot_user)
+            messages::service_text_left_chat_member(&actor, &bot_user)
         };
 
-        emit_service_message_update(
+        messages::emit_service_message_update(
             state,
             &mut conn,
             token,
@@ -1627,7 +1647,7 @@ pub fn collect_message_ids_for_thread(
 ) -> Result<Vec<i64>, ApiError> {
     let chat_id = chat_key
         .parse::<i64>()
-        .unwrap_or_else(|_| fallback_chat_id(chat_key));
+        .unwrap_or_else(|_| chats::fallback_chat_id(chat_key));
 
     let value_as_i64 = |value: Option<&Value>| -> Option<i64> {
         value.and_then(|raw| {
@@ -1793,7 +1813,7 @@ pub fn handle_sim_create_group_invite_link(
     let bot = ensure_bot(&mut conn, token)?;
 
     let chat_key = body.chat_id.to_string();
-    let Some(sim_chat) = load_sim_chat_record(&mut conn, bot.id, &chat_key)? else {
+    let Some(sim_chat) = chats::load_sim_chat_record(&mut conn, bot.id, &chat_key)? else {
         return Err(ApiError::not_found("group not found"));
     };
     if sim_chat.chat_type == "private" {
@@ -1802,25 +1822,25 @@ pub fn handle_sim_create_group_invite_link(
 
     let actor_id = body.user_id.unwrap_or(bot.id);
     let actor_user = if actor_id == bot.id {
-        build_bot_user(&bot)
+        bot::build_bot_user(&bot)
     } else {
-        let actor_record = get_or_create_user(
+        let actor_record = users::get_or_create_user(
             &mut conn,
             Some(actor_id),
             body.actor_first_name,
             body.actor_username,
         )?;
-        build_user_from_sim_record(&actor_record, false)
+        users::build_user_from_sim_record(&actor_record, false)
     };
 
-    let actor_status = load_chat_member_status(&mut conn, bot.id, &chat_key, actor_user.id)?;
+    let actor_status = chats::load_chat_member_status(&mut conn, bot.id, &chat_key, actor_user.id)?;
     if sim_chat.chat_type == "channel" {
         let can_manage = match actor_status.as_deref() {
             Some("owner") => true,
             Some("admin") => {
-                let rights = load_chat_member_record(&mut conn, bot.id, &chat_key, actor_user.id)?
-                    .map(|record| parse_channel_admin_rights_json(record.admin_rights_json.as_deref()))
-                    .unwrap_or_else(channel_admin_rights_full_access);
+                let rights = chats::load_chat_member_record(&mut conn, bot.id, &chat_key, actor_user.id)?
+                    .map(|record| channels::parse_channel_admin_rights_json(record.admin_rights_json.as_deref()))
+                    .unwrap_or_else(channels::channel_admin_rights_full_access);
                 rights.can_manage_chat || rights.can_invite_users
             }
             _ => false,
@@ -1850,7 +1870,7 @@ pub fn handle_sim_create_group_invite_link(
         }
     }
 
-    let mut invite_link = generate_sim_invite_link();
+    let mut invite_link = chats::generate_sim_invite_link();
     loop {
         let exists: Option<String> = conn
             .query_row(
@@ -1863,7 +1883,7 @@ pub fn handle_sim_create_group_invite_link(
         if exists.is_none() {
             break;
         }
-        invite_link = generate_sim_invite_link();
+        invite_link = chats::generate_sim_invite_link();
     }
 
     let now = Utc::now().timestamp();
@@ -1915,7 +1935,7 @@ pub fn handle_sim_create_group_invite_link(
         )
         .map_err(ApiError::internal)?;
 
-    let invite = chat_invite_link_from_record(actor_user, &record, Some(pending_count));
+    let invite = chats::chat_invite_link_from_record(actor_user, &record, Some(pending_count));
     serde_json::to_value(invite).map_err(ApiError::internal)
 }
 
@@ -1959,7 +1979,7 @@ pub fn handle_sim_join_group_by_invite_link(
         return Err(ApiError::not_found("invite link not found"));
     };
 
-    let Some(sim_chat) = load_sim_chat_record(&mut conn, bot.id, &chat_key)? else {
+    let Some(sim_chat) = chats::load_sim_chat_record(&mut conn, bot.id, &chat_key)? else {
         return Err(ApiError::not_found("chat not found"));
     };
     if sim_chat.chat_type == "private" {
@@ -1973,8 +1993,8 @@ pub fn handle_sim_join_group_by_invite_link(
         }
     }
 
-    let user = get_or_create_user(&mut conn, body.user_id, body.first_name, body.username)?;
-    let current_status = load_chat_member_status(&mut conn, bot.id, &chat_key, user.id)?;
+    let user = users::get_or_create_user(&mut conn, body.user_id, body.first_name, body.username)?;
+    let current_status = chats::load_chat_member_status(&mut conn, bot.id, &chat_key, user.id)?;
     if current_status
         .as_deref()
         .map(is_active_chat_member_status)
@@ -2006,12 +2026,12 @@ pub fn handle_sim_join_group_by_invite_link(
     }
 
     let creator = if creator_user_id == bot.id {
-        build_bot_user(&bot)
-    } else if let Some(record) = load_sim_user_record(&mut conn, creator_user_id)? {
-        build_user_from_sim_record(&record, false)
+        bot::build_bot_user(&bot)
+    } else if let Some(record) = users::load_sim_user_record(&mut conn, creator_user_id)? {
+        users::build_user_from_sim_record(&record, false)
     } else {
-        build_user_from_sim_record(
-            &ensure_user(
+        users::build_user_from_sim_record(
+            &users::ensure_user(
                 &mut conn,
                 Some(creator_user_id),
                 Some(format!("User {}", creator_user_id)),
@@ -2041,7 +2061,7 @@ pub fn handle_sim_join_group_by_invite_link(
             |row| row.get(0),
         )
         .map_err(ApiError::internal)?;
-    let invite = chat_invite_link_from_record(creator, &invite_record, Some(pending_count));
+    let invite = chats::chat_invite_link_from_record(creator, &invite_record, Some(pending_count));
 
     if invite.creates_join_request {
         conn.execute(
@@ -2054,8 +2074,8 @@ pub fn handle_sim_join_group_by_invite_link(
         )
         .map_err(ApiError::internal)?;
 
-        let from_user = build_user_from_sim_record(&user, false);
-        let chat = chat_from_sim_record(&sim_chat, &user);
+        let from_user = users::build_user_from_sim_record(&user, false);
+        let chat = chats::chat_from_sim_record(&sim_chat, &user);
 
         let join_request_update = Update {
             update_id: 0,
@@ -2082,7 +2102,7 @@ pub fn handle_sim_join_group_by_invite_link(
             chat_join_request: Some(ChatJoinRequest {
                 chat,
                 from: from_user,
-                user_chat_id: build_sim_user_chat_id(sim_chat.chat_id, user.id),
+                user_chat_id: users::build_sim_user_chat_id(sim_chat.chat_id, user.id),
                 date: now,
                 bio: None,
                 invite_link: Some(invite),
@@ -2091,7 +2111,7 @@ pub fn handle_sim_join_group_by_invite_link(
             removed_chat_boost: None,
         managed_bot: None,
         };
-        persist_and_dispatch_update(
+        webhook::persist_and_dispatch_update(
             state,
             &mut conn,
             token,

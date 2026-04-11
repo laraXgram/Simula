@@ -1,26 +1,17 @@
 use actix_web::web::Data;
 use chrono::Utc;
-use rusqlite::{params, OptionalExtension};
-use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
-use serde_json::{json, Map, Value};
-use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::time::Duration;
+use serde_json::{Map, Value};
+use std::collections::HashMap;
 
-use crate::database::{
-    ensure_bot, ensure_chat, lock_db, AppState
-};
-use crate::generated::methods::{
-    AnswerShippingQueryRequest, PromoteChatMemberRequest,
-};
-use crate::types::{strip_nulls, ApiError, ApiResult};
+use crate::database::AppState;
+use crate::types::{ApiError, ApiResult};
 
 pub mod api;
 pub mod client;
 pub mod utils;
 
+use client::types::users::SimUserRecord;
 use api::*;
 
 pub fn dispatch_method(
@@ -196,14 +187,14 @@ pub fn dispatch_method(
             bussines::handle_transfer_business_account_stars(state, token, &params)
         }
         "getbusinessaccountgifts" => bussines::handle_get_business_account_gifts(state, token, &params),
-        "getavailablegifts" => gft::handle_get_available_gifts(state, token, &params),
+        "getavailablegifts" => gifts::handle_get_available_gifts(state, token, &params),
         "sendgift" => messages::handle_send_gift(state, token, &params),
-        "giftpremiumsubscription" => gft::handle_gift_premium_subscription(state, token, &params),
-        "getusergifts" => gft::handle_get_user_gifts(state, token, &params),
-        "getchatgifts" => gft::handle_get_chat_gifts(state, token, &params),
-        "convertgifttostars" => gft::handle_convert_gift_to_stars(state, token, &params),
-        "upgradegift" => gft::handle_upgrade_gift(state, token, &params),
-        "transfergift" => gft::handle_transfer_gift(state, token, &params),
+        "giftpremiumsubscription" => gifts::handle_gift_premium_subscription(state, token, &params),
+        "getusergifts" => gifts::handle_get_user_gifts(state, token, &params),
+        "getchatgifts" => gifts::handle_get_chat_gifts(state, token, &params),
+        "convertgifttostars" => gifts::handle_convert_gift_to_stars(state, token, &params),
+        "upgradegift" => gifts::handle_upgrade_gift(state, token, &params),
+        "transfergift" => gifts::handle_transfer_gift(state, token, &params),
         "poststory" => stories::handle_post_story(state, token, &params),
         "repoststory" => stories::handle_repost_story(state, token, &params),
         "editstory" => stories::handle_edit_story(state, token, &params),
@@ -224,7 +215,7 @@ fn chat_id_to_chat_key(chat_id: i64) -> String {
 }
 
 fn ensure_default_user(conn: &mut rusqlite::Connection) -> Result<SimUserRecord, ApiError> {
-    ensure_user(conn, Some(10001), Some("Test User".to_string()), Some("test_user".to_string()))
+    client::users::ensure_user(conn, Some(10001), Some("Test User".to_string()), Some("test_user".to_string()))
 }
 
 fn token_suffix(token: &str) -> String {
@@ -276,12 +267,6 @@ fn generate_telegram_token() -> String {
     let right = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
     let compact = right.chars().take(35).collect::<String>();
     format!("{}:{}", left, compact)
-}
-
-fn generate_sim_invite_link() -> String {
-    let code = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
-    let compact = code.chars().take(22).collect::<String>();
-    format!("https://t.me/+{}", compact)
 }
 
 fn sanitize_username(input: &str) -> String {

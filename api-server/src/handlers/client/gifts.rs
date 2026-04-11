@@ -1,14 +1,21 @@
 use actix_web::web::Data;
-use chrono::Utc;
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Map, Value};
-use std::collections::HashMap;
 
 use crate::database::{
-    ensure_bot, ensure_chat, lock_db, AppState
+    ensure_bot, lock_db, AppState
 };
 
-use crate::types::{strip_nulls, ApiError, ApiResult};
+use crate::types::{ApiError, ApiResult};
+
+use crate::generated::types::{Gift, OwnedGift, MessageEntity, GiftBackground, Sticker};
+use crate::handlers::{generate_telegram_file_unique_id, utils::updates::value_to_chat_key};
+
+use super::types::gifts::{
+    SimOwnedGiftRecord, SimOwnedGiftFilterOptions, SimDeleteOwnedGiftRequest, SimGiftCatalogEntry
+};
+
+use super::{chats, users};
 
 pub fn load_owned_gift_records(
     conn: &mut rusqlite::Connection,
@@ -181,8 +188,8 @@ pub fn map_owned_gift_record(
         .and_then(|raw| serde_json::from_str::<Vec<MessageEntity>>(raw).ok());
 
     let sender_user = if let Some(sender_user_id) = record.sender_user_id {
-        load_sim_user_record(conn, sender_user_id)?
-            .map(|user| build_user_from_sim_record(&user, false))
+        users::load_sim_user_record(conn, sender_user_id)?
+            .map(|user| users::build_user_from_sim_record(&user, false))
     } else {
         None
     };
@@ -261,7 +268,7 @@ pub fn handle_sim_delete_owned_gift(
 
     let requested_chat_id = if let Some(chat_value) = body.chat_id.as_ref() {
         let chat_key = value_to_chat_key(chat_value)?;
-        Some(chat_id_as_i64(chat_value, &chat_key))
+        Some(chats::chat_id_as_i64(chat_value, &chat_key))
     } else {
         None
     };

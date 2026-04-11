@@ -1,15 +1,27 @@
+use actix_web::web::Data;
 use chrono::Utc;
 use rusqlite::{params, OptionalExtension};
+use serde_json::{json, Value};
+use std::collections::HashMap;
 
-use crate::types::ApiError;
-use crate::handlers::client::types::users::SimUserRecord;
+use crate::database::{
+    ensure_bot, lock_db, AppState
+};
+use crate::types::{ApiError, ApiResult};
+use crate::generated::types::{
+    Chat, User, Dice, Game, Contact, Location, Venue
+};
+use crate::handlers::{
+    parse_request, sanitize_username, generate_telegram_file_id, generate_telegram_file_unique_id,
+    utils::updates::current_request_actor_user_id
+};
 
-use crate::generated::types::{Chat, User};
-
-use crate::handlers::utils::updates::current_request_actor_user_id;
-
+use super::types::users::{
+    SimUserRecord, SimUpsertUserRequest, SimDeleteUserRequest, SimSetUserProfileAudioRequest,
+    SimUploadUserProfileAudioRequest, SimDeleteUserProfileAudioRequest
+};
 use super::chats::ChatSendKind;
-use super::{bot, chats};
+use super::{bot, chats, messages};
 
 pub enum SimUserPayload {
     Dice(Dice),
@@ -455,7 +467,7 @@ pub fn handle_sim_upload_user_profile_audio(
         return Err(ApiError::bad_request("user_id is invalid"));
     }
 
-    let stored = resolve_media_file(state, token, &request.audio, "audio")?;
+    let stored = messages::resolve_media_file(state, token, &request.audio, "audio")?;
 
     let normalize_optional_text = |value: Option<String>| {
         value

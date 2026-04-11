@@ -1,14 +1,24 @@
 use actix_web::web::Data;
 use chrono::Utc;
 use rusqlite::{params, OptionalExtension};
-use serde_json::{json, Map, Value};
-use std::collections::HashMap;
+use serde_json::{json, Value};
 
 use crate::database::{
     ensure_bot, ensure_chat, lock_db, AppState
 };
+use crate::types::{ApiError, ApiResult};
 
-use crate::types::{strip_nulls, ApiError, ApiResult};
+use crate::handlers::generate_telegram_numeric_id;
+
+use crate::generated::types::{
+    Update, User, InlineKeyboardMarkup, InlineQuery, Message,
+    ChosenInlineResult, MaybeInaccessibleMessage, CallbackQuery
+};
+
+use super::types::inlines::{
+    SimChooseInlineResultRequest, SimPressInlineButtonRequest, SimSendInlineQueryRequest
+};
+use super::{chats, channels, messages, users, webhook};
 
 pub fn handle_sim_choose_inline_result(
     state: &Data<AppState>,
@@ -74,7 +84,7 @@ pub fn handle_sim_choose_inline_result(
     let message_id = conn.last_insert_rowid();
     let chat_id = chat_key
         .parse::<i64>()
-        .unwrap_or_else(|_| fallback_chat_id(&chat_key));
+        .unwrap_or_else(|_| chats::fallback_chat_id(&chat_key));
 
     let user_info: Option<(String, Option<String>)> = conn
         .query_row(
@@ -136,7 +146,7 @@ pub fn handle_sim_choose_inline_result(
         managed_bot: None,
     })
     .map_err(ApiError::internal)?;
-    persist_and_dispatch_update(state, &mut conn, token, bot.id, message_update)?;
+    webhook::persist_and_dispatch_update(state, &mut conn, token, bot.id, message_update)?;
 
     let chosen_from = User {
         id: from_user_id,
@@ -198,7 +208,7 @@ pub fn handle_sim_choose_inline_result(
         managed_bot: None,
     })
     .map_err(ApiError::internal)?;
-    persist_and_dispatch_update(state, &mut conn, token, bot.id, chosen_inline_result_update)?;
+    webhook::persist_and_dispatch_update(state, &mut conn, token, bot.id, chosen_inline_result_update)?;
 
     Ok(json!({
         "message_id": message_id,
@@ -217,11 +227,11 @@ pub fn handle_sim_press_inline_button(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let user = ensure_user(&mut conn, body.user_id, body.first_name, body.username)?;
+    let user = users::ensure_user(&mut conn, body.user_id, body.first_name, body.username)?;
 
     let chat_key = body.chat_id.to_string();
-    let mut message_value = load_message_value(&mut conn, &bot, body.message_id)?;
-    enrich_message_with_linked_channel_context(
+    let mut message_value = messages::load_message_value(&mut conn, &bot, body.message_id)?;
+    channels::enrich_message_with_linked_channel_context(
         &mut conn,
         bot.id,
         &chat_key,
@@ -348,7 +358,7 @@ pub fn handle_sim_press_inline_button(
     })
     .map_err(ApiError::internal)?;
 
-    persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
+    webhook::persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
 
     Ok(json!({
         "ok": true,
@@ -363,7 +373,7 @@ pub fn handle_sim_send_inline_query(
 ) -> ApiResult {
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let user = ensure_user(&mut conn, body.user_id, body.first_name, body.username)?;
+    let user = users::ensure_user(&mut conn, body.user_id, body.first_name, body.username)?;
 
     let chat_id = body.chat_id.unwrap_or(user.id);
     let chat_key = chat_id.to_string();
@@ -486,7 +496,7 @@ pub fn handle_sim_send_inline_query(
     })
     .map_err(ApiError::internal)?;
 
-    persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
+    webhook::persist_and_dispatch_update(state, &mut conn, token, bot.id, update_value)?;
 
     Ok(json!({
         "inline_query_id": inline_query_id,
