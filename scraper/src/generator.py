@@ -5,10 +5,14 @@ Generates Rust structs and TypeScript types from scraped API data.
 """
 
 import json
+import logging
 import os
 import re
 from pathlib import Path
+
 from jinja2 import Environment, BaseLoader
+
+logger = logging.getLogger(__name__)
 
 
 # Type mappings
@@ -39,13 +43,20 @@ RUST_KEYWORDS = {
     'true', 'type', 'unsafe', 'use', 'where', 'while', 'async', 'await', 'dyn',
 }
 
+_RE_WHITESPACE = re.compile(r'\s+')
+_RE_ARRAY_OF = re.compile(r'Array\s*of\s*', re.IGNORECASE)
+_RE_ARRAY_ANGLE = re.compile(r'Array\s*<\s*(.+?)\s*>')
+_RE_WORD_TOKEN = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')
+_RE_GLUED_OR = re.compile(r'(.+?)or\s*([A-Z].+)')
+_RE_GLUED_AND = re.compile(r'(.+?)and\s*([A-Z].+)')
+
 CUSTOM_TYPE_NAMES: set[str] = set()
 
 
 def extract_custom_type_tokens(type_str: str) -> set[str]:
     """Extract referenced custom Telegram type names from a raw type expression."""
     normalized = normalize_type_expr(type_str)
-    tokens = set(re.findall(r'[A-Za-z_][A-Za-z0-9_]*', normalized))
+    tokens = set(_RE_WORD_TOKEN.findall(normalized))
     return {token for token in tokens if token in CUSTOM_TYPE_NAMES}
 
 
@@ -75,10 +86,10 @@ def normalize_type_expr(type_str: str) -> str:
     if not s:
         return 'serde_json::Value'
 
-    s = re.sub(r'\s+', ' ', s)
-    s = re.sub(r'Array\s*of\s*', 'Array of ', s, flags=re.IGNORECASE)
+    s = _RE_WHITESPACE.sub(' ', s)
+    s = _RE_ARRAY_OF.sub('Array of ', s)
 
-    return re.sub(r'\s+', ' ', s).strip()
+    return _RE_WHITESPACE.sub(' ', s).strip()
 
 
 def is_known_atomic_type(token: str) -> bool:
@@ -107,9 +118,8 @@ def split_union_parts(type_str: str) -> list[str]:
         if len(parts) > 1:
             return parts
 
-    # Handle glued unions like InputFileor String and AandB.
-    for connector in ('or', 'and'):
-        glued = re.fullmatch(rf'(.+?){connector}\s*([A-Z].+)', type_str)
+    for pattern in (_RE_GLUED_OR, _RE_GLUED_AND):
+        glued = pattern.fullmatch(type_str)
         if not glued:
             continue
 
@@ -135,7 +145,7 @@ def parse_type(type_str: str, lang: str = 'rust', ts_use_namespace: bool = False
         return array_wrapper.format(inner_type)
 
     # Handle "Array<X>" as an alternative notation.
-    array_match = re.fullmatch(r'Array\s*<\s*(.+?)\s*>', type_str)
+    array_match = _RE_ARRAY_ANGLE.fullmatch(type_str)
     if array_match:
         inner = array_match.group(1).strip()
         inner_type = parse_type(inner, lang, ts_use_namespace)
@@ -301,8 +311,8 @@ class CodeGenerator:
             data = json.load(f)
             self.methods_data = data['methods']
 
-        print(f"📂 Loaded {len(self.types_data)} types")
-        print(f"📂 Loaded {len(self.methods_data)} methods")
+        logger.info("Loaded %d types", len(self.types_data))
+        logger.info("Loaded %d methods", len(self.methods_data))
 
     def process_types(self) -> list:
         """Process types for code generation."""
@@ -392,66 +402,56 @@ class CodeGenerator:
 
         return processed
 
-    def generate_rust_types(self, output_file: str) -> None:
-        """Generate Rust types file."""
+    def _render_to_file(
+        self, template_str: str, context: dict, output_file: str,
+    ) -> None:
+        """Render a Jinja2 template to an output file."""
+        template = self.env.from_string(template_str)
+        output = template.render(**context)
+
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(output)
+
+    def generate_all(
+        self, rust_output_dir: str, ts_output_dir: str,
+    ) -> None:
+        """Generate all code files.
+
+        Processes types and methods once, then renders all four
+        output files (Rust types/methods, TypeScript types/methods).
+        """
         types = self.process_types()
-        template = self.env.from_string(RUST_TYPES_TEMPLATE)
-        output = template.render(types=types)
-
-        os.makedirs(os.path.dirname(output_file), exist_ok=True)
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write(output)
-
-        print(f"✅ Generated Rust types: {output_file} ({len(types)} types)")
-
-    def generate_rust_methods(self, output_file: str) -> None:
-        """Generate Rust methods file."""
         methods = self.process_methods()
-        template = self.env.from_string(RUST_METHODS_TEMPLATE)
-        output = template.render(methods=methods)
 
-        os.makedirs(os.path.dirname(output_file), exist_ok=True)
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write(output)
+        outputs = [
+            (RUST_TYPES_TEMPLATE, {'types': types},
+             os.path.join(rust_output_dir, 'types.rs'),
+             f"{len(types)} types"),
+            (RUST_METHODS_TEMPLATE, {'methods': methods},
+             os.path.join(rust_output_dir, 'methods.rs'),
+             f"{len(methods)} methods"),
+            (TS_TYPES_TEMPLATE, {'types': types},
+             os.path.join(ts_output_dir, 'types.ts'),
+             f"{len(types)} types"),
+            (TS_METHODS_TEMPLATE, {'methods': methods},
+             os.path.join(ts_output_dir, 'methods.ts'),
+             f"{len(methods)} methods"),
+        ]
 
-        print(f"✅ Generated Rust methods: {output_file} ({len(methods)} methods)")
-
-    def generate_ts_types(self, output_file: str) -> None:
-        """Generate TypeScript types file."""
-        types = self.process_types()
-        template = self.env.from_string(TS_TYPES_TEMPLATE)
-        output = template.render(types=types)
-
-        os.makedirs(os.path.dirname(output_file), exist_ok=True)
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write(output)
-
-        print(f"✅ Generated TypeScript types: {output_file} ({len(types)} types)")
-
-    def generate_ts_methods(self, output_file: str) -> None:
-        """Generate TypeScript methods file."""
-        methods = self.process_methods()
-        template = self.env.from_string(TS_METHODS_TEMPLATE)
-        output = template.render(methods=methods)
-
-        os.makedirs(os.path.dirname(output_file), exist_ok=True)
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write(output)
-
-        print(f"✅ Generated TypeScript methods: {output_file} ({len(methods)} methods)")
-
-    def generate_all(self, rust_output_dir: str, ts_output_dir: str) -> None:
-        """Generate all code files."""
-        self.generate_rust_types(os.path.join(rust_output_dir, 'types.rs'))
-        self.generate_rust_methods(os.path.join(rust_output_dir, 'methods.rs'))
-        self.generate_ts_types(os.path.join(ts_output_dir, 'types.ts'))
-        self.generate_ts_methods(os.path.join(ts_output_dir, 'methods.ts'))
+        for template_str, context, path, desc in outputs:
+            self._render_to_file(template_str, context, path)
+            logger.info("Generated %s: %s", desc, path)
 
 
 def main():
     """Main entry point."""
-    print("🚀 Simula - Code Generator")
-    print("=" * 50)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s: %(message)s",
+    )
+
+    logger.info("Simula - Code Generator")
 
     script_dir = Path(__file__).resolve().parent
     scraper_root = script_dir.parent
@@ -482,7 +482,7 @@ def main():
         ts_output_dir=str(ts_output_dir)
     )
 
-    print("\n✅ Code generation completed!")
+    logger.info("Code generation completed!")
 
 
 if __name__ == "__main__":
