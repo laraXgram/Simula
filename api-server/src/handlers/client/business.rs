@@ -25,15 +25,13 @@ pub fn normalize_business_connection_id(raw: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
-pub fn default_business_connection_id(bot_id: i64, user_id: i64) -> String {
-    use sha2::{Digest, Sha256};
-
-    let raw = format!("business:{}:{}", bot_id, user_id);
-    let mut hasher = Sha256::new();
-    hasher.update(raw.as_bytes());
-    let digest = hasher.finalize();
-    let hexed = hex::encode(digest);
-    format!("AQAD{}", &hexed[..28])
+pub fn default_business_connection_id(_bot_id: i64, _user_id: i64) -> String {
+    let random_hex = format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple(),
+    );
+    format!("AQAD{}", &random_hex[..28])
 }
 
 pub fn default_business_accepted_gift_types() -> AcceptedGiftTypes {

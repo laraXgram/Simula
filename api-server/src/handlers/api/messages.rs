@@ -47,6 +47,191 @@ use crate::handlers::{
     publish_sim_client_event
 };
 
+pub fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
+    let request: SendMessageRequest = parse_request(params)?;
+    let sim_parse_mode = messages::normalize_sim_parse_mode(request.parse_mode.as_deref());
+    let explicit_entities = request
+        .entities
+        .as_ref()
+        .and_then(|v| serde_json::to_value(v).ok());
+    let should_auto_detect_entities = explicit_entities.is_none();
+    let (parsed_text, parsed_entities) = parse_formatted_text(
+        &request.text,
+        request.parse_mode.as_deref(),
+        explicit_entities,
+    );
+    let parsed_entities = if should_auto_detect_entities {
+        merge_auto_message_entities(&parsed_text, parsed_entities)
+    } else {
+        parsed_entities
+    };
+
+    let mut conn = lock_db(state)?;
+    let bot = ensure_bot(&mut conn, token)?;
+
+    let (chat_key, chat) = chats::resolve_bot_outbound_chat(
+        &mut conn,
+        bot.id,
+        &request.chat_id,
+        ChatSendKind::Text,
+    )?;
+    let business_connection_id = business::resolve_outbound_business_connection_for_bot_message(
+        &mut conn,
+        bot.id,
+        &chat,
+        request.business_connection_id.as_deref(),
+    )?;
+    let message_thread_id = groups::resolve_forum_message_thread_for_chat_key(
+        &mut conn,
+        bot.id,
+        &chat_key,
+        request.message_thread_id,
+    )?;
+    let sender = chats::resolve_sender_for_bot_outbound_chat(
+        &mut conn,
+        &bot,
+        &chat_key,
+        &chat,
+        ChatSendKind::Text,
+    )?;
+
+    let reply_markup = messages::handle_reply_markup_state(
+        &mut conn,
+        bot.id,
+        &chat_key,
+        request.reply_markup.as_ref(),
+    )?;
+
+    let now = Utc::now().timestamp();
+
+    conn.execute(
+        "INSERT INTO messages (bot_id, chat_key, from_user_id, text, date) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![bot.id, &chat_key, sender.id, parsed_text, now],
+    )
+    .map_err(ApiError::internal)?;
+
+    let message_id = conn.last_insert_rowid();
+
+    let base_message_json = json!({
+        "message_id": message_id,
+        "date": now,
+        "chat": chat,
+        "from": sender,
+        "text": parsed_text,
+    });
+
+    let mut base_message_json = base_message_json;
+    if let Some(entities) = parsed_entities {
+        base_message_json["entities"] = entities;
+    }
+    if let Some(thread_id) = message_thread_id {
+        base_message_json["message_thread_id"] = Value::from(thread_id);
+        base_message_json["is_topic_message"] = Value::Bool(true);
+    }
+    if let Some(connection_id) = business_connection_id.as_ref() {
+        base_message_json["business_connection_id"] = Value::String(connection_id.clone());
+    }
+    if let Some(mode) = sim_parse_mode {
+        base_message_json["sim_parse_mode"] = Value::String(mode);
+    }
+    let message: Message = serde_json::from_value(base_message_json).map_err(ApiError::internal)?;
+    let is_channel_post = chat.r#type == "channel";
+    let is_business_message = business_connection_id.is_some();
+
+    let update_stub = Update {
+        update_id: 0,
+        message: if is_channel_post || is_business_message {
+            None
+        } else {
+            Some(message.clone())
+        },
+        edited_message: None,
+        channel_post: if is_channel_post {
+            Some(message.clone())
+        } else {
+            None
+        },
+        edited_channel_post: None,
+        business_connection: None,
+        business_message: if is_business_message {
+            Some(message.clone())
+        } else {
+            None
+        },
+        edited_business_message: None,
+        deleted_business_messages: None,
+        message_reaction: None,
+        message_reaction_count: None,
+        inline_query: None,
+        chosen_inline_result: None,
+        callback_query: None,
+        shipping_query: None,
+        pre_checkout_query: None,
+        purchased_paid_media: None,
+        poll: None,
+        poll_answer: None,
+        my_chat_member: None,
+        chat_member: None,
+        chat_join_request: None,
+        chat_boost: None,
+        removed_chat_boost: None,
+        managed_bot: None,
+    };
+
+    conn.execute(
+        "INSERT INTO updates (bot_id, update_json) VALUES (?1, ?2)",
+        params![bot.id, serde_json::to_string(&update_stub).map_err(ApiError::internal)?],
+    )
+    .map_err(ApiError::internal)?;
+
+    let update_id = conn.last_insert_rowid();
+
+    let mut update_value = serde_json::to_value(update_stub).map_err(ApiError::internal)?;
+    update_value["update_id"] = json!(update_id);
+
+    let mut message_value = serde_json::to_value(&message).map_err(ApiError::internal)?;
+    if let Some(markup) = reply_markup {
+        message_value["reply_markup"] = markup;
+    }
+    if is_business_message {
+        update_value["business_message"] = message_value.clone();
+    } else if is_channel_post {
+        update_value["channel_post"] = message_value.clone();
+    } else {
+        update_value["message"] = message_value.clone();
+    }
+
+    channels::enrich_channel_post_payloads(&mut conn, bot.id, &mut update_value)?;
+    if is_channel_post {
+        if let Some(enriched_message) = update_value.get("channel_post").cloned() {
+            message_value = enriched_message;
+        }
+    }
+
+    conn.execute(
+        "UPDATE updates SET update_json = ?1 WHERE update_id = ?2",
+        params![update_value.to_string(), update_id],
+    )
+    .map_err(ApiError::internal)?;
+
+    let clean_update = strip_nulls(update_value);
+    state.ws_hub.publish_json(token, &clean_update);
+    webhook::dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update.clone());
+
+    if is_channel_post {
+        channels::ensure_linked_discussion_forward_for_channel_post(
+            state,
+            &mut conn,
+            token,
+            &bot,
+            &chat_key,
+            &message_value,
+        )?;
+    }
+
+    Ok(message_value)
+}
+
 pub fn handle_copy_message(
     state: &Data<AppState>,
     token: &str,
@@ -2349,191 +2534,6 @@ pub fn handle_send_message_draft(
     Ok(Value::Bool(true))
 }
 
-pub fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
-    let request: SendMessageRequest = parse_request(params)?;
-    let sim_parse_mode = messages::normalize_sim_parse_mode(request.parse_mode.as_deref());
-    let explicit_entities = request
-        .entities
-        .as_ref()
-        .and_then(|v| serde_json::to_value(v).ok());
-    let should_auto_detect_entities = explicit_entities.is_none();
-    let (parsed_text, parsed_entities) = parse_formatted_text(
-        &request.text,
-        request.parse_mode.as_deref(),
-        explicit_entities,
-    );
-    let parsed_entities = if should_auto_detect_entities {
-        merge_auto_message_entities(&parsed_text, parsed_entities)
-    } else {
-        parsed_entities
-    };
-
-    let mut conn = lock_db(state)?;
-    let bot = ensure_bot(&mut conn, token)?;
-
-    let (chat_key, chat) = chats::resolve_bot_outbound_chat(
-        &mut conn,
-        bot.id,
-        &request.chat_id,
-        ChatSendKind::Text,
-    )?;
-    let business_connection_id = business::resolve_outbound_business_connection_for_bot_message(
-        &mut conn,
-        bot.id,
-        &chat,
-        request.business_connection_id.as_deref(),
-    )?;
-    let message_thread_id = groups::resolve_forum_message_thread_for_chat_key(
-        &mut conn,
-        bot.id,
-        &chat_key,
-        request.message_thread_id,
-    )?;
-    let sender = chats::resolve_sender_for_bot_outbound_chat(
-        &mut conn,
-        &bot,
-        &chat_key,
-        &chat,
-        ChatSendKind::Text,
-    )?;
-
-    let reply_markup = messages::handle_reply_markup_state(
-        &mut conn,
-        bot.id,
-        &chat_key,
-        request.reply_markup.as_ref(),
-    )?;
-
-    let now = Utc::now().timestamp();
-
-    conn.execute(
-        "INSERT INTO messages (bot_id, chat_key, from_user_id, text, date) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![bot.id, &chat_key, sender.id, parsed_text, now],
-    )
-    .map_err(ApiError::internal)?;
-
-    let message_id = conn.last_insert_rowid();
-
-    let base_message_json = json!({
-        "message_id": message_id,
-        "date": now,
-        "chat": chat,
-        "from": sender,
-        "text": parsed_text,
-    });
-
-    let mut base_message_json = base_message_json;
-    if let Some(entities) = parsed_entities {
-        base_message_json["entities"] = entities;
-    }
-    if let Some(thread_id) = message_thread_id {
-        base_message_json["message_thread_id"] = Value::from(thread_id);
-        base_message_json["is_topic_message"] = Value::Bool(true);
-    }
-    if let Some(connection_id) = business_connection_id.as_ref() {
-        base_message_json["business_connection_id"] = Value::String(connection_id.clone());
-    }
-    if let Some(mode) = sim_parse_mode {
-        base_message_json["sim_parse_mode"] = Value::String(mode);
-    }
-    let message: Message = serde_json::from_value(base_message_json).map_err(ApiError::internal)?;
-    let is_channel_post = chat.r#type == "channel";
-    let is_business_message = business_connection_id.is_some();
-
-    let update_stub = Update {
-        update_id: 0,
-        message: if is_channel_post || is_business_message {
-            None
-        } else {
-            Some(message.clone())
-        },
-        edited_message: None,
-        channel_post: if is_channel_post {
-            Some(message.clone())
-        } else {
-            None
-        },
-        edited_channel_post: None,
-        business_connection: None,
-        business_message: if is_business_message {
-            Some(message.clone())
-        } else {
-            None
-        },
-        edited_business_message: None,
-        deleted_business_messages: None,
-        message_reaction: None,
-        message_reaction_count: None,
-        inline_query: None,
-        chosen_inline_result: None,
-        callback_query: None,
-        shipping_query: None,
-        pre_checkout_query: None,
-        purchased_paid_media: None,
-        poll: None,
-        poll_answer: None,
-        my_chat_member: None,
-        chat_member: None,
-        chat_join_request: None,
-        chat_boost: None,
-        removed_chat_boost: None,
-        managed_bot: None,
-    };
-
-    conn.execute(
-        "INSERT INTO updates (bot_id, update_json) VALUES (?1, ?2)",
-        params![bot.id, serde_json::to_string(&update_stub).map_err(ApiError::internal)?],
-    )
-    .map_err(ApiError::internal)?;
-
-    let update_id = conn.last_insert_rowid();
-
-    let mut update_value = serde_json::to_value(update_stub).map_err(ApiError::internal)?;
-    update_value["update_id"] = json!(update_id);
-
-    let mut message_value = serde_json::to_value(&message).map_err(ApiError::internal)?;
-    if let Some(markup) = reply_markup {
-        message_value["reply_markup"] = markup;
-    }
-    if is_business_message {
-        update_value["business_message"] = message_value.clone();
-    } else if is_channel_post {
-        update_value["channel_post"] = message_value.clone();
-    } else {
-        update_value["message"] = message_value.clone();
-    }
-
-    channels::enrich_channel_post_payloads(&mut conn, bot.id, &mut update_value)?;
-    if is_channel_post {
-        if let Some(enriched_message) = update_value.get("channel_post").cloned() {
-            message_value = enriched_message;
-        }
-    }
-
-    conn.execute(
-        "UPDATE updates SET update_json = ?1 WHERE update_id = ?2",
-        params![update_value.to_string(), update_id],
-    )
-    .map_err(ApiError::internal)?;
-
-    let clean_update = strip_nulls(update_value);
-    state.ws_hub.publish_json(token, &clean_update);
-    webhook::dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update.clone());
-
-    if is_channel_post {
-        channels::ensure_linked_discussion_forward_for_channel_post(
-            state,
-            &mut conn,
-            token,
-            &bot,
-            &chat_key,
-            &message_value,
-        )?;
-    }
-
-    Ok(message_value)
-}
-
 pub fn handle_send_photo(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: SendPhotoRequest = parse_request(params)?;
     let sim_parse_mode = messages::normalize_sim_parse_mode(request.parse_mode.as_deref());
@@ -2644,9 +2644,11 @@ pub fn handle_send_poll(state: &Data<AppState>, token: &str, params: &HashMap<St
         return Err(ApiError::bad_request("correct_option_ids is allowed only for quiz polls"));
     }
 
-    let allows_revoting = request
-        .allows_revoting
-        .unwrap_or_else(|| poll_type != "quiz");
+    let allows_revoting = if poll_type == "quiz" {
+        false
+    } else {
+        request.allows_revoting.unwrap_or(true)
+    };
 
     let explicit_explanation_entities = request
         .explanation_entities

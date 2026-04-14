@@ -43,7 +43,7 @@ use crate::handlers::{
 
 use super::chats::ChatSendKind;
 use super::users::SimUserPayload;
-use super::{bot, business, chats, channels, groups, users, webhook};
+use super::{bot, chats, channels, groups, users, webhook};
 
 pub fn is_service_message_for_transport(message: &Value) -> bool {
     [
@@ -337,7 +337,6 @@ pub fn send_sim_user_payload_message(
     first_name: Option<String>,
     username: Option<String>,
     sender_chat_id: Option<i64>,
-    business_connection_id: Option<String>,
     payload: SimUserPayload,
     text: Option<String>,
     entities: Option<Value>,
@@ -419,26 +418,6 @@ pub fn send_sim_user_payload_message(
         )?;
     }
 
-    let business_connection_record = business::normalize_business_connection_id(business_connection_id.as_deref())
-        .map(|connection_id| business::load_business_connection_or_404(&mut conn, bot.id, &connection_id))
-        .transpose()?;
-    let business_connection_id = if let Some(record) = business_connection_record.as_ref() {
-        if is_direct_messages {
-            return Err(ApiError::bad_request(
-                "business_connection_id is not supported in channel direct messages simulation",
-            ));
-        }
-        if !record.is_enabled {
-            return Err(ApiError::bad_request("business connection is disabled"));
-        }
-        if sim_chat.chat_type != "private" || sim_chat.chat_id != record.user_chat_id || user.id != record.user_id {
-            return Err(ApiError::bad_request("business connection does not match chat/user"));
-        }
-        Some(record.connection_id.clone())
-    } else {
-        None
-    };
-
     let chat_key = sim_chat.chat_key.clone();
     let direct_messages_star_count = if is_direct_messages {
         channels::direct_messages_star_count_for_chat(&mut conn, bot.id, &sim_chat)?
@@ -516,9 +495,6 @@ pub fn send_sim_user_payload_message(
     if let Some(direct_messages_topic) = direct_messages_topic_json {
         message_json["direct_messages_topic"] = direct_messages_topic;
     }
-    if let Some(connection_id) = business_connection_id.as_ref() {
-        message_json["business_connection_id"] = Value::String(connection_id.clone());
-    }
     if is_direct_messages && direct_messages_star_count > 0 {
         message_json["paid_message_star_count"] = Value::from(direct_messages_star_count);
     }
@@ -556,8 +532,7 @@ pub fn send_sim_user_payload_message(
     }
 
     let message: Message = serde_json::from_value(message_json).map_err(ApiError::internal)?;
-    let is_business_message = business_connection_id.is_some();
-    let mut bot_visible = if is_direct_messages || is_business_message {
+    let mut bot_visible = if is_direct_messages {
         true
     } else {
         bot::should_emit_user_generated_update_to_bot(
@@ -578,7 +553,7 @@ pub fn send_sim_user_payload_message(
     }
     let update_stub = Update {
         update_id: 0,
-        message: if is_channel_post || is_business_message {
+        message: if is_channel_post {
             None
         } else {
             Some(message.clone())
@@ -591,11 +566,7 @@ pub fn send_sim_user_payload_message(
         },
         edited_channel_post: None,
         business_connection: None,
-        business_message: if is_business_message {
-            Some(message.clone())
-        } else {
-            None
-        },
+        business_message: None,
         edited_business_message: None,
         deleted_business_messages: None,
         message_reaction: None,
@@ -634,9 +605,7 @@ pub fn send_sim_user_payload_message(
     if is_direct_messages && direct_messages_star_count > 0 {
         message_value["paid_message_star_count"] = Value::from(direct_messages_star_count);
     }
-    if is_business_message {
-        update_value["business_message"] = message_value.clone();
-    } else if is_channel_post {
+    if is_channel_post {
         update_value["channel_post"] = message_value.clone();
     } else {
         update_value["message"] = message_value.clone();
@@ -767,26 +736,6 @@ pub fn handle_sim_send_user_message(
             body.message_thread_id,
         )?;
     }
-
-    let business_connection_record = business::normalize_business_connection_id(body.business_connection_id.as_deref())
-        .map(|connection_id| business::load_business_connection_or_404(&mut conn, bot.id, &connection_id))
-        .transpose()?;
-    let business_connection_id = if let Some(record) = business_connection_record.as_ref() {
-        if is_direct_messages {
-            return Err(ApiError::bad_request(
-                "business_connection_id is not supported in channel direct messages simulation",
-            ));
-        }
-        if !record.is_enabled {
-            return Err(ApiError::bad_request("business connection is disabled"));
-        }
-        if sim_chat.chat_type != "private" || sim_chat.chat_id != record.user_chat_id || user.id != record.user_id {
-            return Err(ApiError::bad_request("business connection does not match chat/user"));
-        }
-        Some(record.connection_id.clone())
-    } else {
-        None
-    };
 
     let mut managed_bot_created: Option<ManagedBotCreated> = None;
     let mut managed_bot_update: Option<ManagedBotUpdated> = None;
@@ -962,9 +911,6 @@ pub fn handle_sim_send_user_message(
     if let Some(direct_messages_topic) = direct_messages_topic_json {
         message_json["direct_messages_topic"] = direct_messages_topic;
     }
-    if let Some(connection_id) = business_connection_id.as_ref() {
-        message_json["business_connection_id"] = Value::String(connection_id.clone());
-    }
     if let Some(parameters) = suggested_post_parameters.as_ref() {
         message_json["suggested_post_parameters"] =
             serde_json::to_value(parameters).map_err(ApiError::internal)?;
@@ -1012,8 +958,7 @@ pub fn handle_sim_send_user_message(
     }
 
     let message: Message = serde_json::from_value(message_json).map_err(ApiError::internal)?;
-    let is_business_message = business_connection_id.is_some();
-    let mut bot_visible = if is_direct_messages || is_business_message {
+    let mut bot_visible = if is_direct_messages {
         true
     } else {
         bot::should_emit_user_generated_update_to_bot(
@@ -1034,7 +979,7 @@ pub fn handle_sim_send_user_message(
     }
     let update_stub = Update {
         update_id: 0,
-        message: if is_channel_post || is_business_message {
+        message: if is_channel_post {
             None
         } else {
             Some(message.clone())
@@ -1047,11 +992,7 @@ pub fn handle_sim_send_user_message(
         },
         edited_channel_post: None,
         business_connection: None,
-        business_message: if is_business_message {
-            Some(message.clone())
-        } else {
-            None
-        },
+        business_message: None,
         edited_business_message: None,
         deleted_business_messages: None,
         message_reaction: None,
@@ -1090,9 +1031,7 @@ pub fn handle_sim_send_user_message(
     if is_direct_messages && direct_messages_star_count > 0 {
         message_value["paid_message_star_count"] = Value::from(direct_messages_star_count);
     }
-    if is_business_message {
-        update_value["business_message"] = message_value.clone();
-    } else if is_channel_post {
+    if is_channel_post {
         update_value["channel_post"] = message_value.clone();
     } else {
         update_value["message"] = message_value.clone();
@@ -1384,26 +1323,6 @@ pub fn handle_sim_send_user_media(
         )?;
     }
 
-    let business_connection_record = business::normalize_business_connection_id(body.business_connection_id.as_deref())
-        .map(|connection_id| business::load_business_connection_or_404(&mut conn, bot.id, &connection_id))
-        .transpose()?;
-    let business_connection_id = if let Some(record) = business_connection_record.as_ref() {
-        if is_direct_messages {
-            return Err(ApiError::bad_request(
-                "business_connection_id is not supported in channel direct messages simulation",
-            ));
-        }
-        if !record.is_enabled {
-            return Err(ApiError::bad_request("business connection is disabled"));
-        }
-        if sim_chat.chat_type != "private" || sim_chat.chat_id != record.user_chat_id || user.id != record.user_id {
-            return Err(ApiError::bad_request("business connection does not match chat/user"));
-        }
-        Some(record.connection_id.clone())
-    } else {
-        None
-    };
-
     let chat_key = sim_chat.chat_key.clone();
     let direct_messages_star_count = if is_direct_messages {
         channels::direct_messages_star_count_for_chat(&mut conn, bot.id, &sim_chat)?
@@ -1465,9 +1384,6 @@ pub fn handle_sim_send_user_media(
     if let Some(direct_messages_topic) = direct_messages_topic_json {
         message_json["direct_messages_topic"] = direct_messages_topic;
     }
-    if let Some(connection_id) = business_connection_id.as_ref() {
-        message_json["business_connection_id"] = Value::String(connection_id.clone());
-    }
     if is_direct_messages && direct_messages_star_count > 0 {
         message_json["paid_message_star_count"] = Value::from(direct_messages_star_count);
     }
@@ -1505,8 +1421,7 @@ pub fn handle_sim_send_user_media(
     }
 
     let message: Message = serde_json::from_value(message_json).map_err(ApiError::internal)?;
-    let is_business_message = business_connection_id.is_some();
-    let mut bot_visible = if is_direct_messages || is_business_message {
+    let mut bot_visible = if is_direct_messages {
         true
     } else {
         bot::should_emit_user_generated_update_to_bot(
@@ -1527,7 +1442,7 @@ pub fn handle_sim_send_user_media(
     }
     let update_stub = Update {
         update_id: 0,
-        message: if is_channel_post || is_business_message {
+        message: if is_channel_post {
             None
         } else {
             Some(message.clone())
@@ -1540,11 +1455,7 @@ pub fn handle_sim_send_user_media(
         },
         edited_channel_post: None,
         business_connection: None,
-        business_message: if is_business_message {
-            Some(message.clone())
-        } else {
-            None
-        },
+        business_message: None,
         edited_business_message: None,
         deleted_business_messages: None,
         message_reaction: None,
@@ -1583,9 +1494,7 @@ pub fn handle_sim_send_user_media(
     if is_direct_messages && direct_messages_star_count > 0 {
         message_value["paid_message_star_count"] = Value::from(direct_messages_star_count);
     }
-    if is_business_message {
-        update_value["business_message"] = message_value.clone();
-    } else if is_channel_post {
+    if is_channel_post {
         update_value["channel_post"] = message_value.clone();
     } else {
         update_value["message"] = message_value.clone();
@@ -1927,7 +1836,6 @@ pub fn handle_sim_send_user_dice(
         body.first_name,
         body.username,
         body.sender_chat_id,
-        None,
         SimUserPayload::Dice(Dice { emoji, value }),
         None,
         None,
@@ -1970,7 +1878,6 @@ pub fn handle_sim_send_user_game(
         body.first_name,
         body.username,
         body.sender_chat_id,
-        None,
         SimUserPayload::Game(game),
         None,
         None,
@@ -2009,7 +1916,6 @@ pub fn handle_sim_send_user_contact(
         body.first_name,
         body.username,
         body.sender_chat_id,
-        None,
         SimUserPayload::Contact(contact),
         None,
         None,
@@ -2042,7 +1948,6 @@ pub fn handle_sim_send_user_location(
         body.first_name,
         body.username,
         body.sender_chat_id,
-        None,
         SimUserPayload::Location(location),
         None,
         None,
@@ -2090,7 +1995,6 @@ pub fn handle_sim_send_user_venue(
         body.first_name,
         body.username,
         body.sender_chat_id,
-        None,
         SimUserPayload::Venue(venue),
         None,
         None,

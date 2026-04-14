@@ -156,6 +156,8 @@ pub fn handle_sim_vote_poll(
     let Some((poll_id, question, options_json, _total_voter_count, is_closed, is_anonymous, poll_type, allows_multiple_answers, allows_revoting, correct_option_id, correct_option_ids_json, explanation, description, open_period, close_date, created_at, question_entities_json, explanation_entities_json, description_entities_json)) = row else {
         return Err(ApiError::not_found("poll not found"));
     };
+    let poll_is_quiz = poll_type == "quiz";
+    let effective_allows_revoting = if poll_is_quiz { 0 } else { allows_revoting };
 
     let now = Utc::now().timestamp();
     let auto_closed = close_date.map(|ts| now >= ts).unwrap_or(false)
@@ -176,12 +178,19 @@ pub fn handle_sim_vote_poll(
     option_ids.sort_unstable();
     option_ids.dedup();
 
-    if poll_type == "quiz" {
+    if poll_is_quiz {
         if option_ids.is_empty() {
             return Err(ApiError::bad_request("quiz polls do not allow vote retraction"));
         }
         if allows_multiple_answers == 0 && option_ids.len() != 1 {
             return Err(ApiError::bad_request("quiz polls accept exactly one option"));
+        }
+        if allows_revoting != 0 {
+            conn.execute(
+                "UPDATE polls SET allows_revoting = 0 WHERE id = ?1",
+                params![&poll_id],
+            )
+            .map_err(ApiError::internal)?;
         }
     }
 
@@ -195,11 +204,13 @@ pub fn handle_sim_vote_poll(
         .map_err(ApiError::internal)?
         .map(|raw| serde_json::from_str::<Vec<i64>>(&raw).unwrap_or_default());
 
-    if allows_revoting == 0 {
-        if let Some(previous) = existing_vote.as_ref() {
+    if let Some(previous) = existing_vote.as_ref() {
+        if poll_is_quiz {
             if previous != &option_ids {
-                return Err(ApiError::bad_request("poll vote cannot be changed"));
+                return Err(ApiError::bad_request("quiz poll vote cannot be changed"));
             }
+        } else if effective_allows_revoting == 0 && previous != &option_ids {
+            return Err(ApiError::bad_request("poll vote cannot be changed"));
         }
     }
 
@@ -283,7 +294,7 @@ pub fn handle_sim_vote_poll(
         is_anonymous: is_anonymous == 1,
         r#type: poll_type,
         allows_multiple_answers: allows_multiple_answers == 1,
-        allows_revoting: allows_revoting == 1,
+        allows_revoting: effective_allows_revoting == 1,
         correct_option_ids,
         explanation,
         explanation_entities: explanation_entities_json

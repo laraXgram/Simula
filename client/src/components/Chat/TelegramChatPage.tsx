@@ -6361,7 +6361,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         chat_id: selectedChatId,
         message_thread_id: outboundMessageThreadId,
         direct_messages_topic_id: activeDirectMessagesTopicId,
-        business_connection_id: activeBusinessConnectionId,
         user_id: selectedUser.id,
         first_name: selectedUser.first_name,
         username: selectedUser.username,
@@ -6647,7 +6646,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             chatId: selectedChatId,
             messageThreadId: outboundMessageThreadId,
             directMessagesTopicId: activeDirectMessagesTopicId,
-            businessConnectionId: activeBusinessConnectionId,
             userId: selectedUser.id,
             firstName: selectedUser.first_name,
             username: selectedUser.username,
@@ -6665,7 +6663,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               chatId: selectedChatId,
               messageThreadId: outboundMessageThreadId,
               directMessagesTopicId: activeDirectMessagesTopicId,
-              businessConnectionId: activeBusinessConnectionId,
               userId: selectedUser.id,
               firstName: selectedUser.first_name,
               username: selectedUser.username,
@@ -6834,7 +6831,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         })),
         is_anonymous: pollBuilder.isAnonymous,
         type: pollBuilder.type,
-        allows_revoting: pollBuilder.allowsRevoting,
+        allows_revoting: pollBuilder.type === 'quiz' ? false : pollBuilder.allowsRevoting,
         allows_multiple_answers: pollBuilder.allowsMultipleAnswers,
         correct_option_ids: pollBuilder.type === 'quiz' ? normalizedCorrectOptionIds : undefined,
         explanation: pollBuilder.type === 'quiz' ? (pollBuilder.explanation.trim() || undefined) : undefined,
@@ -8431,7 +8428,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         chatId: selectedChatId,
         messageThreadId: outboundMessageThreadId,
         directMessagesTopicId: activeDirectMessagesTopicId,
-        businessConnectionId: activeBusinessConnectionId,
         userId: selectedUser.id,
         firstName: selectedUser.first_name,
         username: selectedUser.username,
@@ -8473,7 +8469,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         chatId: selectedChatId,
         messageThreadId: outboundMessageThreadId,
         directMessagesTopicId: activeDirectMessagesTopicId,
-        businessConnectionId: activeBusinessConnectionId,
         userId: selectedUser.id,
         firstName: selectedUser.first_name,
         username: selectedUser.username,
@@ -11652,7 +11647,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         chat_id: selectedChatId,
         message_thread_id: outboundMessageThreadId,
         direct_messages_topic_id: activeDirectMessagesTopicId,
-        business_connection_id: activeBusinessConnectionId,
         user_id: selectedUser.id,
         first_name: selectedUser.first_name,
         username: selectedUser.username,
@@ -13816,7 +13810,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
     const selectionKey = `${selectedUser.id}:${message.poll.id}`;
     const currentSelection = pollSelections[selectionKey] || [];
-    const voteLocked = currentSelection.length > 0 && !message.poll.allows_revoting;
+    const voteLocked = currentSelection.length > 0
+      && (message.poll.type === 'quiz' || !message.poll.allows_revoting);
     if (voteLocked) {
       return;
     }
@@ -13945,7 +13940,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     const selectionKey = `${selectedUser.id}:${message.poll.id}`;
     const currentSelection = pollSelections[selectionKey] || [];
     const hasVoted = currentSelection.length > 0;
-    const voteLocked = hasVoted && !message.poll.allows_revoting;
+    const voteLocked = hasVoted
+      && (message.poll.type === 'quiz' || !message.poll.allows_revoting);
     const canRetract = !message.poll.is_closed && message.poll.type !== 'quiz' && hasVoted && message.poll.allows_revoting;
     const votersExpanded = Boolean(expandedPollVoters[message.poll.id]);
     const votersLoading = Boolean(pollVotersLoading[message.poll.id]);
@@ -14012,7 +14008,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         <div className="mt-2 flex items-center justify-between text-[11px] text-telegram-textSecondary">
           <span>{message.poll.total_voter_count} votes</span>
           <span>
-            {message.poll.is_closed ? 'closed' : (!message.poll.allows_revoting && hasVoted ? 'final vote' : '')}
+            {message.poll.is_closed
+              ? 'closed'
+              : ((message.poll.type === 'quiz' || !message.poll.allows_revoting) && hasVoted ? 'final vote' : '')}
           </span>
         </div>
         {!isAnonymous ? (

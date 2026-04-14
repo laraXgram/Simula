@@ -1084,7 +1084,6 @@ export async function sendUserMessage(token: string, payload: {
   first_name: string;
   username?: string;
   sender_chat_id?: number;
-  business_connection_id?: string;
   text: string;
   parse_mode?: 'HTML' | 'Markdown' | 'MarkdownV2';
   suggested_post_parameters?: SuggestedPostParameters;
@@ -1096,6 +1095,7 @@ export async function sendUserMessage(token: string, payload: {
 }) {
   const normalizedPayload = {
     ...payload,
+    business_connection_id: undefined,
     text: normalizeTextInput(payload.text),
   };
 
@@ -1496,7 +1496,6 @@ export async function sendUserMedia(token: string, payload: {
   firstName: string;
   username?: string;
   senderChatId?: number;
-  businessConnectionId?: string;
   file: globalThis.File;
   mediaKind?: 'photo' | 'video' | 'audio' | 'voice' | 'document' | 'sticker' | 'animation' | 'video_note';
   caption?: string;
@@ -1536,9 +1535,6 @@ export async function sendUserMedia(token: string, payload: {
   if (typeof payload.senderChatId === 'number' && Number.isFinite(payload.senderChatId) && payload.senderChatId > 0) {
     formData.append('sender_chat_id', String(Math.trunc(payload.senderChatId)));
   }
-  if (payload.businessConnectionId?.trim()) {
-    formData.append('business_connection_id', payload.businessConnectionId.trim());
-  }
   if (payload.replyToMessageId) {
     formData.append('reply_to_message_id', String(payload.replyToMessageId));
   }
@@ -1575,7 +1571,6 @@ export async function sendUserMediaByReference(token: string, payload: {
   firstName: string;
   username?: string;
   senderChatId?: number;
-  businessConnectionId?: string;
   mediaKind: 'sticker' | 'animation' | 'video_note' | 'voice';
   media: string;
   caption?: string;
@@ -1595,7 +1590,6 @@ export async function sendUserMediaByReference(token: string, payload: {
       first_name: payload.firstName,
       username: payload.username,
       sender_chat_id: payload.senderChatId,
-      business_connection_id: payload.businessConnectionId,
       media_kind: payload.mediaKind,
       media: payload.media,
       caption: payload.caption,
