@@ -33,6 +33,7 @@ interface RuntimeLogRecord {
   statusCode: number;
   durationMs: number;
   remoteAddr?: string;
+  webhookUrl?: string;
   request?: unknown;
   response?: unknown;
   status: LogStatus;
@@ -145,6 +146,16 @@ function normalizeRuntimeLog(value: unknown, index: number): RuntimeLogRecord | 
   const responseObject = asRecord(raw.response);
   const inferredFailure = responseObject ? responseObject.ok === false : false;
   const statusCode = Number(raw.status || 0);
+  const isWebhookDispatch = path === '/webhook/dispatch' || path === '/webhook/distpatch';
+  const requestObject = asRecord(raw.request);
+  const webhookUrl = getString(requestObject?.url);
+  const requestPayload = isWebhookDispatch
+    ? {
+      update: requestObject && 'update' in requestObject
+        ? requestObject.update
+        : raw.request,
+    }
+    : raw.request;
 
   return {
     id: String(raw.id || `runtime-log-${index}-${Date.now()}`),
@@ -155,7 +166,8 @@ function normalizeRuntimeLog(value: unknown, index: number): RuntimeLogRecord | 
     statusCode,
     durationMs: Math.max(0, Number(raw.duration_ms || 0)),
     remoteAddr: getString(raw.remote_addr),
-    request: raw.request,
+    webhookUrl,
+    request: requestPayload,
     response: raw.response,
     status: inferredFailure || statusCode >= 400 ? 'error' : 'ok',
     source,
@@ -451,7 +463,7 @@ export default function DebugPage() {
         }
 
         const requestObject = asRecord(entry.request);
-        const url = getString(requestObject?.url) || '';
+        const url = entry.webhookUrl || getString(requestObject?.url) || '';
         if (!keyword) {
           return true;
         }
@@ -985,7 +997,7 @@ export default function DebugPage() {
                   {webhookLogs.map((entry) => {
                     const request = asRecord(entry.request);
                     const response = asRecord(entry.response);
-                    const targetUrl = getString(request?.url) || 'unknown url';
+                    const targetUrl = entry.webhookUrl || getString(request?.url) || 'unknown url';
                     const update = asRecord(request?.update);
                     const updateId = update ? Number(update.update_id || 0) : 0;
                     const responseDescription = getString(response?.description);

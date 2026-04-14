@@ -282,6 +282,7 @@ const MANAGED_BOT_SETTINGS_BY_BOT_KEY = 'simula-managed-bot-settings-by-bot';
 const USER_EMOJI_STATUS_BY_KEY = 'simula-user-emoji-status-by-key';
 const CHAT_BOOST_COUNTS_BY_ACTOR_CHAT_KEY = 'simula-chat-boost-counts-by-actor-chat';
 const SIDEBAR_SECTIONS_KEY = 'simula-sidebar-sections';
+const SIDEBAR_ACTIVE_TAB_KEY = 'simula-sidebar-active-tab';
 const SETTINGS_SECTIONS_KEY = 'simula-settings-sections';
 const BOTS_SECTIONS_KEY = 'simula-bots-sections';
 const WEBHOOK_DOMAIN_BY_BOT_KEY = 'simula-webhook-domain-by-bot';
@@ -321,6 +322,14 @@ type MediaDrawerTab =
   | 'invoice'
   | 'checklist';
 
+function isSidebarTab(value: unknown): value is SidebarTab {
+  return value === 'chats'
+    || value === 'users'
+    || value === 'bots'
+    || value === 'debugger'
+    || value === 'settings';
+}
+
 interface StoryPreviewSnapshot {
   caption?: string;
   contentRef?: string;
@@ -346,7 +355,6 @@ interface SettingsSectionState {
 
 interface BotsSectionState {
   webhookManager: boolean;
-  botCreator: boolean;
 }
 
 interface DebugEventLog {
@@ -796,8 +804,19 @@ function defaultSettingsSections(): SettingsSectionState {
 
 function defaultBotsSections(): BotsSectionState {
   return {
-    webhookManager: true,
-    botCreator: true,
+    webhookManager: false,
+  };
+}
+
+function pickUpdateOnlyPayload(payload: unknown): { update: unknown } {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload) && 'update' in (payload as Record<string, unknown>)) {
+    return {
+      update: (payload as Record<string, unknown>).update,
+    };
+  }
+
+  return {
+    update: payload,
   };
 }
 
@@ -1858,7 +1877,18 @@ function buildMenuButtonFromDraft(draft: GroupMenuButtonDraft): GeneratedMenuBut
 }
 
 export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatPageProps) {
-  const [activeTab, setActiveTab] = useState<SidebarTab>(initialTab);
+  const [activeTab, setActiveTab] = useState<SidebarTab>(() => {
+    try {
+      const raw = localStorage.getItem(SIDEBAR_ACTIVE_TAB_KEY);
+      if (isSidebarTab(raw)) {
+        return raw;
+      }
+    } catch {
+      // Ignore localStorage read failures and fallback to prop default.
+    }
+
+    return initialTab;
+  });
   const [isSidebarPanelOpen, setIsSidebarPanelOpen] = useState(true);
   const [sidebarSections, setSidebarSections] = useState<SidebarSectionState>(() => {
     try {
@@ -1900,7 +1930,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       const defaults = defaultBotsSections();
       return {
         webhookManager: typeof parsed.webhookManager === 'boolean' ? parsed.webhookManager : defaults.webhookManager,
-        botCreator: typeof parsed.botCreator === 'boolean' ? parsed.botCreator : defaults.botCreator,
       };
     } catch {
       return defaultBotsSections();
@@ -4474,6 +4503,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   }, [sidebarSections]);
 
   useEffect(() => {
+    localStorage.setItem(SIDEBAR_ACTIVE_TAB_KEY, activeTab);
+  }, [activeTab]);
+
+  useEffect(() => {
     localStorage.setItem(SETTINGS_SECTIONS_KEY, JSON.stringify(settingsSections));
   }, [settingsSections]);
 
@@ -5062,14 +5095,15 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       }
     },
     onUpdate: (update: BotUpdate) => {
+      const dispatchPayload = pickUpdateOnlyPayload({ update });
       appendDebugEventLog({
         at: Date.now(),
         botToken: selectedBotToken,
-        method: 'UPDATE',
-        path: '/webhook/listen',
+        method: 'POST',
+        path: '/webhook/dispatch',
         source: 'webhook',
         status: 'ok',
-        request: lastBotRequestByTokenRef.current[selectedBotToken] ?? null,
+        request: dispatchPayload,
         response: update,
       });
 
@@ -11400,10 +11434,16 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
       const token = typeof detail.token === 'string' ? detail.token : '';
       const method = typeof detail.method === 'string' ? detail.method : 'UNKNOWN';
+      const normalizedMethod = method.trim().toLowerCase().replace(/^\/+/, '');
+      const isWebhookDispatch = normalizedMethod === 'webhook/dispatch';
       const ok = detail.ok === true;
+      const requestPayload = isWebhookDispatch ? pickUpdateOnlyPayload(detail.request) : detail.request;
+      const responsePayload = ok
+        ? (isWebhookDispatch ? pickUpdateOnlyPayload(detail.response) : detail.response)
+        : undefined;
 
       if (token) {
-        lastBotRequestByTokenRef.current[token] = detail.request;
+        lastBotRequestByTokenRef.current[token] = requestPayload;
       }
 
       appendDebugEventLog({
@@ -11413,8 +11453,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         path: `/bot/${method}`,
         source: 'bot',
         status: ok ? 'ok' : 'error',
-        request: detail.request,
-        response: ok ? detail.response : undefined,
+        request: requestPayload,
+        response: responsePayload,
         error: !ok && typeof detail.error === 'string' ? detail.error : undefined,
       });
     };
@@ -11512,6 +11552,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const onClearRuntimeLogs = async () => {
     setDebugEventLogs([]);
     setCallbackToast('Debugger logs cleared.');
+  };
+
+  const onOpenDebugPage = () => {
+    window.open('/debug', '_blank', 'noopener,noreferrer');
   };
 
   const onAddRuntimeEnvRow = () => {
@@ -15840,9 +15884,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       </div>
                     ) : null}
 
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-                      <p className="text-[11px] uppercase tracking-wide text-[#8fb7d6]">Bot Creators</p>
-                      <div className="mt-2 flex items-center gap-2 rounded-lg border border-white/10 bg-[#0f1c28] p-2">
+                    <div className="mt-2 flex items-center gap-2 rounded-lg border border-white/10 bg-[#0f1c28] p-2">
                         <button
                           type="button"
                           onClick={() => void copyToken(selectedBotToken)}
@@ -15859,7 +15901,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                         >
                           <Plus className="h-4 w-4" />
                         </button>
-                      </div>
                     </div>
 
                     <div className="space-y-2">
@@ -15919,6 +15960,13 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                           Request/Response logs ({filteredDebugEventLogs.length}/{debugEventLogs.length})
                         </p>
                         <div className="flex flex-wrap items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={onOpenDebugPage}
+                            className="rounded-md border border-white/20 bg-black/20 px-2 py-1 text-[11px] text-white hover:bg-white/10"
+                          >
+                            Open /debug
+                          </button>
                           <button
                             type="button"
                             onClick={() => void copyDebugLogPart(
