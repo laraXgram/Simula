@@ -57,10 +57,7 @@ async fn main() -> std::io::Result<()> {
         .ok()
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(8081);
-    let web_port = env::var("WEB_APP_PORT")
-        .ok()
-        .and_then(|p| p.parse::<u16>().ok())
-        .unwrap_or(8888);
+    let web_port: u16 = 8888;
     let db_path = env::var("DATABASE_URL").unwrap_or_else(|_| "simula.db".to_string());
     let web_dist_dir = match env::var("SIMULA_WEB_DIST_DIR") {
         Ok(path) => {
@@ -86,6 +83,7 @@ async fn main() -> std::io::Result<()> {
         ws_hub: WebSocketHub::new(),
         runtime_logs: Mutex::new(VecDeque::new()),
         api_enabled: Mutex::new(true),
+        runtime_transition: Mutex::new(None),
     });
 
     let auto_close_state = state.clone();

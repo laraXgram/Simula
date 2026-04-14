@@ -2,12 +2,9 @@ x-runtime-env: &runtime-env
   RUST_LOG: info
   API_HOST: 0.0.0.0
   API_PORT: 8081
-  WEB_APP_PORT: 8888
   DATABASE_URL: /data/simula.db
   FILE_STORAGE_DIR: /files
   LOG_DIR: stdout
-  RUNTIME_SERVICE_MODE: runtime-gate
-  RUNTIME_SERVICE_NAME: simula-api-server
 
 services:
   api-server:
@@ -93,7 +90,6 @@ services:
       npm run dev -- --host 0.0.0.0 --port 8888
       "
     environment:
-      VITE_API_BASE_URL: http://127.0.0.1:8081
       CHOKIDAR_USEPOLLING: "true"
     ports:
       - "8888:8888"
@@ -141,7 +137,6 @@ services:
       npm run build
       "
     environment:
-      VITE_API_BASE_URL: http://127.0.0.1:8081
     volumes:
       - ./client:/workspace/client
       - client-node-modules:/workspace/client/node_modules

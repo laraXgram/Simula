@@ -200,7 +200,12 @@ import {
   updateSimBot,
   upsertSimUser,
 } from '../../services/botApi';
-import { API_BASE_URL, DEFAULT_BOT_TOKEN } from '../../services/config';
+import { API_BASE_URL, DEFAULT_BOT_TOKEN, syncRuntimeClientEnvOverrides } from '../../services/config';
+import {
+  loadRuntimeInfo as requestRuntimeInfo,
+  runRuntimeServiceAction as requestRuntimeServiceAction,
+  saveRuntimeEnv as requestSaveRuntimeEnv,
+} from '../../services/runtimeControl';
 import { useBotUpdates } from '../../hooks/useBotUpdates';
 import type { GetChatMenuButtonRequest, SetChatMenuButtonRequest } from '../../types/generated/methods';
 import type {
@@ -346,7 +351,6 @@ interface DebugEventLog {
 interface RuntimeInfoState {
   api_host: string;
   api_port: string;
-  web_port: string;
   database_path: string;
   storage_path: string;
   logs_path: string;
@@ -362,6 +366,10 @@ interface RuntimeInfoState {
     status: string;
     requested_mode?: string;
     note?: string;
+    pid?: number;
+    binary_path?: string;
+    transition_action?: string;
+    transition_at?: number;
   };
 }
 
@@ -1830,7 +1838,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const [runtimeEnvRows, setRuntimeEnvRows] = useState<RuntimeEnvRow[]>([]);
   const [runtimeEnvSource, setRuntimeEnvSource] = useState<Record<string, string>>({});
   const [isRuntimeEnvSaving, setIsRuntimeEnvSaving] = useState(false);
-  const [runtimeServiceActionInFlight, setRuntimeServiceActionInFlight] = useState<'' | 'start' | 'stop' | 'restart'>('');
+  const [runtimeServiceActionInFlight, setRuntimeServiceActionInFlight] = useState<'' | 'restart'>('');
   const [chatScopeTab, setChatScopeTab] = useState<ChatScopeTab>(() => {
     const raw = localStorage.getItem(CHAT_SCOPE_KEY);
     if (raw === 'group' || raw === 'channel' || raw === 'private') {
@@ -11179,13 +11187,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   }, []);
 
   const onLoadRuntimeInfo = useCallback(async () => {
-    const apiBase = API_BASE_URL.replace(/\/$/, '');
     try {
-      const response = await fetch(`${apiBase}/client-api/runtime/info`);
-      if (!response.ok) {
-        throw new Error(`runtime info failed (${response.status})`);
-      }
-      const payload = await response.json();
+      const payload = await requestRuntimeInfo(API_BASE_URL);
       const runtime = payload?.runtime as Partial<RuntimeInfoState> | undefined;
       if (!runtime) {
         return;
@@ -11197,7 +11200,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       setRuntimeInfo({
         api_host: String(runtime.api_host || ''),
         api_port: String(runtime.api_port || ''),
-        web_port: String(runtime.web_port || ''),
         database_path: String(runtime.database_path || ''),
         storage_path: String(runtime.storage_path || ''),
         logs_path: String(runtime.logs_path || ''),
@@ -11213,41 +11215,56 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           status: String(rawService.status || 'unknown'),
           requested_mode: typeof rawService.requested_mode === 'string' ? rawService.requested_mode : undefined,
           note: typeof rawService.note === 'string' ? rawService.note : undefined,
+          pid: Number.isFinite(Number(rawService.pid)) ? Number(rawService.pid) : undefined,
+          binary_path: typeof rawService.binary_path === 'string' ? rawService.binary_path : undefined,
+          transition_action: typeof rawService.transition_action === 'string' ? rawService.transition_action : undefined,
+          transition_at: Number.isFinite(Number(rawService.transition_at)) ? Number(rawService.transition_at) : undefined,
         } : undefined,
       });
 
       if (!runtimeEnvDirty) {
         setRuntimeEnvSource(envValues);
         setRuntimeEnvRows(buildRuntimeEnvRows(envValues));
+        syncRuntimeClientEnvOverrides(envValues);
       }
     } catch {
       // Keep settings usable even when runtime info endpoint is unreachable.
     }
   }, [runtimeEnvDirty]);
 
-  const onRuntimeServiceAction = async (action: 'start' | 'stop' | 'restart') => {
-    setRuntimeServiceActionInFlight(action);
+  const onRuntimeServiceAction = async () => {
+    setRuntimeServiceActionInFlight('restart');
     setErrorText('');
     try {
-      const apiBase = API_BASE_URL.replace(/\/$/, '');
-      const response = await fetch(`${apiBase}/client-api/runtime/service`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ action }),
-      });
-
-      const payload = await response.json();
-      if (!payload?.ok) {
-        throw new Error(payload?.description || `Unable to ${action} service`);
+      const payload = await requestRuntimeServiceAction('restart', API_BASE_URL);
+      const payloadOk = payload?.ok === true;
+      if (!payloadOk) {
+        const description = typeof payload?.description === 'string'
+          ? payload.description
+          : 'Unable to restart service';
+        throw new Error(description);
       }
 
       await onLoadRuntimeInfo();
       await onCheckServerHealth();
-      setCallbackToast(`Service action executed: ${action}.`);
+      setCallbackToast('Service restarted.');
     } catch (error) {
-      setErrorText(error instanceof Error ? error.message : `Service ${action} failed`);
+      const message = error instanceof Error ? error.message.toLowerCase() : '';
+      const expectedDisconnect = (
+        message.includes('failed to fetch')
+        || message.includes('networkerror')
+        || message.includes('network request failed')
+      );
+
+      if (expectedDisconnect) {
+        setCallbackToast('Service restarted.');
+        window.setTimeout(() => {
+          window.location.reload();
+        }, 1200);
+        return;
+      }
+
+      setErrorText(error instanceof Error ? error.message : 'Service restart failed');
     } finally {
       setRuntimeServiceActionInFlight('');
     }
@@ -11313,24 +11330,47 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         return;
       }
 
-      const apiBase = API_BASE_URL.replace(/\/$/, '');
-      const response = await fetch(`${apiBase}/client-api/runtime/env`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ values: payloadValues }),
-      });
-      const payload = await response.json();
-      if (!payload?.ok) {
-        throw new Error(payload?.description || 'Unable to save env values');
+      const payload = await requestSaveRuntimeEnv(payloadValues, API_BASE_URL);
+      const payloadOk = payload?.ok === true;
+      if (!payloadOk) {
+        const description = typeof payload?.description === 'string'
+          ? payload.description
+          : 'Unable to save env values';
+        throw new Error(description);
       }
 
-      const nextValues = normalizeRuntimeEnvValues(payload?.result?.values);
+      const result = payload?.result && typeof payload.result === 'object'
+        ? payload.result as Record<string, unknown>
+        : undefined;
+      const nextValues = normalizeRuntimeEnvValues(result?.values);
       setRuntimeEnvSource(nextValues);
       setRuntimeEnvRows(buildRuntimeEnvRows(nextValues));
-      setCallbackToast('.env saved.');
-      await onLoadRuntimeInfo();
+      syncRuntimeClientEnvOverrides(nextValues);
+
+      try {
+        const restartPayload = await requestRuntimeServiceAction('restart', API_BASE_URL);
+        const restartOk = restartPayload?.ok === true;
+        if (!restartOk) {
+          const description = typeof restartPayload?.description === 'string'
+            ? restartPayload.description
+            : 'Unable to restart service after env save';
+          throw new Error(description);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message.toLowerCase() : '';
+        const restartLikelyInterruptedConnection = message.includes('failed to fetch')
+          || message.includes('networkerror')
+          || message.includes('network request failed');
+
+        if (!restartLikelyInterruptedConnection) {
+          throw error;
+        }
+      }
+
+      setCallbackToast('.env saved. Restarting server and reloading client...');
+      window.setTimeout(() => {
+        window.location.reload();
+      }, 1200);
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'Saving env failed');
     } finally {
@@ -15791,6 +15831,18 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                             {' '}· Name: {runtimeInfo?.service?.name || 'not-set'}
                             {' '}· Available: {runtimeInfo?.service?.available ? 'yes' : 'no'}
                           </p>
+                          {runtimeInfo?.service?.pid ? (
+                            <p className="mt-1 text-[#9ec3dc]">PID: {runtimeInfo.service.pid}</p>
+                          ) : null}
+                          {runtimeInfo?.service?.binary_path ? (
+                            <p className="mt-1 break-all text-[#9ec3dc]">Binary: {runtimeInfo.service.binary_path}</p>
+                          ) : null}
+                          {runtimeInfo?.service?.transition_action ? (
+                            <p className="mt-1 text-amber-200">
+                              Transition: {runtimeInfo.service.transition_action}
+                              {runtimeInfo.service.transition_at ? ` at ${new Date(runtimeInfo.service.transition_at).toLocaleTimeString()}` : ''}
+                            </p>
+                          ) : null}
                           {runtimeInfo?.service?.note ? (
                             <p className="mt-1 break-words text-amber-200">{runtimeInfo.service.note}</p>
                           ) : null}
@@ -15808,27 +15860,13 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                           </button>
                           <button
                             type="button"
-                            onClick={() => void onRuntimeServiceAction('start')}
+                            onClick={() => void onRuntimeServiceAction()}
                             disabled={runtimeServiceActionInFlight !== ''}
-                            className="rounded-md border border-emerald-300/35 bg-emerald-900/20 px-2 py-1 text-[11px] text-emerald-100 hover:bg-emerald-900/30 disabled:opacity-50"
+                            title="Restart server"
+                            aria-label="Restart server"
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-amber-300/35 bg-amber-900/20 text-amber-100 hover:bg-amber-900/30 disabled:opacity-50"
                           >
-                            {runtimeServiceActionInFlight === 'start' ? 'Starting...' : 'Start service'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void onRuntimeServiceAction('stop')}
-                            disabled={runtimeServiceActionInFlight !== ''}
-                            className="rounded-md border border-red-300/35 bg-red-900/20 px-2 py-1 text-[11px] text-red-100 hover:bg-red-900/30 disabled:opacity-50"
-                          >
-                            {runtimeServiceActionInFlight === 'stop' ? 'Stopping...' : 'Stop service'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void onRuntimeServiceAction('restart')}
-                            disabled={runtimeServiceActionInFlight !== ''}
-                            className="rounded-md border border-amber-300/35 bg-amber-900/20 px-2 py-1 text-[11px] text-amber-100 hover:bg-amber-900/30 disabled:opacity-50"
-                          >
-                            {runtimeServiceActionInFlight === 'restart' ? 'Restarting...' : 'Restart service'}
+                            <RefreshCw className={`h-3.5 w-3.5 ${runtimeServiceActionInFlight === 'restart' ? 'animate-spin' : ''}`} />
                           </button>
                         </div>
                       </div>
@@ -15898,7 +15936,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                       <p className="mt-1 break-all">Logs: {runtimeInfo?.logs_path || 'stdout (env_logger)'}</p>
                       <p className="mt-1 break-all">Workspace: {runtimeInfo?.workspace_dir || '-'}</p>
                       <p className="mt-1 break-all">API bind: {runtimeInfo?.api_host || '127.0.0.1'}:{runtimeInfo?.api_port || '8081'}</p>
-                      <p className="mt-1 break-all">Web app port: {runtimeInfo?.web_port || '8888'}</p>
                     </div>
                   </div>
                 ) : null}

@@ -13,12 +13,13 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Instant;
+use std::thread;
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 use crate::database::{
-    clear_runtime_logs, is_api_enabled, push_runtime_request_log, runtime_logs_snapshot,
-    set_api_enabled, AppState, RuntimeRequestLogEntry,
+    clear_runtime_logs, clear_runtime_transition, is_api_enabled, push_runtime_request_log,
+    runtime_logs_snapshot, set_api_enabled, AppState, RuntimeRequestLogEntry,
 };
 
 use crate::handlers::{
@@ -120,33 +121,50 @@ pub async fn health() -> impl Responder {
 
 #[get("/client-api/runtime/info")]
 pub async fn runtime_info(state: Data<AppState>) -> impl Responder {
-    let api_host = std::env::var("API_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let api_port = std::env::var("API_PORT").unwrap_or_else(|_| "8081".to_string());
-    let database_path = std::env::var("DATABASE_URL").unwrap_or_else(|_| "simula.db".to_string());
-    let storage_path = std::env::var("FILE_STORAGE_DIR").unwrap_or_else(|_| "files".to_string());
-    let web_port = std::env::var("WEB_APP_PORT").unwrap_or_else(|_| "8888".to_string());
-    let logs_path = std::env::var("LOG_DIR").unwrap_or_else(|_| "stdout (env_logger)".to_string());
-    let workspace_dir = std::env::current_dir()
-        .ok()
-        .map(|path| path.to_string_lossy().to_string())
-        .unwrap_or_else(|| ".".to_string());
+    let env_values = read_runtime_env_file().unwrap_or_else(|_| runtime_env_defaults());
+    let workspace_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let workspace_dir = workspace_root.to_string_lossy().to_string();
     let env_file_path = runtime_env_file_path();
-    let env_values = read_runtime_env_file().unwrap_or_default();
+    let api_host = env_values
+        .get("API_HOST")
+        .cloned()
+        .unwrap_or_else(|| "127.0.0.1".to_string());
+    let api_port = env_values
+        .get("API_PORT")
+        .cloned()
+        .unwrap_or_else(|| "8081".to_string());
+    let database_raw = env_values
+        .get("DATABASE_URL")
+        .cloned()
+        .unwrap_or_else(|| "simula.db".to_string());
+    let storage_raw = env_values
+        .get("FILE_STORAGE_DIR")
+        .cloned()
+        .unwrap_or_else(|| "files".to_string());
+    let logs_raw = env_values
+        .get("LOG_DIR")
+        .cloned()
+        .unwrap_or_else(|| "stdout".to_string());
+    let service_snapshot = runtime_service_snapshot(&state);
+    let api_enabled = service_snapshot
+        .get("active")
+        .and_then(Value::as_bool)
+        .unwrap_or_else(|| is_api_enabled(&state));
 
     HttpResponse::Ok().json(serde_json::json!({
         "status": "ok",
         "runtime": {
             "api_host": api_host,
             "api_port": api_port,
-            "web_port": web_port,
-            "database_path": database_path,
-            "storage_path": storage_path,
-            "logs_path": logs_path,
+            "web_port": "8888",
+            "database_path": resolve_runtime_path(&workspace_root, &database_raw),
+            "storage_path": resolve_runtime_path(&workspace_root, &storage_raw),
+            "logs_path": resolve_runtime_path(&workspace_root, &logs_raw),
             "workspace_dir": workspace_dir,
-            "api_enabled": is_api_enabled(&state),
+            "api_enabled": api_enabled,
             "env_file_path": env_file_path.to_string_lossy().to_string(),
             "env_values": env_values,
-            "service": runtime_service_snapshot(&state),
+            "service": service_snapshot,
         }
     }))
 }
@@ -194,8 +212,15 @@ pub async fn runtime_power_set(
     state: Data<AppState>,
     payload: web::Json<RuntimePowerRequest>,
 ) -> impl Responder {
-    let action = if payload.enabled { "start" } else { "stop" };
-    match perform_runtime_service_action(&state, action) {
+    if !payload.enabled {
+        return HttpResponse::Ok().json(json!({
+            "ok": false,
+            "error_code": 400,
+            "description": "Runtime stop/start has been removed. Use restart from runtime service controls.",
+        }));
+    }
+
+    match perform_runtime_service_action(&state, "restart") {
         Ok(service_snapshot) => {
             let enabled = service_snapshot
                 .get("active")
@@ -231,11 +256,11 @@ pub async fn runtime_service_action(
     payload: web::Json<RuntimeServiceActionRequest>,
 ) -> impl Responder {
     let action = payload.action.trim().to_ascii_lowercase();
-    if !["start", "stop", "restart"].contains(&action.as_str()) {
+    if action != "restart" {
         return HttpResponse::Ok().json(json!({
             "ok": false,
             "error_code": 400,
-            "description": "Invalid service action. Use start, stop, or restart.",
+            "description": "Invalid service action. Only restart is supported.",
         }));
     }
 
@@ -299,14 +324,19 @@ pub async fn runtime_env_set(payload: web::Json<RuntimeEnvPatchRequest>) -> impl
         }
     }
 
+    ensure_runtime_env_invariants(&mut current_values);
+
     match write_runtime_env_file(&current_values) {
-        Ok(()) => HttpResponse::Ok().json(json!({
-            "ok": true,
-            "result": {
-                "file_path": runtime_env_file_path().to_string_lossy().to_string(),
-                "values": current_values,
-            }
-        })),
+        Ok(()) => {
+            apply_runtime_env_to_process(&current_values);
+            HttpResponse::Ok().json(json!({
+                "ok": true,
+                "result": {
+                    "file_path": runtime_env_file_path().to_string_lossy().to_string(),
+                    "values": current_values,
+                }
+            }))
+        }
         Err(error) => HttpResponse::Ok().json(json!({
             "ok": false,
             "error_code": error.code,
@@ -1250,18 +1280,15 @@ fn read_windows_service_state(service_name: &str) -> (String, bool, bool) {
 
 fn resolve_runtime_service_mode(service_name: &str) -> (String, Option<String>) {
     let requested_mode = runtime_service_mode();
-    if requested_mode == "runtime-gate" {
-        return ("runtime-gate".to_string(), None);
+    if requested_mode == "runtime-gate" || requested_mode == "self-process" {
+        return (requested_mode, None);
     }
 
     if requested_mode == "systemd" {
         if systemctl_available() && systemd_unit_loaded(service_name) {
             return ("systemd".to_string(), None);
         }
-        return (
-            "runtime-gate".to_string(),
-            Some("Requested systemd but no loaded unit was found; using runtime gate control.".to_string()),
-        );
+        return ("self-process".to_string(), None);
     }
 
     if requested_mode == "launchctl" {
@@ -1269,10 +1296,7 @@ fn resolve_runtime_service_mode(service_name: &str) -> (String, Option<String>) 
         if loaded {
             return ("launchctl".to_string(), None);
         }
-        return (
-            "runtime-gate".to_string(),
-            Some("Requested launchctl but no loaded job was found; using runtime gate control.".to_string()),
-        );
+        return ("self-process".to_string(), None);
     }
 
     if requested_mode == "windows-service" {
@@ -1280,17 +1304,11 @@ fn resolve_runtime_service_mode(service_name: &str) -> (String, Option<String>) 
         if loaded {
             return ("windows-service".to_string(), None);
         }
-        return (
-            "runtime-gate".to_string(),
-            Some("Requested Windows service manager but service was not found; using runtime gate control.".to_string()),
-        );
+        return ("self-process".to_string(), None);
     }
 
     if requested_mode != "auto" {
-        return (
-            "runtime-gate".to_string(),
-            Some(format!("Unknown requested service mode '{}'; using runtime gate control.", requested_mode)),
-        );
+        return ("self-process".to_string(), None);
     }
 
     match std::env::consts::OS {
@@ -1298,10 +1316,7 @@ fn resolve_runtime_service_mode(service_name: &str) -> (String, Option<String>) 
             if systemctl_available() && systemd_unit_loaded(service_name) {
                 ("systemd".to_string(), None)
             } else {
-                (
-                    "runtime-gate".to_string(),
-                    Some("No loaded systemd unit found; using runtime gate control.".to_string()),
-                )
+                ("self-process".to_string(), None)
             }
         }
         "macos" => {
@@ -1309,10 +1324,7 @@ fn resolve_runtime_service_mode(service_name: &str) -> (String, Option<String>) 
             if loaded {
                 ("launchctl".to_string(), None)
             } else {
-                (
-                    "runtime-gate".to_string(),
-                    Some("No loaded launchctl job found; using runtime gate control.".to_string()),
-                )
+                ("self-process".to_string(), None)
             }
         }
         "windows" => {
@@ -1320,17 +1332,17 @@ fn resolve_runtime_service_mode(service_name: &str) -> (String, Option<String>) 
             if loaded {
                 ("windows-service".to_string(), None)
             } else {
-                (
-                    "runtime-gate".to_string(),
-                    Some("No installed Windows service found; using runtime gate control.".to_string()),
-                )
+                ("self-process".to_string(), None)
             }
         }
-        _ => (
-            "runtime-gate".to_string(),
-            Some("OS service manager not configured; using runtime gate control.".to_string()),
-        ),
+        _ => ("self-process".to_string(), None),
     }
+}
+
+fn current_process_binary_path() -> Option<String> {
+    std::env::current_exe()
+        .ok()
+        .map(|value| value.to_string_lossy().to_string())
 }
 
 fn runtime_service_snapshot(state: &Data<AppState>) -> Value {
@@ -1373,6 +1385,22 @@ fn runtime_service_snapshot(state: &Data<AppState>) -> Value {
                 "active": active,
                 "status": status,
                 "note": note,
+            })
+        }
+        "self-process" => {
+            let active = is_api_enabled(state);
+            let status = if active { "running" } else { "stopped" };
+
+            json!({
+                "mode": mode,
+                "requested_mode": requested_mode,
+                "name": service_name,
+                "available": true,
+                "active": active,
+                "status": status,
+                "note": note,
+                "pid": std::process::id(),
+                "binary_path": current_process_binary_path(),
             })
         }
         "runtime-gate" => {
@@ -1507,28 +1535,77 @@ fn run_windows_service_action(action: &str, service_name: &str) -> Result<(), Ap
 }
 
 fn run_runtime_gate_action(state: &Data<AppState>, action: &str) -> Result<(), ApiError> {
-    match action {
-        "start" => {
-            set_api_enabled(state, true);
-            Ok(())
-        }
-        "stop" => {
-            set_api_enabled(state, false);
-            Ok(())
-        }
-        "restart" => {
-            set_api_enabled(state, false);
-            set_api_enabled(state, true);
-            Ok(())
-        }
-        _ => Err(ApiError::bad_request("unsupported runtime-gate action")),
+    if action != "restart" {
+        return Err(ApiError::bad_request("unsupported runtime-gate action: only restart is allowed"));
     }
+
+    let env_values = read_runtime_env_file().unwrap_or_else(|_| runtime_env_defaults());
+    set_api_enabled(state, false);
+    apply_runtime_env_to_process(&env_values);
+    set_api_enabled(state, true);
+    clear_runtime_transition(state);
+    Ok(())
+}
+
+fn restart_self_process(
+    binary_path: &PathBuf,
+    runtime_root: &PathBuf,
+    env_values: &BTreeMap<String, String>,
+) -> Result<(), String> {
+    let mut command = Command::new(binary_path);
+    command.current_dir(runtime_root);
+    command.envs(env_values.iter().map(|(key, value)| (key.as_str(), value.as_str())));
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        let error = command.exec();
+        Err(format!("failed to exec restarted api-server process: {}", error))
+    }
+
+    #[cfg(not(unix))]
+    {
+        command
+            .spawn()
+            .map_err(|error| format!("failed to spawn restarted api-server process: {}", error))?;
+        Ok(())
+    }
+}
+
+fn schedule_self_process_restart(env_values: BTreeMap<String, String>) -> Result<(), ApiError> {
+    let runtime_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let binary_path = std::env::current_exe().map_err(ApiError::internal)?;
+
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(450));
+        if let Err(error) = restart_self_process(&binary_path, &runtime_root, &env_values) {
+            eprintln!("{}", error);
+        }
+        std::process::exit(0);
+    });
+
+    Ok(())
+}
+
+fn run_self_process_action(state: &Data<AppState>, action: &str) -> Result<(), ApiError> {
+    if action != "restart" {
+        return Err(ApiError::bad_request("unsupported self-process action: only restart is allowed"));
+    }
+
+    let env_values = read_runtime_env_file().unwrap_or_else(|_| runtime_env_defaults());
+    apply_runtime_env_to_process(&env_values);
+    clear_runtime_transition(state);
+    schedule_self_process_restart(env_values)
 }
 
 fn perform_runtime_service_action(
     state: &Data<AppState>,
     action: &str,
 ) -> Result<Value, ApiError> {
+    if action != "restart" {
+        return Err(ApiError::bad_request("Unsupported runtime action. Only restart is allowed."));
+    }
+
     let service_name = runtime_service_name();
     let (mode, _) = resolve_runtime_service_mode(&service_name);
 
@@ -1536,6 +1613,7 @@ fn perform_runtime_service_action(
         "systemd" => run_systemd_action(action, &service_name)?,
         "launchctl" => run_launchctl_action(action, &service_name)?,
         "windows-service" => run_windows_service_action(action, &service_name)?,
+        "self-process" => run_self_process_action(state, action)?,
         "runtime-gate" => run_runtime_gate_action(state, action)?,
         _ => {
             return Err(ApiError::bad_request(format!(
@@ -1552,13 +1630,71 @@ fn runtime_env_defaults() -> BTreeMap<String, String> {
     BTreeMap::from([
         ("API_HOST".to_string(), "127.0.0.1".to_string()),
         ("API_PORT".to_string(), "8081".to_string()),
-        ("WEB_APP_PORT".to_string(), "8888".to_string()),
         ("DATABASE_URL".to_string(), "simula.db".to_string()),
         ("FILE_STORAGE_DIR".to_string(), "files".to_string()),
         ("LOG_DIR".to_string(), "stdout".to_string()),
-        ("RUNTIME_SERVICE_MODE".to_string(), "auto".to_string()),
-        ("RUNTIME_SERVICE_NAME".to_string(), "simula-api-server".to_string()),
     ])
+}
+
+fn runtime_env_allowed_keys() -> [&'static str; 5] {
+    [
+        "API_HOST",
+        "API_PORT",
+        "DATABASE_URL",
+        "FILE_STORAGE_DIR",
+        "LOG_DIR",
+    ]
+}
+
+fn resolve_runtime_path(workspace_root: &Path, raw: &str) -> String {
+    let normalized = raw.trim();
+    if normalized.is_empty() {
+        return workspace_root.to_string_lossy().to_string();
+    }
+    if normalized.eq_ignore_ascii_case("stdout") || normalized.contains("://") {
+        return normalized.to_string();
+    }
+
+    let candidate = PathBuf::from(normalized);
+    let resolved = if candidate.is_absolute() {
+        candidate
+    } else {
+        workspace_root.join(candidate)
+    };
+    resolved.to_string_lossy().to_string()
+}
+
+fn ensure_runtime_env_invariants(values: &mut BTreeMap<String, String>) {
+    let defaults = runtime_env_defaults();
+    let allowed_keys = runtime_env_allowed_keys();
+
+    values.retain(|key, _| allowed_keys.contains(&key.as_str()));
+
+    for key in allowed_keys {
+        let missing_or_empty = values
+            .get(key)
+            .map(|value| value.trim().is_empty())
+            .unwrap_or(true);
+        if missing_or_empty {
+            if let Some(default_value) = defaults.get(key) {
+                values.insert(key.to_string(), default_value.clone());
+            }
+        }
+    }
+
+    let api_host_missing = values
+        .get("API_HOST")
+        .map(|value| value.trim().is_empty())
+        .unwrap_or(true);
+    if api_host_missing {
+        values.insert("API_HOST".to_string(), "127.0.0.1".to_string());
+    }
+}
+
+fn apply_runtime_env_to_process(values: &BTreeMap<String, String>) {
+    for (key, value) in values {
+        std::env::set_var(key, value);
+    }
 }
 
 fn runtime_env_file_path() -> PathBuf {
@@ -1604,6 +1740,8 @@ fn read_runtime_env_file() -> Result<BTreeMap<String, String>, ApiError> {
         values.insert(key, normalized_value);
     }
 
+    ensure_runtime_env_invariants(&mut values);
+
     Ok(values)
 }
 
@@ -1630,8 +1768,11 @@ fn write_runtime_env_file(values: &BTreeMap<String, String>) -> Result<(), ApiEr
         fs::create_dir_all(parent).map_err(ApiError::internal)?;
     }
 
+    let mut normalized_values = values.clone();
+    ensure_runtime_env_invariants(&mut normalized_values);
+
     let mut lines = String::new();
-    for (key, value) in values {
+    for (key, value) in &normalized_values {
         let normalized_key = key.trim();
         if normalized_key.is_empty() {
             continue;

@@ -13,6 +13,7 @@ pub struct AppState {
     pub ws_hub: WebSocketHub,
     pub runtime_logs: Mutex<VecDeque<RuntimeRequestLogEntry>>,
     pub api_enabled: Mutex<bool>,
+    pub runtime_transition: Mutex<Option<RuntimeServiceTransition>>,
 }
 
 pub const MAX_RUNTIME_LOG_ENTRIES: usize = 1000;
@@ -29,6 +30,12 @@ pub struct RuntimeRequestLogEntry {
     pub remote_addr: Option<String>,
     pub request: Option<Value>,
     pub response: Option<Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeServiceTransition {
+    pub action: String,
+    pub at: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -81,6 +88,31 @@ pub fn is_api_enabled(state: &actix_web::web::Data<AppState>) -> bool {
 pub fn set_api_enabled(state: &actix_web::web::Data<AppState>, enabled: bool) {
     if let Ok(mut value) = state.api_enabled.lock() {
         *value = enabled;
+    }
+}
+
+pub fn runtime_transition_snapshot(
+    state: &actix_web::web::Data<AppState>,
+) -> Option<RuntimeServiceTransition> {
+    state
+        .runtime_transition
+        .lock()
+        .ok()
+        .and_then(|value| value.clone())
+}
+
+pub fn set_runtime_transition(state: &actix_web::web::Data<AppState>, action: &str) {
+    if let Ok(mut value) = state.runtime_transition.lock() {
+        *value = Some(RuntimeServiceTransition {
+            action: action.to_string(),
+            at: Utc::now().timestamp_millis(),
+        });
+    }
+}
+
+pub fn clear_runtime_transition(state: &actix_web::web::Data<AppState>) {
+    if let Ok(mut value) = state.runtime_transition.lock() {
+        *value = None;
     }
 }
 

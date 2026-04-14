@@ -224,10 +224,7 @@ jobs:
           esac
 
           chmod +x "$API_BIN"
-          export API_HOST=127.0.0.1
-          export API_PORT=8081
-          export WEB_APP_PORT=8888
-          export SIMULA_WEB_DIST_DIR="$ROOT_DIR/web"
+          export SIMULA_WEB_DIST_DIR="${SIMULA_WEB_DIST_DIR:-$ROOT_DIR/web}"
 
           "$API_BIN" &
           API_PID=$!
@@ -246,10 +243,7 @@ jobs:
           @echo off
           set ROOT_DIR=%~dp0
           set API_BIN=%ROOT_DIR%bin\windows\simula-api-server.exe
-          set API_HOST=127.0.0.1
-          set API_PORT=8081
-          set WEB_APP_PORT=8888
-          set SIMULA_WEB_DIST_DIR=%ROOT_DIR%web
+          if "%SIMULA_WEB_DIST_DIR%"=="" set SIMULA_WEB_DIST_DIR=%ROOT_DIR%web
 
           start "" http://127.0.0.1:8888
           "%API_BIN%"

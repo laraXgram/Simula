@@ -12,6 +12,10 @@ cd Simula
 ./scripts/release-up.sh
 ```
 
+### Web Bundle
+
+`simula-web.zip` contains one launcher per OS (`run-web.sh` / `run-web.bat`) and starts both services together:
+
 Available endpoints after startup:
 
 - Client: http://127.0.0.1:8888
@@ -103,43 +107,6 @@ Use /debug for end-to-end debugging:
 - Import trace bundles for offline investigation
 
 Trace bundle format includes runtime logs, websocket updates, selected bot token, API base URL, and export timestamp.
-
-## Optional Desktop Packaging (Tauri)
-
-From the client directory:
-
-```bash
-cd client
-npm install
-
-# desktop dev session
-npm run tauri:dev
-
-# desktop build artifacts
-npm run tauri:build
-```
-
-This path is optional and kept isolated from the web build pipeline.
-
-## Release Outputs (4 Files)
-
-The release workflow publishes exactly 4 end-user artifacts:
-
-- `simula-web.zip`
-- `simula-desktop-linux.zip`
-- `simula-desktop-macos.zip`
-- `simula-desktop-windows.zip`
-
-### Web Bundle
-
-`simula-web.zip` contains one launcher per OS (`run-web.sh` / `run-web.bat`) and starts both services together:
-
-- API server on `http://127.0.0.1:8081`
-- Web client on `http://127.0.0.1:8888`
-
-### Desktop Bundles
-
-Each desktop bundle contains a native desktop app. When the desktop app starts, it automatically launches the embedded API server in the background.
 
 ## Local Native Development (Without Docker)
 
