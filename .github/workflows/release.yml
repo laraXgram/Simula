@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   generate-code:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
@@ -46,7 +46,7 @@ jobs:
 
   quality-gate:
     needs: generate-code
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
 
     steps:
@@ -94,9 +94,9 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
+          - ubuntu-24.04
+          - macos-14
+          - windows-2022
 
     steps:
       - name: Checkout repository
@@ -137,7 +137,7 @@ jobs:
     needs:
       - generate-code
       - quality-gate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
@@ -180,7 +180,7 @@ jobs:
     needs:
       - build-api
       - build-web-dist
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
@@ -266,7 +266,7 @@ jobs:
     if: github.event_name == 'release'
     needs:
       - package-web
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:
