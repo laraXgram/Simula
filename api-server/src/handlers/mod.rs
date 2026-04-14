@@ -349,6 +349,30 @@ fn normalize_request_decode_error(message: &str) -> String {
     if message.contains("expected struct InputFile") {
         return "can't parse InputFile JSON object".to_string();
     }
+    if let Some((_, tail)) = message.split_once("unknown field `") {
+        if let Some((field, _)) = tail.split_once('`') {
+            return format!(
+                "can't parse request JSON object: unknown field \"{}\"",
+                field
+            );
+        }
+        return "can't parse request JSON object: unknown field".to_string();
+    }
+    if let Some((_, tail)) = message.split_once("missing field `") {
+        if let Some((field, _)) = tail.split_once('`') {
+            return format!(
+                "can't parse request JSON object: missing required field \"{}\"",
+                field
+            );
+        }
+        return "can't parse request JSON object: missing required field".to_string();
+    }
+    if message.contains("invalid type") {
+        return "can't parse request JSON object: invalid field type".to_string();
+    }
+    if message.contains("invalid value") {
+        return "can't parse request JSON object: invalid field value".to_string();
+    }
     message.to_string()
 }
 

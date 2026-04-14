@@ -390,7 +390,7 @@ pub async fn bot_api_post(
                 Ok(bytes) => bytes,
                 Err(_) => {
                     let request_payload = Value::Object(params.clone().into_iter().collect());
-                    let error_result = Err(ApiError::bad_request("invalid request body"));
+                    let error_result = Err(ApiError::bad_request("can't parse request JSON object"));
                     log_route_json_result(
                         &state,
                         &req,
@@ -535,7 +535,7 @@ pub async fn sim_send_user_media(
         while let Some(chunk) = payload.next().await {
             let chunk = match chunk {
                 Ok(bytes) => bytes,
-                Err(_) => return into_telegram_response(Err(ApiError::bad_request("invalid request body"))),
+                Err(_) => return into_telegram_response(Err(ApiError::bad_request("can't parse request JSON object"))),
             };
             if body.is_empty() {
                 body = chunk;
@@ -645,7 +645,7 @@ pub async fn sim_edit_user_message_media(
         while let Some(chunk) = payload.next().await {
             let chunk = match chunk {
                 Ok(bytes) => bytes,
-                Err(_) => return into_telegram_response(Err(ApiError::bad_request("invalid request body"))),
+                Err(_) => return into_telegram_response(Err(ApiError::bad_request("can't parse request JSON object"))),
             };
             if body.is_empty() {
                 body = chunk;
