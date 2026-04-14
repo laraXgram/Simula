@@ -65,6 +65,7 @@ temp/
 
 # Generated
 /scraper/output
+/scraper/src/output
 /api-server/src/generated/methods.rs
 /api-server/src/generated/types.rs
 /client/src/types/generated
