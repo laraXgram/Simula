@@ -1340,6 +1340,23 @@ export async function getWebhookInfo(token: string, payload: GetWebhookInfoReque
   return callBotMethod<WebhookInfo>(token, 'getWebhookInfo', payload);
 }
 
+export async function setWebhook(token: string, payload: {
+  url: string;
+  secret_token?: string;
+  ip_address?: string;
+  max_connections?: number;
+  allowed_updates?: string[];
+  drop_pending_updates?: boolean;
+}): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'setWebhook', payload);
+}
+
+export async function deleteWebhook(token: string, payload: {
+  drop_pending_updates?: boolean;
+} = {}): Promise<boolean> {
+  return callBotMethod<boolean>(token, 'deleteWebhook', payload);
+}
+
 export async function logOut(token: string, payload: LogOutRequest = {}): Promise<boolean> {
   return callBotMethod<boolean>(token, 'logOut', payload);
 }

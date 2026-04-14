@@ -99,6 +99,19 @@ async fn main() -> std::io::Result<()> {
         }
     });
 
+    let webhook_retry_state = state.clone();
+    actix_web::rt::spawn(async move {
+        loop {
+            let state_for_retry = webhook_retry_state.clone();
+            let _ = actix_web::rt::task::spawn_blocking(move || {
+                crate::handlers::client::webhook::retry_all_pending_webhooks(&state_for_retry, 200);
+            })
+            .await;
+
+            actix_web::rt::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
+    });
+
     println!("Simula API Server starting on http://{host}:{port}");
 
     let api_state = state.clone();

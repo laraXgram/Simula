@@ -151,6 +151,7 @@ import {
   getUserChatBoosts,
   getBotFile,
   getGameHighScores,
+  getWebhookInfo,
   pressInlineButton,
   sendUserContact,
   sendUserDice,
@@ -189,6 +190,7 @@ import {
   sendBotMediaFile,
   sendBotPaidMedia,
   sendBotMessage,
+  setWebhook,
   setUserMessageReaction,
   setSimulationBotGroupMembership,
   setSimUserProfileAudio,
@@ -199,6 +201,7 @@ import {
   updateSimulationGroup,
   updateSimBot,
   upsertSimUser,
+  deleteWebhook,
 } from '../../services/botApi';
 import { API_BASE_URL, DEFAULT_BOT_TOKEN, syncRuntimeClientEnvOverrides } from '../../services/config';
 import {
@@ -279,6 +282,9 @@ const MANAGED_BOT_SETTINGS_BY_BOT_KEY = 'simula-managed-bot-settings-by-bot';
 const USER_EMOJI_STATUS_BY_KEY = 'simula-user-emoji-status-by-key';
 const CHAT_BOOST_COUNTS_BY_ACTOR_CHAT_KEY = 'simula-chat-boost-counts-by-actor-chat';
 const SIDEBAR_SECTIONS_KEY = 'simula-sidebar-sections';
+const SETTINGS_SECTIONS_KEY = 'simula-settings-sections';
+const BOTS_SECTIONS_KEY = 'simula-bots-sections';
+const WEBHOOK_DOMAIN_BY_BOT_KEY = 'simula-webhook-domain-by-bot';
 const GENERAL_FORUM_TOPIC_THREAD_ID = 1;
 const DEFAULT_FORUM_ICON_COLOR = 0x6FB9F0;
 const DEFAULT_WALLET_STATE = {
@@ -332,9 +338,21 @@ interface SidebarSectionState {
   settings: boolean;
 }
 
+interface SettingsSectionState {
+  serviceControl: boolean;
+  environmentVariables: boolean;
+  runtimePaths: boolean;
+}
+
+interface BotsSectionState {
+  webhookManager: boolean;
+  botCreator: boolean;
+}
+
 interface DebugEventLog {
   id: string;
   at: number;
+  botToken?: string;
   method: string;
   path?: string;
   source: 'bot' | 'webhook';
@@ -377,6 +395,11 @@ interface RuntimeEnvRow {
   id: string;
   key: string;
   value: string;
+}
+
+interface WebhookInspectorState {
+  title: string;
+  payload: unknown;
 }
 
 interface StoryShelfEntry {
@@ -763,6 +786,21 @@ function defaultSidebarSections(): SidebarSectionState {
   };
 }
 
+function defaultSettingsSections(): SettingsSectionState {
+  return {
+    serviceControl: true,
+    environmentVariables: false,
+    runtimePaths: false,
+  };
+}
+
+function defaultBotsSections(): BotsSectionState {
+  return {
+    webhookManager: true,
+    botCreator: true,
+  };
+}
+
 function normalizeRuntimeEnvValues(raw: unknown): Record<string, string> {
   if (!raw || typeof raw !== 'object') {
     return {};
@@ -789,6 +827,23 @@ function buildRuntimeEnvRows(values: Record<string, string>): RuntimeEnvRow[] {
     }));
 
   return rows.length > 0 ? rows : [{ id: `env-${Date.now()}`, key: '', value: '' }];
+}
+
+function normalizeWebhookEndpoint(domainOrUrl: string): string {
+  const input = domainOrUrl.trim();
+  if (!input) {
+    throw new Error('Webhook domain/url is required.');
+  }
+
+  try {
+    // Accept only explicit, user-provided absolute URL and keep it untouched.
+    // Do not append token/path or rewrite scheme/host.
+    new URL(input);
+  } catch {
+    throw new Error('Webhook URL is invalid. Use full URL (e.g. https://example.com/webhook).');
+  }
+
+  return input;
 }
 
 function normalizeManagedBotUsernameDraft(raw: string): string {
@@ -1824,11 +1879,47 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       return defaultSidebarSections();
     }
   });
+  const [settingsSections, setSettingsSections] = useState<SettingsSectionState>(() => {
+    try {
+      const raw = localStorage.getItem(SETTINGS_SECTIONS_KEY);
+      const parsed = raw ? (JSON.parse(raw) as Partial<SettingsSectionState>) : {};
+      const defaults = defaultSettingsSections();
+      return {
+        serviceControl: typeof parsed.serviceControl === 'boolean' ? parsed.serviceControl : defaults.serviceControl,
+        environmentVariables: typeof parsed.environmentVariables === 'boolean' ? parsed.environmentVariables : defaults.environmentVariables,
+        runtimePaths: typeof parsed.runtimePaths === 'boolean' ? parsed.runtimePaths : defaults.runtimePaths,
+      };
+    } catch {
+      return defaultSettingsSections();
+    }
+  });
+  const [botsSections, setBotsSections] = useState<BotsSectionState>(() => {
+    try {
+      const raw = localStorage.getItem(BOTS_SECTIONS_KEY);
+      const parsed = raw ? (JSON.parse(raw) as Partial<BotsSectionState>) : {};
+      const defaults = defaultBotsSections();
+      return {
+        webhookManager: typeof parsed.webhookManager === 'boolean' ? parsed.webhookManager : defaults.webhookManager,
+        botCreator: typeof parsed.botCreator === 'boolean' ? parsed.botCreator : defaults.botCreator,
+      };
+    } catch {
+      return defaultBotsSections();
+    }
+  });
   const [debugEventLogs, setDebugEventLogs] = useState<DebugEventLog[]>([]);
   const [debuggerSearch, setDebuggerSearch] = useState('');
   const [debuggerStatusFilter, setDebuggerStatusFilter] = useState<'all' | 'ok' | 'error'>('all');
   const [debuggerSourceFilter, setDebuggerSourceFilter] = useState<'all' | 'bot' | 'webhook'>('all');
   const [isDebuggerHistoryExpanded, setIsDebuggerHistoryExpanded] = useState(true);
+  const lastBotRequestByTokenRef = useRef<Record<string, unknown>>({});
+  const appendDebugEventLog = useCallback((entry: Omit<DebugEventLog, 'id'>) => {
+    const nextEntry: DebugEventLog = {
+      ...entry,
+      id: `${entry.source}-${entry.at}-${Math.random().toString(36).slice(2, 8)}`,
+    };
+
+    setDebugEventLogs((prev) => [nextEntry, ...prev].slice(0, 500));
+  }, []);
   const [serverHealth, setServerHealth] = useState<{
     status: 'checking' | 'online' | 'offline';
     checkedAt?: number;
@@ -1839,6 +1930,17 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const [runtimeEnvSource, setRuntimeEnvSource] = useState<Record<string, string>>({});
   const [isRuntimeEnvSaving, setIsRuntimeEnvSaving] = useState(false);
   const [runtimeServiceActionInFlight, setRuntimeServiceActionInFlight] = useState<'' | 'restart'>('');
+  const [webhookDomainByToken, setWebhookDomainByToken] = useState<Record<string, string>>(() => {
+    try {
+      const raw = localStorage.getItem(WEBHOOK_DOMAIN_BY_BOT_KEY);
+      return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [webhookInfoByToken, setWebhookInfoByToken] = useState<Record<string, Record<string, unknown> | null>>({});
+  const [webhookActionInFlight, setWebhookActionInFlight] = useState<'' | 'set' | 'remove' | 'drop' | 'info'>('');
+  const [webhookInspector, setWebhookInspector] = useState<WebhookInspectorState | null>(null);
   const [chatScopeTab, setChatScopeTab] = useState<ChatScopeTab>(() => {
     const raw = localStorage.getItem(CHAT_SCOPE_KEY);
     if (raw === 'group' || raw === 'channel' || raw === 'private') {
@@ -4110,6 +4212,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     const keyword = debuggerSearch.trim().toLowerCase();
 
     return debugEventLogs.filter((entry) => {
+      if (entry.botToken && entry.botToken !== selectedBotToken) {
+        return false;
+      }
+
       if (debuggerStatusFilter !== 'all' && entry.status !== debuggerStatusFilter) {
         return false;
       }
@@ -4137,12 +4243,13 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         || responseText.includes(keyword)
         || errorText.includes(keyword);
     });
-  }, [debugEventLogs, debuggerSearch, debuggerStatusFilter, debuggerSourceFilter]);
+  }, [debugEventLogs, debuggerSearch, debuggerStatusFilter, debuggerSourceFilter, selectedBotToken]);
 
-  const webhookDebugCount = useMemo(
-    () => debugEventLogs.filter((entry) => entry.source === 'webhook').length,
-    [debugEventLogs],
-  );
+  const selectedWebhookDomainDraft = webhookDomainByToken[selectedBotToken] || '';
+  const selectedWebhookInfo = webhookInfoByToken[selectedBotToken] || null;
+  const selectedWebhookInfoUrl = typeof selectedWebhookInfo?.url === 'string'
+    ? selectedWebhookInfo.url.trim()
+    : '';
 
   const latestDebugLog = useMemo(
     () => (filteredDebugEventLogs.length > 0 ? filteredDebugEventLogs[0] : null),
@@ -4359,8 +4466,20 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   }, [availableBots]);
 
   useEffect(() => {
+    localStorage.setItem(WEBHOOK_DOMAIN_BY_BOT_KEY, JSON.stringify(webhookDomainByToken));
+  }, [webhookDomainByToken]);
+
+  useEffect(() => {
     localStorage.setItem(SIDEBAR_SECTIONS_KEY, JSON.stringify(sidebarSections));
   }, [sidebarSections]);
+
+  useEffect(() => {
+    localStorage.setItem(SETTINGS_SECTIONS_KEY, JSON.stringify(settingsSections));
+  }, [settingsSections]);
+
+  useEffect(() => {
+    localStorage.setItem(BOTS_SECTIONS_KEY, JSON.stringify(botsSections));
+  }, [botsSections]);
 
   useEffect(() => {
     localStorage.setItem(USERS_KEY, JSON.stringify(availableUsers));
@@ -4377,6 +4496,41 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   useEffect(() => {
     localStorage.setItem(SELECTED_BOT_KEY, selectedBotToken);
   }, [selectedBotToken]);
+
+  useEffect(() => {
+    if (activeTab !== 'bots' || !selectedBot) {
+      return;
+    }
+
+    void getWebhookInfo(selectedBot.token)
+      .then((info) => {
+        const normalized = (info && typeof info === 'object')
+          ? (info as unknown as Record<string, unknown>)
+          : {};
+
+        setWebhookInfoByToken((prev) => ({
+          ...prev,
+          [selectedBot.token]: normalized,
+        }));
+
+        if (typeof normalized.url !== 'string' || !normalized.url.trim()) {
+          return;
+        }
+
+        setWebhookDomainByToken((prev) => {
+          if ((prev[selectedBot.token] || '').trim()) {
+            return prev;
+          }
+          return {
+            ...prev,
+            [selectedBot.token]: normalized.url as string,
+          };
+        });
+      })
+      .catch(() => {
+        // Ignore info loading failure to keep bots tab responsive.
+      });
+  }, [activeTab, selectedBot]);
 
   useEffect(() => {
     setLastUpdateId(() => {
@@ -4908,6 +5062,17 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       }
     },
     onUpdate: (update: BotUpdate) => {
+      appendDebugEventLog({
+        at: Date.now(),
+        botToken: selectedBotToken,
+        method: 'UPDATE',
+        path: '/webhook/listen',
+        source: 'webhook',
+        status: 'ok',
+        request: lastBotRequestByTokenRef.current[selectedBotToken] ?? null,
+        response: update,
+      });
+
       if (update.business_connection?.user?.id) {
         const incomingConnection = update.business_connection;
         const connectionStateKey = `${selectedBotToken}:${incomingConnection.user.id}`;
@@ -11085,6 +11250,86 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
   };
 
+  const onUpdateSelectedBotWebhookDomain = (value: string) => {
+    setWebhookDomainByToken((prev) => ({
+      ...prev,
+      [selectedBotToken]: value,
+    }));
+  };
+
+  const loadWebhookInfoForBot = useCallback(async (token: string) => {
+    const info = await getWebhookInfo(token);
+    const normalized = (info && typeof info === 'object')
+      ? (info as unknown as Record<string, unknown>)
+      : {};
+
+    setWebhookInfoByToken((prev) => ({
+      ...prev,
+      [token]: normalized,
+    }));
+
+    return normalized;
+  }, []);
+
+  const onRunWebhookAction = async (action: 'set' | 'remove' | 'drop' | 'info') => {
+    if (!selectedBot) {
+      setErrorText('No bot selected for webhook action.');
+      return;
+    }
+
+    setWebhookActionInFlight(action);
+    setErrorText('');
+
+    try {
+      let responsePayload: unknown;
+      if (action === 'set') {
+        const normalizedUrl = normalizeWebhookEndpoint(selectedWebhookDomainDraft);
+        responsePayload = await setWebhook(selectedBot.token, {
+          url: normalizedUrl,
+        });
+        setWebhookDomainByToken((prev) => ({
+          ...prev,
+          [selectedBot.token]: normalizedUrl,
+        }));
+      } else if (action === 'remove') {
+        responsePayload = await deleteWebhook(selectedBot.token, {
+          drop_pending_updates: false,
+        });
+      } else if (action === 'drop') {
+        responsePayload = await deleteWebhook(selectedBot.token, {
+          drop_pending_updates: true,
+        });
+      } else {
+        responsePayload = await loadWebhookInfoForBot(selectedBot.token);
+      }
+
+      if (action !== 'info') {
+        const info = await loadWebhookInfoForBot(selectedBot.token);
+        if (typeof info.url === 'string' && info.url.trim()) {
+          setWebhookDomainByToken((prev) => ({
+            ...prev,
+            [selectedBot.token]: info.url as string,
+          }));
+        }
+      }
+
+      setWebhookInspector({
+        title: action === 'info'
+          ? 'getWebhookInfo response'
+          : action === 'set'
+            ? 'setWebhook response'
+            : 'deleteWebhook response',
+        payload: responsePayload,
+      });
+
+      setCallbackToast(`Webhook action completed: ${action}.`);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Webhook action failed');
+    } finally {
+      setWebhookActionInFlight('');
+    }
+  };
+
   const onSelectSidebarTab = (tab: SidebarTab) => {
     if (activeTab === tab) {
       setIsSidebarPanelOpen((prev) => !prev);
@@ -11092,9 +11337,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
     setActiveTab(tab);
     setIsSidebarPanelOpen(true);
-    if (tab === 'debugger') {
-      void onLoadRuntimeLogs();
-    }
     if (tab === 'settings') {
       void onLoadRuntimeInfo();
       void onCheckServerHealth();
@@ -11103,6 +11345,20 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
   const onToggleSidebarSection = (section: keyof SidebarSectionState) => {
     setSidebarSections((prev) => ({
+      ...prev,
+      [section]: !prev[section],
+    }));
+  };
+
+  const onToggleSettingsSection = (section: keyof SettingsSectionState) => {
+    setSettingsSections((prev) => ({
+      ...prev,
+      [section]: !prev[section],
+    }));
+  };
+
+  const onToggleBotsSection = (section: keyof BotsSectionState) => {
+    setBotsSections((prev) => ({
       ...prev,
       [section]: !prev[section],
     }));
@@ -11134,57 +11390,40 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     }
   }, []);
 
-  const onLoadRuntimeLogs = useCallback(async () => {
-    const apiBase = API_BASE_URL.replace(/\/$/, '');
-    try {
-      const response = await fetch(`${apiBase}/client-api/runtime/logs?limit=300`);
-      if (!response.ok) {
-        throw new Error(`runtime logs failed (${response.status})`);
+  useEffect(() => {
+    const onBotApiLog = (rawEvent: Event) => {
+      const event = rawEvent as CustomEvent<Record<string, unknown>>;
+      const detail = event.detail;
+      if (!detail || typeof detail !== 'object') {
+        return;
       }
 
-      const payload = await response.json();
-      const items = Array.isArray(payload?.result?.items)
-        ? payload.result.items as Array<Record<string, unknown>>
-        : [];
+      const token = typeof detail.token === 'string' ? detail.token : '';
+      const method = typeof detail.method === 'string' ? detail.method : 'UNKNOWN';
+      const ok = detail.ok === true;
 
-      const mapped: DebugEventLog[] = items
-        .filter((entry) => {
-          const path = String(entry.path || '');
-          return path.startsWith('/bot') || path.startsWith('/webhook');
-        })
-        .map((entry, index) => {
-        const path = String(entry.path || '');
-        const responsePayload = entry.response;
-        const statusCode = Number(entry.status || 0);
-        const inferredError = typeof responsePayload === 'object'
-          && responsePayload
-          && (responsePayload as Record<string, unknown>).ok === false;
-        const description = typeof responsePayload === 'object' && responsePayload
-          ? (responsePayload as Record<string, unknown>).description
-          : undefined;
+      if (token) {
+        lastBotRequestByTokenRef.current[token] = detail.request;
+      }
 
-        return {
-          id: String(entry.id || `${Date.now()}-${index}`),
-          at: Number(entry.at || Date.now()),
-          method: String(entry.method || 'UNKNOWN'),
-          path,
-          source: path.startsWith('/webhook') ? 'webhook' : 'bot',
-          query: typeof entry.query === 'string' ? entry.query : undefined,
-          statusCode,
-          durationMs: Number(entry.duration_ms || 0),
-          remoteAddr: typeof entry.remote_addr === 'string' ? entry.remote_addr : undefined,
-          status: inferredError || statusCode >= 400 ? 'error' : 'ok',
-          request: entry.request,
-          response: entry.response,
-          error: typeof description === 'string' ? description : undefined,
-        };
+      appendDebugEventLog({
+        at: Number(detail.at || Date.now()),
+        botToken: token || undefined,
+        method,
+        path: `/bot/${method}`,
+        source: 'bot',
+        status: ok ? 'ok' : 'error',
+        request: detail.request,
+        response: ok ? detail.response : undefined,
+        error: !ok && typeof detail.error === 'string' ? detail.error : undefined,
       });
+    };
 
-      setDebugEventLogs(mapped);
-    } catch {
-      // Keep debugger usable with last-known logs when runtime endpoint is unavailable.
-    }
-  }, []);
+    window.addEventListener('simula:bot-api-log', onBotApiLog as EventListener);
+    return () => {
+      window.removeEventListener('simula:bot-api-log', onBotApiLog as EventListener);
+    };
+  }, [appendDebugEventLog]);
 
   const onLoadRuntimeInfo = useCallback(async () => {
     try {
@@ -11271,21 +11510,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   };
 
   const onClearRuntimeLogs = async () => {
-    setErrorText('');
-    try {
-      const apiBase = API_BASE_URL.replace(/\/$/, '');
-      const response = await fetch(`${apiBase}/client-api/runtime/logs/clear`, {
-        method: 'POST',
-      });
-      const payload = await response.json();
-      if (!payload?.ok) {
-        throw new Error(payload?.description || 'Unable to clear debugger logs');
-      }
-      await onLoadRuntimeLogs();
-      setCallbackToast('Debugger logs cleared.');
-    } catch (error) {
-      setErrorText(error instanceof Error ? error.message : 'Unable to clear debugger logs');
-    }
+    setDebugEventLogs([]);
+    setCallbackToast('Debugger logs cleared.');
   };
 
   const onAddRuntimeEnvRow = () => {
@@ -11381,29 +11607,16 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   useEffect(() => {
     void onCheckServerHealth();
     void onLoadRuntimeInfo();
-    void onLoadRuntimeLogs();
 
     const timer = window.setInterval(() => {
       void onCheckServerHealth();
       void onLoadRuntimeInfo();
-      void onLoadRuntimeLogs();
     }, 15_000);
 
     return () => {
       clearInterval(timer);
     };
-  }, [onCheckServerHealth, onLoadRuntimeInfo, onLoadRuntimeLogs]);
-
-  useEffect(() => {
-    void onLoadRuntimeLogs();
-    const timer = window.setInterval(() => {
-      void onLoadRuntimeLogs();
-    }, 1000);
-
-    return () => {
-      clearInterval(timer);
-    };
-  }, [onLoadRuntimeLogs]);
+  }, [onCheckServerHealth, onLoadRuntimeInfo]);
 
   const openCreateUserModal = () => {
     const randomId = Math.floor(Math.random() * 900000 + 10000);
@@ -15154,9 +15367,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     <div className="h-screen overflow-hidden bg-app-pattern text-telegram-text">
       <div className="mx-auto flex h-full w-full min-w-0 max-w-[1500px] border-x border-white/10 backdrop-blur-md">
         <aside className={`shrink-0 border-r border-white/10 bg-[#152434]/95 transition-all ${isSidebarPanelOpen
-          ? ((activeTab === 'debugger' || activeTab === 'settings')
-            ? 'w-[min(97vw,520px)] sm:w-[420px] lg:w-[460px]'
-            : 'w-[min(92vw,340px)] sm:w-[340px]')
+          ? 'w-[min(97vw,400px)] sm:w-[400px]'
           : 'w-[70px]'} flex`}>
           <div className="flex w-[70px] flex-col items-center border-r border-white/10 bg-[#0f1a26] py-3">
             <button
@@ -15531,23 +15742,124 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
                 {activeTab === 'bots' ? (
                   <>
-                    <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 p-2">
-                      <button
-                        type="button"
-                        onClick={() => void copyToken(selectedBotToken)}
-                        className="rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
-                        title="Copy token"
-                      >
-                        <Copy className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onCreateBot()}
-                        className="rounded-full bg-[#2f6ea1] p-2 text-white hover:bg-[#3b82bf]"
-                        title="Create bot"
-                      >
-                        <Plus className="h-4 w-4" />
-                      </button>
+                    {selectedBot ? (
+                      <div className="rounded-xl border border-white/10 bg-black/20 p-2">
+                        <button
+                          type="button"
+                          onClick={() => onToggleBotsSection('webhookManager')}
+                          className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-xs font-medium text-white hover:bg-white/10"
+                        >
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span>Webhook Manager</span>
+                            <span className="truncate rounded-full border border-white/15 bg-black/20 px-2 py-0.5 text-[10px] text-[#9ec3dc]">@{selectedBot.username}</span>
+                          </div>
+                          <ChevronDown className={`h-4 w-4 transition-transform ${botsSections.webhookManager ? 'rotate-0' : '-rotate-90'}`} />
+                        </button>
+
+                        {botsSections.webhookManager ? (
+                          <div className="mt-2 space-y-2 rounded-lg border border-white/10 bg-[#0f1c28] p-2">
+                            <label className="text-[11px] uppercase tracking-wide text-[#8fb7d6]">Domain / Endpoint</label>
+                            <input
+                              value={selectedWebhookDomainDraft}
+                              onChange={(event) => onUpdateSelectedBotWebhookDomain(event.target.value)}
+                              placeholder="http://localhost:8080/webhook"
+                              className="w-full rounded-lg border border-white/15 bg-[#122233] px-2 py-1.5 text-xs text-white outline-none"
+                            />
+
+                            <div className="grid grid-cols-2 gap-2">
+                              <button
+                                type="button"
+                                onClick={() => void onRunWebhookAction('set')}
+                                disabled={webhookActionInFlight !== '' || !selectedWebhookDomainDraft.trim()}
+                                className="inline-flex min-h-8 items-center justify-center gap-1 rounded-md border border-emerald-300/35 bg-emerald-900/20 px-2 py-1.5 text-[11px] text-emerald-100 hover:bg-emerald-900/30 disabled:opacity-50"
+                              >
+                                <SendHorizonal className="h-3.5 w-3.5" />
+                                Set
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void onRunWebhookAction('info')}
+                                disabled={webhookActionInFlight !== ''}
+                                className="inline-flex min-h-8 items-center justify-center gap-1 rounded-md border border-sky-300/35 bg-sky-900/20 px-2 py-1.5 text-[11px] text-sky-100 hover:bg-sky-900/30 disabled:opacity-50"
+                              >
+                                <RefreshCw className={`h-3.5 w-3.5 ${webhookActionInFlight === 'info' ? 'animate-spin' : ''}`} />
+                                Get info
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void onRunWebhookAction('remove')}
+                                disabled={webhookActionInFlight !== ''}
+                                className="inline-flex min-h-8 items-center justify-center gap-1 rounded-md border border-orange-300/35 bg-orange-900/20 px-2 py-1.5 text-[11px] text-orange-100 hover:bg-orange-900/30 disabled:opacity-50"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                                Remove
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void onRunWebhookAction('drop')}
+                                disabled={webhookActionInFlight !== ''}
+                                className="inline-flex min-h-8 items-center justify-center gap-1 rounded-md border border-red-300/35 bg-red-900/20 px-2 py-1.5 text-[11px] text-red-100 hover:bg-red-900/30 disabled:opacity-50"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                Drop
+                              </button>
+                            </div>
+
+                            <p className="rounded-lg border border-white/10 bg-[#122233] px-2 py-1.5 text-[11px] text-[#cfe7f8] break-all">
+                              Active webhook: {selectedWebhookInfoUrl || 'not configured'}
+                            </p>
+
+                            {webhookInspector ? (
+                              <div className="rounded-lg border border-white/10 bg-black/25 p-2">
+                                <div className="mb-2 flex items-center justify-between gap-2">
+                                  <p className="text-xs text-white">{webhookInspector.title}</p>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => void copyDebugLogPart(webhookInspector.title, webhookInspector.payload)}
+                                      className="rounded-md border border-white/20 bg-black/20 px-2 py-1 text-[11px] text-white hover:bg-white/10"
+                                    >
+                                      Copy
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setWebhookInspector(null)}
+                                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/20 bg-black/20 text-white hover:bg-white/10"
+                                      title="Close inspector"
+                                      aria-label="Close inspector"
+                                    >
+                                      <X className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                                <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded border border-white/10 bg-black/30 p-2 text-[11px] text-[#d7ecfb]">{formatDebugValue(webhookInspector.payload)}</pre>
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                      <p className="text-[11px] uppercase tracking-wide text-[#8fb7d6]">Bot Creators</p>
+                      <div className="mt-2 flex items-center gap-2 rounded-lg border border-white/10 bg-[#0f1c28] p-2">
+                        <button
+                          type="button"
+                          onClick={() => void copyToken(selectedBotToken)}
+                          className="rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
+                          title="Copy token"
+                        >
+                          <Copy className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onCreateBot()}
+                          className="rounded-full bg-[#2f6ea1] p-2 text-white hover:bg-[#3b82bf]"
+                          title="Create bot"
+                        >
+                          <Plus className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="space-y-2">
@@ -15590,6 +15902,11 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                           </div>
                         );
                       })}
+                      {availableBots.length === 0 ? (
+                        <p className="rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-xs text-telegram-textSecondary">
+                          No bots found.
+                        </p>
+                      ) : null}
                     </div>
                   </>
                 ) : null}
@@ -15660,9 +15977,9 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                           <option value="webhook">webhook</option>
                         </select>
                       </div>
-                      {webhookDebugCount === 0 ? (
+                      {!filteredDebugEventLogs.some((entry) => entry.source === 'webhook') ? (
                         <p className="mt-2 rounded-lg border border-amber-300/25 bg-amber-900/10 px-2 py-1.5 text-[11px] text-amber-100">
-                          No webhook dispatch log yet. Make sure selected bot has setWebhook configured.
+                          No live webhook update yet for selected bot.
                         </p>
                       ) : null}
                     </div>
@@ -15808,134 +16125,171 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
                 {activeTab === 'settings' ? (
                   <div className="space-y-3">
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-                      <p className="mb-2 text-[11px] uppercase tracking-wide text-[#8fb7d6]">Server Service Control</p>
-                      <div className="space-y-2 text-xs">
-                        <p className="rounded-lg border border-white/10 bg-[#0f1c28] px-2 py-2 text-[#d8ecfb]">
-                          API Base: <span className="text-white">{API_BASE_URL}</span>
-                        </p>
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-2">
+                      <button
+                        type="button"
+                        onClick={() => onToggleSettingsSection('serviceControl')}
+                        className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left"
+                      >
+                        <span className="text-[11px] uppercase tracking-wide text-[#8fb7d6]">Server Service Control</span>
+                        <ChevronDown className={`h-4 w-4 text-white transition-transform ${settingsSections.serviceControl ? 'rotate-0' : '-rotate-90'}`} />
+                      </button>
 
-                        <div className="rounded-lg border border-white/10 bg-[#0f1c28] px-2 py-2 text-[11px] text-[#d8ecfb]">
-                          <p>
-                            Health: {' '}
-                            <span className={serverHealth.status === 'online' ? 'text-emerald-300' : serverHealth.status === 'checking' ? 'text-amber-300' : 'text-red-300'}>
-                              {serverHealth.status}
-                            </span>
+                      {settingsSections.serviceControl ? (
+                        <div className="mt-2 space-y-2 rounded-lg border border-white/10 bg-[#0f1c28] p-2 text-xs">
+                          <p className="rounded-lg border border-white/10 bg-[#122233] px-2 py-2 text-[#d8ecfb]">
+                            API Base: <span className="text-white">{API_BASE_URL}</span>
                           </p>
-                          <p className="mt-1">
-                            Service: <span className={runtimeInfo?.service?.active ? 'text-emerald-300' : 'text-red-300'}>{runtimeInfo?.service?.status || 'unknown'}</span>
-                          </p>
-                          <p className="mt-1 text-[#9ec3dc]">
-                            Manager: {runtimeInfo?.service?.mode || 'unknown'}
-                            {runtimeInfo?.service?.requested_mode ? ` (requested: ${runtimeInfo.service.requested_mode})` : ''}
-                            {' '}· Name: {runtimeInfo?.service?.name || 'not-set'}
-                            {' '}· Available: {runtimeInfo?.service?.available ? 'yes' : 'no'}
-                          </p>
-                          {runtimeInfo?.service?.pid ? (
-                            <p className="mt-1 text-[#9ec3dc]">PID: {runtimeInfo.service.pid}</p>
-                          ) : null}
-                          {runtimeInfo?.service?.binary_path ? (
-                            <p className="mt-1 break-all text-[#9ec3dc]">Binary: {runtimeInfo.service.binary_path}</p>
-                          ) : null}
-                          {runtimeInfo?.service?.transition_action ? (
-                            <p className="mt-1 text-amber-200">
-                              Transition: {runtimeInfo.service.transition_action}
-                              {runtimeInfo.service.transition_at ? ` at ${new Date(runtimeInfo.service.transition_at).toLocaleTimeString()}` : ''}
+
+                          <div className="rounded-lg border border-white/10 bg-[#122233] px-2 py-2 text-[11px] text-[#d8ecfb]">
+                            <p>
+                              Health: {' '}
+                              <span className={serverHealth.status === 'online' ? 'text-emerald-300' : serverHealth.status === 'checking' ? 'text-amber-300' : 'text-red-300'}>
+                                {serverHealth.status}
+                              </span>
                             </p>
-                          ) : null}
-                          {runtimeInfo?.service?.note ? (
-                            <p className="mt-1 break-words text-amber-200">{runtimeInfo.service.note}</p>
-                          ) : null}
-                          {serverHealth.error ? <p className="mt-1 text-red-200">{serverHealth.error}</p> : null}
-                          {serverHealth.checkedAt ? <p className="mt-1 text-[#9ec3dc]">checked at {new Date(serverHealth.checkedAt).toLocaleTimeString()}</p> : null}
-                        </div>
+                            <p className="mt-1">
+                              Service: <span className={runtimeInfo?.service?.active ? 'text-emerald-300' : 'text-red-300'}>{runtimeInfo?.service?.status || 'unknown'}</span>
+                            </p>
+                            <p className="mt-1 text-[#9ec3dc]">
+                              Manager: {runtimeInfo?.service?.mode || 'unknown'}
+                              {runtimeInfo?.service?.requested_mode ? ` (requested: ${runtimeInfo.service.requested_mode})` : ''}
+                              {' '}· Name: {runtimeInfo?.service?.name || 'not-set'}
+                              {' '}· Available: {runtimeInfo?.service?.available ? 'yes' : 'no'}
+                            </p>
+                            {runtimeInfo?.service?.pid ? (
+                              <p className="mt-1 text-[#9ec3dc]">PID: {runtimeInfo.service.pid}</p>
+                            ) : null}
+                            {runtimeInfo?.service?.binary_path ? (
+                              <p className="mt-1 break-all text-[#9ec3dc]">Binary: {runtimeInfo.service.binary_path}</p>
+                            ) : null}
+                            {runtimeInfo?.service?.transition_action ? (
+                              <p className="mt-1 text-amber-200">
+                                Transition: {runtimeInfo.service.transition_action}
+                                {runtimeInfo.service.transition_at ? ` at ${new Date(runtimeInfo.service.transition_at).toLocaleTimeString()}` : ''}
+                              </p>
+                            ) : null}
+                            {runtimeInfo?.service?.note ? (
+                              <p className="mt-1 break-words text-amber-200">{runtimeInfo.service.note}</p>
+                            ) : null}
+                            {serverHealth.error ? <p className="mt-1 text-red-200">{serverHealth.error}</p> : null}
+                            {serverHealth.checkedAt ? <p className="mt-1 text-[#9ec3dc]">checked at {new Date(serverHealth.checkedAt).toLocaleTimeString()}</p> : null}
+                          </div>
 
-                        <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => void onCheckServerHealth()}
-                            className="rounded-md border border-white/20 bg-black/20 px-2 py-1 text-[11px] text-white hover:bg-white/10"
-                          >
-                            <span className="inline-flex items-center gap-1"><RefreshCw className="h-3 w-3" /> Refresh status</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void onRuntimeServiceAction()}
-                            disabled={runtimeServiceActionInFlight !== ''}
-                            title="Restart server"
-                            aria-label="Restart server"
-                            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-amber-300/35 bg-amber-900/20 text-amber-100 hover:bg-amber-900/30 disabled:opacity-50"
-                          >
-                            <RefreshCw className={`h-3.5 w-3.5 ${runtimeServiceActionInFlight === 'restart' ? 'animate-spin' : ''}`} />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#d8ecfb]">
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <p className="text-[11px] uppercase tracking-wide text-[#8fb7d6]">Environment Variables</p>
-                        <button
-                          type="button"
-                          onClick={onAddRuntimeEnvRow}
-                          className="rounded-md border border-white/20 bg-black/20 px-2 py-1 text-[11px] text-white hover:bg-white/10"
-                        >
-                          Add variable
-                        </button>
-                      </div>
-
-                      <p className="mb-2 break-all rounded-lg border border-white/10 bg-[#0f1c28] px-2 py-2 text-[11px] text-[#9ec3dc]">
-                        file: {runtimeInfo?.env_file_path || '.env'}
-                      </p>
-
-                      <div className="max-h-[32vh] space-y-2 overflow-y-auto pr-1">
-                        {runtimeEnvRows.map((row) => (
-                          <div key={row.id} className="grid grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-                            <input
-                              value={row.key}
-                              onChange={(event) => onUpdateRuntimeEnvRow(row.id, 'key', event.target.value)}
-                              placeholder="KEY"
-                              className="rounded-lg border border-white/15 bg-[#0f1c28] px-2 py-1.5 text-xs text-white outline-none"
-                            />
-                            <input
-                              value={row.value}
-                              onChange={(event) => onUpdateRuntimeEnvRow(row.id, 'value', event.target.value)}
-                              placeholder="value"
-                              className="rounded-lg border border-white/15 bg-[#0f1c28] px-2 py-1.5 text-xs text-white outline-none"
-                            />
+                          <div className="flex flex-wrap items-center gap-2">
                             <button
                               type="button"
-                              onClick={() => onRemoveRuntimeEnvRow(row.id)}
-                              className="w-full rounded-lg border border-red-300/30 bg-red-900/20 px-2 py-1.5 text-xs text-red-100 hover:bg-red-900/30 xl:w-auto"
+                              onClick={() => void onCheckServerHealth()}
+                              className="rounded-md border border-white/20 bg-black/20 px-2 py-1 text-[11px] text-white hover:bg-white/10"
                             >
-                              Remove
+                              <span className="inline-flex items-center gap-1"><RefreshCw className="h-3 w-3" /> Refresh status</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void onRuntimeServiceAction()}
+                              disabled={runtimeServiceActionInFlight !== ''}
+                              title="Restart server"
+                              aria-label="Restart server"
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-amber-300/35 bg-amber-900/20 text-amber-100 hover:bg-amber-900/30 disabled:opacity-50"
+                            >
+                              <RefreshCw className={`h-3.5 w-3.5 ${runtimeServiceActionInFlight === 'restart' ? 'animate-spin' : ''}`} />
                             </button>
                           </div>
-                        ))}
-                      </div>
-
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void onSaveRuntimeEnv()}
-                          disabled={!runtimeEnvDirty || isRuntimeEnvSaving}
-                          className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-2.5 py-1.5 text-[11px] text-white hover:bg-[#245a80] disabled:opacity-50"
-                        >
-                          {isRuntimeEnvSaving ? 'Saving...' : 'Save .env'}
-                        </button>
-                        <span className={`text-[11px] ${runtimeEnvDirty ? 'text-amber-200' : 'text-[#9ec3dc]'}`}>
-                          {runtimeEnvDirty ? 'Unsaved changes' : 'Synced'}
-                        </span>
-                      </div>
+                        </div>
+                      ) : null}
                     </div>
 
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#d8ecfb]">
-                      <p className="mb-2 text-[11px] uppercase tracking-wide text-[#8fb7d6]">Runtime Paths</p>
-                      <p className="break-all">Database: {runtimeInfo?.database_path || 'simula.db'}</p>
-                      <p className="mt-1 break-all">Storage: {runtimeInfo?.storage_path || 'files'}</p>
-                      <p className="mt-1 break-all">Logs: {runtimeInfo?.logs_path || 'stdout (env_logger)'}</p>
-                      <p className="mt-1 break-all">Workspace: {runtimeInfo?.workspace_dir || '-'}</p>
-                      <p className="mt-1 break-all">API bind: {runtimeInfo?.api_host || '127.0.0.1'}:{runtimeInfo?.api_port || '8081'}</p>
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-2 text-xs text-[#d8ecfb]">
+                      <button
+                        type="button"
+                        onClick={() => onToggleSettingsSection('environmentVariables')}
+                        className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left"
+                      >
+                        <span className="text-[11px] uppercase tracking-wide text-[#8fb7d6]">Environment Variables</span>
+                        <ChevronDown className={`h-4 w-4 text-white transition-transform ${settingsSections.environmentVariables ? 'rotate-0' : '-rotate-90'}`} />
+                      </button>
+
+                      {settingsSections.environmentVariables ? (
+                        <div className="mt-2 space-y-2 rounded-lg border border-white/10 bg-[#0f1c28] p-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-[11px] text-[#8fb7d6]">Editable env map</p>
+                            <button
+                              type="button"
+                              onClick={onAddRuntimeEnvRow}
+                              className="rounded-md border border-white/20 bg-black/20 px-2 py-1 text-[11px] text-white hover:bg-white/10"
+                            >
+                              Add variable
+                            </button>
+                          </div>
+
+                          <p className="break-all rounded-lg border border-white/10 bg-[#122233] px-2 py-2 text-[11px] text-[#9ec3dc]">
+                            file: {runtimeInfo?.env_file_path || '.env'}
+                          </p>
+
+                          <div className="max-h-[32vh] space-y-2 overflow-y-auto pr-1">
+                            {runtimeEnvRows.map((row) => (
+                              <div key={row.id} className="grid grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                                <input
+                                  value={row.key}
+                                  onChange={(event) => onUpdateRuntimeEnvRow(row.id, 'key', event.target.value)}
+                                  placeholder="KEY"
+                                  className="rounded-lg border border-white/15 bg-[#122233] px-2 py-1.5 text-xs text-white outline-none"
+                                />
+                                <input
+                                  value={row.value}
+                                  onChange={(event) => onUpdateRuntimeEnvRow(row.id, 'value', event.target.value)}
+                                  placeholder="value"
+                                  className="rounded-lg border border-white/15 bg-[#122233] px-2 py-1.5 text-xs text-white outline-none"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => onRemoveRuntimeEnvRow(row.id)}
+                                  title="Remove variable"
+                                  aria-label="Remove variable"
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-300/30 bg-red-900/20 text-red-100 hover:bg-red-900/30"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void onSaveRuntimeEnv()}
+                              disabled={!runtimeEnvDirty || isRuntimeEnvSaving}
+                              className="rounded-md border border-[#4e84aa]/60 bg-[#1a4868] px-2.5 py-1.5 text-[11px] text-white hover:bg-[#245a80] disabled:opacity-50"
+                            >
+                              {isRuntimeEnvSaving ? 'Saving...' : 'Save .env'}
+                            </button>
+                            <span className={`text-[11px] ${runtimeEnvDirty ? 'text-amber-200' : 'text-[#9ec3dc]'}`}>
+                              {runtimeEnvDirty ? 'Unsaved changes' : 'Synced'}
+                            </span>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-2 text-xs text-[#d8ecfb]">
+                      <button
+                        type="button"
+                        onClick={() => onToggleSettingsSection('runtimePaths')}
+                        className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left"
+                      >
+                        <span className="text-[11px] uppercase tracking-wide text-[#8fb7d6]">Runtime Paths</span>
+                        <ChevronDown className={`h-4 w-4 text-white transition-transform ${settingsSections.runtimePaths ? 'rotate-0' : '-rotate-90'}`} />
+                      </button>
+
+                      {settingsSections.runtimePaths ? (
+                        <div className="mt-2 space-y-1 rounded-lg border border-white/10 bg-[#0f1c28] p-2">
+                          <p className="break-all">Database: {runtimeInfo?.database_path || 'simula.db'}</p>
+                          <p className="break-all">Storage: {runtimeInfo?.storage_path || 'files'}</p>
+                          <p className="break-all">Logs: {runtimeInfo?.logs_path || 'stdout (env_logger)'}</p>
+                          <p className="break-all">Workspace: {runtimeInfo?.workspace_dir || '-'}</p>
+                          <p className="break-all">API bind: {runtimeInfo?.api_host || '127.0.0.1'}:{runtimeInfo?.api_port || '8081'}</p>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 ) : null}

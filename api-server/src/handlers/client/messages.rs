@@ -627,7 +627,7 @@ pub fn send_sim_user_payload_message(
     let clean_update = strip_nulls(update_value);
     state.ws_hub.publish_json(token, &clean_update);
     if bot_visible {
-        webhook::dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update);
+        webhook::dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update, Some(update_id));
     }
 
     if is_channel_post {
@@ -1053,7 +1053,7 @@ pub fn handle_sim_send_user_message(
     let clean_update = strip_nulls(update_value);
     state.ws_hub.publish_json(token, &clean_update);
     if bot_visible {
-        webhook::dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update);
+        webhook::dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update, Some(update_id));
     }
 
     if is_channel_post {
@@ -1516,7 +1516,7 @@ pub fn handle_sim_send_user_media(
     let clean_update = strip_nulls(update_value);
     state.ws_hub.publish_json(token, &clean_update);
     if bot_visible {
-        webhook::dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update);
+        webhook::dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update, Some(update_id));
     }
 
     if is_channel_post {
@@ -1806,7 +1806,7 @@ pub fn handle_sim_edit_user_message_media(
 
     let clean_update = strip_nulls(update_value);
     state.ws_hub.publish_json(token, &clean_update);
-    webhook::dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update);
+    webhook::dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update, Some(update_id));
 
     Ok(edited_message)
 }
@@ -2640,7 +2640,7 @@ pub fn send_paid_media_message(
 
     let clean_update = strip_nulls(update_value);
     state.ws_hub.publish_json(token, &clean_update);
-    webhook::dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update.clone());
+    webhook::dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update.clone(), Some(update_id));
 
     if is_channel_post {
         channels::forward_channel_post_to_linked_discussion_best_effort(
@@ -2786,7 +2786,7 @@ pub fn send_payload_message(
 
     let clean_update = strip_nulls(update_value);
     state.ws_hub.publish_json(token, &clean_update);
-    webhook::dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update.clone());
+    webhook::dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update.clone(), Some(update_id));
 
     if is_channel_post {
         channels::forward_channel_post_to_linked_discussion_best_effort(
@@ -2940,7 +2940,7 @@ pub fn send_media_message_with_group(
 
     let clean_update = strip_nulls(update_value);
     state.ws_hub.publish_json(token, &clean_update);
-    webhook::dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update.clone());
+    webhook::dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update.clone(), Some(update_id));
 
     if is_channel_post {
         channels::forward_channel_post_to_linked_discussion_best_effort(

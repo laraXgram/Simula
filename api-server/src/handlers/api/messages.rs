@@ -216,7 +216,7 @@ pub fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap
 
     let clean_update = strip_nulls(update_value);
     state.ws_hub.publish_json(token, &clean_update);
-    webhook::dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update.clone());
+    webhook::dispatch_webhook_if_configured(state, &mut conn, bot.id, clean_update.clone(), Some(update_id));
 
     if is_channel_post {
         channels::ensure_linked_discussion_forward_for_channel_post(

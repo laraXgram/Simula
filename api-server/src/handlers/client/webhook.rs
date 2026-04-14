@@ -14,6 +14,10 @@ use crate::handlers::utils::updates::value_to_chat_key;
 
 use super::channels;
 
+const WEBHOOK_PENDING_NONE: i64 = 0;
+const WEBHOOK_PENDING_READY: i64 = 1;
+const WEBHOOK_PENDING_IN_FLIGHT: i64 = 2;
+
 pub fn persist_and_dispatch_update(
     state: &Data<AppState>,
     conn: &mut rusqlite::Connection,
@@ -40,7 +44,7 @@ pub fn persist_and_dispatch_update(
 
     let clean_update = strip_nulls(update_value);
     state.ws_hub.publish_json(token, &clean_update);
-    dispatch_webhook_if_configured(state, conn, bot_id, clean_update.clone());
+    dispatch_webhook_if_configured(state, conn, bot_id, clean_update.clone(), Some(update_id));
 
     if let Some(channel_post_value) = clean_update.get("channel_post") {
         let bot_record: Option<crate::database::BotInfoRecord> = conn
@@ -85,6 +89,7 @@ pub fn dispatch_webhook_if_configured(
     conn: &mut rusqlite::Connection,
     bot_id: i64,
     update: Value,
+    update_id: Option<i64>,
 ) {
     let webhook: Result<Option<(String, String)>, ApiError> = conn
         .query_row(
@@ -100,22 +105,38 @@ pub fn dispatch_webhook_if_configured(
     };
 
     let payload = strip_nulls(update);
+    if let Some(pending_update_id) = update_id {
+        let claimed = conn
+            .execute(
+                "UPDATE updates
+                 SET webhook_pending = ?2
+                 WHERE update_id = ?1 AND webhook_pending = ?3",
+                params![
+                    pending_update_id,
+                    WEBHOOK_PENDING_IN_FLIGHT,
+                    WEBHOOK_PENDING_READY,
+                ],
+            )
+            .map(|changed| changed > 0)
+            .unwrap_or(false);
+        if !claimed {
+            return;
+        }
+    }
+
     let state_for_log = state.clone();
     std::thread::spawn(move || {
-        let started_at = Utc::now().timestamp_millis();
-        let timer = std::time::Instant::now();
-        let request_payload = json!({
-            "url": url.clone(),
-            "secret_token_set": !secret_token.is_empty(),
-            "update": payload,
-        });
-
         let client = match reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(4))
             .build()
         {
             Ok(client) => client,
             Err(error) => {
+                if let Some(pending_update_id) = update_id {
+                    set_update_pending_state(&state_for_log, pending_update_id, WEBHOOK_PENDING_READY);
+                }
+
+                let started_at = Utc::now().timestamp_millis();
                 push_runtime_request_log(
                     &state_for_log,
                     RuntimeRequestLogEntry {
@@ -125,9 +146,14 @@ pub fn dispatch_webhook_if_configured(
                         path: "/webhook/dispatch".to_string(),
                         query: None,
                         status: 599,
-                        duration_ms: timer.elapsed().as_millis() as u64,
+                        duration_ms: 0,
                         remote_addr: None,
-                        request: Some(request_payload),
+                        request: Some(json!({
+                            "bot_id": bot_id,
+                            "url": url,
+                            "secret_token_set": !secret_token.is_empty(),
+                            "update": payload,
+                        })),
                         response: Some(json!({
                             "ok": false,
                             "description": format!("webhook client build failed: {}", error),
@@ -138,67 +164,275 @@ pub fn dispatch_webhook_if_configured(
             }
         };
 
-        let webhook_update = request_payload
-            .get("update")
-            .cloned()
-            .unwrap_or(Value::Null);
-        let mut request = client.post(url).json(&webhook_update);
-        if !secret_token.is_empty() {
-            request = request.header("X-Telegram-Bot-Api-Secret-Token", secret_token);
+        let delivered = dispatch_single_webhook_update(
+            &state_for_log,
+            &client,
+            bot_id,
+            &url,
+            &secret_token,
+            payload,
+            update_id,
+        );
+
+        if delivered {
+            retry_pending_webhooks_for_bot(&state_for_log, bot_id, 200);
+        }
+    });
+}
+
+pub fn schedule_pending_retry(state: &Data<AppState>, bot_id: i64) {
+    let state_for_retry = state.clone();
+    std::thread::spawn(move || {
+        retry_pending_webhooks_for_bot(&state_for_retry, bot_id, 200);
+    });
+}
+
+pub fn retry_all_pending_webhooks(state: &Data<AppState>, per_bot_limit: usize) {
+    let bot_ids = match load_webhook_bot_ids(state) {
+        Ok(bot_ids) => bot_ids,
+        Err(_) => return,
+    };
+
+    for bot_id in bot_ids {
+        retry_pending_webhooks_for_bot(state, bot_id, per_bot_limit);
+    }
+}
+
+fn load_webhook_bot_ids(state: &Data<AppState>) -> Result<Vec<i64>, ApiError> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|_| ApiError::internal("database lock poisoned"))?;
+
+    let mut stmt = db
+        .prepare("SELECT bot_id FROM webhooks ORDER BY bot_id ASC")
+        .map_err(ApiError::internal)?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, i64>(0))
+        .map_err(ApiError::internal)?;
+
+    rows.collect::<Result<Vec<_>, _>>().map_err(ApiError::internal)
+}
+
+fn load_webhook_config(state: &Data<AppState>, bot_id: i64) -> Option<(String, String)> {
+    let Ok(db) = state.db.lock() else {
+        return None;
+    };
+
+    db.query_row(
+        "SELECT url, secret_token FROM webhooks WHERE bot_id = ?1",
+        params![bot_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()
+    .ok()
+    .flatten()
+}
+
+fn load_next_pending_update(state: &Data<AppState>, bot_id: i64) -> Option<(i64, String)> {
+    let Ok(db) = state.db.lock() else {
+        return None;
+    };
+
+    db.query_row(
+        "SELECT update_id, update_json FROM updates
+         WHERE bot_id = ?1 AND bot_visible = 1 AND webhook_pending = ?2
+         ORDER BY update_id ASC
+         LIMIT 1",
+        params![bot_id, WEBHOOK_PENDING_READY],
+        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+    )
+    .optional()
+    .ok()
+    .flatten()
+}
+
+fn claim_pending_update(state: &Data<AppState>, update_id: i64) -> bool {
+    let Ok(db) = state.db.lock() else {
+        return false;
+    };
+
+    db.execute(
+        "UPDATE updates
+         SET webhook_pending = ?2
+         WHERE update_id = ?1 AND webhook_pending = ?3",
+        params![update_id, WEBHOOK_PENDING_IN_FLIGHT, WEBHOOK_PENDING_READY],
+    )
+    .map(|changed| changed > 0)
+    .unwrap_or(false)
+}
+
+fn set_update_pending_state(state: &Data<AppState>, update_id: i64, next_state: i64) {
+    if let Ok(db) = state.db.lock() {
+        let _ = db.execute(
+            "UPDATE updates SET webhook_pending = ?2 WHERE update_id = ?1",
+            params![update_id, next_state],
+        );
+    }
+}
+
+fn retry_pending_webhooks_for_bot(state: &Data<AppState>, bot_id: i64, per_bot_limit: usize) {
+    let Some((url, secret_token)) = load_webhook_config(state, bot_id) else {
+        return;
+    };
+
+    let capped_limit = per_bot_limit.clamp(1, 500);
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(4))
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => return,
+    };
+
+    for _ in 0..capped_limit {
+        let Some((update_id, raw_update_json)) = load_next_pending_update(state, bot_id) else {
+            break;
+        };
+
+        if !claim_pending_update(state, update_id) {
+            continue;
         }
 
-        let (status, response_payload) = match request.send() {
-            Ok(response) => {
-                let status = response.status().as_u16();
-                let response_ok = response.status().is_success();
-                let mut response_body_text = response.text().unwrap_or_default();
-                let mut truncated = false;
-                if response_body_text.chars().count() > 4000 {
-                    response_body_text = response_body_text.chars().take(4000).collect::<String>();
-                    truncated = true;
-                }
-                let response_body_value = if response_body_text.trim().is_empty() {
-                    Value::Null
-                } else {
-                    serde_json::from_str::<Value>(&response_body_text)
-                        .unwrap_or_else(|_| Value::String(response_body_text))
-                };
-                (
-                    status,
-                    json!({
-                        "ok": response_ok,
-                        "status": status,
-                        "body": response_body_value,
-                        "truncated": truncated,
-                    }),
-                )
-            }
+        let parsed_update = match serde_json::from_str::<Value>(&raw_update_json) {
+            Ok(value) => strip_nulls(value),
             Err(error) => {
-                let status = error.status().map(|value| value.as_u16()).unwrap_or(599);
-                (
-                    status,
-                    json!({
-                        "ok": false,
-                        "description": error.to_string(),
-                    }),
-                )
+                set_update_pending_state(state, update_id, WEBHOOK_PENDING_NONE);
+                push_runtime_request_log(
+                    state,
+                    RuntimeRequestLogEntry {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        at: Utc::now().timestamp_millis(),
+                        method: "POST".to_string(),
+                        path: "/webhook/dispatch".to_string(),
+                        query: None,
+                        status: 500,
+                        duration_ms: 0,
+                        remote_addr: None,
+                        request: Some(json!({
+                            "bot_id": bot_id,
+                            "url": url,
+                            "update_id": update_id,
+                        })),
+                        response: Some(json!({
+                            "ok": false,
+                            "description": format!("stored update payload is invalid JSON: {}", error),
+                        })),
+                    },
+                );
+                continue;
             }
         };
 
-        push_runtime_request_log(
-            &state_for_log,
-            RuntimeRequestLogEntry {
-                id: uuid::Uuid::new_v4().to_string(),
-                at: started_at,
-                method: "POST".to_string(),
-                path: "/webhook/dispatch".to_string(),
-                query: None,
+        let delivered = dispatch_single_webhook_update(
+            state,
+            &client,
+            bot_id,
+            &url,
+            &secret_token,
+            parsed_update,
+            Some(update_id),
+        );
+
+        if !delivered {
+            break;
+        }
+    }
+}
+
+fn dispatch_single_webhook_update(
+    state: &Data<AppState>,
+    client: &reqwest::blocking::Client,
+    bot_id: i64,
+    url: &str,
+    secret_token: &str,
+    payload: Value,
+    update_id: Option<i64>,
+) -> bool {
+    let started_at = Utc::now().timestamp_millis();
+    let timer = std::time::Instant::now();
+    let request_payload = json!({
+        "bot_id": bot_id,
+        "url": url,
+        "secret_token_set": !secret_token.is_empty(),
+        "update": payload,
+    });
+
+    let webhook_update = request_payload
+        .get("update")
+        .cloned()
+        .unwrap_or(Value::Null);
+    let mut request = client.post(url).json(&webhook_update);
+    if !secret_token.is_empty() {
+        request = request.header("X-Telegram-Bot-Api-Secret-Token", secret_token);
+    }
+
+    let (status, response_payload) = match request.send() {
+        Ok(response) => {
+            let status = response.status().as_u16();
+            let response_ok = response.status().is_success();
+            let mut response_body_text = response.text().unwrap_or_default();
+            let mut truncated = false;
+            if response_body_text.chars().count() > 4000 {
+                response_body_text = response_body_text.chars().take(4000).collect::<String>();
+                truncated = true;
+            }
+            let response_body_value = if response_body_text.trim().is_empty() {
+                Value::Null
+            } else {
+                serde_json::from_str::<Value>(&response_body_text)
+                    .unwrap_or_else(|_| Value::String(response_body_text))
+            };
+            (
                 status,
-                duration_ms: timer.elapsed().as_millis() as u64,
-                remote_addr: None,
-                request: Some(request_payload),
-                response: Some(response_payload),
+                json!({
+                    "ok": response_ok,
+                    "status": status,
+                    "body": response_body_value,
+                    "truncated": truncated,
+                }),
+            )
+        }
+        Err(error) => {
+            let status = error.status().map(|value| value.as_u16()).unwrap_or(599);
+            (
+                status,
+                json!({
+                    "ok": false,
+                    "description": error.to_string(),
+                }),
+            )
+        }
+    };
+
+    let delivered = status < 400;
+    if let Some(done_update_id) = update_id {
+        set_update_pending_state(
+            state,
+            done_update_id,
+            if delivered {
+                WEBHOOK_PENDING_NONE
+            } else {
+                WEBHOOK_PENDING_READY
             },
         );
-    });
+    }
+
+    push_runtime_request_log(
+        state,
+        RuntimeRequestLogEntry {
+            id: uuid::Uuid::new_v4().to_string(),
+            at: started_at,
+            method: "POST".to_string(),
+            path: "/webhook/dispatch".to_string(),
+            query: None,
+            status,
+            duration_ms: timer.elapsed().as_millis() as u64,
+            remote_addr: None,
+            request: Some(request_payload),
+            response: Some(response_payload),
+        },
+    );
+
+    delivered
 }

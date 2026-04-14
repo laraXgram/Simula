@@ -1,5 +1,6 @@
 use actix_web::web::Data;
 use chrono::Utc;
+use reqwest::Url;
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -70,13 +71,24 @@ pub fn handle_delete_webhook(state: &Data<AppState>, token: &str, params: &HashM
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
 
+    if request.drop_pending_updates.unwrap_or(false) {
+        conn.execute(
+            "DELETE FROM updates
+             WHERE bot_id = ?1 AND bot_visible = 1 AND webhook_pending IN (1, 2)",
+            params![bot.id],
+        )
+        .map_err(ApiError::internal)?;
+        return Ok(Value::Bool(true));
+    }
+
     conn.execute("DELETE FROM webhooks WHERE bot_id = ?1", params![bot.id])
         .map_err(ApiError::internal)?;
 
-    if request.drop_pending_updates.unwrap_or(false) {
-        conn.execute("DELETE FROM updates WHERE bot_id = ?1", params![bot.id])
-            .map_err(ApiError::internal)?;
-    }
+    conn.execute(
+        "UPDATE updates SET webhook_pending = 0 WHERE bot_id = ?1",
+        params![bot.id],
+    )
+    .map_err(ApiError::internal)?;
 
     Ok(Value::Bool(true))
 }
@@ -102,7 +114,7 @@ pub fn handle_get_webhook_info(
 
     let pending_update_count: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM updates WHERE bot_id = ?1 AND bot_visible = 1",
+            "SELECT COUNT(*) FROM updates WHERE bot_id = ?1 AND bot_visible = 1 AND webhook_pending = 1",
             params![bot.id],
             |row| row.get(0),
         )
@@ -747,12 +759,36 @@ pub fn handle_set_webhook(state: &Data<AppState>, token: &str, params: &HashMap<
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
 
-    if request.url.trim().is_empty() {
+    let webhook_url = request.url.trim();
+    if webhook_url.is_empty() {
         return Err(ApiError::bad_request("bad webhook: URL is empty"));
     }
 
-    let secret_token = request.secret_token.unwrap_or_default();
+    let parsed_url = Url::parse(webhook_url)
+        .map_err(|_| ApiError::bad_request("bad webhook: failed to parse URL"))?;
+    let scheme = parsed_url.scheme();
+    if scheme != "https" && scheme != "http" {
+        return Err(ApiError::bad_request("bad webhook: URL scheme must be http or https"));
+    }
+
+    let secret_token = request.secret_token.unwrap_or_default().trim().to_string();
+    if !secret_token.is_empty() {
+        if secret_token.len() > 256 {
+            return Err(ApiError::bad_request("bad webhook: secret token is too long"));
+        }
+        if !secret_token
+            .chars()
+            .all(|value| value.is_ascii_alphanumeric() || value == '_' || value == '-')
+        {
+            return Err(ApiError::bad_request("bad webhook: secret token contains invalid characters"));
+        }
+    }
+
     let max_connections = request.max_connections.unwrap_or(40);
+    if !(1..=100).contains(&max_connections) {
+        return Err(ApiError::bad_request("bad webhook: max_connections must be between 1 and 100"));
+    }
+
     let ip_address = request.ip_address.unwrap_or_default();
 
     conn.execute(
@@ -763,13 +799,26 @@ pub fn handle_set_webhook(state: &Data<AppState>, token: &str, params: &HashMap<
             secret_token = excluded.secret_token,
             max_connections = excluded.max_connections,
             ip_address = excluded.ip_address",
-        params![bot.id, request.url, secret_token, max_connections, ip_address],
+        params![bot.id, webhook_url, secret_token, max_connections, ip_address],
     )
     .map_err(ApiError::internal)?;
 
     if request.drop_pending_updates.unwrap_or(false) {
-        conn.execute("DELETE FROM updates WHERE bot_id = ?1", params![bot.id])
-            .map_err(ApiError::internal)?;
+        conn.execute(
+            "DELETE FROM updates WHERE bot_id = ?1 AND bot_visible = 1",
+            params![bot.id],
+        )
+        .map_err(ApiError::internal)?;
+    } else {
+        conn.execute(
+            "UPDATE updates
+             SET webhook_pending = 1
+             WHERE bot_id = ?1 AND bot_visible = 1 AND webhook_pending = 0",
+            params![bot.id],
+        )
+        .map_err(ApiError::internal)?;
+
+        webhook::schedule_pending_retry(state, bot.id);
     }
 
     Ok(Value::Bool(true))

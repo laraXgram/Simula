@@ -852,6 +852,24 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
     ensure_column_exists(conn, "sim_business_connections", "gift_settings_types_json", "TEXT")?;
     ensure_column_exists(conn, "sim_business_connections", "star_balance", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column_exists(conn, "updates", "bot_visible", "INTEGER NOT NULL DEFAULT 1")?;
+    ensure_column_exists(conn, "updates", "webhook_pending", "INTEGER NOT NULL DEFAULT 0")?;
+
+    conn.execute_batch(
+        r#"
+        CREATE TRIGGER IF NOT EXISTS trg_updates_set_webhook_pending
+        AFTER INSERT ON updates
+        BEGIN
+            UPDATE updates
+            SET webhook_pending = CASE
+                WHEN COALESCE(NEW.bot_visible, 1) = 1
+                    AND EXISTS (SELECT 1 FROM webhooks WHERE bot_id = NEW.bot_id)
+                THEN 1
+                ELSE 0
+            END
+            WHERE update_id = NEW.update_id;
+        END;
+        "#,
+    )?;
 
     Ok(())
 }
