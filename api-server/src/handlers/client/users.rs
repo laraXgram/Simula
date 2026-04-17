@@ -76,6 +76,21 @@ pub fn ensure_user(
 ) -> Result<SimUserRecord, ApiError> {
     let id = user_id.unwrap_or(10001);
     let effective_first_name = first_name.unwrap_or_else(|| "Test User".to_string());
+    let normalized_username = username
+        .as_deref()
+        .map(sanitize_username)
+        .filter(|value| !value.is_empty());
+
+    if let Some(candidate_username) = normalized_username.as_deref() {
+        bot::ensure_username_available_globally(
+            conn,
+            candidate_username,
+            None,
+            Some(id),
+            None,
+        )?;
+    }
+
     let now = Utc::now().timestamp();
 
     conn.execute(
@@ -84,7 +99,7 @@ pub fn ensure_user(
          ON CONFLICT(id) DO UPDATE SET
             username = COALESCE(excluded.username, users.username),
             first_name = excluded.first_name",
-        params![id, username, effective_first_name, now],
+        params![id, normalized_username, effective_first_name, now],
     )
     .map_err(ApiError::internal)?;
 
@@ -168,7 +183,7 @@ pub fn get_or_create_user(
 }
 
 pub fn handle_sim_upsert_user(state: &Data<AppState>, body: SimUpsertUserRequest) -> ApiResult {
-    let conn = lock_db(state)?;
+    let mut conn = lock_db(state)?;
 
     struct ExistingSimUserProfile {
         first_name: String,
@@ -228,8 +243,22 @@ pub fn handle_sim_upsert_user(state: &Data<AppState>, body: SimUpsertUserRequest
         .as_deref()
         .map(sanitize_username)
         .filter(|value| !value.is_empty())
-        .or_else(|| existing.as_ref().and_then(|profile| profile.username.clone()))
+        .or_else(|| {
+            existing
+                .as_ref()
+                .and_then(|profile| profile.username.as_deref())
+                .map(sanitize_username)
+                .filter(|value| !value.is_empty())
+        })
         .unwrap_or_else(|| format!("user_{}", id));
+
+    bot::ensure_username_available_globally(
+        &mut conn,
+        &username,
+        None,
+        Some(id),
+        None,
+    )?;
     let last_name = normalize_optional_text(body.last_name)
         .or_else(|| existing.as_ref().and_then(|profile| profile.last_name.clone()));
     let phone_number = normalize_optional_text(body.phone_number)

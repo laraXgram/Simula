@@ -10,7 +10,6 @@ pub mod users;
 pub mod inline;
 pub mod callback;
 pub mod webapp;
-pub mod stars;
 pub mod payments;
 pub mod games;
 pub mod channels;

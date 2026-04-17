@@ -47,6 +47,7 @@ pub struct SimUpdateGroupRequest {
     pub user_id: Option<i64>,
     pub actor_first_name: Option<String>,
     pub actor_username: Option<String>,
+    pub chat_type: Option<String>,
     pub title: Option<String>,
     pub username: Option<String>,
     pub description: Option<String>,

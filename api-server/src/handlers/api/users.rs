@@ -30,9 +30,20 @@ pub fn handle_edit_user_star_subscription(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: EditUserStarSubscriptionRequest = parse_request(params)?;
+    if request.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
+
+    let telegram_payment_charge_id = request.telegram_payment_charge_id.trim();
+    if telegram_payment_charge_id.is_empty() {
+        return Err(ApiError::bad_request(
+            "telegram_payment_charge_id is required",
+        ));
+    }
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
+    users::ensure_sim_user_record(&mut conn, request.user_id)?;
     let now = Utc::now().timestamp();
 
     conn.execute(
@@ -44,7 +55,7 @@ pub fn handle_edit_user_star_subscription(
         params![
             bot.id,
             request.user_id,
-            request.telegram_payment_charge_id,
+            telegram_payment_charge_id,
             if request.is_canceled { 1 } else { 0 },
             now,
         ],
@@ -237,7 +248,7 @@ pub fn handle_get_user_chat_boosts(
     users::ensure_sim_user_chat_boosts_storage(&mut conn)?;
 
     let (chat_key, _sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    chats::ensure_sender_is_chat_member(&mut conn, bot.id, &chat_key, request.user_id)?;
+    let _ = chats::resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
 
     users::ensure_sim_user_record(&mut conn, request.user_id)?;
 
@@ -323,19 +334,12 @@ pub fn handle_set_user_emoji_status(
         ));
     }
 
-    let now = Utc::now().timestamp();
-    if let Some(expiration_date) = request.emoji_status_expiration_date {
-        if expiration_date <= now {
-            return Err(ApiError::bad_request(
-                "emoji_status_expiration_date must be in the future",
-            ));
-        }
-    }
-
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let _ = users::ensure_sim_user_record(&mut conn, request.user_id)?;
     users::ensure_sim_user_emoji_statuses_storage(&mut conn)?;
+
+    let now = Utc::now().timestamp();
 
     conn.execute(
         "INSERT INTO sim_user_emoji_statuses

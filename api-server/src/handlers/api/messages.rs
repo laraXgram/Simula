@@ -47,6 +47,86 @@ use crate::handlers::{
     publish_sim_client_event
 };
 
+const MAX_BULK_MESSAGE_IDS: usize = 100;
+const LIVE_LOCATION_FOREVER: i64 = 0x7FFF_FFFF;
+const LIVE_LOCATION_MIN_PERIOD_SECONDS: i64 = 60;
+const LIVE_LOCATION_MAX_PERIOD_SECONDS: i64 = 86_400;
+const LIVE_LOCATION_MAX_EXTENSION_SECONDS: i64 = 86_400;
+const LIVE_LOCATION_MAX_FUTURE_SECONDS: i64 = 90 * 24 * 60 * 60;
+
+fn validate_bulk_message_ids(message_ids: &[i64], require_strict_order: bool) -> Result<(), ApiError> {
+    if message_ids.is_empty() || message_ids.len() > MAX_BULK_MESSAGE_IDS {
+        return Err(ApiError::bad_request("message_ids must include 1-100 items"));
+    }
+
+    if require_strict_order
+        && message_ids
+            .windows(2)
+            .any(|window| window[0] >= window[1])
+    {
+        return Err(ApiError::bad_request(
+            "message_ids must be in strictly increasing order",
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_latitude_longitude(latitude: f64, longitude: f64) -> Result<(), ApiError> {
+    if !latitude.is_finite() || !longitude.is_finite() {
+        return Err(ApiError::bad_request("latitude and longitude must be finite numbers"));
+    }
+    if !(-90.0..=90.0).contains(&latitude) {
+        return Err(ApiError::bad_request("latitude must be between -90 and 90"));
+    }
+    if !(-180.0..=180.0).contains(&longitude) {
+        return Err(ApiError::bad_request("longitude must be between -180 and 180"));
+    }
+
+    Ok(())
+}
+
+fn validate_live_location_fields(
+    horizontal_accuracy: Option<f64>,
+    live_period: Option<i64>,
+    heading: Option<i64>,
+    proximity_alert_radius: Option<i64>,
+) -> Result<(), ApiError> {
+    if let Some(value) = horizontal_accuracy {
+        if !value.is_finite() || !(0.0..=1500.0).contains(&value) {
+            return Err(ApiError::bad_request(
+                "horizontal_accuracy must be between 0 and 1500",
+            ));
+        }
+    }
+
+    if let Some(value) = live_period {
+        if value != LIVE_LOCATION_FOREVER
+            && !(LIVE_LOCATION_MIN_PERIOD_SECONDS..=LIVE_LOCATION_MAX_PERIOD_SECONDS).contains(&value)
+        {
+            return Err(ApiError::bad_request(
+                "live_period must be 60-86400 or 0x7FFFFFFF",
+            ));
+        }
+    }
+
+    if let Some(value) = heading {
+        if !(1..=360).contains(&value) {
+            return Err(ApiError::bad_request("heading must be between 1 and 360"));
+        }
+    }
+
+    if let Some(value) = proximity_alert_radius {
+        if !(1..=100_000).contains(&value) {
+            return Err(ApiError::bad_request(
+                "proximity_alert_radius must be between 1 and 100000",
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 pub fn handle_send_message(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: SendMessageRequest = parse_request(params)?;
     let sim_parse_mode = messages::normalize_sim_parse_mode(request.parse_mode.as_deref());
@@ -287,9 +367,7 @@ pub fn handle_copy_messages(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: CopyMessagesRequest = parse_request(params)?;
-    if request.message_ids.is_empty() {
-        return Err(ApiError::bad_request("message_ids must not be empty"));
-    }
+    validate_bulk_message_ids(&request.message_ids, true)?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
@@ -381,10 +459,7 @@ pub fn handle_delete_messages(
 ) -> ApiResult {
     let request: DeleteMessagesRequest = parse_request(params)?;
     let message_ids = request.message_ids.clone();
-
-    if message_ids.is_empty() {
-        return Ok(Value::Bool(true));
-    }
+    validate_bulk_message_ids(&message_ids, false)?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
@@ -627,6 +702,13 @@ pub fn handle_edit_message_live_location(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: EditMessageLiveLocationRequest = parse_request(params)?;
+    validate_latitude_longitude(request.latitude, request.longitude)?;
+    validate_live_location_fields(
+        request.horizontal_accuracy,
+        request.live_period,
+        request.heading,
+        request.proximity_alert_radius,
+    )?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
@@ -648,27 +730,70 @@ pub fn handle_edit_message_live_location(
     )?;
 
     let mut edited_message = messages::load_message_value(&mut conn, &bot, message_id)?;
+    let existing_location_value = edited_message
+        .get("location")
+        .cloned()
+        .ok_or_else(|| ApiError::bad_request("message has no live location to edit"))?;
+    let existing_location: Location =
+        serde_json::from_value(existing_location_value).map_err(ApiError::internal)?;
 
-    if edited_message.get("location").is_none() && edited_message.get("venue").is_none() {
-        return Err(ApiError::bad_request("message has no live location to edit"));
+    let existing_live_period = existing_location
+        .live_period
+        .ok_or_else(|| ApiError::bad_request("message is not an active live location"))?;
+
+    let now = Utc::now().timestamp();
+    let message_date = edited_message
+        .get("date")
+        .and_then(Value::as_i64)
+        .unwrap_or(now);
+
+    if existing_live_period != LIVE_LOCATION_FOREVER
+        && now > message_date.saturating_add(existing_live_period)
+    {
+        return Err(ApiError::bad_request("live location can no longer be edited"));
+    }
+
+    if let Some(new_live_period) = request.live_period {
+        if new_live_period != LIVE_LOCATION_FOREVER {
+            if existing_live_period != LIVE_LOCATION_FOREVER
+                && new_live_period
+                    > existing_live_period.saturating_add(LIVE_LOCATION_MAX_EXTENSION_SECONDS)
+            {
+                return Err(ApiError::bad_request(
+                    "live_period cannot be increased by more than 86400 seconds",
+                ));
+            }
+
+            let max_allowed_expiration = now.saturating_add(LIVE_LOCATION_MAX_FUTURE_SECONDS);
+            if message_date.saturating_add(new_live_period) > max_allowed_expiration {
+                return Err(ApiError::bad_request(
+                    "live location expiration must remain within the next 90 days",
+                ));
+            }
+        }
     }
 
     let updated_location = Location {
         latitude: request.latitude,
         longitude: request.longitude,
-        horizontal_accuracy: request.horizontal_accuracy,
-        live_period: request.live_period,
-        heading: request.heading,
-        proximity_alert_radius: request.proximity_alert_radius,
+        horizontal_accuracy: request
+            .horizontal_accuracy
+            .or(existing_location.horizontal_accuracy),
+        live_period: request.live_period.or(existing_location.live_period),
+        heading: request.heading.or(existing_location.heading),
+        proximity_alert_radius: request
+            .proximity_alert_radius
+            .or(existing_location.proximity_alert_radius),
     };
 
-    if edited_message.get("venue").is_some() {
-        if let Some(venue_obj) = edited_message.get_mut("venue").and_then(Value::as_object_mut) {
-            venue_obj.insert("location".to_string(), serde_json::to_value(updated_location).map_err(ApiError::internal)?);
-        }
-    } else {
-        edited_message["location"] = serde_json::to_value(updated_location).map_err(ApiError::internal)?;
-    }
+    validate_live_location_fields(
+        updated_location.horizontal_accuracy,
+        updated_location.live_period,
+        updated_location.heading,
+        updated_location.proximity_alert_radius,
+    )?;
+
+    edited_message["location"] = serde_json::to_value(updated_location).map_err(ApiError::internal)?;
 
     inlines::apply_inline_reply_markup(&mut edited_message, request.reply_markup);
     messages::publish_edited_message_update(state, &mut conn, token, bot.id, &edited_message)?;
@@ -789,9 +914,22 @@ pub fn handle_edit_message_media(
                 "file_size": file.file_size,
             })
         }
+        "animation" => {
+            let file = messages::resolve_media_file(state, token, media_ref, "animation")?;
+            json!({
+                "file_id": file.file_id,
+                "file_unique_id": file.file_unique_id,
+                "width": media_obj.get("width").and_then(Value::as_i64).unwrap_or(512),
+                "height": media_obj.get("height").and_then(Value::as_i64).unwrap_or(512),
+                "duration": media_obj.get("duration").and_then(Value::as_i64).unwrap_or(0),
+                "file_name": file.file_path.split('/').last().unwrap_or("animation.mp4"),
+                "mime_type": file.mime_type,
+                "file_size": file.file_size,
+            })
+        }
         _ => {
             return Err(ApiError::bad_request(
-                "editMessageMedia supports only photo, video, audio, and document",
+                "editMessageMedia supports only photo, video, animation, audio, and document",
             ));
         }
     };
@@ -982,9 +1120,7 @@ pub fn handle_forward_messages(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: ForwardMessagesRequest = parse_request(params)?;
-    if request.message_ids.is_empty() {
-        return Err(ApiError::bad_request("message_ids must not be empty"));
-    }
+    validate_bulk_message_ids(&request.message_ids, true)?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;

@@ -201,6 +201,7 @@ import {
   updateSimulationGroup,
   updateSimBot,
   upsertSimUser,
+  deleteSimUser,
   deleteWebhook,
 } from '../../services/botApi';
 import { API_BASE_URL, DEFAULT_BOT_TOKEN, syncRuntimeClientEnvOverrides } from '../../services/config';
@@ -274,6 +275,7 @@ const INVOICE_META_KEY = 'simula-invoice-meta-by-message';
 const FORUM_TOPICS_KEY = 'simula-forum-topics-by-chat';
 const SELECTED_FORUM_TOPIC_KEY = 'simula-selected-forum-topic-by-chat';
 const BUSINESS_CONNECTIONS_KEY = 'simula-business-connections';
+const BUSINESS_CONNECTION_DRAFT_BY_USER_KEY = 'simula-business-connection-draft-by-user';
 const USER_WALLETS_KEY = 'simula-user-wallets';
 const PAID_MEDIA_PURCHASES_KEY = 'simula-paid-media-purchases';
 const STORY_SHELF_BY_BOT_KEY = 'simula-story-shelf-by-bot';
@@ -286,6 +288,33 @@ const SIDEBAR_ACTIVE_TAB_KEY = 'simula-sidebar-active-tab';
 const SETTINGS_SECTIONS_KEY = 'simula-settings-sections';
 const BOTS_SECTIONS_KEY = 'simula-bots-sections';
 const WEBHOOK_DOMAIN_BY_BOT_KEY = 'simula-webhook-domain-by-bot';
+const WEBHOOK_DRAFT_BY_BOT_KEY = 'simula-webhook-draft-by-bot';
+const WEBHOOK_ALLOWED_UPDATE_OPTIONS = [
+  'message',
+  'edited_message',
+  'channel_post',
+  'edited_channel_post',
+  'business_connection',
+  'business_message',
+  'edited_business_message',
+  'deleted_business_messages',
+  'message_reaction',
+  'message_reaction_count',
+  'inline_query',
+  'chosen_inline_result',
+  'callback_query',
+  'shipping_query',
+  'pre_checkout_query',
+  'purchased_paid_media',
+  'poll',
+  'poll_answer',
+  'my_chat_member',
+  'chat_member',
+  'chat_join_request',
+  'chat_boost',
+  'removed_chat_boost',
+  'managed_bot',
+] as const;
 const GENERAL_FORUM_TOPIC_THREAD_ID = 1;
 const DEFAULT_FORUM_ICON_COLOR = 0x6FB9F0;
 const DEFAULT_WALLET_STATE = {
@@ -307,6 +336,7 @@ type GroupSettingsPage = 'home' | 'bot-membership' | 'discovery' | 'topics' | 'm
 type ComposerParseMode = 'none' | 'MarkdownV2' | 'Markdown' | 'HTML';
 type PaymentMethod = 'wallet' | 'card' | 'stars';
 type CheckoutStep = 1 | 2 | 3;
+type BusinessConnectionDraftByUserState = Record<string, string>;
 type MediaDrawerTab =
   | 'stickers'
   | 'gifts'
@@ -408,6 +438,14 @@ interface RuntimeEnvRow {
 interface WebhookInspectorState {
   title: string;
   payload: unknown;
+}
+
+interface WebhookManagerDraftState {
+  ipAddress: string;
+  maxConnections: string;
+  secretToken: string;
+  dropPendingUpdates: boolean;
+  allowedUpdates: string[];
 }
 
 interface StoryShelfEntry {
@@ -731,10 +769,20 @@ function normalizeWalletState(raw?: Partial<WalletState>): WalletState {
   };
 }
 
+function randomBusinessConnectionId(): string {
+  let hex = '';
+  while (hex.length < 28) {
+    hex += Math.floor(Math.random() * 0xffffffff)
+      .toString(16)
+      .padStart(8, '0');
+  }
+  return `AQAD${hex.slice(0, 28)}`;
+}
+
 function randomBotIdentityDraft(): Pick<BotDraftState, 'first_name' | 'username'> {
   return {
     first_name: `Simula Bot ${Math.floor(Math.random() * 9000 + 1000)}`,
-    username: `simula_${Math.random().toString(36).slice(2, 8)}`,
+    username: `simula_${Math.random().toString(36).slice(2, 8)}bot`,
   };
 }
 
@@ -805,6 +853,16 @@ function defaultSettingsSections(): SettingsSectionState {
 function defaultBotsSections(): BotsSectionState {
   return {
     webhookManager: false,
+  };
+}
+
+function defaultWebhookManagerDraft(): WebhookManagerDraftState {
+  return {
+    ipAddress: '',
+    maxConnections: '40',
+    secretToken: '',
+    dropPendingUpdates: false,
+    allowedUpdates: [...WEBHOOK_ALLOWED_UPDATE_OPTIONS],
   };
 }
 
@@ -1967,6 +2025,38 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       return {};
     }
   });
+  const [webhookDraftByToken, setWebhookDraftByToken] = useState<Record<string, WebhookManagerDraftState>>(() => {
+    try {
+      const raw = localStorage.getItem(WEBHOOK_DRAFT_BY_BOT_KEY);
+      if (!raw) {
+        return {};
+      }
+
+      const parsed = JSON.parse(raw) as Record<string, Partial<WebhookManagerDraftState>>;
+      const normalized: Record<string, WebhookManagerDraftState> = {};
+      Object.entries(parsed).forEach(([token, draft]) => {
+        const allowedUpdates = Array.isArray(draft.allowedUpdates)
+          ? draft.allowedUpdates
+            .map((value) => String(value).trim().toLowerCase())
+            .filter((value) => WEBHOOK_ALLOWED_UPDATE_OPTIONS.includes(value as (typeof WEBHOOK_ALLOWED_UPDATE_OPTIONS)[number]))
+          : [];
+
+        normalized[token] = {
+          ipAddress: typeof draft.ipAddress === 'string' ? draft.ipAddress : '',
+          maxConnections: typeof draft.maxConnections === 'string' ? draft.maxConnections : '40',
+          secretToken: typeof draft.secretToken === 'string' ? draft.secretToken : '',
+          dropPendingUpdates: Boolean(draft.dropPendingUpdates),
+          allowedUpdates: allowedUpdates.length > 0
+            ? Array.from(new Set(allowedUpdates))
+            : [...WEBHOOK_ALLOWED_UPDATE_OPTIONS],
+        };
+      });
+
+      return normalized;
+    } catch {
+      return {};
+    }
+  });
   const [webhookInfoByToken, setWebhookInfoByToken] = useState<Record<string, Record<string, unknown> | null>>({});
   const [webhookActionInFlight, setWebhookActionInFlight] = useState<'' | 'set' | 'remove' | 'drop' | 'info'>('');
   const [webhookInspector, setWebhookInspector] = useState<WebhookInspectorState | null>(null);
@@ -2074,6 +2164,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const [showGroupProfileModal, setShowGroupProfileModal] = useState(false);
   const [groupProfileDraft, setGroupProfileDraft] = useState({
     title: '',
+    chatType: 'supergroup' as 'group' | 'supergroup' | 'channel',
     username: '',
     description: '',
     isForum: false,
@@ -2103,6 +2194,14 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     try {
       const raw = localStorage.getItem(BUSINESS_CONNECTIONS_KEY);
       return raw ? (JSON.parse(raw) as Record<string, GeneratedBusinessConnection>) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [businessConnectionDraftByUserKey, setBusinessConnectionDraftByUserKey] = useState<BusinessConnectionDraftByUserState>(() => {
+    try {
+      const raw = localStorage.getItem(BUSINESS_CONNECTION_DRAFT_BY_USER_KEY);
+      return raw ? (JSON.parse(raw) as BusinessConnectionDraftByUserState) : {};
     } catch {
       return {};
     }
@@ -4275,6 +4374,19 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   }, [debugEventLogs, debuggerSearch, debuggerStatusFilter, debuggerSourceFilter, selectedBotToken]);
 
   const selectedWebhookDomainDraft = webhookDomainByToken[selectedBotToken] || '';
+  const selectedWebhookDraft = webhookDraftByToken[selectedBotToken] || defaultWebhookManagerDraft();
+  const updateSelectedWebhookDraft = (patch: Partial<WebhookManagerDraftState>) => {
+    setWebhookDraftByToken((prev) => {
+      const current = prev[selectedBotToken] || defaultWebhookManagerDraft();
+      return {
+        ...prev,
+        [selectedBotToken]: {
+          ...current,
+          ...patch,
+        },
+      };
+    });
+  };
   const selectedWebhookInfo = webhookInfoByToken[selectedBotToken] || null;
   const selectedWebhookInfoUrl = typeof selectedWebhookInfo?.url === 'string'
     ? selectedWebhookInfo.url.trim()
@@ -4497,6 +4609,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   useEffect(() => {
     localStorage.setItem(WEBHOOK_DOMAIN_BY_BOT_KEY, JSON.stringify(webhookDomainByToken));
   }, [webhookDomainByToken]);
+
+  useEffect(() => {
+    localStorage.setItem(WEBHOOK_DRAFT_BY_BOT_KEY, JSON.stringify(webhookDraftByToken));
+  }, [webhookDraftByToken]);
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_SECTIONS_KEY, JSON.stringify(sidebarSections));
@@ -4789,6 +4905,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   }, [businessConnectionByUserKey]);
 
   useEffect(() => {
+    localStorage.setItem(BUSINESS_CONNECTION_DRAFT_BY_USER_KEY, JSON.stringify(businessConnectionDraftByUserKey));
+  }, [businessConnectionDraftByUserKey]);
+
+  useEffect(() => {
     localStorage.setItem(MANAGED_BOT_SETTINGS_BY_BOT_KEY, JSON.stringify(managedBotSettingsByToken));
   }, [managedBotSettingsByToken]);
 
@@ -4841,11 +4961,37 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   }, [selectedGroupByBot]);
 
   useEffect(() => {
+    if (showUserModal && userModalMode === 'create') {
+      return;
+    }
+
     const current = businessConnectionByUserKey[businessDraftStateKey];
-    setBusinessConnectionDraftId(current?.id || '');
+    const storedDraftId = businessConnectionDraftByUserKey[businessDraftStateKey]?.trim() || '';
+    setBusinessConnectionDraftId((previous) => {
+      if (current?.id) {
+        return current.id;
+      }
+
+      if (storedDraftId.length > 0) {
+        return storedDraftId;
+      }
+
+      if (showUserModal && userModalMode === 'edit') {
+        const normalizedPrevious = previous.trim();
+        return normalizedPrevious.length > 0 ? normalizedPrevious : randomBusinessConnectionId();
+      }
+
+      return '';
+    });
     setBusinessConnectionDraftEnabled(current?.is_enabled ?? true);
     setBusinessRightsDraft(mapBusinessRightsToDraft(current?.rights));
-  }, [businessConnectionByUserKey, businessDraftStateKey]);
+  }, [
+    businessConnectionByUserKey,
+    businessConnectionDraftByUserKey,
+    businessDraftStateKey,
+    showUserModal,
+    userModalMode,
+  ]);
 
   useEffect(() => {
     if (availableBots.length === 0) {
@@ -10331,34 +10477,23 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     setIsBusinessActionRunning(true);
     setErrorText('');
     try {
-      const normalizedBusinessConnectionId = businessConnectionDraftId.trim();
-      if (!normalizedBusinessConnectionId) {
-        const existingConnection = businessConnectionByUserKey[businessDraftStateKey];
-        if (existingConnection) {
-          await removeSimulationBusinessConnection(businessDraftBotToken, {
-            user_id: selectedUser.id,
-            business_connection_id: existingConnection.id,
-          });
+      const existingConnection = businessConnectionByUserKey[businessDraftStateKey];
+      const storedDraftId = businessConnectionDraftByUserKey[businessDraftStateKey]?.trim() || '';
+      const normalizedBusinessConnectionId = businessConnectionDraftId.trim()
+        || existingConnection?.id
+        || storedDraftId
+        || randomBusinessConnectionId();
 
-          setBusinessConnectionByUserKey((prev) => {
-            const next = { ...prev };
-            delete next[businessDraftStateKey];
-            return next;
-          });
-          setBusinessConnectionDraftId('');
-          setBusinessConnectionDraftEnabled(true);
-          setBusinessRightsDraft(defaultBusinessRightsDraft());
-          setErrorText(`Business connection ${existingConnection.id} cleared.`);
-        } else {
-          setErrorText('Business connection id is empty. Nothing to clear.');
-        }
-        return;
+      setBusinessConnectionDraftByUserKey((prev) => ({
+        ...prev,
+        [businessDraftStateKey]: normalizedBusinessConnectionId,
+      }));
+      if (businessConnectionDraftId.trim() !== normalizedBusinessConnectionId) {
+        setBusinessConnectionDraftId(normalizedBusinessConnectionId);
       }
 
       const connection = await setSimulationBusinessConnection(businessDraftBotToken, {
         user_id: selectedUser.id,
-        first_name: selectedUser.first_name,
-        username: selectedUser.username,
         business_connection_id: normalizedBusinessConnectionId,
         enabled: businessConnectionDraftEnabled,
         rights: toBusinessBotRights(businessRightsDraft),
@@ -10368,6 +10503,10 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       setBusinessConnectionByUserKey((prev) => ({
         ...prev,
         [stateKey]: connection,
+      }));
+      setBusinessConnectionDraftByUserKey((prev) => ({
+        ...prev,
+        [stateKey]: connection.id,
       }));
       setBusinessConnectionDraftId(connection.id);
       setBusinessConnectionDraftEnabled(connection.is_enabled);
@@ -10410,7 +10549,12 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         });
         return next;
       });
-      setBusinessConnectionDraftId('');
+      const nextDraftId = targetConnectionId;
+      setBusinessConnectionDraftByUserKey((prev) => ({
+        ...prev,
+        [businessDraftStateKey]: nextDraftId,
+      }));
+      setBusinessConnectionDraftId(nextDraftId);
       setBusinessConnectionDraftEnabled(true);
       setBusinessRightsDraft(defaultBusinessRightsDraft());
       setErrorText(`Business connection ${targetConnectionId} removed.`);
@@ -10433,6 +10577,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
     const currentSettings = selectedGroup.settings || defaultGroupSettings();
     setGroupProfileDraft({
       title: selectedGroup.title,
+      chatType: selectedGroup.type,
       username: selectedGroup.username || '',
       description: selectedGroup.description || '',
       isForum: Boolean(selectedGroup.isForum),
@@ -11045,8 +11190,13 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         user_id: selectedUser.id,
         actor_first_name: selectedUser.first_name,
         actor_username: selectedUser.username,
+        chat_type: selectedGroup.type === 'channel'
+          ? undefined
+          : groupProfileDraft.chatType,
         username: groupProfileDraft.username.trim() || undefined,
-        is_forum: selectedGroup.type === 'supergroup' ? groupProfileDraft.isForum : undefined,
+        is_forum: (selectedGroup.type === 'supergroup' || groupProfileDraft.chatType === 'supergroup')
+          ? groupProfileDraft.isForum
+          : undefined,
         show_author_signature: selectedGroup.type === 'channel' ? groupProfileDraft.showAuthorSignature : undefined,
         paid_star_reactions_enabled: selectedGroup.type === 'channel' ? groupProfileDraft.paidStarReactionsEnabled : undefined,
         direct_messages_enabled: selectedGroup.type === 'channel' ? groupProfileDraft.directMessagesEnabled : undefined,
@@ -11072,6 +11222,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
           group.id === selectedGroup.id
             ? {
               ...group,
+              type: (result.chat.type || group.type) as 'group' | 'supergroup' | 'channel',
               title: result.chat.title || group.title,
               username: result.chat.username || undefined,
               description: updatedDescription,
@@ -11302,6 +11453,32 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       [token]: normalized,
     }));
 
+    setWebhookDraftByToken((prev) => {
+      const current = prev[token] || defaultWebhookManagerDraft();
+      const rawAllowedUpdates = Array.isArray(normalized.allowed_updates)
+        ? normalized.allowed_updates
+        : [];
+      const normalizedAllowedUpdates = rawAllowedUpdates
+        .map((value) => String(value).trim().toLowerCase())
+        .filter((value, index, arr) => value && arr.indexOf(value) === index);
+
+      const nextDraft: WebhookManagerDraftState = {
+        ...current,
+        ipAddress: typeof normalized.ip_address === 'string' ? normalized.ip_address : current.ipAddress,
+        maxConnections: typeof normalized.max_connections === 'number'
+          ? String(normalized.max_connections)
+          : current.maxConnections,
+        allowedUpdates: normalizedAllowedUpdates.length > 0
+          ? normalizedAllowedUpdates
+          : [...WEBHOOK_ALLOWED_UPDATE_OPTIONS],
+      };
+
+      return {
+        ...prev,
+        [token]: nextDraft,
+      };
+    });
+
     return normalized;
   }, []);
 
@@ -11318,13 +11495,32 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       let responsePayload: unknown;
       if (action === 'set') {
         const normalizedUrl = normalizeWebhookEndpoint(selectedWebhookDomainDraft);
+        const maxConnectionsValue = Number.parseInt(selectedWebhookDraft.maxConnections.trim(), 10);
+        const normalizedMaxConnections = Number.isFinite(maxConnectionsValue)
+          ? Math.min(100, Math.max(1, maxConnectionsValue))
+          : undefined;
+
+        const normalizedAllowedUpdates = selectedWebhookDraft.allowedUpdates
+          .map((value) => value.trim().toLowerCase())
+          .filter((value, index, arr) => value && arr.indexOf(value) === index);
+
         responsePayload = await setWebhook(selectedBot.token, {
           url: normalizedUrl,
+          drop_pending_updates: selectedWebhookDraft.dropPendingUpdates,
+          ip_address: selectedWebhookDraft.ipAddress.trim() || undefined,
+          max_connections: normalizedMaxConnections,
+          secret_token: selectedWebhookDraft.secretToken.trim() || undefined,
+          allowed_updates: normalizedAllowedUpdates.length > 0 ? normalizedAllowedUpdates : undefined,
         });
         setWebhookDomainByToken((prev) => ({
           ...prev,
           [selectedBot.token]: normalizedUrl,
         }));
+        if (normalizedMaxConnections !== undefined && normalizedMaxConnections.toString() !== selectedWebhookDraft.maxConnections) {
+          updateSelectedWebhookDraft({
+            maxConnections: normalizedMaxConnections.toString(),
+          });
+        }
       } else if (action === 'remove') {
         responsePayload = await deleteWebhook(selectedBot.token, {
           drop_pending_updates: false,
@@ -11436,11 +11632,13 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       const method = typeof detail.method === 'string' ? detail.method : 'UNKNOWN';
       const normalizedMethod = method.trim().toLowerCase().replace(/^\/+/, '');
       const isWebhookDispatch = normalizedMethod === 'webhook/dispatch';
+      if (!isWebhookDispatch) {
+        return;
+      }
+
       const ok = detail.ok === true;
-      const requestPayload = isWebhookDispatch ? pickUpdateOnlyPayload(detail.request) : detail.request;
-      const responsePayload = ok
-        ? (isWebhookDispatch ? pickUpdateOnlyPayload(detail.response) : detail.response)
-        : undefined;
+      const requestPayload = pickUpdateOnlyPayload(detail.request);
+      const responsePayload = ok ? pickUpdateOnlyPayload(detail.response) : undefined;
 
       if (token) {
         lastBotRequestByTokenRef.current[token] = requestPayload;
@@ -11450,8 +11648,8 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
         at: Number(detail.at || Date.now()),
         botToken: token || undefined,
         method,
-        path: `/bot/${method}`,
-        source: 'bot',
+        path: '/webhook/dispatch',
+        source: 'webhook',
         status: ok ? 'ok' : 'error',
         request: requestPayload,
         response: responsePayload,
@@ -11664,10 +11862,23 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
   const openCreateUserModal = () => {
     const randomId = Math.floor(Math.random() * 900000 + 10000);
+    const draftStateKey = `${selectedBotToken}:${randomId}`;
+    const storedDraftId = businessConnectionDraftByUserKey[draftStateKey]?.trim();
+    const draftId = storedDraftId && storedDraftId.length > 0
+      ? storedDraftId
+      : randomBusinessConnectionId();
+
+    if (!storedDraftId) {
+      setBusinessConnectionDraftByUserKey((prev) => ({
+        ...prev,
+        [draftStateKey]: draftId,
+      }));
+    }
+
     setUserModalMode('create');
     setUserDraft(randomUserDraft(randomId));
     setBusinessDraftBotToken(selectedBotToken);
-    setBusinessConnectionDraftId('');
+    setBusinessConnectionDraftId(draftId);
     setBusinessConnectionDraftEnabled(true);
     setBusinessRightsDraft(defaultBusinessRightsDraft());
     setShowUserModal(true);
@@ -11676,11 +11887,22 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
   const openEditUserModal = (user: SimUser) => {
     const businessStateKey = `${selectedBotToken}:${user.id}`;
     const connection = businessConnectionByUserKey[businessStateKey];
+    const storedDraftId = businessConnectionDraftByUserKey[businessStateKey]?.trim();
+    const draftId = connection?.id
+      || (storedDraftId && storedDraftId.length > 0 ? storedDraftId : randomBusinessConnectionId());
+
+    if (!connection?.id && !storedDraftId) {
+      setBusinessConnectionDraftByUserKey((prev) => ({
+        ...prev,
+        [businessStateKey]: draftId,
+      }));
+    }
+
     setUserModalMode('edit');
     setUserDraft(buildUserDraftFromSimUser(user));
     setSelectedUserId(user.id);
     setBusinessDraftBotToken(selectedBotToken);
-    setBusinessConnectionDraftId(connection?.id || '');
+    setBusinessConnectionDraftId(draftId);
     setBusinessConnectionDraftEnabled(connection?.is_enabled ?? true);
     setBusinessRightsDraft(mapBusinessRightsToDraft(connection?.rights));
     setShowUserModal(true);
@@ -11838,6 +12060,21 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
       const normalized = normalizeSimUser(saved as SimUser);
 
+      const provisionalStateKey = `${businessDraftBotToken}:${id || normalized.id}`;
+      const finalStateKey = `${businessDraftBotToken}:${normalized.id}`;
+      setBusinessConnectionDraftByUserKey((prev) => {
+        const provisionalDraftId = prev[provisionalStateKey]?.trim();
+        const finalDraftId = prev[finalStateKey]?.trim();
+        const nextDraftId = finalDraftId || provisionalDraftId || randomBusinessConnectionId();
+
+        const next = { ...prev };
+        next[finalStateKey] = nextDraftId;
+        if (provisionalStateKey !== finalStateKey) {
+          delete next[provisionalStateKey];
+        }
+        return next;
+      });
+
       setAvailableUsers((prev) => {
         const existingIndex = prev.findIndex((item) => item.id === normalized.id);
         if (existingIndex >= 0) {
@@ -11853,6 +12090,72 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
       setShowUserModal(false);
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'User could not be saved');
+    }
+  };
+
+  const onDeleteUserFromManagement = async (user: SimUser) => {
+    if (availableUsers.length <= 1) {
+      setErrorText('At least one user must remain in simulator.');
+      return;
+    }
+
+    setErrorText('');
+    try {
+      await deleteSimUser({ id: user.id });
+
+      setAvailableUsers((prev) => prev.filter((item) => item.id !== user.id));
+
+      const removedUserIdText = String(user.id);
+      setBusinessConnectionByUserKey((prev) => {
+        const next: Record<string, GeneratedBusinessConnection> = {};
+        Object.entries(prev).forEach(([key, value]) => {
+          const [, userId] = key.split(':');
+          if (userId !== removedUserIdText) {
+            next[key] = value;
+          }
+        });
+        return next;
+      });
+      setBusinessConnectionDraftByUserKey((prev) => {
+        const next: BusinessConnectionDraftByUserState = {};
+        Object.entries(prev).forEach(([key, value]) => {
+          const [, userId] = key.split(':');
+          if (userId !== removedUserIdText) {
+            next[key] = value;
+          }
+        });
+        return next;
+      });
+
+      setWalletByUserId((prev) => {
+        const next = { ...prev };
+        Object.keys(next).forEach((key) => {
+          if (key.endsWith(`:${removedUserIdText}`)) {
+            delete next[key];
+          }
+        });
+        return next;
+      });
+
+      if (selectedUserId === user.id) {
+        const fallbackUser = availableUsers.find((item) => item.id !== user.id);
+        if (fallbackUser) {
+          setSelectedUserId(fallbackUser.id);
+        }
+      }
+
+      if (showUserModal && userModalMode === 'edit' && Number(userDraft.id) === user.id) {
+        setShowUserModal(false);
+        setUserDraft(emptyUserDraft());
+      }
+
+      if (showUserProfileModal && selectedUser.id === user.id) {
+        setShowUserProfileModal(false);
+      }
+
+      setCallbackToast('User deleted.');
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Failed to delete user');
     }
   };
 
@@ -15482,7 +15785,6 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                           ? 'Debugger'
                           : 'Settings'}
                   </h1>
-                  <ShieldCheck className="h-4 w-4 text-[#66c1ff]" />
                 </div>
                 <p className="truncate text-[11px] text-telegram-textSecondary">Bot: {selectedBot?.first_name || 'Loading'} · @{selectedBot?.username || 'unknown'}</p>
                 <p className="truncate text-[10px] text-[#9ec3dc]">Token: {selectedBotToken}</p>
@@ -15665,6 +15967,24 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
 
                           {showCreateGroupForm ? (
                             <div className="space-y-2">
+                              {chatScopeTab === 'group' ? (
+                                <div className="grid grid-cols-2 gap-2 rounded-lg border border-white/10 bg-[#0f1a26] p-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => setGroupDraft((prev) => ({ ...prev, type: 'group', isForum: false }))}
+                                    className={`rounded-md px-2 py-1.5 text-xs ${groupDraft.type === 'group' ? 'bg-[#2b5278] text-white' : 'text-telegram-textSecondary hover:bg-white/10 hover:text-white'}`}
+                                  >
+                                    Group
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setGroupDraft((prev) => ({ ...prev, type: 'supergroup' }))}
+                                    className={`rounded-md px-2 py-1.5 text-xs ${groupDraft.type === 'supergroup' ? 'bg-[#2b5278] text-white' : 'text-telegram-textSecondary hover:bg-white/10 hover:text-white'}`}
+                                  >
+                                    Supergroup
+                                  </button>
+                                </div>
+                              ) : null}
                               <input
                                 value={groupDraft.title}
                                 onChange={(e) => setGroupDraft((prev) => ({ ...prev, title: e.target.value }))}
@@ -15683,6 +16003,16 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                                 className="w-full rounded-lg border border-white/15 bg-[#0f1a26] px-2 py-1.5 text-white outline-none"
                                 placeholder="description"
                               />
+                              {chatScopeTab === 'group' && groupDraft.type === 'supergroup' ? (
+                                <label className="flex items-center gap-2 text-xs text-telegram-textSecondary">
+                                  <input
+                                    type="checkbox"
+                                    checked={groupDraft.isForum}
+                                    onChange={(e) => setGroupDraft((prev) => ({ ...prev, isForum: e.target.checked }))}
+                                  />
+                                  Enable forum topics
+                                </label>
+                              ) : null}
                               <button
                                 type="button"
                                 onClick={() => void onCreateGroup()}
@@ -15771,6 +16101,15 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                               >
                                 <Pencil className="h-4 w-4" />
                               </button>
+                              <button
+                                type="button"
+                                onClick={() => void onDeleteUserFromManagement(user)}
+                                disabled={availableUsers.length <= 1}
+                                className="rounded-full p-1 text-telegram-textSecondary hover:bg-red-500/20 hover:text-red-200 disabled:opacity-40"
+                                title="Delete user"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
                             </div>
                           </div>
                         );
@@ -15809,6 +16148,77 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                               placeholder="http://localhost:8080/webhook"
                               className="w-full rounded-lg border border-white/15 bg-[#122233] px-2 py-1.5 text-xs text-white outline-none"
                             />
+
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              <div>
+                                <label className="mb-1 block text-[11px] uppercase tracking-wide text-[#8fb7d6]">ip_address</label>
+                                <input
+                                  value={selectedWebhookDraft.ipAddress}
+                                  onChange={(event) => updateSelectedWebhookDraft({ ipAddress: event.target.value })}
+                                  placeholder="optional"
+                                  className="w-full rounded-lg border border-white/15 bg-[#122233] px-2 py-1.5 text-xs text-white outline-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="mb-1 block text-[11px] uppercase tracking-wide text-[#8fb7d6]">max_connections</label>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={100}
+                                  value={selectedWebhookDraft.maxConnections}
+                                  onChange={(event) => updateSelectedWebhookDraft({ maxConnections: event.target.value })}
+                                  className="w-full rounded-lg border border-white/15 bg-[#122233] px-2 py-1.5 text-xs text-white outline-none"
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="mb-1 block text-[11px] uppercase tracking-wide text-[#8fb7d6]">secret_token</label>
+                              <input
+                                value={selectedWebhookDraft.secretToken}
+                                onChange={(event) => updateSelectedWebhookDraft({ secretToken: event.target.value })}
+                                placeholder="optional"
+                                className="w-full rounded-lg border border-white/15 bg-[#122233] px-2 py-1.5 text-xs text-white outline-none"
+                              />
+                            </div>
+
+                            <label className="flex items-center gap-2 text-xs text-telegram-textSecondary">
+                              <input
+                                type="checkbox"
+                                checked={selectedWebhookDraft.dropPendingUpdates}
+                                onChange={(event) => updateSelectedWebhookDraft({ dropPendingUpdates: event.target.checked })}
+                              />
+                              drop_pending_updates on setWebhook
+                            </label>
+
+                            <div className="rounded-lg border border-white/10 bg-black/25 p-2">
+                              <p className="mb-2 text-[11px] uppercase tracking-wide text-[#8fb7d6]">allowed_updates</p>
+                              <div className="grid grid-cols-1 gap-1 md:grid-cols-2">
+                                {WEBHOOK_ALLOWED_UPDATE_OPTIONS.map((updateType) => {
+                                  const checked = selectedWebhookDraft.allowedUpdates.includes(updateType);
+                                  return (
+                                    <label key={updateType} className="flex min-w-0 items-start gap-2 text-[11px] leading-4 text-[#cfe7f8]">
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={(event) => {
+                                          if (event.target.checked) {
+                                            updateSelectedWebhookDraft({
+                                              allowedUpdates: Array.from(new Set([...selectedWebhookDraft.allowedUpdates, updateType])),
+                                            });
+                                          } else {
+                                            updateSelectedWebhookDraft({
+                                              allowedUpdates: selectedWebhookDraft.allowedUpdates.filter((value) => value !== updateType),
+                                            });
+                                          }
+                                        }}
+                                      />
+                                      <span className="min-w-0 break-words">{updateType}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
 
                             <div className="grid grid-cols-2 gap-2">
                               <button
@@ -19736,6 +20146,21 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
             </div>
 
             <div className="mt-3 flex items-center justify-end gap-2">
+              {userModalMode === 'edit' ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const parsed = Number(userDraft.id);
+                    const targetUser = availableUsers.find((user) => user.id === parsed);
+                    if (targetUser) {
+                      void onDeleteUserFromManagement(targetUser);
+                    }
+                  }}
+                  className="rounded-lg border border-red-300/40 bg-red-700/25 px-3 py-2 text-sm text-red-100 hover:bg-red-700/35"
+                >
+                  Delete User
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={randomizeUserDraft}
@@ -21322,6 +21747,28 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
               <p>type: {selectedGroup.type}</p>
             </div>
 
+            {selectedGroup.type !== 'channel' ? (
+              <div className="mb-3 rounded-xl border border-white/10 bg-black/20 p-2">
+                <p className="mb-2 text-xs uppercase tracking-wide text-[#8fb7d6]">Chat type</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setGroupProfileDraft((prev) => ({ ...prev, chatType: 'group', isForum: false }))}
+                    className={`rounded-md px-3 py-1.5 text-sm ${groupProfileDraft.chatType === 'group' ? 'bg-[#2b5278] text-white' : 'bg-black/20 text-telegram-textSecondary hover:bg-white/10 hover:text-white'}`}
+                  >
+                    Group
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGroupProfileDraft((prev) => ({ ...prev, chatType: 'supergroup' }))}
+                    className={`rounded-md px-3 py-1.5 text-sm ${groupProfileDraft.chatType === 'supergroup' ? 'bg-[#2b5278] text-white' : 'bg-black/20 text-telegram-textSecondary hover:bg-white/10 hover:text-white'}`}
+                  >
+                    Supergroup
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
             <div className="space-y-2">
               <input
                 value={groupProfileDraft.title}
@@ -21700,7 +22147,7 @@ export default function TelegramChatPage({ initialTab = 'chats' }: TelegramChatP
                   </div>
                 ) : null}
               
-              {selectedGroup.type === 'supergroup' ? (
+              {(selectedGroup.type === 'supergroup' || groupProfileDraft.chatType === 'supergroup') ? (
                 <label className="flex items-center gap-2 text-sm text-telegram-textSecondary">
                   <input
                     type="checkbox"

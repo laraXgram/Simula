@@ -35,6 +35,25 @@ use crate::handlers::utils::storage::ensure_sim_verifications_storage;
 
 use crate::handlers::client::types::chats::SimChatMemberRecord;
 
+const TEMPORARY_CHAT_MEMBER_UNTIL_MIN_SECONDS: i64 = 30;
+const TEMPORARY_CHAT_MEMBER_UNTIL_MAX_SECONDS: i64 = 31_622_400; // 366 days
+
+fn normalize_chat_member_until_date(until_date: Option<i64>, now: i64) -> Option<i64> {
+    let until = until_date?;
+    if until <= 0 {
+        return None;
+    }
+
+    let delta = until.saturating_sub(now);
+    if delta < TEMPORARY_CHAT_MEMBER_UNTIL_MIN_SECONDS
+        || delta > TEMPORARY_CHAT_MEMBER_UNTIL_MAX_SECONDS
+    {
+        return None;
+    }
+
+    Some(until)
+}
+
 pub fn handle_approve_chat_join_request(
     state: &Data<AppState>,
     token: &str,
@@ -125,13 +144,13 @@ pub fn handle_ban_chat_member(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: BanChatMemberRequest = parse_request(params)?;
+    if request.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    if sim_chat.chat_type == "channel" {
-        return Err(ApiError::bad_request("channel members do not support tags"));
-    }
     let actor = chats::resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
 
     if request.user_id == bot.id {
@@ -153,6 +172,7 @@ pub fn handle_ban_chat_member(
 
     let target_record = users::ensure_sim_user_record(&mut conn, request.user_id)?;
     let now = Utc::now().timestamp();
+    let normalized_until_date = normalize_chat_member_until_date(request.until_date, now);
     chats::upsert_chat_member_record(
         &mut conn,
         bot.id,
@@ -162,7 +182,7 @@ pub fn handle_ban_chat_member(
         "banned",
         None,
         None,
-        request.until_date,
+        normalized_until_date,
         None,
         None,
         now,
@@ -916,6 +936,9 @@ pub fn handle_promote_chat_member(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: PromoteChatMemberRequest = parse_request(params)?;
+    if request.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
@@ -1093,12 +1116,15 @@ pub fn handle_restrict_chat_member(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: RestrictChatMemberRequest = parse_request(params)?;
+    if request.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    if sim_chat.chat_type == "channel" {
-        return Err(ApiError::bad_request("channel members do not support restrictions"));
+    if sim_chat.chat_type != "supergroup" {
+        return Err(ApiError::bad_request("restrictChatMember is only available in supergroups"));
     }
     let actor = chats::resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
 
@@ -1138,10 +1164,8 @@ pub fn handle_restrict_chat_member(
         && chats::permission_enabled(permissions.can_pin_messages, false)
         && chats::permission_enabled(permissions.can_manage_topics, false);
 
-    let restriction_expired = request.until_date.map(|until| until > 0 && until <= now).unwrap_or(false);
-    let next_status = if full_permissions && restriction_expired {
-        "member"
-    } else if full_permissions && request.until_date.is_none() {
+    let normalized_until_date = normalize_chat_member_until_date(request.until_date, now);
+    let next_status = if full_permissions {
         "member"
     } else {
         "restricted"
@@ -1167,7 +1191,7 @@ pub fn handle_restrict_chat_member(
             .or(Some(now)),
         permissions_json.as_deref(),
         if next_status == "restricted" {
-            request.until_date
+            normalized_until_date
         } else {
             None
         },
@@ -1204,6 +1228,9 @@ pub fn handle_set_chat_administrator_custom_title(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: SetChatAdministratorCustomTitleRequest = parse_request(params)?;
+    if request.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
     let custom_title = request.custom_title.trim().to_string();
     if custom_title.is_empty() {
         return Err(ApiError::bad_request("custom_title is empty"));
@@ -1215,8 +1242,8 @@ pub fn handle_set_chat_administrator_custom_title(
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    if sim_chat.chat_type == "channel" {
-        return Err(ApiError::bad_request("channel members do not support custom titles"));
+    if sim_chat.chat_type != "supergroup" {
+        return Err(ApiError::bad_request("custom titles are only supported in supergroups"));
     }
     let actor = chats::resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
 
@@ -1314,6 +1341,9 @@ pub fn handle_set_chat_member_tag(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: SetChatMemberTagRequest = parse_request(params)?;
+    if request.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
     let normalized_tag = request
         .tag
         .as_deref()
@@ -1396,7 +1426,12 @@ pub fn handle_set_chat_permissions(
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let (chat_key, _sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
+    if sim_chat.chat_type == "channel" {
+        return Err(ApiError::bad_request(
+            "setChatPermissions is not supported for channels",
+        ));
+    }
     chats::ensure_request_actor_is_chat_admin_or_owner(&mut conn, &bot, &chat_key)?;
 
     let permissions_json = serde_json::to_string(&request.permissions).map_err(ApiError::internal)?;
@@ -1612,13 +1647,13 @@ pub fn handle_unban_chat_member(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: UnbanChatMemberRequest = parse_request(params)?;
+    if request.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
-    if sim_chat.chat_type == "channel" {
-        return Err(ApiError::bad_request("channel members do not support tags"));
-    }
     let actor = chats::resolve_chat_admin_actor(&mut conn, &bot, &chat_key)?;
 
     if request.user_id == bot.id {

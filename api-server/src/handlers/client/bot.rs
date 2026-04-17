@@ -65,6 +65,84 @@ pub fn build_bot_user(bot: &crate::database::BotInfoRecord) -> User {
     }
 }
 
+pub fn ensure_username_available_globally(
+    conn: &mut rusqlite::Connection,
+    username: &str,
+    allowed_bot_id: Option<i64>,
+    allowed_user_id: Option<i64>,
+    allowed_chat: Option<(i64, &str)>,
+) -> Result<(), ApiError> {
+    let normalized = username.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return Err(ApiError::bad_request("username is invalid"));
+    }
+
+    let existing_bot_id: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM bots WHERE username IS NOT NULL AND LOWER(username) = LOWER(?1) LIMIT 1",
+            params![normalized],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+    if let Some(existing_bot_id) = existing_bot_id {
+        if Some(existing_bot_id) != allowed_bot_id {
+            return Err(ApiError::bad_request("username is already taken"));
+        }
+    }
+
+    let existing_user_id: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM users WHERE username IS NOT NULL AND LOWER(username) = LOWER(?1) LIMIT 1",
+            params![normalized],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+    if let Some(existing_user_id) = existing_user_id {
+        if Some(existing_user_id) != allowed_user_id {
+            return Err(ApiError::bad_request("username is already taken"));
+        }
+    }
+
+    let existing_chat: Option<(i64, String)> = conn
+        .query_row(
+            "SELECT bot_id, chat_key
+             FROM sim_chats
+             WHERE username IS NOT NULL AND LOWER(username) = LOWER(?1)
+             LIMIT 1",
+            params![normalized],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+    if let Some((existing_chat_bot_id, existing_chat_key)) = existing_chat {
+        let is_allowed_chat = allowed_chat
+            .map(|(allowed_chat_bot_id, allowed_chat_key)| {
+                allowed_chat_bot_id == existing_chat_bot_id
+                    && allowed_chat_key == existing_chat_key.as_str()
+            })
+            .unwrap_or(false);
+        if !is_allowed_chat {
+            return Err(ApiError::bad_request("username is already taken"));
+        }
+    }
+
+    Ok(())
+}
+
+pub fn normalize_bot_username(raw: &str) -> Result<String, ApiError> {
+    let normalized = sanitize_username(raw);
+    if normalized.is_empty() {
+        return Err(ApiError::bad_request("bot username is invalid"));
+    }
+    if !normalized.ends_with("bot") {
+        return Err(ApiError::bad_request("bot username must end with 'bot'"));
+    }
+
+    Ok(normalized)
+}
+
 pub fn ensure_sim_bot_commands_storage(conn: &mut rusqlite::Connection) -> Result<(), ApiError> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS sim_bot_commands (
@@ -236,7 +314,7 @@ pub fn set_bot_privacy_mode_enabled(
 }
 
 pub fn handle_sim_create_bot(state: &Data<AppState>, body: SimCreateBotRequest) -> ApiResult {
-    let conn = lock_db(state)?;
+    let mut conn = lock_db(state)?;
 
     let token = generate_telegram_token();
     let now = Utc::now().timestamp();
@@ -248,11 +326,13 @@ pub fn handle_sim_create_bot(state: &Data<AppState>, body: SimCreateBotRequest) 
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| format!("Simula Bot {}", &suffix[..4]));
 
-    let username = body
-        .username
-        .map(|v| sanitize_username(&v))
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| format!("simula_{}", suffix));
+    let username = if let Some(raw_username) = body.username.as_deref() {
+        normalize_bot_username(raw_username)?
+    } else {
+        format!("simula_{}bot", suffix)
+    };
+
+    ensure_username_available_globally(&mut conn, &username, None, None, None)?;
 
     conn.execute(
         "INSERT INTO bots (token, username, first_name, created_at) VALUES (?1, ?2, ?3, ?4)",
@@ -282,11 +362,15 @@ pub fn handle_sim_update_bot(
         .filter(|v| !v.is_empty())
         .unwrap_or(bot.first_name);
 
-    let username = body
-        .username
-        .map(|v| sanitize_username(&v))
-        .filter(|v| !v.is_empty())
-        .unwrap_or(bot.username);
+    let username = if let Some(raw_username) = body.username.as_deref() {
+        normalize_bot_username(raw_username)?
+    } else {
+        bot.username
+    };
+
+    if body.username.is_some() {
+        ensure_username_available_globally(&mut conn, &username, Some(bot.id), None, None)?;
+    }
 
     conn.execute(
         "UPDATE bots SET first_name = ?1, username = ?2 WHERE id = ?3",
@@ -624,10 +708,16 @@ pub fn create_managed_bot_record(
         .map(str::to_string)
         .unwrap_or_else(|| format!("Managed Bot {}", &suffix[..4]));
 
-    let username = suggested_username
-        .map(sanitize_username)
+    let username = if let Some(raw_username) = suggested_username
+        .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| format!("managed_{}", suffix));
+    {
+        normalize_bot_username(raw_username)?
+    } else {
+        format!("managed_{}bot", suffix)
+    };
+
+    ensure_username_available_globally(conn, &username, None, None, None)?;
 
     conn.execute(
         "INSERT INTO bots (token, username, first_name, created_at) VALUES (?1, ?2, ?3, ?4)",

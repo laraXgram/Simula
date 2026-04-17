@@ -18,7 +18,10 @@ use crate::database::{
     init_database, is_api_enabled, AppState,
 };
 use crate::routes::{
-    bot_api_get, bot_api_post, file_download, health, runtime_env_get, runtime_env_set,
+    api_not_found_fallback, api_root_not_found_get, api_root_not_found_post, bot_api_get,
+    bot_api_missing_token_get,
+    bot_api_missing_token_post, bot_api_post,
+    file_download, health, runtime_env_get, runtime_env_set,
     runtime_info, runtime_logs, runtime_logs_clear, runtime_power_set, runtime_power_status,
     runtime_service_action, runtime_service_status,
     sim_bootstrap, sim_clear_history, sim_create_bot,
@@ -159,6 +162,10 @@ async fn main() -> std::io::Result<()> {
             .service(runtime_env_get)
             .service(runtime_env_set)
             .service(ws_bot_updates)
+            .service(api_root_not_found_get)
+            .service(api_root_not_found_post)
+            .service(bot_api_missing_token_get)
+            .service(bot_api_missing_token_post)
             .service(bot_api_get)
             .service(bot_api_post)
             .service(file_download)
@@ -208,6 +215,7 @@ async fn main() -> std::io::Result<()> {
             .service(sim_remove_user_chat_boosts)
             .service(sim_delete_owned_gift)
             .service(sim_clear_history)
+                .default_service(web::to(api_not_found_fallback))
     })
     .bind((host.clone(), port))?
     .run();

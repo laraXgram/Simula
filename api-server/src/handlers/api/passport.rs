@@ -16,6 +16,119 @@ use crate::handlers::client::{bot, users};
 
 use crate::handlers::parse_request;
 
+const PASSPORT_DATA_FIELD_TYPES: &[&str] = &[
+    "personal_details",
+    "passport",
+    "driver_license",
+    "identity_card",
+    "internal_passport",
+    "address",
+];
+
+const PASSPORT_FRONT_SIDE_TYPES: &[&str] = &[
+    "passport",
+    "driver_license",
+    "identity_card",
+    "internal_passport",
+];
+
+const PASSPORT_REVERSE_SIDE_TYPES: &[&str] = &[
+    "driver_license",
+    "identity_card",
+];
+
+const PASSPORT_FILE_TYPES: &[&str] = &[
+    "utility_bill",
+    "bank_statement",
+    "rental_agreement",
+    "passport_registration",
+    "temporary_registration",
+];
+
+const PASSPORT_TRANSLATION_TYPES: &[&str] = &[
+    "passport",
+    "driver_license",
+    "identity_card",
+    "internal_passport",
+    "utility_bill",
+    "bank_statement",
+    "rental_agreement",
+    "passport_registration",
+    "temporary_registration",
+];
+
+const PASSPORT_UNSPECIFIED_TYPES: &[&str] = &[
+    "personal_details",
+    "passport",
+    "driver_license",
+    "identity_card",
+    "internal_passport",
+    "address",
+    "utility_bill",
+    "bank_statement",
+    "rental_agreement",
+    "passport_registration",
+    "temporary_registration",
+    "phone_number",
+    "email",
+];
+
+fn require_non_empty_string_field(value: &Value, field_name: &str) -> Result<String, ApiError> {
+    let raw = value
+        .get(field_name)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("");
+
+    if raw.is_empty() {
+        return Err(ApiError::bad_request(format!(
+            "passport error {} is required",
+            field_name,
+        )));
+    }
+
+    Ok(raw.to_string())
+}
+
+fn ensure_allowed_type(element_type: &str, allowed: &[&str], source: &str) -> Result<(), ApiError> {
+    if allowed.iter().any(|candidate| *candidate == element_type) {
+        return Ok(());
+    }
+
+    Err(ApiError::bad_request(format!(
+        "passport error type is invalid for source {}",
+        source,
+    )))
+}
+
+fn require_non_empty_string_array_field(value: &Value, field_name: &str) -> Result<(), ApiError> {
+    let Some(items) = value.get(field_name).and_then(Value::as_array) else {
+        return Err(ApiError::bad_request(format!(
+            "passport error {} is required",
+            field_name,
+        )));
+    };
+
+    if items.is_empty() {
+        return Err(ApiError::bad_request(format!(
+            "passport error {} must not be empty",
+            field_name,
+        )));
+    }
+
+    for item in items {
+        let text = item.as_str().map(str::trim).unwrap_or("");
+        if text.is_empty() {
+            return Err(ApiError::bad_request(format!(
+                "passport error {} contains an invalid value",
+                field_name,
+            )));
+        }
+    }
+
+    Ok(())
+}
+
 pub fn handle_set_passport_data_errors(
     state: &Data<AppState>,
     token: &str,
@@ -38,30 +151,53 @@ pub fn handle_set_passport_data_errors(
     let mut normalized_errors = Vec::<Value>::with_capacity(request.errors.len());
     for error in request.errors {
         let error_value = error.extra;
-        let source = error_value
-            .get("source")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .unwrap_or("");
-        let element_type = error_value
-            .get("type")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .unwrap_or("");
-        let message = error_value
-            .get("message")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .unwrap_or("");
+        let source = require_non_empty_string_field(&error_value, "source")?;
+        let element_type = require_non_empty_string_field(&error_value, "type")?;
+        let _message = require_non_empty_string_field(&error_value, "message")?;
 
-        if source.is_empty() {
-            return Err(ApiError::bad_request("passport error source is required"));
-        }
-        if element_type.is_empty() {
-            return Err(ApiError::bad_request("passport error type is required"));
-        }
-        if message.is_empty() {
-            return Err(ApiError::bad_request("passport error message is required"));
+        match source.as_str() {
+            "data" => {
+                ensure_allowed_type(&element_type, PASSPORT_DATA_FIELD_TYPES, &source)?;
+                let _ = require_non_empty_string_field(&error_value, "field_name")?;
+                let _ = require_non_empty_string_field(&error_value, "data_hash")?;
+            }
+            "front_side" => {
+                ensure_allowed_type(&element_type, PASSPORT_FRONT_SIDE_TYPES, &source)?;
+                let _ = require_non_empty_string_field(&error_value, "file_hash")?;
+            }
+            "reverse_side" => {
+                ensure_allowed_type(&element_type, PASSPORT_REVERSE_SIDE_TYPES, &source)?;
+                let _ = require_non_empty_string_field(&error_value, "file_hash")?;
+            }
+            "selfie" => {
+                ensure_allowed_type(&element_type, PASSPORT_FRONT_SIDE_TYPES, &source)?;
+                let _ = require_non_empty_string_field(&error_value, "file_hash")?;
+            }
+            "file" => {
+                ensure_allowed_type(&element_type, PASSPORT_FILE_TYPES, &source)?;
+                let _ = require_non_empty_string_field(&error_value, "file_hash")?;
+            }
+            "files" => {
+                ensure_allowed_type(&element_type, PASSPORT_FILE_TYPES, &source)?;
+                require_non_empty_string_array_field(&error_value, "file_hashes")?;
+            }
+            "translation_file" => {
+                ensure_allowed_type(&element_type, PASSPORT_TRANSLATION_TYPES, &source)?;
+                let _ = require_non_empty_string_field(&error_value, "file_hash")?;
+            }
+            "translation_files" => {
+                ensure_allowed_type(&element_type, PASSPORT_TRANSLATION_TYPES, &source)?;
+                require_non_empty_string_array_field(&error_value, "file_hashes")?;
+            }
+            "unspecified" => {
+                ensure_allowed_type(&element_type, PASSPORT_UNSPECIFIED_TYPES, &source)?;
+                let _ = require_non_empty_string_field(&error_value, "element_hash")?;
+            }
+            _ => {
+                return Err(ApiError::bad_request(
+                    "passport error source is invalid",
+                ));
+            }
         }
 
         normalized_errors.push(error_value);

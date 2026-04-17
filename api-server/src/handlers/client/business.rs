@@ -282,7 +282,18 @@ pub fn handle_sim_set_business_connection(
 ) -> ApiResult {
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
-    let user = users::ensure_user(&mut conn, body.user_id, body.first_name, body.username)?;
+
+    // If the user already exists, keep their current profile as-is while
+    // configuring business connection settings to avoid username collisions.
+    let user = if let Some(user_id) = body.user_id {
+        if let Some(existing_user) = users::load_sim_user_record(&mut conn, user_id)? {
+            existing_user
+        } else {
+            users::ensure_user(&mut conn, Some(user_id), body.first_name, body.username)?
+        }
+    } else {
+        users::ensure_user(&mut conn, None, body.first_name, body.username)?
+    };
 
     let connection_id = normalize_business_connection_id(body.business_connection_id.as_deref())
         .unwrap_or_else(|| default_business_connection_id(bot.id, user.id));

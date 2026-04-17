@@ -494,6 +494,7 @@ export async function updateSimulationGroup(token: string, payload: {
   user_id?: number;
   actor_first_name?: string;
   actor_username?: string;
+  chat_type?: 'group' | 'supergroup' | 'channel';
   title?: string;
   username?: string;
   description?: string;

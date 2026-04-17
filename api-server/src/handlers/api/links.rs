@@ -22,6 +22,69 @@ use crate::handlers::client::{chats, channels};
 
 use crate::handlers::parse_request;
 
+const INVITE_LINK_NAME_MAX_LEN: usize = 32;
+const INVITE_LINK_MEMBER_LIMIT_MAX: i64 = 99_999;
+const SUBSCRIPTION_PERIOD_30_DAYS: i64 = 2_592_000;
+const SUBSCRIPTION_PRICE_MIN: i64 = 1;
+const SUBSCRIPTION_PRICE_MAX: i64 = 10_000;
+
+fn normalize_invite_link_name(raw: Option<&str>) -> Result<Option<String>, ApiError> {
+    let normalized = raw
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    if let Some(name) = normalized.as_deref() {
+        if name.chars().count() > INVITE_LINK_NAME_MAX_LEN {
+            return Err(ApiError::bad_request("name must be at most 32 characters"));
+        }
+    }
+
+    Ok(normalized)
+}
+
+fn normalize_updated_invite_link_name(
+    raw: Option<String>,
+    current: Option<String>,
+) -> Result<Option<String>, ApiError> {
+    if let Some(value) = raw {
+        let trimmed = value.trim();
+        if trimmed.chars().count() > INVITE_LINK_NAME_MAX_LEN {
+            return Err(ApiError::bad_request("name must be at most 32 characters"));
+        }
+
+        if trimmed.is_empty() {
+            return Ok(None);
+        }
+
+        return Ok(Some(trimmed.to_string()));
+    }
+
+    Ok(current)
+}
+
+fn validate_invite_member_limit(member_limit: Option<i64>) -> Result<Option<i64>, ApiError> {
+    if let Some(value) = member_limit {
+        if !(1..=INVITE_LINK_MEMBER_LIMIT_MAX).contains(&value) {
+            return Err(ApiError::bad_request(
+                "member_limit must be between 1 and 99999",
+            ));
+        }
+    }
+
+    Ok(member_limit)
+}
+
+fn validate_invite_expire_date(expire_date: Option<i64>, now: i64) -> Result<Option<i64>, ApiError> {
+    if let Some(value) = expire_date {
+        if value <= now {
+            return Err(ApiError::bad_request("expire_date must be in the future"));
+        }
+    }
+
+    Ok(expire_date)
+}
+
 pub fn handle_create_chat_invite_link(
     state: &Data<AppState>,
     token: &str,
@@ -39,14 +102,9 @@ pub fn handle_create_chat_invite_link(
 
     let now = Utc::now().timestamp();
     let creates_join_request = request.creates_join_request.unwrap_or(false);
-    let name = request
-        .name
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
-    let expire_date = request.expire_date.filter(|value| *value > now);
-    let member_limit = request.member_limit.filter(|value| *value > 0);
+    let name = normalize_invite_link_name(request.name.as_deref())?;
+    let expire_date = validate_invite_expire_date(request.expire_date, now)?;
+    let member_limit = validate_invite_member_limit(request.member_limit)?;
 
     if creates_join_request && member_limit.is_some() {
         return Err(ApiError::bad_request("member_limit can't be used when creates_join_request is true"));
@@ -105,19 +163,18 @@ pub fn handle_create_chat_subscription_invite_link(
         return Err(ApiError::bad_request("subscription invite links are only available for channels"));
     }
     channels::ensure_channel_actor_can_manage_invite_links(&mut conn, bot.id, &chat_key, actor.id)?;
-    if request.subscription_period <= 0 {
-        return Err(ApiError::bad_request("subscription_period must be greater than zero"));
+    if request.subscription_period != SUBSCRIPTION_PERIOD_30_DAYS {
+        return Err(ApiError::bad_request(
+            "subscription_period must be exactly 2592000 seconds",
+        ));
     }
-    if request.subscription_price <= 0 {
-        return Err(ApiError::bad_request("subscription_price must be greater than zero"));
+    if !(SUBSCRIPTION_PRICE_MIN..=SUBSCRIPTION_PRICE_MAX).contains(&request.subscription_price) {
+        return Err(ApiError::bad_request(
+            "subscription_price must be between 1 and 10000",
+        ));
     }
 
-    let name = request
-        .name
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
+    let name = normalize_invite_link_name(request.name.as_deref())?;
 
     let now = Utc::now().timestamp();
     let invite_link = chats::generate_unique_invite_link_for_bot(&mut conn, bot.id)?;
@@ -183,19 +240,13 @@ pub fn handle_edit_chat_invite_link(
     }
 
     let now = Utc::now().timestamp();
-    let name = request
-        .name
-        .map(|value| value.trim().to_string())
-        .or(existing.name.clone())
-        .filter(|value| !value.is_empty());
+    let name = normalize_updated_invite_link_name(request.name, existing.name.clone())?;
     let expire_date = match request.expire_date {
-        Some(value) if value > now => Some(value),
-        Some(_) => None,
+        Some(value) => validate_invite_expire_date(Some(value), now)?,
         None => existing.expire_date,
     };
     let member_limit = match request.member_limit {
-        Some(value) if value > 0 => Some(value),
-        Some(_) => None,
+        Some(value) => validate_invite_member_limit(Some(value))?,
         None => existing.member_limit,
     };
     let creates_join_request = request
@@ -272,16 +323,15 @@ pub fn handle_edit_chat_subscription_invite_link(
     if existing.creator_user_id != actor.id {
         return Err(ApiError::bad_request("invite link wasn't created by this actor"));
     }
+    if existing.is_revoked {
+        return Err(ApiError::bad_request("invite link is revoked"));
+    }
     if existing.subscription_period.is_none() || existing.subscription_price.is_none() {
         return Err(ApiError::bad_request("invite link is not a subscription link"));
     }
 
     let now = Utc::now().timestamp();
-    let name = request
-        .name
-        .map(|value| value.trim().to_string())
-        .or(existing.name.clone())
-        .filter(|value| !value.is_empty());
+    let name = normalize_updated_invite_link_name(request.name, existing.name.clone())?;
 
     conn.execute(
         "UPDATE sim_chat_invite_links

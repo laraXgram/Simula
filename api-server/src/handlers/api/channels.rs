@@ -19,16 +19,28 @@ use crate::handlers::parse_request;
 
 use crate::handlers::utils::updates::current_request_actor_user_id;
 
+const SUGGESTED_POST_MAX_FUTURE_SECONDS: i64 = 2_678_400;
+const SUGGESTED_POST_DECLINE_COMMENT_MAX_LEN: usize = 128;
+
 pub fn handle_approve_suggested_post(
     state: &Data<AppState>,
     token: &str,
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: ApproveSuggestedPostRequest = parse_request(params)?;
+    if request.chat_id == 0 {
+        return Err(ApiError::bad_request("chat_id is invalid"));
+    }
+    if request.message_id <= 0 {
+        return Err(ApiError::bad_request("message_id is invalid"));
+    }
 
     let now = Utc::now().timestamp();
     if let Some(send_date) = request.send_date {
-        if send_date - now > 2_678_400 {
+        if send_date <= 0 {
+            return Err(ApiError::bad_request("send_date is invalid"));
+        }
+        if send_date - now > SUGGESTED_POST_MAX_FUTURE_SECONDS {
             return Err(ApiError::bad_request(
                 "send_date must be at most 30 days in the future",
             ));
@@ -106,7 +118,10 @@ pub fn handle_approve_suggested_post(
         .or_else(|| existing.as_ref().and_then(|(_, send_date)| *send_date))
         .or_else(|| channels::extract_suggested_post_send_date_from_message(&suggested_message));
     if let Some(send_date) = resolved_send_date {
-        if send_date - now > 2_678_400 {
+        if send_date <= 0 {
+            return Err(ApiError::bad_request("send_date is invalid"));
+        }
+        if send_date - now > SUGGESTED_POST_MAX_FUTURE_SECONDS {
             return Err(ApiError::bad_request(
                 "send_date must be at most 30 days in the future",
             ));
@@ -244,9 +259,21 @@ pub fn handle_decline_suggested_post(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: DeclineSuggestedPostRequest = parse_request(params)?;
+    if request.chat_id == 0 {
+        return Err(ApiError::bad_request("chat_id is invalid"));
+    }
+    if request.message_id <= 0 {
+        return Err(ApiError::bad_request("message_id is invalid"));
+    }
 
-    if let Some(comment) = request.comment.as_ref() {
-        if comment.chars().count() > 128 {
+    let normalized_comment = request
+        .comment
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    if let Some(comment) = normalized_comment {
+        if comment.chars().count() > SUGGESTED_POST_DECLINE_COMMENT_MAX_LEN {
             return Err(ApiError::bad_request("comment is too long"));
         }
     }
@@ -306,11 +333,6 @@ pub fn handle_decline_suggested_post(
     }
 
     let now = Utc::now().timestamp();
-    let normalized_comment = request
-        .comment
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
     channels::upsert_suggested_post_state(
         &mut conn,
         bot.id,

@@ -131,7 +131,7 @@ pub fn dispatch_method(
         "answerprecheckoutquery" => payments::handle_answer_pre_checkout_query(state, token, &params),
         "createinvoicelink" => payments::handle_create_invoice_link(state, token, &params),
         "getmystarbalance" => bot::handle_get_my_star_balance(state, token, &params),
-        "getstartransactions" => stars::handle_get_star_transactions(state, token, &params),
+        "getstartransactions" => payments::handle_get_star_transactions(state, token, &params),
         "setmycommands" => bot::handle_set_my_commands(state, token, &params),
         "getmycommands" => bot::handle_get_my_commands(state, token, &params),
         "deletemycommands" => bot::handle_delete_my_commands(state, token, &params),
@@ -149,7 +149,7 @@ pub fn dispatch_method(
         "getmydefaultadministratorrights" => {
             bot::handle_get_my_default_administrator_rights(state, token, &params)
         }
-        "refundstarpayment" => stars::handle_refund_star_payment(state, token, &params),
+        "refundstarpayment" => payments::handle_refund_star_payment(state, token, &params),
         "edituserstarsubscription" => users::handle_edit_user_star_subscription(state, token, &params),
         "savepreparedinlinemessage" => webapp::handle_save_prepared_inline_message(state, token, &params),
         "savepreparedkeyboardbutton" => webapp::handle_save_prepared_keyboard_button(state, token, &params),
@@ -215,7 +215,31 @@ fn chat_id_to_chat_key(chat_id: i64) -> String {
 }
 
 fn ensure_default_user(conn: &mut rusqlite::Connection) -> Result<SimUserRecord, ApiError> {
-    client::users::ensure_user(conn, Some(10001), Some("Test User".to_string()), Some("test_user".to_string()))
+    // Keep bootstrap resilient even if legacy data already consumed `test_user`
+    // in bots/chats. Existing default user keeps its current username.
+    if client::users::load_sim_user_record(conn, 10001)?.is_some() {
+        return client::users::ensure_user(conn, Some(10001), Some("Test User".to_string()), None);
+    }
+
+    let preferred_username = "test_user".to_string();
+    let default_username = match client::bot::ensure_username_available_globally(
+        conn,
+        &preferred_username,
+        None,
+        Some(10001),
+        None,
+    ) {
+        Ok(()) => Some(preferred_username),
+        Err(error) if error.code == 400 => None,
+        Err(error) => return Err(error),
+    };
+
+    client::users::ensure_user(
+        conn,
+        Some(10001),
+        Some("Test User".to_string()),
+        default_username,
+    )
 }
 
 fn token_suffix(token: &str) -> String {

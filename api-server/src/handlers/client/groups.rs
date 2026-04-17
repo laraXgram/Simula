@@ -185,6 +185,17 @@ pub fn handle_sim_create_group(
         .as_deref()
         .map(sanitize_username)
         .filter(|v| !v.is_empty());
+
+    if let Some(candidate_username) = username.as_deref() {
+        bot::ensure_username_available_globally(
+            &mut conn,
+            candidate_username,
+            None,
+            None,
+            Some((bot.id, &chat_key)),
+        )?;
+    }
+
     let is_forum = if chat_type == "supergroup" {
         body.is_forum.unwrap_or(false)
     } else {
@@ -543,6 +554,36 @@ pub fn handle_sim_update_group(
         return Err(ApiError::bad_request("cannot edit private chat with group endpoint"));
     }
 
+    let target_chat_type = match body.chat_type.as_deref() {
+        Some(raw) => {
+            let normalized = raw.trim().to_ascii_lowercase();
+            if normalized.is_empty() {
+                chat_type.clone()
+            } else {
+                if !matches!(normalized.as_str(), "group" | "supergroup" | "channel") {
+                    return Err(ApiError::bad_request(
+                        "chat_type must be group, supergroup, or channel",
+                    ));
+                }
+
+                if chat_type == "channel" && normalized != "channel" {
+                    return Err(ApiError::bad_request(
+                        "channel chat type cannot be changed to group or supergroup",
+                    ));
+                }
+
+                if (chat_type == "group" || chat_type == "supergroup") && normalized == "channel" {
+                    return Err(ApiError::bad_request(
+                        "group chat type cannot be changed to channel",
+                    ));
+                }
+
+                normalized
+            }
+        }
+        None => chat_type.clone(),
+    };
+
     let current_permissions = current_permissions_json
         .as_deref()
         .and_then(|raw| serde_json::from_str::<ChatPermissions>(raw).ok())
@@ -587,9 +628,10 @@ pub fn handle_sim_update_group(
         .unwrap_or_else(|| format!("Group {}", body.chat_id));
     let title_changed = current_title.as_deref() != Some(title.as_str());
 
-    let username = match body.username {
+    let requested_username = body.username.as_ref();
+    let username = match requested_username {
         Some(value) => {
-            let normalized = sanitize_username(&value);
+            let normalized = sanitize_username(value);
             if normalized.is_empty() {
                 None
             } else {
@@ -598,6 +640,18 @@ pub fn handle_sim_update_group(
         }
         None => current_username.clone(),
     };
+
+    if requested_username.is_some() {
+        if let Some(candidate_username) = username.as_deref() {
+            bot::ensure_username_available_globally(
+                &mut conn,
+                candidate_username,
+                None,
+                None,
+                Some((bot.id, &chat_key)),
+            )?;
+        }
+    }
 
     let description = match body.description {
         Some(value) => {
@@ -611,18 +665,18 @@ pub fn handle_sim_update_group(
         None => current_description.clone(),
     };
 
-    let is_forum = if chat_type == "supergroup" {
+    let is_forum = if target_chat_type == "supergroup" {
         body.is_forum.unwrap_or(current_is_forum == 1)
     } else {
         false
     };
-    let show_author_signature = if chat_type == "channel" {
+    let show_author_signature = if target_chat_type == "channel" {
         body.show_author_signature
             .unwrap_or(current_show_author_signature == 1)
     } else {
         false
     };
-    let paid_star_reactions_enabled = if chat_type == "channel" {
+    let paid_star_reactions_enabled = if target_chat_type == "channel" {
         body.paid_star_reactions_enabled
             .unwrap_or(current_paid_star_reactions_enabled == 1)
     } else {
@@ -634,7 +688,7 @@ pub fn handle_sim_update_group(
         false
     };
 
-    let linked_discussion_chat_id = if chat_type == "channel" {
+    let linked_discussion_chat_id = if target_chat_type == "channel" {
         if let Some(raw_linked_chat_id) = body.linked_chat_id {
             if raw_linked_chat_id == 0 {
                 None
@@ -678,7 +732,7 @@ pub fn handle_sim_update_group(
         None
     };
 
-    let direct_messages_enabled = if chat_type == "channel" {
+    let direct_messages_enabled = if target_chat_type == "channel" {
         body.direct_messages_enabled
             .unwrap_or(current_direct_messages_enabled == 1)
     } else {
@@ -688,7 +742,7 @@ pub fn handle_sim_update_group(
         false
     };
 
-    let direct_messages_star_count = if chat_type == "channel" {
+    let direct_messages_star_count = if target_chat_type == "channel" {
         body.direct_messages_star_count
             .unwrap_or(current_direct_messages_star_count)
             .max(0)
@@ -711,7 +765,7 @@ pub fn handle_sim_update_group(
 
     let now = Utc::now().timestamp();
 
-    if chat_type == "channel" {
+    if target_chat_type == "channel" {
         if let Some(linked_chat_id) = linked_discussion_chat_id {
             conn.execute(
                 "UPDATE sim_chats
@@ -728,28 +782,30 @@ pub fn handle_sim_update_group(
     }
 
     conn.execute(
-        "UPDATE chats SET title = ?1 WHERE chat_key = ?2",
-        params![&title, &chat_key],
+        "UPDATE chats SET title = ?1, chat_type = ?2 WHERE chat_key = ?3",
+        params![&title, &target_chat_type, &chat_key],
     )
     .map_err(ApiError::internal)?;
 
     conn.execute(
         "UPDATE sim_chats
-         SET title = ?1,
-             username = ?2,
-             description = ?3,
-             is_forum = ?4,
-             channel_show_author_signature = ?5,
-             channel_paid_reactions_enabled = ?6,
-             linked_discussion_chat_id = ?7,
-             direct_messages_enabled = ?8,
-             direct_messages_star_count = ?9,
-             message_history_visible = ?10,
-             slow_mode_delay = ?11,
-             permissions_json = ?12,
-             updated_at = ?13
-         WHERE bot_id = ?14 AND chat_key = ?15",
+         SET chat_type = ?1,
+             title = ?2,
+             username = ?3,
+             description = ?4,
+             is_forum = ?5,
+             channel_show_author_signature = ?6,
+             channel_paid_reactions_enabled = ?7,
+             linked_discussion_chat_id = ?8,
+             direct_messages_enabled = ?9,
+             direct_messages_star_count = ?10,
+             message_history_visible = ?11,
+             slow_mode_delay = ?12,
+             permissions_json = ?13,
+             updated_at = ?14
+         WHERE bot_id = ?15 AND chat_key = ?16",
         params![
+            &target_chat_type,
             title,
             username,
             description,
@@ -772,7 +828,7 @@ pub fn handle_sim_update_group(
     if title_changed {
         let chat = Chat {
             id: body.chat_id,
-            r#type: chat_type.clone(),
+            r#type: target_chat_type.clone(),
             title: Some(title.clone()),
             username: username.clone(),
             first_name: None,
@@ -801,7 +857,7 @@ pub fn handle_sim_update_group(
     Ok(json!({
         "chat": {
             "id": body.chat_id,
-            "type": chat_type,
+            "type": target_chat_type,
             "title": title,
             "username": username,
             "is_forum": if is_forum { Some(true) } else { None::<bool> }

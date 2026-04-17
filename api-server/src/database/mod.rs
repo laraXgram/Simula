@@ -136,7 +136,7 @@ pub fn ensure_bot(conn: &mut Connection, token: &str) -> Result<BotInfoRecord, A
         return Ok(bot);
     }
 
-    let generated_username = format!("simula_bot_{}", short_token_suffix(token));
+    let generated_username = format!("simula_{}bot", short_token_suffix(token));
     let first_name = "Simula Bot".to_string();
     let now = Utc::now().timestamp();
 
@@ -822,6 +822,7 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
     ensure_column_exists(conn, "polls", "correct_option_ids_json", "TEXT")?;
     ensure_column_exists(conn, "polls", "description", "TEXT")?;
     ensure_column_exists(conn, "poll_metadata", "description_entities_json", "TEXT")?;
+    ensure_column_exists(conn, "sim_bot_runtime_settings", "polling_allowed_updates_json", "TEXT")?;
     ensure_column_exists(conn, "users", "last_name", "TEXT")?;
     ensure_column_exists(conn, "users", "phone_number", "TEXT")?;
     ensure_column_exists(conn, "users", "photo_url", "TEXT")?;
@@ -851,6 +852,7 @@ pub fn init_database(conn: &mut Connection) -> Result<(), rusqlite::Error> {
     ensure_column_exists(conn, "sim_business_connections", "gift_settings_show_button", "INTEGER NOT NULL DEFAULT 1")?;
     ensure_column_exists(conn, "sim_business_connections", "gift_settings_types_json", "TEXT")?;
     ensure_column_exists(conn, "sim_business_connections", "star_balance", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column_exists(conn, "webhooks", "allowed_updates_json", "TEXT")?;
     ensure_column_exists(conn, "updates", "bot_visible", "INTEGER NOT NULL DEFAULT 1")?;
     ensure_column_exists(conn, "updates", "webhook_pending", "INTEGER NOT NULL DEFAULT 0")?;
 

@@ -4822,8 +4822,47 @@ pub fn upsert_set_sticker(
     }
 
     let requested_format = normalize_sticker_format(&input.format)?;
+    if (requested_format == "animated" || requested_format == "video")
+        && (input.sticker.starts_with("http://") || input.sticker.starts_with("https://"))
+    {
+        return Err(ApiError::bad_request(
+            "animated and video stickers can't be uploaded via HTTP URL",
+        ));
+    }
+
     let file = resolve_media_file_with_conn(conn, bot.id, &Value::String(input.sticker.clone()), "sticker")?;
-    let format = infer_sticker_format_from_file(&file).unwrap_or(requested_format);
+    let inferred_format = infer_sticker_format_from_file(&file);
+    if let Some(actual_format) = inferred_format {
+        if actual_format != requested_format {
+            return Err(ApiError::bad_request(
+                "input sticker format doesn't match the provided sticker file",
+            ));
+        }
+    }
+
+    let format = inferred_format.unwrap_or(requested_format);
+
+    let existing_set_format: Option<String> = conn
+        .query_row(
+            "SELECT format
+             FROM stickers
+             WHERE bot_id = ?1 AND set_name = ?2 AND file_id != ?3
+             ORDER BY position ASC, created_at ASC
+             LIMIT 1",
+            params![bot.id, set_name, file.file_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    if let Some(existing_format) = existing_set_format {
+        if existing_format != format {
+            return Err(ApiError::bad_request(
+                "sticker format must match the sticker set format",
+            ));
+        }
+    }
+
     let now = Utc::now().timestamp();
     let (is_animated, is_video) = sticker_format_flags(format);
 

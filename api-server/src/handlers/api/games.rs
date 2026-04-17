@@ -2,7 +2,7 @@ use actix_web::web::Data;
 use chrono::Utc;
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use crate::database::{
     ensure_bot, lock_db, AppState
@@ -22,12 +22,19 @@ use crate::handlers::client::{messages, users, webhook};
 
 use crate::handlers::parse_request;
 
+const GAME_HIGH_SCORE_NEIGHBOR_COUNT: usize = 2;
+const GAME_HIGH_SCORE_TOP_COUNT: usize = 3;
+
 pub fn handle_get_game_high_scores(
     state: &Data<AppState>,
     token: &str,
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: GetGameHighScoresRequest = parse_request(params)?;
+    if request.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
+
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
 
@@ -65,17 +72,42 @@ pub fn handle_get_game_high_scores(
         })
         .map_err(ApiError::internal)?;
 
-    let mut scores: Vec<GameHighScore> = Vec::new();
-    for (idx, row) in rows.enumerate() {
+    let mut full_rows: Vec<(i64, i64, Option<String>, Option<String>)> = Vec::new();
+    for row in rows {
         let (user_id, score, first_name, username) = row.map_err(ApiError::internal)?;
+        full_rows.push((user_id, score, first_name, username));
+    }
+
+    let mut selected_indices = BTreeSet::new();
+    let top_count = GAME_HIGH_SCORE_TOP_COUNT.min(full_rows.len());
+    for idx in 0..top_count {
+        selected_indices.insert(idx);
+    }
+
+    if let Some(target_index) = full_rows
+        .iter()
+        .position(|(user_id, _, _, _)| *user_id == request.user_id)
+    {
+        let start = target_index.saturating_sub(GAME_HIGH_SCORE_NEIGHBOR_COUNT);
+        let end = (target_index + GAME_HIGH_SCORE_NEIGHBOR_COUNT).min(full_rows.len() - 1);
+        for idx in start..=end {
+            selected_indices.insert(idx);
+        }
+    }
+
+    let mut scores: Vec<GameHighScore> = Vec::with_capacity(selected_indices.len());
+    for idx in selected_indices {
+        let (user_id, score, first_name, username) = &full_rows[idx];
         scores.push(GameHighScore {
             position: idx as i64 + 1,
             user: User {
-                id: user_id,
+                id: *user_id,
                 is_bot: false,
-                first_name: first_name.unwrap_or_else(|| format!("User {}", user_id)),
+                first_name: first_name
+                    .clone()
+                    .unwrap_or_else(|| format!("User {}", user_id)),
                 last_name: None,
-                username,
+                username: username.clone(),
                 language_code: None,
                 is_premium: None,
                 added_to_attachment_menu: None,
@@ -88,7 +120,7 @@ pub fn handle_get_game_high_scores(
                 allows_users_to_create_topics: None,
         can_manage_bots: None,
             },
-            score,
+            score: *score,
         });
     }
 
@@ -101,6 +133,9 @@ pub fn handle_set_game_score(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: SetGameScoreRequest = parse_request(params)?;
+    if request.user_id <= 0 {
+        return Err(ApiError::bad_request("user_id is invalid"));
+    }
     if request.score < 0 {
         return Err(ApiError::bad_request("score must be non-negative"));
     }
@@ -134,8 +169,8 @@ pub fn handle_set_game_score(
 
     let can_override = request.force.unwrap_or(false);
     if let Some(current) = existing_score {
-        if request.score < current && !can_override {
-            return Err(ApiError::bad_request("new score must be greater than or equal to current score unless force is true"));
+        if request.score <= current && !can_override {
+            return Err(ApiError::bad_request("new score must be greater than current score unless force is true"));
         }
     }
 

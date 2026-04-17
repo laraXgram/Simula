@@ -26,6 +26,73 @@ use crate::handlers::client::{chats, channels, groups, messages};
 
 use crate::handlers::parse_request;
 
+const FORUM_TOPIC_NAME_MAX_CHARS: usize = 128;
+
+fn normalize_required_forum_topic_name(value: &str) -> Result<String, ApiError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(ApiError::bad_request("name is empty"));
+    }
+    if trimmed.chars().count() > FORUM_TOPIC_NAME_MAX_CHARS {
+        return Err(ApiError::bad_request(
+            "name must be between 1 and 128 characters",
+        ));
+    }
+    Ok(trimmed.to_string())
+}
+
+fn normalize_optional_forum_topic_name(
+    value: Option<&str>,
+    current_name: &str,
+) -> Result<String, ApiError> {
+    let Some(raw) = value else {
+        return Ok(current_name.to_string());
+    };
+
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(current_name.to_string());
+    }
+    if trimmed.chars().count() > FORUM_TOPIC_NAME_MAX_CHARS {
+        return Err(ApiError::bad_request(
+            "name must be between 1 and 128 characters",
+        ));
+    }
+
+    Ok(trimmed.to_string())
+}
+
+fn normalize_forum_topic_icon_custom_emoji_id(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|raw| !raw.is_empty())
+        .map(str::to_string)
+}
+
+fn ensure_forum_topic_icon_custom_emoji_allowed(
+    conn: &mut rusqlite::Connection,
+    bot_id: i64,
+    custom_emoji_id: &str,
+) -> Result<(), ApiError> {
+    let exists: Option<i64> = conn
+        .query_row(
+            "SELECT 1
+             FROM stickers
+             WHERE bot_id = ?1 AND custom_emoji_id = ?2
+             LIMIT 1",
+            params![bot_id, custom_emoji_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    if exists.is_none() {
+        return Err(ApiError::bad_request("icon_custom_emoji_id is invalid"));
+    }
+
+    Ok(())
+}
+
 pub fn handle_get_forum_topic_icon_stickers(
     state: &Data<AppState>,
     token: &str,
@@ -85,10 +152,7 @@ pub fn handle_create_forum_topic(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: CreateForumTopicRequest = parse_request(params)?;
-    let name = request.name.trim();
-    if name.is_empty() {
-        return Err(ApiError::bad_request("name is empty"));
-    }
+    let name = normalize_required_forum_topic_name(&request.name)?;
 
     let icon_color = request.icon_color.unwrap_or_else(groups::forum_topic_default_icon_color);
     if !groups::is_allowed_forum_topic_icon_color(icon_color) {
@@ -119,12 +183,11 @@ pub fn handle_create_forum_topic(
     }
 
     let now = Utc::now().timestamp();
-    let icon_custom_emoji_id = request
-        .icon_custom_emoji_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
+    let icon_custom_emoji_id =
+        normalize_forum_topic_icon_custom_emoji_id(request.icon_custom_emoji_id.as_deref());
+    if let Some(custom_emoji_id) = icon_custom_emoji_id.as_deref() {
+        ensure_forum_topic_icon_custom_emoji_allowed(&mut conn, bot.id, custom_emoji_id)?;
+    }
 
     conn.execute(
         "INSERT INTO forum_topics
@@ -134,9 +197,9 @@ pub fn handle_create_forum_topic(
             bot.id,
             &chat_key,
             message_thread_id,
-            name,
+            &name,
             icon_color,
-            icon_custom_emoji_id,
+            icon_custom_emoji_id.clone(),
             now,
         ],
     )
@@ -162,13 +225,17 @@ pub fn handle_create_forum_topic(
         &chat,
         &actor,
         now,
-        format!("{} created the topic \"{}\"", messages::display_name_for_service_user(&actor), name),
+        format!(
+            "{} created the topic \"{}\"",
+            messages::display_name_for_service_user(&actor),
+            name
+        ),
         service_fields,
     )?;
 
     let topic = ForumTopic {
         message_thread_id,
-        name: name.to_string(),
+        name,
         icon_color,
         icon_custom_emoji_id,
         is_name_implicit: None,
@@ -183,6 +250,9 @@ pub fn handle_edit_forum_topic(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: EditForumTopicRequest = parse_request(params)?;
+    if request.message_thread_id <= 0 {
+        return Err(ApiError::bad_request("message_thread_id is invalid"));
+    }
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
@@ -193,25 +263,37 @@ pub fn handle_edit_forum_topic(
         return Err(ApiError::not_found("forum topic not found"));
     };
 
-    let next_name = if let Some(raw_name) = request.name.as_deref() {
-        let trimmed = raw_name.trim();
-        if trimmed.is_empty() {
-            return Err(ApiError::bad_request("name is empty"));
-        }
-        trimmed.to_string()
-    } else {
-        current_topic.name.clone()
-    };
+    let next_name =
+        normalize_optional_forum_topic_name(request.name.as_deref(), &current_topic.name)?;
 
-    let next_icon_custom_emoji_id = if let Some(raw_icon) = request.icon_custom_emoji_id.as_deref() {
-        let trimmed = raw_icon.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed.to_string())
-        }
+    let icon_change_requested = request.icon_custom_emoji_id.is_some();
+    let icon_removed = request
+        .icon_custom_emoji_id
+        .as_deref()
+        .map(|value| value.trim().is_empty())
+        .unwrap_or(false);
+    let next_icon_custom_emoji_id = if icon_change_requested {
+        normalize_forum_topic_icon_custom_emoji_id(request.icon_custom_emoji_id.as_deref())
     } else {
         current_topic.icon_custom_emoji_id.clone()
+    };
+    if let Some(custom_emoji_id) = next_icon_custom_emoji_id.as_deref() {
+        ensure_forum_topic_icon_custom_emoji_allowed(&mut conn, bot.id, custom_emoji_id)?;
+    }
+
+    let edited_name = if next_name != current_topic.name {
+        Some(next_name.clone())
+    } else {
+        None
+    };
+    let edited_icon_custom_emoji_id: Option<String> = if icon_change_requested {
+        if icon_removed {
+            Some(String::new())
+        } else {
+            next_icon_custom_emoji_id.clone()
+        }
+    } else {
+        None
     };
 
     let now = Utc::now().timestamp();
@@ -222,8 +304,8 @@ pub fn handle_edit_forum_topic(
              updated_at = ?3
          WHERE bot_id = ?4 AND chat_key = ?5 AND message_thread_id = ?6",
         params![
-            next_name,
-            next_icon_custom_emoji_id,
+            &next_name,
+            next_icon_custom_emoji_id.clone(),
             now,
             bot.id,
             &chat_key,
@@ -241,12 +323,8 @@ pub fn handle_edit_forum_topic(
     service_fields.insert(
         "forum_topic_edited".to_string(),
         json!({
-            "name": if next_name != current_topic.name { Some(next_name.clone()) } else { None::<String> },
-            "icon_custom_emoji_id": if request.icon_custom_emoji_id.is_some() {
-                next_icon_custom_emoji_id.clone()
-            } else {
-                None
-            },
+            "name": edited_name,
+            "icon_custom_emoji_id": edited_icon_custom_emoji_id,
         }),
     );
 
@@ -276,6 +354,9 @@ pub fn handle_close_forum_topic(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: CloseForumTopicRequest = parse_request(params)?;
+    if request.message_thread_id <= 0 {
+        return Err(ApiError::bad_request("message_thread_id is invalid"));
+    }
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
@@ -325,6 +406,9 @@ pub fn handle_reopen_forum_topic(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: ReopenForumTopicRequest = parse_request(params)?;
+    if request.message_thread_id <= 0 {
+        return Err(ApiError::bad_request("message_thread_id is invalid"));
+    }
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
@@ -374,15 +458,15 @@ pub fn handle_delete_forum_topic(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: DeleteForumTopicRequest = parse_request(params)?;
+    if request.message_thread_id <= 0 {
+        return Err(ApiError::bad_request("message_thread_id is invalid"));
+    }
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
     let (chat_key, sim_chat) = chats::resolve_non_private_sim_chat(&mut conn, bot.id, &request.chat_id)?;
 
     if channels::is_direct_messages_chat(&sim_chat) {
-        if request.message_thread_id <= 0 {
-            return Err(ApiError::bad_request("message_thread_id is invalid"));
-        }
 
         let _topic = channels::load_direct_messages_topic_record(
             &mut conn,
@@ -484,6 +568,9 @@ pub fn handle_unpin_all_forum_topic_messages(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: UnpinAllForumTopicMessagesRequest = parse_request(params)?;
+    if request.message_thread_id <= 0 {
+        return Err(ApiError::bad_request("message_thread_id is invalid"));
+    }
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
@@ -503,10 +590,7 @@ pub fn handle_edit_general_forum_topic(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: EditGeneralForumTopicRequest = parse_request(params)?;
-    let name = request.name.trim();
-    if name.is_empty() {
-        return Err(ApiError::bad_request("name is empty"));
-    }
+    let name = normalize_required_forum_topic_name(&request.name)?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
@@ -519,7 +603,7 @@ pub fn handle_edit_general_forum_topic(
         "UPDATE forum_topic_general_states
          SET name = ?1, updated_at = ?2
          WHERE bot_id = ?3 AND chat_key = ?4",
-        params![name, now, bot.id, &chat_key],
+        params![&name, now, bot.id, &chat_key],
     )
     .map_err(ApiError::internal)?;
 
@@ -530,7 +614,7 @@ pub fn handle_edit_general_forum_topic(
         "forum_topic_edited".to_string(),
         json!({
             "name": if name != current_name {
-                Some(name.to_string())
+                Some(name.clone())
             } else {
                 None::<String>
             },
@@ -620,7 +704,7 @@ pub fn handle_reopen_general_forum_topic(
     groups::ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
     conn.execute(
         "UPDATE forum_topic_general_states
-         SET is_closed = 0, updated_at = ?1
+         SET is_closed = 0, is_hidden = 0, updated_at = ?1
          WHERE bot_id = ?2 AND chat_key = ?3",
         params![now, bot.id, &chat_key],
     )
@@ -666,7 +750,7 @@ pub fn handle_hide_general_forum_topic(
     groups::ensure_general_forum_topic_state(&mut conn, bot.id, &chat_key)?;
     conn.execute(
         "UPDATE forum_topic_general_states
-         SET is_hidden = 1, updated_at = ?1
+         SET is_hidden = 1, is_closed = 1, updated_at = ?1
          WHERE bot_id = ?2 AND chat_key = ?3",
         params![now, bot.id, &chat_key],
     )

@@ -8,7 +8,8 @@ use crate::database::{
     ensure_bot, lock_db, AppState
 };
 
-use crate::types::{ApiError, ApiResult};use crate::generated::methods::{
+use crate::types::{ApiError, ApiResult};
+use crate::generated::methods::{
     DeleteStoryRequest, EditStoryRequest, PostStoryRequest, RepostStoryRequest
 };
 
@@ -23,6 +24,9 @@ pub fn handle_delete_story(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: DeleteStoryRequest = parse_request(params)?;
+    if request.story_id <= 0 {
+        return Err(ApiError::bad_request("story_id must be greater than zero"));
+    }
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
@@ -55,6 +59,9 @@ pub fn handle_edit_story(
 ) -> ApiResult {
     let request: EditStoryRequest =
         parse_request_ignoring_prefixed_fields(params, &["story_file"])?;
+    if request.story_id <= 0 {
+        return Err(ApiError::bad_request("story_id must be greater than zero"));
+    }
 
     let normalized_story_content = stories::normalize_story_content_payload(
         state,
@@ -245,6 +252,12 @@ pub fn handle_repost_story(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: RepostStoryRequest = parse_request(params)?;
+    if request.from_chat_id <= 0 {
+        return Err(ApiError::bad_request("from_chat_id must be greater than zero"));
+    }
+    if request.from_story_id <= 0 {
+        return Err(ApiError::bad_request("from_story_id must be greater than zero"));
+    }
     stories::ensure_story_active_period(request.active_period)?;
 
     let mut conn = lock_db(state)?;

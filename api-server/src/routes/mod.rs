@@ -15,11 +15,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant};
+use rusqlite::{params, OptionalExtension};
 use uuid::Uuid;
 
 use crate::database::{
     clear_runtime_logs, clear_runtime_transition, is_api_enabled, push_runtime_request_log,
-    runtime_logs_snapshot, set_api_enabled, AppState, RuntimeRequestLogEntry,
+    runtime_logs_snapshot, set_api_enabled, lock_db, AppState, RuntimeRequestLogEntry,
 };
 
 use crate::handlers::{
@@ -92,7 +93,7 @@ use crate::handlers::{
     client::types::messages::SimVotePollRequest, client::types::users::SimUpsertUserRequest,
     client::types::gifts::SimDeleteOwnedGiftRequest,
 };
-use crate::types::{into_telegram_response, strip_nulls, ApiError};
+use crate::types::{into_telegram_response, strip_nulls, ApiError, ApiResult};
 
 #[derive(Debug, Deserialize)]
 pub struct RuntimeLogsQuery {
@@ -345,6 +346,59 @@ pub async fn runtime_env_set(payload: web::Json<RuntimeEnvPatchRequest>) -> impl
     }
 }
 
+#[get("/bot/{method}")]
+pub async fn bot_api_missing_token_get(_path: web::Path<String>) -> impl Responder {
+    into_telegram_response(Err(telegram_not_found_error()))
+}
+
+#[post("/bot/{method}")]
+pub async fn bot_api_missing_token_post(_path: web::Path<String>) -> impl Responder {
+    into_telegram_response(Err(telegram_not_found_error()))
+}
+
+#[get("/")]
+pub async fn api_root_not_found_get() -> impl Responder {
+    into_telegram_response(Err(telegram_not_found_error()))
+}
+
+#[post("/")]
+pub async fn api_root_not_found_post() -> impl Responder {
+    into_telegram_response(Err(telegram_not_found_error()))
+}
+
+pub async fn api_not_found_fallback() -> impl Responder {
+    into_telegram_response(Err(telegram_not_found_error()))
+}
+
+fn webhook_success_description(method: &str, result: &Value) -> Option<&'static str> {
+    if !matches!(result, Value::Bool(true)) {
+        return None;
+    }
+
+    match method.trim().to_ascii_lowercase().as_str() {
+        "setwebhook" => Some("Webhook was set"),
+        "deletewebhook" => Some("Webhook was deleted"),
+        _ => None,
+    }
+}
+
+fn into_telegram_response_for_method(method: &str, result: ApiResult) -> HttpResponse {
+    match result {
+        Ok(value) => {
+            if let Some(description) = webhook_success_description(method, &value) {
+                return HttpResponse::Ok().json(json!({
+                    "ok": true,
+                    "result": strip_nulls(value),
+                    "description": description,
+                }));
+            }
+
+            into_telegram_response(Ok(value))
+        }
+        Err(error) => into_telegram_response(Err(error)),
+    }
+}
+
 #[get("/bot{token}/{method}")]
 pub async fn bot_api_get(
     state: Data<AppState>,
@@ -357,6 +411,18 @@ pub async fn bot_api_get(
     let request_payload = Value::Object(params.clone().into_iter().collect());
     let started_at = Utc::now().timestamp_millis();
     let timer = Instant::now();
+    if let Err(error) = validate_public_bot_token(&state, &token) {
+        let error_result = Err(error);
+        log_route_json_result(
+            &state,
+            &req,
+            request_payload,
+            &error_result,
+            started_at,
+            timer.elapsed().as_millis() as u64,
+        );
+        return into_telegram_response(error_result);
+    }
     let actor_user_id = extract_request_actor_user_id(req.headers());
     let result = with_request_actor_user_id(actor_user_id, || {
         dispatch_method(&state, &token, &method, params)
@@ -369,7 +435,7 @@ pub async fn bot_api_get(
         started_at,
         timer.elapsed().as_millis() as u64,
     );
-    into_telegram_response(result)
+    into_telegram_response_for_method(&method, result)
 }
 
 #[post("/bot{token}/{method}")]
@@ -384,6 +450,20 @@ pub async fn bot_api_post(
     let mut params = query_to_json_map(&query.into_inner());
     let started_at = Utc::now().timestamp_millis();
     let timer = Instant::now();
+
+    if let Err(error) = validate_public_bot_token(&state, &token) {
+        let request_payload = Value::Object(params.clone().into_iter().collect());
+        let error_result = Err(error);
+        log_route_json_result(
+            &state,
+            &req,
+            request_payload,
+            &error_result,
+            started_at,
+            timer.elapsed().as_millis() as u64,
+        );
+        return into_telegram_response(error_result);
+    }
 
     let content_type = req
         .headers()
@@ -470,7 +550,7 @@ pub async fn bot_api_post(
         started_at,
         timer.elapsed().as_millis() as u64,
     );
-    into_telegram_response(result)
+    into_telegram_response_for_method(&method, result)
 }
 
 #[get("/client-api/bot{token}/bootstrap")]
@@ -1791,6 +1871,43 @@ fn query_to_json_map(query: &HashMap<String, String>) -> HashMap<String, Value> 
         .iter()
         .map(|(k, v)| (k.clone(), guess_json_value(v)))
         .collect()
+}
+
+fn telegram_not_found_error() -> ApiError {
+    ApiError {
+        code: 404,
+        description: "Not Found".to_string(),
+    }
+}
+
+fn telegram_forbidden_error() -> ApiError {
+    ApiError {
+        code: 403,
+        description: "Forbidden".to_string(),
+    }
+}
+
+fn validate_public_bot_token(state: &Data<AppState>, token: &str) -> Result<(), ApiError> {
+    let normalized = token.trim();
+    if normalized.is_empty() {
+        return Err(telegram_not_found_error());
+    }
+
+    let conn = lock_db(state)?;
+    let existing_bot_id: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM bots WHERE token = ?1 LIMIT 1",
+            params![normalized],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    if existing_bot_id.is_none() {
+        return Err(telegram_forbidden_error());
+    }
+
+    Ok(())
 }
 
 fn extract_request_actor_user_id(headers: &actix_web::http::header::HeaderMap) -> Option<i64> {

@@ -17,6 +17,123 @@ use super::channels;
 const WEBHOOK_PENDING_NONE: i64 = 0;
 const WEBHOOK_PENDING_READY: i64 = 1;
 const WEBHOOK_PENDING_IN_FLIGHT: i64 = 2;
+const DEFAULT_EXCLUDED_UPDATE_TYPES: [&str; 3] = [
+    "chat_member",
+    "message_reaction",
+    "message_reaction_count",
+];
+
+fn parse_allowed_updates_json(raw: Option<String>) -> Option<Vec<String>> {
+    let text = raw
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+
+    let parsed = serde_json::from_str::<Vec<String>>(text).ok()?;
+    let mut normalized = Vec::with_capacity(parsed.len());
+    for item in parsed {
+        let normalized_item = item.trim().to_ascii_lowercase();
+        if normalized_item.is_empty() {
+            continue;
+        }
+        if !normalized.iter().any(|existing| existing == &normalized_item) {
+            normalized.push(normalized_item);
+        }
+    }
+
+    Some(normalized)
+}
+
+fn detect_update_type(update: &Value) -> Option<&'static str> {
+    if update.get("message").is_some() {
+        return Some("message");
+    }
+    if update.get("edited_message").is_some() {
+        return Some("edited_message");
+    }
+    if update.get("channel_post").is_some() {
+        return Some("channel_post");
+    }
+    if update.get("edited_channel_post").is_some() {
+        return Some("edited_channel_post");
+    }
+    if update.get("business_connection").is_some() {
+        return Some("business_connection");
+    }
+    if update.get("business_message").is_some() {
+        return Some("business_message");
+    }
+    if update.get("edited_business_message").is_some() {
+        return Some("edited_business_message");
+    }
+    if update.get("deleted_business_messages").is_some() {
+        return Some("deleted_business_messages");
+    }
+    if update.get("message_reaction").is_some() {
+        return Some("message_reaction");
+    }
+    if update.get("message_reaction_count").is_some() {
+        return Some("message_reaction_count");
+    }
+    if update.get("inline_query").is_some() {
+        return Some("inline_query");
+    }
+    if update.get("chosen_inline_result").is_some() {
+        return Some("chosen_inline_result");
+    }
+    if update.get("callback_query").is_some() {
+        return Some("callback_query");
+    }
+    if update.get("shipping_query").is_some() {
+        return Some("shipping_query");
+    }
+    if update.get("pre_checkout_query").is_some() {
+        return Some("pre_checkout_query");
+    }
+    if update.get("purchased_paid_media").is_some() {
+        return Some("purchased_paid_media");
+    }
+    if update.get("poll").is_some() {
+        return Some("poll");
+    }
+    if update.get("poll_answer").is_some() {
+        return Some("poll_answer");
+    }
+    if update.get("my_chat_member").is_some() {
+        return Some("my_chat_member");
+    }
+    if update.get("chat_member").is_some() {
+        return Some("chat_member");
+    }
+    if update.get("chat_join_request").is_some() {
+        return Some("chat_join_request");
+    }
+    if update.get("chat_boost").is_some() {
+        return Some("chat_boost");
+    }
+    if update.get("removed_chat_boost").is_some() {
+        return Some("removed_chat_boost");
+    }
+    if update.get("managed_bot").is_some() {
+        return Some("managed_bot");
+    }
+
+    None
+}
+
+fn is_update_type_allowed(update: &Value, allowed_updates: Option<&[String]>) -> bool {
+    let Some(update_type) = detect_update_type(update) else {
+        return true;
+    };
+
+    if let Some(allowed) = allowed_updates {
+        if !allowed.is_empty() {
+            return allowed.iter().any(|item| item == update_type);
+        }
+    }
+
+    !DEFAULT_EXCLUDED_UPDATE_TYPES.contains(&update_type)
+}
 
 pub fn persist_and_dispatch_update(
     state: &Data<AppState>,
@@ -91,20 +208,37 @@ pub fn dispatch_webhook_if_configured(
     update: Value,
     update_id: Option<i64>,
 ) {
-    let webhook: Result<Option<(String, String)>, ApiError> = conn
+    let webhook: Result<Option<(String, String, Option<Vec<String>>)>, ApiError> = conn
         .query_row(
-            "SELECT url, secret_token FROM webhooks WHERE bot_id = ?1",
+            "SELECT url, secret_token, allowed_updates_json FROM webhooks WHERE bot_id = ?1",
             params![bot_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| {
+                let allowed_updates_json: Option<String> = row.get(2)?;
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    parse_allowed_updates_json(allowed_updates_json),
+                ))
+            },
         )
         .optional()
         .map_err(ApiError::internal);
 
-    let Ok(Some((url, secret_token))) = webhook else {
+    let Ok(Some((url, secret_token, allowed_updates))) = webhook else {
         return;
     };
 
     let payload = strip_nulls(update);
+    if !is_update_type_allowed(&payload, allowed_updates.as_deref()) {
+        if let Some(done_update_id) = update_id {
+            let _ = conn.execute(
+                "UPDATE updates SET webhook_pending = ?2 WHERE update_id = ?1",
+                params![done_update_id, WEBHOOK_PENDING_NONE],
+            );
+        }
+        return;
+    }
+
     if let Some(pending_update_id) = update_id {
         let claimed = conn
             .execute(
@@ -214,15 +348,22 @@ fn load_webhook_bot_ids(state: &Data<AppState>) -> Result<Vec<i64>, ApiError> {
     rows.collect::<Result<Vec<_>, _>>().map_err(ApiError::internal)
 }
 
-fn load_webhook_config(state: &Data<AppState>, bot_id: i64) -> Option<(String, String)> {
+fn load_webhook_config(state: &Data<AppState>, bot_id: i64) -> Option<(String, String, Option<Vec<String>>)> {
     let Ok(db) = state.db.lock() else {
         return None;
     };
 
     db.query_row(
-        "SELECT url, secret_token FROM webhooks WHERE bot_id = ?1",
+        "SELECT url, secret_token, allowed_updates_json FROM webhooks WHERE bot_id = ?1",
         params![bot_id],
-        |row| Ok((row.get(0)?, row.get(1)?)),
+        |row| {
+            let allowed_updates_json: Option<String> = row.get(2)?;
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                parse_allowed_updates_json(allowed_updates_json),
+            ))
+        },
     )
     .optional()
     .ok()
@@ -272,7 +413,7 @@ fn set_update_pending_state(state: &Data<AppState>, update_id: i64, next_state: 
 }
 
 fn retry_pending_webhooks_for_bot(state: &Data<AppState>, bot_id: i64, per_bot_limit: usize) {
-    let Some((url, secret_token)) = load_webhook_config(state, bot_id) else {
+    let Some((url, secret_token, allowed_updates)) = load_webhook_config(state, bot_id) else {
         return;
     };
 
@@ -323,6 +464,11 @@ fn retry_pending_webhooks_for_bot(state: &Data<AppState>, bot_id: i64, per_bot_l
                 continue;
             }
         };
+
+        if !is_update_type_allowed(&parsed_update, allowed_updates.as_deref()) {
+            set_update_pending_state(state, update_id, WEBHOOK_PENDING_NONE);
+            continue;
+        }
 
         let delivered = dispatch_single_webhook_update(
             state,

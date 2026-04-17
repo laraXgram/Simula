@@ -26,6 +26,57 @@ use crate::handlers::client::{bot, business, chats, messages, users, gifts, type
 
 use crate::handlers::{parse_request, generate_telegram_numeric_id};
 
+const GIFT_MESSAGE_TEXT_MAX_LEN: usize = 128;
+const BUSINESS_ACTIVE_CHAT_WINDOW_SECONDS: i64 = 86_400;
+
+fn expected_premium_subscription_star_count(month_count: i64) -> Option<i64> {
+    match month_count {
+        3 => Some(1000),
+        6 => Some(1500),
+        12 => Some(2500),
+        _ => None,
+    }
+}
+
+fn normalize_optional_gift_message_text(value: Option<&str>) -> Result<Option<String>, ApiError> {
+    let normalized = value
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string);
+
+    if let Some(text) = normalized.as_deref() {
+        if text.chars().count() > GIFT_MESSAGE_TEXT_MAX_LEN {
+            return Err(ApiError::bad_request(
+                "text must be at most 128 characters",
+            ));
+        }
+    }
+
+    Ok(normalized)
+}
+
+fn ensure_business_connection_enabled(is_enabled: bool) -> Result<(), ApiError> {
+    if is_enabled {
+        return Ok(());
+    }
+
+    Err(ApiError::bad_request("business connection is disabled"))
+}
+
+fn ensure_owned_gift_belongs_to_business_user(
+    owner_user_id: Option<i64>,
+    owner_chat_id: Option<i64>,
+    business_user_id: i64,
+) -> Result<(), ApiError> {
+    if owner_user_id == Some(business_user_id) && owner_chat_id.is_none() {
+        return Ok(());
+    }
+
+    Err(ApiError::bad_request(
+        "owned gift does not belong to the business account",
+    ))
+}
+
 pub fn handle_get_available_gifts(
     state: &Data<AppState>,
     token: &str,
@@ -172,12 +223,14 @@ pub fn handle_gift_premium_subscription(
     if request.user_id <= 0 {
         return Err(ApiError::bad_request("user_id is invalid"));
     }
-    if request.month_count <= 0 {
-        return Err(ApiError::bad_request("month_count must be greater than zero"));
+    let expected_star_count = expected_premium_subscription_star_count(request.month_count)
+        .ok_or_else(|| ApiError::bad_request("month_count must be one of 3, 6, or 12"))?;
+    if request.star_count != expected_star_count {
+        return Err(ApiError::bad_request(
+            "star_count must be 1000 for 3 months, 1500 for 6 months, and 2500 for 12 months",
+        ));
     }
-    if request.star_count <= 0 {
-        return Err(ApiError::bad_request("star_count must be greater than zero"));
-    }
+    let premium_text = normalize_optional_gift_message_text(request.text.as_deref())?;
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
@@ -248,12 +301,6 @@ pub fn handle_gift_premium_subscription(
     };
 
     let premium_owned_gift_id = format!("owned_gift_{}", generate_telegram_numeric_id());
-    let premium_text = request
-        .text
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
     let premium_entities_json = request
         .text_entities
         .as_ref()
@@ -358,6 +405,7 @@ pub fn handle_convert_gift_to_stars(
         bot.id,
         &request.business_connection_id,
     )?;
+    ensure_business_connection_enabled(record.is_enabled)?;
     let connection = business::build_business_connection(&mut conn, bot.id, &record)?;
     business::ensure_business_right(
         &connection,
@@ -365,9 +413,9 @@ pub fn handle_convert_gift_to_stars(
         "not enough rights to convert gifts to stars",
     )?;
 
-    let owned_row: Option<(Option<i64>, Option<i64>, i64, i64, Option<i64>, i64)> = conn
+    let owned_row: Option<(Option<i64>, Option<i64>, i64, i64, Option<i64>)> = conn
         .query_row(
-            "SELECT owner_user_id, owner_chat_id, is_unique, was_refunded, convert_star_count, gift_star_count
+            "SELECT owner_user_id, owner_chat_id, is_unique, was_refunded, convert_star_count
              FROM sim_owned_gifts
              WHERE bot_id = ?1 AND owned_gift_id = ?2",
             params![bot.id, request.owned_gift_id],
@@ -378,16 +426,17 @@ pub fn handle_convert_gift_to_stars(
                     row.get(2)?,
                     row.get(3)?,
                     row.get(4)?,
-                    row.get(5)?,
                 ))
             },
         )
         .optional()
         .map_err(ApiError::internal)?;
 
-    let Some((owner_user_id, _owner_chat_id, is_unique, was_refunded, convert_star_count, gift_star_count)) = owned_row else {
+    let Some((owner_user_id, owner_chat_id, is_unique, was_refunded, convert_star_count)) = owned_row else {
         return Err(ApiError::not_found("owned gift not found"));
     };
+
+    ensure_owned_gift_belongs_to_business_user(owner_user_id, owner_chat_id, record.user_id)?;
 
     if is_unique == 1 {
         return Err(ApiError::bad_request(
@@ -398,9 +447,10 @@ pub fn handle_convert_gift_to_stars(
         return Err(ApiError::bad_request("gift has already been converted"));
     }
 
-    let resolved_convert_amount = convert_star_count
-        .unwrap_or_else(|| (gift_star_count / 2).max(1))
-        .max(1);
+    let Some(resolved_convert_amount) = convert_star_count.filter(|value| *value > 0) else {
+        return Err(ApiError::bad_request("gift cannot be converted to stars"));
+    };
+
     let now = Utc::now().timestamp();
 
     conn.execute(
@@ -471,6 +521,7 @@ pub fn handle_upgrade_gift(
         bot.id,
         &request.business_connection_id,
     )?;
+    ensure_business_connection_enabled(record.is_enabled)?;
     let connection = business::build_business_connection(&mut conn, bot.id, &record)?;
     business::ensure_business_right(
         &connection,
@@ -478,9 +529,10 @@ pub fn handle_upgrade_gift(
         "not enough rights to upgrade gifts",
     )?;
 
-    let owned_row: Option<(String, i64, i64, i64, Option<i64>, i64, Option<i64>, Option<i64>)> = conn
+    let owned_row: Option<(Option<i64>, Option<i64>, String, i64, i64, i64, Option<i64>, i64, Option<i64>, Option<i64>)> = conn
         .query_row(
-            "SELECT gift_json, is_unique, was_refunded, can_be_upgraded,
+            "SELECT owner_user_id, owner_chat_id,
+                    gift_json, is_unique, was_refunded, can_be_upgraded,
                     prepaid_upgrade_star_count, gift_star_count,
                     unique_gift_number, transfer_star_count
              FROM sim_owned_gifts
@@ -496,30 +548,77 @@ pub fn handle_upgrade_gift(
                     row.get(5)?,
                     row.get(6)?,
                     row.get(7)?,
+                    row.get(8)?,
+                    row.get(9)?,
                 ))
             },
         )
         .optional()
         .map_err(ApiError::internal)?;
 
-    let Some((gift_json, is_unique, was_refunded, can_be_upgraded, prepaid_upgrade_star_count, gift_star_count, unique_gift_number, transfer_star_count)) = owned_row else {
+    let Some((
+        owner_user_id,
+        owner_chat_id,
+        gift_json,
+        is_unique,
+        was_refunded,
+        can_be_upgraded,
+        prepaid_upgrade_star_count,
+        _gift_star_count,
+        unique_gift_number,
+        transfer_star_count,
+    )) = owned_row else {
         return Err(ApiError::not_found("owned gift not found"));
     };
+
+    ensure_owned_gift_belongs_to_business_user(owner_user_id, owner_chat_id, record.user_id)?;
 
     if was_refunded == 1 {
         return Err(ApiError::bad_request("gift has already been converted"));
     }
     if is_unique == 1 {
-        return Ok(json!(true));
+        return Err(ApiError::bad_request("gift is already unique"));
     }
     if can_be_upgraded != 1 {
         return Err(ApiError::bad_request("gift cannot be upgraded"));
     }
 
-    let resolved_upgrade_cost = request
-        .star_count
-        .unwrap_or_else(|| prepaid_upgrade_star_count.unwrap_or((gift_star_count / 2).max(1)))
-        .max(0);
+    let mut gift = serde_json::from_str::<Gift>(&gift_json)
+        .unwrap_or_else(|_| gifts::fallback_sim_gift("gift_upgraded"));
+
+    let prepaid_upgrade_cost = prepaid_upgrade_star_count.unwrap_or(0).max(0);
+    let required_upgrade_cost = gift.upgrade_star_count.unwrap_or(0).max(0);
+    let resolved_upgrade_cost = if prepaid_upgrade_cost > 0 {
+        let provided_cost = request.star_count.unwrap_or(0);
+        if provided_cost != 0 {
+            return Err(ApiError::bad_request(
+                "star_count must be 0 when prepaid upgrade is available",
+            ));
+        }
+        0
+    } else {
+        let provided_cost = request
+            .star_count
+            .ok_or_else(|| ApiError::bad_request("star_count is required for paid gift upgrades"))?;
+
+        if required_upgrade_cost <= 0 {
+            return Err(ApiError::bad_request("gift cannot be upgraded"));
+        }
+
+        if provided_cost != required_upgrade_cost {
+            return Err(ApiError::bad_request(
+                "star_count must match gift.upgrade_star_count",
+            ));
+        }
+
+        business::ensure_business_right(
+            &connection,
+            |rights| rights.can_transfer_stars,
+            "not enough rights to pay for gift upgrades",
+        )?;
+
+        provided_cost
+    };
 
     if resolved_upgrade_cost > record.star_balance {
         return Err(ApiError::bad_request(
@@ -555,8 +654,6 @@ pub fn handle_upgrade_gift(
         .map_err(ApiError::internal)?;
     }
 
-    let mut gift = serde_json::from_str::<Gift>(&gift_json)
-        .unwrap_or_else(|_| gifts::fallback_sim_gift("gift_upgraded"));
     let generated_unique_number = generate_telegram_numeric_id()
         .chars()
         .filter(|ch| ch.is_ascii_digit())
@@ -595,7 +692,7 @@ pub fn handle_upgrade_gift(
         params![
             gift.id,
             serde_json::to_string(&gift).map_err(ApiError::internal)?,
-            resolved_upgrade_cost,
+            prepaid_upgrade_cost,
             unique_number,
             next_transfer_star_count,
             now,
@@ -615,7 +712,7 @@ pub fn handle_transfer_gift(
     params: &HashMap<String, Value>,
 ) -> ApiResult {
     let request: TransferGiftRequest = parse_request(params)?;
-    if request.new_owner_chat_id == 0 {
+    if request.new_owner_chat_id <= 0 {
         return Err(ApiError::bad_request("new_owner_chat_id is invalid"));
     }
     if request.star_count.unwrap_or(0) < 0 {
@@ -629,6 +726,7 @@ pub fn handle_transfer_gift(
         bot.id,
         &request.business_connection_id,
     )?;
+    ensure_business_connection_enabled(record.is_enabled)?;
     let connection = business::build_business_connection(&mut conn, bot.id, &record)?;
     business::ensure_business_right(
         &connection,
@@ -661,6 +759,8 @@ pub fn handle_transfer_gift(
         return Err(ApiError::not_found("owned gift not found"));
     };
 
+    ensure_owned_gift_belongs_to_business_user(owner_user_id, owner_chat_id, record.user_id)?;
+
     if is_unique != 1 {
         return Err(ApiError::bad_request("only unique gifts can be transferred"));
     }
@@ -669,6 +769,30 @@ pub fn handle_transfer_gift(
     }
 
     let now = Utc::now().timestamp();
+
+    let new_owner_chat_key = request.new_owner_chat_id.to_string();
+    let recent_chat_activity: Option<i64> = conn
+        .query_row(
+            "SELECT 1
+             FROM messages
+             WHERE bot_id = ?1 AND chat_key = ?2 AND date >= ?3
+             LIMIT 1",
+            params![
+                bot.id,
+                &new_owner_chat_key,
+                now.saturating_sub(BUSINESS_ACTIVE_CHAT_WINDOW_SECONDS),
+            ],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+
+    if recent_chat_activity.is_none() {
+        return Err(ApiError::bad_request(
+            "new owner chat is not active in the last 24 hours",
+        ));
+    }
+
     if let Some(next_allowed_transfer) = next_transfer_date {
         if next_allowed_transfer > now {
             return Err(ApiError::bad_request(
@@ -704,6 +828,15 @@ pub fn handle_transfer_gift(
         .star_count
         .unwrap_or(transfer_star_count.unwrap_or(0))
         .max(0);
+
+    if resolved_transfer_cost > 0 {
+        business::ensure_business_right(
+            &connection,
+            |rights| rights.can_transfer_stars,
+            "not enough rights to pay for gift transfers",
+        )?;
+    }
+
     if resolved_transfer_cost > record.star_balance {
         return Err(ApiError::bad_request(
             "not enough stars in business account balance",

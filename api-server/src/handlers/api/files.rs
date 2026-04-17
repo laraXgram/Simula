@@ -15,6 +15,10 @@ use crate::handlers::parse_request;
 
 pub fn handle_get_file(state: &Data<AppState>, token: &str, params: &HashMap<String, Value>) -> ApiResult {
     let request: GetFileRequest = parse_request(params)?;
+    let normalized_file_id = request.file_id.trim().to_string();
+    if normalized_file_id.is_empty() {
+        return Err(ApiError::bad_request("file_id is empty"));
+    }
 
     let mut conn = lock_db(state)?;
     let bot = ensure_bot(&mut conn, token)?;
@@ -22,7 +26,7 @@ pub fn handle_get_file(state: &Data<AppState>, token: &str, params: &HashMap<Str
     let row: Option<(String, String, Option<i64>, String)> = conn
         .query_row(
             "SELECT file_id, file_unique_id, file_size, file_path FROM files WHERE bot_id = ?1 AND file_id = ?2",
-            params![bot.id, request.file_id],
+            params![bot.id, normalized_file_id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .optional()
