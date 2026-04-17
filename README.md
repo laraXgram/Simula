@@ -5,16 +5,7 @@ Telegram Bot API simulator with a Simulated client, realtime updates, runtime co
 
 ## Quick Start (Release Profile)
 
-```bash
-git clone https://github.com/laraxgram/Simula.git
-cd Simula
-
-./scripts/release-up.sh
-```
-
-### Web Bundle
-
-`simula-web.zip` contains one launcher per OS (`run-web.sh` / `run-web.bat`) and starts both services together:
+[`simula-web.zip`](https://github.com/laraXgram/Simula/releases) contains one launcher per OS (`run-web.sh` / `run-web.bat`) and starts both services together:
 
 Available endpoints after startup:
 
@@ -35,7 +26,7 @@ The root compose file supports dedicated environments:
 ### Release
 
 ```bash
-# Preferred (runs scraper+generator first)
+# Preferred
 ./scripts/release-up.sh
 
 # Manual equivalent
@@ -97,7 +88,7 @@ Operational note:
 ## Observability and Debug Workflow
 
 ![Debug console](docs/art/debug.png)
-Use /debug for end-to-end debugging:
+Use `/debug` endpoint for end-to-end debugging:
 
 - Realtime request/response logs from runtime endpoints
 - Structured webhook dispatch viewer with URL/status filtering
@@ -134,7 +125,31 @@ python src/scraper.py
 python src/generator.py
 ```
 
+## Development Phases
+
+### Phase 1 — In Progress
+**Objective:** Achieve full API method parity with the official version
+
+- [ ] Expand API methods
+- [ ] Ensure 100% compatibility with the official implementation
+- [ ] Align behavior and responses with the official client
+- [ ] Validate stability of newly added methods
+
+### Phase 2
+**Objective:** Client rewrite using Electrobun and desktop distribution
+
+- [ ] Rewrite the client using Electrobun
+- [ ] Improve performance and maintainability
+- [ ] Prepare cross-platform desktop builds
+- [ ] Publish desktop releases for:
+  - [ ] Windows
+  - [ ] Linux
+  - [ ] macOS
+  
 ## Contributing
+
+> [!IMPORTANT]
+> Since the client is currently undergoing a rewrite, pull requests related to the `client` will not be accepted until further notice.
 
 Thank you for considering contributing to the LaraGram Simula! The contribution guide can be found in the [LaraGram documentation](https://laraxgram.github.io/v3/contributions.html).
 
