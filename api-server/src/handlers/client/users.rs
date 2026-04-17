@@ -74,22 +74,92 @@ pub fn ensure_user(
     first_name: Option<String>,
     username: Option<String>,
 ) -> Result<SimUserRecord, ApiError> {
-    let id = user_id.unwrap_or(10001);
-    let effective_first_name = first_name.unwrap_or_else(|| "Test User".to_string());
+    let normalized_first_name = first_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
     let normalized_username = username
         .as_deref()
         .map(sanitize_username)
         .filter(|value| !value.is_empty());
 
-    if let Some(candidate_username) = normalized_username.as_deref() {
-        bot::ensure_username_available_globally(
+    let id = if let Some(explicit_user_id) = user_id {
+        explicit_user_id
+    } else if let Some(candidate_username) = normalized_username.as_deref() {
+        conn
+            .query_row(
+                "SELECT id
+                 FROM users
+                 WHERE username IS NOT NULL AND LOWER(username) = LOWER(?1)
+                 LIMIT 1",
+                params![candidate_username],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(ApiError::internal)?
+            .unwrap_or(10001)
+    } else {
+        10001
+    };
+
+    if let Some(existing) = load_sim_user_record(conn, id)? {
+        if let Some(first_name_value) = normalized_first_name.as_deref() {
+            if existing.first_name != first_name_value {
+                conn.execute(
+                    "UPDATE users SET first_name = ?1 WHERE id = ?2",
+                    params![first_name_value, id],
+                )
+                .map_err(ApiError::internal)?;
+            }
+        }
+
+        if let Some(candidate_username) = normalized_username.as_deref() {
+            let existing_username = existing
+                .username
+                .as_deref()
+                .map(|value| value.to_ascii_lowercase());
+
+            if existing_username.is_none() {
+                if bot::ensure_username_available_globally(
+                    conn,
+                    candidate_username,
+                    None,
+                    Some(id),
+                    None,
+                )
+                .is_ok()
+                {
+                    conn.execute(
+                        "UPDATE users SET username = ?1 WHERE id = ?2",
+                        params![candidate_username, id],
+                    )
+                    .map_err(ApiError::internal)?;
+                }
+            }
+        }
+
+        return load_sim_user_record(conn, id)?
+            .ok_or_else(|| ApiError::internal("failed to load existing user"));
+    }
+
+    let effective_first_name = normalized_first_name.unwrap_or_else(|| "Test User".to_string());
+
+    let persisted_username = if let Some(candidate_username) = normalized_username.as_deref() {
+        match bot::ensure_username_available_globally(
             conn,
             candidate_username,
             None,
             Some(id),
             None,
-        )?;
-    }
+        ) {
+            Ok(()) => Some(candidate_username.to_string()),
+            Err(error) if user_id.is_none() && error.code == 400 => None,
+            Err(error) => return Err(error),
+        }
+    } else {
+        None
+    };
 
     let now = Utc::now().timestamp();
 
@@ -99,7 +169,7 @@ pub fn ensure_user(
          ON CONFLICT(id) DO UPDATE SET
             username = COALESCE(excluded.username, users.username),
             first_name = excluded.first_name",
-        params![id, normalized_username, effective_first_name, now],
+        params![id, persisted_username, effective_first_name, now],
     )
     .map_err(ApiError::internal)?;
 
