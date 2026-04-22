@@ -214,6 +214,71 @@ jobs:
           set -euo pipefail
 
           ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          cd "$ROOT_DIR"
+
+          ENV_FILE="$ROOT_DIR/.env"
+          DEFAULT_API_HOST="127.0.0.1"
+          DEFAULT_API_PORT="8081"
+          DEFAULT_DATABASE_URL="simula.db"
+          DEFAULT_FILE_STORAGE_DIR="files"
+          DEFAULT_LOG_DIR="stdout"
+
+          api_host_value="$DEFAULT_API_HOST"
+          api_port_value="$DEFAULT_API_PORT"
+          database_url_value="$DEFAULT_DATABASE_URL"
+          file_storage_dir_value="$DEFAULT_FILE_STORAGE_DIR"
+          log_dir_value="$DEFAULT_LOG_DIR"
+
+          if [ -f "$ENV_FILE" ]; then
+            while IFS='=' read -r raw_key raw_value || [ -n "${raw_key:-}" ]; do
+              key="${raw_key:-}"
+              value="${raw_value:-}"
+
+              key="${key#${key%%[![:space:]]*}}"
+              key="${key%${key##*[![:space:]]}}"
+              key="${key%$'\r'}"
+
+              value="${value#${value%%[![:space:]]*}}"
+              value="${value%${value##*[![:space:]]}}"
+              value="${value%$'\r'}"
+
+              case "$key" in
+                API_HOST) api_host_value="$value" ;;
+                API_PORT) api_port_value="$value" ;;
+                DATABASE_URL) database_url_value="$value" ;;
+                FILE_STORAGE_DIR) file_storage_dir_value="$value" ;;
+                LOG_DIR) log_dir_value="$value" ;;
+              esac
+            done < "$ENV_FILE"
+          fi
+
+          if [ -n "${API_HOST:-}" ]; then
+            api_host_value="$API_HOST"
+          fi
+          if [ -n "${API_PORT:-}" ]; then
+            api_port_value="$API_PORT"
+          fi
+
+          [ -n "$api_host_value" ] || api_host_value="$DEFAULT_API_HOST"
+          [ -n "$api_port_value" ] || api_port_value="$DEFAULT_API_PORT"
+          [ -n "$database_url_value" ] || database_url_value="$DEFAULT_DATABASE_URL"
+          [ -n "$file_storage_dir_value" ] || file_storage_dir_value="$DEFAULT_FILE_STORAGE_DIR"
+          [ -n "$log_dir_value" ] || log_dir_value="$DEFAULT_LOG_DIR"
+
+          cat > "$ENV_FILE" <<ENVEOF
+          API_HOST=$api_host_value
+          API_PORT=$api_port_value
+          DATABASE_URL=$database_url_value
+          FILE_STORAGE_DIR=$file_storage_dir_value
+          LOG_DIR=$log_dir_value
+          ENVEOF
+
+          export API_HOST="$api_host_value"
+          export API_PORT="$api_port_value"
+          export DATABASE_URL="$database_url_value"
+          export FILE_STORAGE_DIR="$file_storage_dir_value"
+          export LOG_DIR="$log_dir_value"
+
           case "$(uname -s)" in
             Linux*) API_BIN="$ROOT_DIR/bin/linux/simula-api-server" ;;
             Darwin*) API_BIN="$ROOT_DIR/bin/macos/simula-api-server" ;;
@@ -226,14 +291,20 @@ jobs:
           chmod +x "$API_BIN"
           export SIMULA_WEB_DIST_DIR="${SIMULA_WEB_DIST_DIR:-$ROOT_DIR/web}"
 
+          OPEN_API_HOST="$api_host_value"
+          if [ "$OPEN_API_HOST" = "0.0.0.0" ] || [ "$OPEN_API_HOST" = "::" ]; then
+            OPEN_API_HOST="127.0.0.1"
+          fi
+          WEB_URL="http://127.0.0.1:8888/?api_host=${OPEN_API_HOST}&api_port=${api_port_value}"
+
           "$API_BIN" &
           API_PID=$!
           trap 'kill "$API_PID" 2>/dev/null || true' EXIT
 
           if command -v xdg-open >/dev/null 2>&1; then
-            xdg-open "http://127.0.0.1:8888" >/dev/null 2>&1 || true
+            xdg-open "$WEB_URL" >/dev/null 2>&1 || true
           elif command -v open >/dev/null 2>&1; then
-            open "http://127.0.0.1:8888" >/dev/null 2>&1 || true
+            open "$WEB_URL" >/dev/null 2>&1 || true
           fi
 
           wait "$API_PID"
@@ -241,11 +312,53 @@ jobs:
 
           cat > web-bundle/run-web.bat <<'EOF'
           @echo off
+          setlocal EnableExtensions EnableDelayedExpansion
           set ROOT_DIR=%~dp0
+          cd /d "%ROOT_DIR%"
+
+          set ENV_FILE=%ROOT_DIR%.env
+
+          set E_API_HOST=127.0.0.1
+          set E_API_PORT=8081
+          set E_DATABASE_URL=simula.db
+          set E_FILE_STORAGE_DIR=files
+          set E_LOG_DIR=stdout
+
+          if exist "%ENV_FILE%" (
+            for /f "usebackq tokens=1,* delims==" %%A in ("%ENV_FILE%") do (
+              if /I "%%A"=="API_HOST" set E_API_HOST=%%B
+              if /I "%%A"=="API_PORT" set E_API_PORT=%%B
+              if /I "%%A"=="DATABASE_URL" set E_DATABASE_URL=%%B
+              if /I "%%A"=="FILE_STORAGE_DIR" set E_FILE_STORAGE_DIR=%%B
+              if /I "%%A"=="LOG_DIR" set E_LOG_DIR=%%B
+            )
+          )
+
+          if not "%API_HOST%"=="" set E_API_HOST=%API_HOST%
+          if not "%API_PORT%"=="" set E_API_PORT=%API_PORT%
+
+          > "%ENV_FILE%" (
+            echo API_HOST=%E_API_HOST%
+            echo API_PORT=%E_API_PORT%
+            echo DATABASE_URL=%E_DATABASE_URL%
+            echo FILE_STORAGE_DIR=%E_FILE_STORAGE_DIR%
+            echo LOG_DIR=%E_LOG_DIR%
+          )
+
+          set API_HOST=%E_API_HOST%
+          set API_PORT=%E_API_PORT%
+          set DATABASE_URL=%E_DATABASE_URL%
+          set FILE_STORAGE_DIR=%E_FILE_STORAGE_DIR%
+          set LOG_DIR=%E_LOG_DIR%
+
           set API_BIN=%ROOT_DIR%bin\windows\simula-api-server.exe
           if "%SIMULA_WEB_DIST_DIR%"=="" set SIMULA_WEB_DIST_DIR=%ROOT_DIR%web
 
-          start "" http://127.0.0.1:8888
+          set OPEN_API_HOST=%API_HOST%
+          if "%OPEN_API_HOST%"=="0.0.0.0" set OPEN_API_HOST=127.0.0.1
+          if "%OPEN_API_HOST%"=="::" set OPEN_API_HOST=127.0.0.1
+
+          start "" "http://127.0.0.1:8888/?api_host=%OPEN_API_HOST%&api_port=%API_PORT%"
           "%API_BIN%"
           EOF
 

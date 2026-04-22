@@ -1,43 +1,45 @@
-const RUNTIME_API_BASE_URL_KEY = 'simula-runtime-api-base-url';
+const DEFAULT_API_HOST = '127.0.0.1';
+const DEFAULT_API_PORT = '8081';
 
-function readRuntimeOverride(key: string): string | null {
-  if (typeof window === 'undefined') {
-    return null;
+function normalizeApiHost(rawHost: string): string {
+  const trimmedHost = rawHost.trim();
+  if (!trimmedHost) {
+    return DEFAULT_API_HOST;
   }
 
-  const raw = window.localStorage.getItem(key);
-  const normalized = raw?.trim() || '';
-  return normalized.length > 0 ? normalized : null;
+  if (trimmedHost === '0.0.0.0' || trimmedHost === '::') {
+    if (typeof window !== 'undefined' && window.location.hostname) {
+      return window.location.hostname;
+    }
+    return DEFAULT_API_HOST;
+  }
+
+  return trimmedHost;
 }
 
-function writeRuntimeOverride(key: string, value: string | null): void {
-  if (typeof window === 'undefined') {
-    return;
+function normalizeApiPort(rawPort: string): string {
+  const trimmedPort = rawPort.trim();
+  if (!trimmedPort) {
+    return DEFAULT_API_PORT;
   }
 
-  const normalized = value?.trim() || '';
-  if (!normalized) {
-    window.localStorage.removeItem(key);
-    return;
-  }
-
-  window.localStorage.setItem(key, normalized);
+  return /^\d+$/.test(trimmedPort) ? trimmedPort : DEFAULT_API_PORT;
 }
 
-function buildRuntimeApiBase(values: Record<string, string>): string | null {
-  const rawHost = (values.API_HOST || '').trim();
-  const rawPort = (values.API_PORT || '').trim();
-  if (!rawHost || !rawPort) {
+function buildApiBaseFromHostPort(rawHost: string, rawPort: string): string {
+  const host = normalizeApiHost(rawHost);
+  const port = normalizeApiPort(rawPort);
+  return `http://${host}:${port}`;
+}
+
+function normalizeApiBaseUrl(rawBase: string): string | null {
+  const trimmedBase = rawBase.trim();
+  if (!trimmedBase) {
     return null;
   }
-
-  const normalizedHost = rawHost === '0.0.0.0' || rawHost === '::'
-    ? (typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1')
-    : rawHost;
 
   try {
-    const url = new URL(normalizedHost.includes('://') ? normalizedHost : `http://${normalizedHost}`);
-    url.port = rawPort;
+    const url = new URL(trimmedBase.includes('://') ? trimmedBase : `http://${trimmedBase}`);
     url.pathname = '';
     url.search = '';
     url.hash = '';
@@ -47,19 +49,53 @@ function buildRuntimeApiBase(values: Record<string, string>): string | null {
   }
 }
 
-export function syncRuntimeClientEnvOverrides(values: Record<string, string>): void {
-  const runtimeApiBase = buildRuntimeApiBase(values);
-  writeRuntimeOverride(RUNTIME_API_BASE_URL_KEY, runtimeApiBase);
-
-  // Cleanup legacy runtime token override from old builds.
-  if (typeof window !== 'undefined') {
-    window.localStorage.removeItem('simula-runtime-bot-token');
+function readLaunchQueryValue(key: string): string {
+  if (typeof window === 'undefined') {
+    return '';
   }
+
+  const value = new URLSearchParams(window.location.search).get(key);
+  return value?.trim() || '';
 }
 
-export const API_BASE_URL =
-  readRuntimeOverride(RUNTIME_API_BASE_URL_KEY)
-  || 'http://127.0.0.1:8081';
+function readBuildEnvValue(key: string): string {
+  const envValues = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env;
+  const rawValue = envValues?.[key];
+  return typeof rawValue === 'string' ? rawValue.trim() : '';
+}
+
+function resolveApiBaseUrl(): string {
+  const directBaseFromQuery = normalizeApiBaseUrl(
+    readLaunchQueryValue('api_base_url') || readLaunchQueryValue('api_base'),
+  );
+  if (directBaseFromQuery) {
+    return directBaseFromQuery;
+  }
+
+  const hostFromQuery = readLaunchQueryValue('api_host');
+  const portFromQuery = readLaunchQueryValue('api_port');
+  if (hostFromQuery || portFromQuery) {
+    return buildApiBaseFromHostPort(hostFromQuery, portFromQuery);
+  }
+
+  const directBaseFromBuildEnv = normalizeApiBaseUrl(
+    readBuildEnvValue('VITE_API_BASE_URL') || readBuildEnvValue('API_BASE_URL'),
+  );
+  if (directBaseFromBuildEnv) {
+    return directBaseFromBuildEnv;
+  }
+
+  return buildApiBaseFromHostPort(
+    readBuildEnvValue('VITE_API_HOST') || readBuildEnvValue('API_HOST'),
+    readBuildEnvValue('VITE_API_PORT') || readBuildEnvValue('API_PORT'),
+  );
+}
+
+export function syncRuntimeClientEnvOverrides(_values: Record<string, string>): void {
+  // API base is derived from launcher/.env at page load; no client-side persistence is used.
+}
+
+export const API_BASE_URL = resolveApiBaseUrl();
 
 export const DEFAULT_BOT_TOKEN = '123456:TESTTOKEN';
 
