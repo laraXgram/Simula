@@ -1,6 +1,8 @@
 //! Building blocks shared by TL handlers and admin operations.
 
 pub mod accounts;
+pub mod deletes;
+pub mod edits;
 pub mod entities;
 pub mod markup;
 pub mod messages;

@@ -160,3 +160,47 @@ pub async fn next_updates(w: &World, offset: &mut i64) -> Vec<Value> {
     }
     updates
 }
+
+/// The user edits their own-box message `id` over TL.
+pub async fn user_edits(w: &World, id: i32, text: &str) {
+    let peer = w.sandbox.input_peer(w.user.id, Peer::User(w.bot_id));
+    w.sandbox
+        .call(
+            Caller {
+                account: w.user.id,
+                session: None,
+            },
+            functions::messages::EditMessage {
+                peer,
+                id,
+                message: Some(text.into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+}
+
+/// The user's copy of their own-box message `id`, if it still exists.
+pub async fn user_copy(w: &World, id: i32) -> Option<types::Message> {
+    let found = w
+        .sandbox
+        .call(
+            Caller {
+                account: w.user.id,
+                session: None,
+            },
+            functions::messages::GetMessages {
+                id: vec![types::InputMessageID { id }.into()],
+            },
+        )
+        .await
+        .unwrap();
+    let enums::messages::Messages::Messages(found) = found else {
+        return None;
+    };
+    match found.messages.into_iter().next()? {
+        enums::Message::Message(m) => Some(*m),
+        _ => None,
+    }
+}

@@ -58,10 +58,13 @@ pub fn send_private(ctx: &mut Ctx<'_>, from: UserId, to: UserId, out: Outgoing) 
         return Err(RpcError::peer_id_invalid());
     }
 
-    // Telegram adds mentions, hashtags, links… itself; bot commands only in chats with a bot.
-    let with_commands = sender.is_bot || recipient.is_bot;
-    let explicit = entities::resolve_input(ctx, from, out.entities)?;
-    let entities = entities::merge(explicit, entities::detect(&out.text, with_commands));
+    let entities = text_entities(
+        ctx,
+        from,
+        sender.is_bot || recipient.is_bot,
+        &out.text,
+        out.entities,
+    )?;
     let reply_markup = markup::normalize(ctx, from, out.reply_markup)?;
     let reply_to = replies::resolve(ctx, from, Peer::User(to), out.reply_to.as_ref())?;
 
@@ -117,6 +120,22 @@ pub fn send_private(ctx: &mut Ctx<'_>, from: UserId, to: UserId, out: Outgoing) 
         }
     }
     sent.ok_or_else(|| RpcError::internal("sender copy missing"))
+}
+
+/// A message's final entities: the sender's, plus what Telegram adds itself (mentions,
+/// hashtags, links…; bot commands only in chats with a bot).
+pub(crate) fn text_entities(
+    ctx: &Ctx<'_>,
+    sender: UserId,
+    with_bot_commands: bool,
+    text: &str,
+    explicit: Vec<enums::MessageEntity>,
+) -> RpcResult<Vec<enums::MessageEntity>> {
+    let explicit = entities::resolve_input(ctx, sender, explicit)?;
+    Ok(entities::merge(
+        explicit,
+        entities::detect(text, with_bot_commands),
+    ))
 }
 
 /// Users a message refers to; whoever receives the message receives these users too.

@@ -14,9 +14,20 @@ pub fn push_pts(
     mentions: impl IntoIterator<Item = UserId>,
     build: impl FnOnce(i32, i32) -> enums::Update,
 ) -> RpcResult<enums::Update> {
-    let pts = store::updates::advance_pts(ctx.db, account, 1)?;
-    let update = build(pts, 1);
-    store::updates::log(ctx.db, account, pts, 1, ctx.now(), &update)?;
+    push_pts_count(ctx, account, 1, mentions, build)
+}
+
+/// [`push_pts`] for an update that counts as `count` events (deleting several messages).
+pub fn push_pts_count(
+    ctx: &mut Ctx<'_>,
+    account: UserId,
+    count: i32,
+    mentions: impl IntoIterator<Item = UserId>,
+    build: impl FnOnce(i32, i32) -> enums::Update,
+) -> RpcResult<enums::Update> {
+    let pts = store::updates::advance_pts(ctx.db, account, count)?;
+    let update = build(pts, count);
+    store::updates::log(ctx.db, account, pts, count, ctx.now(), &update)?;
     let origin = ctx.origin_for(account);
     ctx.out.push(account, update.clone(), mentions, origin);
     Ok(update)

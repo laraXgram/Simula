@@ -80,6 +80,25 @@ pub fn get_in(
     }))
 }
 
+/// A message in `owner`'s box with its `global_id`, whatever the dialog.
+pub fn get_with_global(
+    conn: &Connection,
+    owner: UserId,
+    id: i32,
+) -> rusqlite::Result<Option<(i64, types::Message)>> {
+    let row: Option<(i64, String)> = conn
+        .query_row(
+            "SELECT global_id, body FROM messages WHERE owner_id = ?1 AND id = ?2 AND deleted = 0",
+            params![owner.0, id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    Ok(row.map(|(global_id, body)| {
+        let message = serde_json::from_str(&body).expect("stored message is valid JSON-TL");
+        (global_id, message)
+    }))
+}
+
 /// The id of `owner`'s copy of a message, found through the copies' shared `global_id`.
 pub fn copy_id(conn: &Connection, owner: UserId, global_id: i64) -> rusqlite::Result<Option<i32>> {
     conn.query_row(
@@ -88,6 +107,38 @@ pub fn copy_id(conn: &Connection, owner: UserId, global_id: i64) -> rusqlite::Re
         |row| row.get(0),
     )
     .optional()
+}
+
+/// Every live copy of a message: `(owner, id)` per box.
+pub fn copies(conn: &Connection, global_id: i64) -> rusqlite::Result<Vec<(UserId, i32)>> {
+    let mut statement = conn.prepare(
+        "SELECT owner_id, id FROM messages WHERE global_id = ?1 AND deleted = 0 ORDER BY owner_id",
+    )?;
+    let rows = statement.query_map([global_id], |row| Ok((UserId(row.get(0)?), row.get(1)?)))?;
+    rows.collect()
+}
+
+/// Store an edited copy (its body and edit date).
+pub fn update(conn: &Connection, owner: UserId, message: &types::Message) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE messages SET body = ?3, edit_date = ?4 WHERE owner_id = ?1 AND id = ?2",
+        params![
+            owner.0,
+            message.id,
+            serde_json::to_string(message).expect("TL message serializes"),
+            message.edit_date,
+        ],
+    )?;
+    Ok(())
+}
+
+/// Remove a message from `owner`'s box. Ids are never reused.
+pub fn delete(conn: &Connection, owner: UserId, id: i32) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE messages SET deleted = 1 WHERE owner_id = ?1 AND id = ?2",
+        params![owner.0, id],
+    )?;
+    Ok(())
 }
 
 /// A sender's earlier message with the same `random_id` (client retries are idempotent).

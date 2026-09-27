@@ -1,61 +1,12 @@
 //! A user and a bot talk in a private chat, at the MTProto level.
 
-use simula_core::services::accounts::{self, NewBot, NewUser};
-use simula_core::{Account, AccountUpdates, Caller, Sandbox, SandboxConfig, UserId};
+mod common;
+
+use common::{as_account, send, setup};
+use simula_core::services::accounts::{self, NewBot};
+use simula_core::{AccountUpdates, UserId};
 use simula_tl::{enums, functions, types};
 use tokio::sync::broadcast::Receiver;
-
-fn as_account(id: UserId) -> Caller {
-    Caller {
-        account: id,
-        session: None,
-    }
-}
-
-fn send(peer: enums::InputPeer, text: &str, random_id: i64) -> functions::messages::SendMessage {
-    functions::messages::SendMessage {
-        peer,
-        message: text.into(),
-        random_id,
-        ..Default::default()
-    }
-}
-
-async fn setup() -> (std::sync::Arc<Sandbox>, Account, Account) {
-    let sandbox = Sandbox::open(SandboxConfig {
-        id: "test".into(),
-        path: None,
-    })
-    .unwrap();
-    let user = sandbox
-        .admin(|ctx| {
-            accounts::create_user(
-                ctx,
-                NewUser {
-                    first_name: "Alice".into(),
-                    username: Some("alice".into()),
-                    lang_code: Some("en".into()),
-                    ..Default::default()
-                },
-            )
-        })
-        .await
-        .unwrap();
-    let bot = sandbox
-        .admin(|ctx| {
-            accounts::create_bot(
-                ctx,
-                NewBot {
-                    first_name: "Echo".into(),
-                    username: "echo_bot".into(),
-                    ..Default::default()
-                },
-            )
-        })
-        .await
-        .unwrap();
-    (sandbox, user, bot)
-}
 
 /// The single `updateNewMessage` of the next batch delivered to `account`.
 async fn next_message(

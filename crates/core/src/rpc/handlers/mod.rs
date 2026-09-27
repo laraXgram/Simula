@@ -16,6 +16,8 @@ use crate::error::RpcResult;
 
 /// TL functions with a handler (stubs included).
 pub const IMPLEMENTED: &[&str] = &[
+    "messages.deleteMessages",
+    "messages.editMessage",
     "messages.getMessages",
     "messages.sendMessage",
     "updates.getState",
@@ -25,6 +27,10 @@ pub const IMPLEMENTED: &[&str] = &[
 /// Run the handler for `call`, or hand the call back when there is none.
 pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Reply>>, Function> {
     Ok(match call {
+        Function::MessagesDeleteMessages(call) => messages::delete_messages::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::MessagesEditMessage(call) => messages::edit_message::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesGetMessages(call) => messages::get_messages::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesSendMessage(call) => messages::send_message::handle(ctx, *call)

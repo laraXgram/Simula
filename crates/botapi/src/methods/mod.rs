@@ -4,7 +4,11 @@
 //! from the files present (`bun run codegen registries`); add a method by adding its file
 //! (`bun run codegen new:botapi <method>`).
 
+pub mod delete_message;
+pub mod delete_messages;
 pub mod delete_webhook;
+pub mod edit_message_reply_markup;
+pub mod edit_message_text;
 pub mod get_me;
 pub mod get_updates;
 pub mod get_webhook_info;
@@ -18,7 +22,11 @@ use crate::error::BotResult;
 
 /// Bot API methods with a handler (stubs included).
 pub const IMPLEMENTED: &[&str] = &[
+    "deleteMessage",
+    "deleteMessages",
     "deleteWebhook",
+    "editMessageReplyMarkup",
+    "editMessageText",
     "getMe",
     "getUpdates",
     "getWebhookInfo",
@@ -32,7 +40,19 @@ pub async fn route(
     params: Map<String, Value>,
 ) -> Option<BotResult<Value>> {
     Some(match method {
+        "deletemessage" => run(ctx, params, Limits::Enforce, delete_message::handle).await,
+        "deletemessages" => run(ctx, params, Limits::Enforce, delete_messages::handle).await,
         "deletewebhook" => run(ctx, params, Limits::Enforce, delete_webhook::handle).await,
+        "editmessagereplymarkup" => {
+            run(
+                ctx,
+                params,
+                Limits::Enforce,
+                edit_message_reply_markup::handle,
+            )
+            .await
+        }
+        "editmessagetext" => run(ctx, params, Limits::Enforce, edit_message_text::handle).await,
         "getme" => run(ctx, params, Limits::Enforce, get_me::handle).await,
         "getupdates" => run(ctx, params, get_updates::LIMITS, get_updates::handle).await,
         "getwebhookinfo" => run(ctx, params, Limits::Enforce, get_webhook_info::handle).await,

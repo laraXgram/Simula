@@ -77,13 +77,5 @@ impl crate::Method for CopyMessages {
 }
 
 impl crate::Validate for CopyMessages {
-    fn validate_into(&self, path: &str, out: &mut Vec<crate::Violation>) {
-        {
-            let p = crate::validate::join(path, "message_ids");
-            {
-                let v = &self.message_ids;
-                crate::validate::items(&p, v, Some(1), Some(100), out);
-            }
-        }
-    }
+    fn validate_into(&self, _path: &str, _out: &mut Vec<crate::Violation>) {}
 }

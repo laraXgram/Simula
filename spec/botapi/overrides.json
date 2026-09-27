@@ -5,7 +5,11 @@
       "constraints": { "enum": ["HTML", "Markdown", "MarkdownV2"] },
       "handler_validates": true
     },
-    "style": { "handler_validates": true }
+    "style": { "handler_validates": true },
+    "message_ids": {
+      "//": "telegram-bot-api's get_message_ids reports its own errors.",
+      "handler_validates": true
+    }
   },
   "types": {
     "Dice": {

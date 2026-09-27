@@ -12259,7 +12259,8 @@
             }
           },
           "required": true,
-          "description": "The list of identifiers of deleted messages in the chat of the business account"
+          "description": "The list of identifiers of deleted messages in the chat of the business account",
+          "handler_validates": true
         }
       ]
     },
@@ -23873,7 +23874,8 @@
               "min": 1,
               "max": 100
             }
-          }
+          },
+          "handler_validates": true
         },
         {
           "name": "disable_notification",
@@ -24197,7 +24199,8 @@
               "min": 1,
               "max": 100
             }
-          }
+          },
+          "handler_validates": true
         },
         {
           "name": "disable_notification",
@@ -31512,7 +31515,8 @@
               "min": 1,
               "max": 100
             }
-          }
+          },
+          "handler_validates": true
         }
       ],
       "returns": {
@@ -34010,7 +34014,8 @@
               "min": 1,
               "max": 100
             }
-          }
+          },
+          "handler_validates": true
         }
       ],
       "returns": {

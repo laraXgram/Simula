@@ -5,6 +5,47 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-09-28 — M2 (part 2) · Edits and deletes (P2.9, P3.6)
+
+- **Core**: `messages.editMessage` and `messages.deleteMessages` for private chats.
+  - Edits change every copy (found through `global_id`); each owner gets
+    `updateEditMessage` with its own pts. Only the author may edit
+    (`MESSAGE_AUTHOR_REQUIRED`), users within 48 hours (`MESSAGE_EDIT_TIME_EXPIRED`),
+    bots their own messages any time; only inline keyboards (`REPLY_MARKUP_INVALID`);
+    an edit that changes nothing is `MESSAGE_NOT_MODIFIED`. Entities are rebuilt like
+    on send. Omitting the keyboard removes it, as on Telegram; a keyboard-only edit
+    keeps the text and preview placement and is marked `edit_hide`.
+  - Deletes remove the caller's copies, and with `revoke` the other side's too; each
+    affected box gets `updateDeleteMessages` (pts advanced by the message count).
+    Unknown ids are ignored; bots can't delete messages older than 48 hours
+    (`MESSAGE_DELETE_FORBIDDEN`).
+- **Gateway**: `editMessageText`, `editMessageReplyMarkup`, `deleteMessage`,
+  `deleteMessages`, built on an **edit pipeline** (`edit.rs`) and a delete step
+  (`delete.rs`), with telegram-bot-api's `check_message(s)` as `lookup.rs`.
+  - Same order and texts as the real stack: "message identifier is not specified",
+    "message to edit not found", tdlib's "message can't be edited" (not the author, or
+    the message carries a reply keyboard), "there is no text in the message to edit",
+    "inline keyboard expected", the rewritten "message is not modified: …",
+    "message to delete not found", "message can't be deleted for everyone" (bots,
+    after 48 hours), "too many message identifiers specified".
+  - `deleteMessages` skips missing messages, as telegram-bot-api's `allow_empty` does.
+  - Edit results come without `reply_to_message` (telegram-bot-api renders edits with
+    `need_reply = false`); bots always see `edit_date` (tdlib ignores `edit_hide` for
+    bots).
+  - Users' edits reach bots as `edited_message`; deletions in private chats produce
+    no Bot API update, as on Telegram.
+  - `message_ids` joins the `handler_validates` fields (telegram-bot-api's
+    `get_message_ids` reports its own errors).
+- Inline messages (`inline_message_id`) and business connections answer 501 until
+  inline mode and business accounts exist.
+- **Verification**: core tests (`tests/edit_delete.rs`: every copy edited with its own
+  pts, not-author and not-modified errors, hidden keyboard-only edits, delete for me vs
+  for everyone, the 48-hour bot limit on a virtual clock) and gateway tests over HTTP
+  (text and keyboard edits, keyboard removal, error texts, users' edits as
+  `edited_message`, deletes on both sides). Workspace: 121 tests, 0 warnings, clippy
+  clean; regeneration writes 0 files; `verify:ts` passes.
+- Coverage: Bot API 9/185, TL 6/813.
+
 ## 2026-09-28 — M2 (part 1) · Send pipeline: formatting, keyboards, replies (P3.4, P3.6)
 
 - **Send pipeline** (`crates/botapi/src/send/`), shared by every future `send*` method,
