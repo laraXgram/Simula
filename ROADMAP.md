@@ -25,7 +25,7 @@ Every finished task is logged in [docs/worklog.md](docs/worklog.md) and committe
 - [x] P1.2 Constraint extraction from descriptions (lengths, ranges, enums, defaults, byte limits)
 - [x] P1.3 `overrides.json` for manual corrections, applied on top of the scrape
 - [x] P1.4 TL parser → `spec/tl/*.json` (vendored `telegram_api.tl`, `mtproto_api.tl`, CRC-verified)
-- [ ] P1.5 Spec diff: report what changed between two Bot API versions / TL layers
+- [x] P1.5 Spec diff: report what changed between two Bot API versions / TL layers
 - [ ] P1.6 Rust emitter: TL types + binary codec + JSON-TL codec (`simula-tl`)
 - [ ] P1.7 Rust emitter: Bot API types, method param structs, validators (`simula-botapi-types`)
 - [ ] P1.8 TypeScript emitter: TL + Bot API types for the client and SDKs

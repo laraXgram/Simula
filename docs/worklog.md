@@ -5,6 +5,25 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-09-27 — P1.5 · Spec diff
+
+- `bun run codegen diff [--base <ref>]` compares the working-tree specs with a git ref;
+  `bun run codegen diff:files <a> <b>` compares any two Bot API specs or TL schemas.
+  Reports are Markdown: added/removed/changed methods, types, params, fields, union
+  variants, return types, requiredness, upload support; for TL, ids, results and params.
+  When the Bot API version changes, Telegram's official changelog is appended, since
+  behaviour-only changes are invisible to a structural diff.
+- **Verification (Bot API)**: parsed the archived 10.2 docs (Wayback Machine) with the
+  same pipeline (0 problems — also a regression test of the parser on a second
+  version) and diffed 10.2 → 10.3. Every structural item of the official 10.3
+  changelog appears (e.g. the ephemeral-parameter swap in all 13 `send*` methods).
+  The diff also surfaced changes the changelog omits: `InputRichBlockMap` fields became
+  optional, `InputRichMessageMedia.media` gained `InputMediaDocument`,
+  `editEphemeralMessageText.text` became optional.
+- **Verification (TL)**: diffed layer 228 (from tdlib history) → 229: 31 constructors
+  added, including the new `buttonType*` / `inlineButtonType*` keyboard model that
+  replaces `keyboardButton*` — the MTProto side of 10.3's `DisabledButton`.
+
 ## 2026-09-27 — P1.4 · TL schema parser
 
 - `bun run codegen tl:import <tdlib-dir>` vendors `telegram_api.tl` and `mtproto_api.tl`

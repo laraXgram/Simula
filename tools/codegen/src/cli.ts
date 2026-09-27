@@ -1,4 +1,5 @@
 import { buildBotApiSpec } from "./botapi";
+import { diffAgainstRef, diffFiles } from "./diff";
 import { buildTlSchemas, importTl } from "./tl";
 
 const USAGE = `usage: bun run codegen <command> [options]
@@ -7,6 +8,8 @@ commands:
   botapi [--offline]     scrape the Bot API docs into spec/botapi/api.json
   tl                     parse spec/tl/*.tl into spec/tl/*.json
   tl:import <tdlib-dir>  vendor telegram_api.tl / mtproto_api.tl from a tdlib checkout, then parse
+  diff [--base <ref>]    report spec changes against a git ref (default HEAD)
+  diff:files <a> <b>     report changes between two spec files of the same kind
 `;
 
 const [command, ...args] = process.argv.slice(2);
@@ -36,6 +39,20 @@ switch (command) {
   case "tl":
     await printTl();
     break;
+  case "diff": {
+    const at = args.indexOf("--base");
+    console.log(await diffAgainstRef(at >= 0 ? (args[at + 1] ?? "HEAD") : "HEAD"));
+    break;
+  }
+  case "diff:files": {
+    const [base, head] = args.filter((arg) => !arg.startsWith("--"));
+    if (!base || !head) {
+      console.error(USAGE);
+      process.exit(1);
+    }
+    console.log(await diffFiles(base, head));
+    break;
+  }
   default:
     console.error(USAGE);
     process.exit(command ? 1 : 0);
