@@ -5,6 +5,36 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-09-27 — P0.3, P1.6 · Workspaces and the `simula-tl` crate
+
+- Workspaces: Cargo (`resolver = 3`, edition 2024, `unsafe_code = forbid`, clippy
+  `all`), Bun (`tools/*`), rustfmt, biome. Rust 1.98.1 installed by the maintainer.
+- `bun run codegen rust:tl` generates `crates/tl/src/generated/` (1372 files) from
+  `spec/tl/*.json`: one struct per constructor, one enum per boxed type (payloads boxed,
+  so recursive types are fine), one struct per function with `RemoteCall::Return`, a
+  `Function` enum for server-side dispatch, `From` conversions, and the original TL
+  declaration as each item's doc comment. `telegram_api` → `simula_tl::{types, enums,
+  functions, Function, LAYER}`; `mtproto_api` → `simula_tl::mtproto::*`.
+- Handwritten runtime (`crates/tl/src/codec`, `json.rs`): TL primitives (string/bytes
+  padding and the 254 long form, boxed/bare vectors, `Bool`, int128/256, `Box<T>`),
+  decoding guards (truncation, absurd vector counts, trailing bytes), and JSON-TL
+  adapters: `{"_": "constructorName", …}`, `long` as string (accepted as number too),
+  bytes as base64, unset optionals and false bit-flags omitted.
+- The writer formats all generated files with one rustfmt run and only rewrites files
+  whose content changed, so a regeneration touches just what moved (fast rebuilds).
+- **Verification**:
+  - `tests/known_vectors.rs`: byte-exact encode/decode of the official
+    `req_pq_multi` and `resPQ` samples from core.telegram.org/mtproto/samples-auth_key,
+    flags bit computation, generic `invokeWithLayer` nesting, exact JSON-TL text.
+  - `tests/roundtrip/main.rs` (generated): a sample value for **every one of the 2512
+    combinators** (all fields set, all bit flags on, `long`s past 2^32) round-trips
+    through both the binary and the JSON codec.
+  - 0 compiler warnings, 0 clippy warnings; clean build of the crate ≈ 1.5 min.
+- Bugs caught by those tests and fixed in the emitter: `mtproto_api.tl` declares binary
+  payloads (`pq`, `g_a`, `encrypted_data`) as `string`, so that schema maps `string` to
+  bytes; TL's uppercase SRP params (`A`, `M1`, `srp_B`) become snake_case Rust fields
+  with serde keeping the TL names.
+
 ## 2026-09-27 — P1.5 · Spec diff
 
 - `bun run codegen diff [--base <ref>]` compares the working-tree specs with a git ref;

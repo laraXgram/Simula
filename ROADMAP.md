@@ -8,7 +8,7 @@ Every finished task is logged in [docs/worklog.md](docs/worklog.md) and committe
 
 **Targets:** Bot API **10.3** · MTProto layer from tdlib `telegram_api.tl`
 
-**Current focus:** P1 — specs & code generation
+**Current focus:** P1 — specs & code generation (next: P1.7 Bot API types)
 
 ---
 
@@ -16,7 +16,7 @@ Every finished task is logged in [docs/worklog.md](docs/worklog.md) and committe
 
 - [x] P0.1 `v2` branch, v1 sources removed (kept on `master`)
 - [x] P0.2 Architecture doc, roadmap, worklog
-- [ ] P0.3 Workspace skeleton: Cargo workspace, Bun workspace, lint/format (rustfmt, clippy, biome)
+- [x] P0.3 Workspace skeleton: Cargo workspace, Bun workspace, lint/format (rustfmt, clippy, biome)
 - [ ] P0.4 CI: build, test, lint, "generated code is fresh" check
 
 ## P1 — Specs & code generation
@@ -26,7 +26,7 @@ Every finished task is logged in [docs/worklog.md](docs/worklog.md) and committe
 - [x] P1.3 `overrides.json` for manual corrections, applied on top of the scrape
 - [x] P1.4 TL parser → `spec/tl/*.json` (vendored `telegram_api.tl`, `mtproto_api.tl`, CRC-verified)
 - [x] P1.5 Spec diff: report what changed between two Bot API versions / TL layers
-- [ ] P1.6 Rust emitter: TL types + binary codec + JSON-TL codec (`simula-tl`)
+- [x] P1.6 Rust emitter: TL types + binary codec + JSON-TL codec (`simula-tl`)
 - [ ] P1.7 Rust emitter: Bot API types, method param structs, validators (`simula-botapi-types`)
 - [ ] P1.8 TypeScript emitter: TL + Bot API types for the client and SDKs
 - [ ] P1.9 Registry emitters: TL dispatch table, Bot API method table, stubs for new methods

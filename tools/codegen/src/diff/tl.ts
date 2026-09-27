@@ -1,4 +1,5 @@
-import type { TlCombinator, TlParam, TlSchema, TlType } from "../tl/model";
+import { formatParam, formatTlType } from "../tl/format";
+import type { TlCombinator, TlSchema } from "../tl/model";
 import { diffNamed, isEmpty, renderSection } from "./named";
 
 /** Markdown report of what changed between two TL schemas. */
@@ -36,22 +37,4 @@ function compareCombinators(before: TlCombinator, after: TlCombinator): string[]
     ...params.changed.flatMap(({ changes }) => changes.map((c) => `param \`${c}\``)),
   );
   return changes;
-}
-
-function formatParam(param: TlParam): string {
-  const flag = param.flag ? `${param.flag.field}.${param.flag.bit}?` : "";
-  return `${param.name}:${flag}${formatTlType(param.type)}`;
-}
-
-export function formatTlType(type: TlType): string {
-  switch (type.kind) {
-    case "named":
-      return type.name;
-    case "vector":
-      return `${type.bare ? "vector" : "Vector"}<${formatTlType(type.of)}>`;
-    case "generic":
-      return `${type.query ? "!" : ""}${type.name}`;
-    case "flags":
-      return "#";
-  }
 }

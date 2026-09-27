@@ -1,0 +1,18 @@
+[package]
+name = "simula-tl"
+description = "MTProto TL types generated from telegram_api.tl / mtproto_api.tl, with binary and JSON codecs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+base64.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true
