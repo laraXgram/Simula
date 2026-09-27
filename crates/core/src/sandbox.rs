@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::mpsc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use simula_tl::{Function, RemoteCall, enums};
 use tokio::sync::{broadcast, oneshot};
@@ -20,6 +20,7 @@ use crate::outbox::AccountUpdates;
 use crate::rpc::{self, Reply};
 use crate::services::peers;
 use crate::store::{self, accounts::Account};
+use crate::waits::{Deferred, Waits};
 
 type Job = Box<dyn FnOnce(&mut World) + Send>;
 
@@ -30,6 +31,10 @@ pub type UpdateListener =
     Arc<dyn Fn(Arc<AccountUpdates>) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 const CHANNEL_CAPACITY: usize = 4096;
+
+/// How long a user's call waits for a bot's answer (callback queries) before
+/// `BOT_RESPONSE_TIMEOUT`. An approximation of Telegram's server-side limit.
+pub const DEFAULT_ANSWER_TIMEOUT: Duration = Duration::from_secs(15);
 
 pub struct SandboxConfig {
     pub id: String,
@@ -45,13 +50,16 @@ pub struct Sandbox {
     listeners: std::sync::Mutex<Vec<UpdateListener>>,
     clock: Arc<Clock>,
     secret: [u8; 32],
+    waits: Arc<Waits>,
+    answer_timeout: std::sync::Mutex<Duration>,
 }
 
 impl Sandbox {
     pub fn open(config: SandboxConfig) -> std::io::Result<Arc<Self>> {
         let clock = Arc::new(Clock::default());
-        let mut world =
-            World::open(config.path.as_deref(), clock.clone()).map_err(std::io::Error::other)?;
+        let waits = Arc::new(Waits::default());
+        let mut world = World::open(config.path.as_deref(), clock.clone(), waits.clone())
+            .map_err(std::io::Error::other)?;
         let secret = world.secret();
         let (jobs, queue) = mpsc::channel::<Job>();
         std::thread::Builder::new()
@@ -69,6 +77,8 @@ impl Sandbox {
             listeners: std::sync::Mutex::default(),
             clock,
             secret,
+            waits,
+            answer_timeout: std::sync::Mutex::new(DEFAULT_ANSWER_TIMEOUT),
         }))
     }
 
@@ -100,12 +110,22 @@ impl Sandbox {
         let request = serde_json::to_value(&call).unwrap_or_default();
         let started = Instant::now();
         let outcome = self
-            .run(move |world| world.transact(Some(caller), |ctx| rpc::dispatch(ctx, call)))
+            .run(move |world| {
+                world.transact(Some(caller), |ctx| {
+                    let reply = rpc::dispatch(ctx, call)?;
+                    Ok((reply, ctx.take_deferred()))
+                })
+            })
             .await;
 
-        let (result, updates) = match outcome {
-            Ok((reply, updates)) => (Ok(reply), updates),
-            Err(error) => (Err(error), Vec::new()),
+        let (result, deferred, updates) = match outcome {
+            Ok(((reply, deferred), updates)) => (Ok(reply), deferred, updates),
+            Err(error) => (Err(error), None, Vec::new()),
+        };
+        self.publish(updates).await;
+        let result = match deferred {
+            Some(deferred) => self.wait(deferred).await,
+            None => result,
         };
         self.emit(Event::Rpc {
             at_ms: self.clock.now_ms(),
@@ -118,8 +138,24 @@ impl Sandbox {
                 .map_err(Clone::clone),
             duration_us: started.elapsed().as_micros() as u64,
         });
-        self.publish(updates).await;
         result
+    }
+
+    /// The answer another account gives a deferred call, or its timeout error.
+    async fn wait(&self, deferred: Deferred) -> RpcResult<Box<dyn Reply>> {
+        let timeout = *self.answer_timeout.lock().expect("timeout lock");
+        match tokio::time::timeout(timeout, deferred.receiver).await {
+            Ok(Ok(answer)) => answer,
+            Ok(Err(_)) | Err(_) => {
+                self.waits.cancel(deferred.key);
+                Err(deferred.timeout_error)
+            }
+        }
+    }
+
+    /// How long calls wait for other accounts' answers (tests shorten it).
+    pub fn set_answer_timeout(&self, timeout: Duration) {
+        *self.answer_timeout.lock().expect("timeout lock") = timeout;
     }
 
     /// Typed [`Sandbox::invoke`].

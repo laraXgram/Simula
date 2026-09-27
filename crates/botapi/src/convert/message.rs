@@ -50,6 +50,16 @@ fn convert(m: &types::Message, context: &Entities<'_>, with_reply: bool) -> bot:
     }
 }
 
+/// The id of the message `m` replies to in the same chat, if any.
+pub fn reply_id(m: &types::Message) -> Option<i32> {
+    match &m.reply_to {
+        Some(enums::MessageReplyHeader::MessageReplyHeader(h)) if h.reply_to_peer_id.is_none() => {
+            h.reply_to_msg_id
+        }
+        _ => None,
+    }
+}
+
 /// The replied message, when it is in the same chat and was fetched.
 fn replied<'a>(
     m: &types::Message,

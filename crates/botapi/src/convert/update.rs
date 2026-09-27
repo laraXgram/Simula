@@ -4,38 +4,11 @@
 use simula_botapi_types::types as bot;
 use simula_tl::{enums, types};
 
-use super::{Entities, message::message};
+use super::{Entities, callback, message};
 
-/// Bot API update kinds this TL update produces. A bot's own outgoing messages produce
-/// nothing: the Bot API never echoes them back. Deletions in private chats aren't
-/// reported to bots either.
+/// Bot API updates for a TL batch. A bot's own outgoing messages produce nothing (the
+/// Bot API never echoes them back); deletions in private chats aren't reported either.
 pub fn updates(updates: &enums::Updates, context: &Entities<'_>) -> Vec<bot::Update> {
-    incoming(updates)
-        .into_iter()
-        .map(|(m, edited)| {
-            let m = Some(Box::new(message(m, context)));
-            if edited {
-                bot::Update {
-                    edited_message: m,
-                    ..Default::default()
-                }
-            } else {
-                bot::Update {
-                    message: m,
-                    ..Default::default()
-                }
-            }
-        })
-        .collect()
-}
-
-/// The messages [`updates`] will present, so their context can be fetched first.
-pub fn messages(updates: &enums::Updates) -> Vec<&types::Message> {
-    incoming(updates).into_iter().map(|(m, _)| m).collect()
-}
-
-/// New and edited incoming messages, with whether each was an edit.
-fn incoming(updates: &enums::Updates) -> Vec<(&types::Message, bool)> {
     let enums::Updates::Updates(batch) = updates else {
         return Vec::new();
     };
@@ -43,15 +16,49 @@ fn incoming(updates: &enums::Updates) -> Vec<(&types::Message, bool)> {
         .updates
         .iter()
         .filter_map(|update| {
-            let (message, edited) = match update {
-                enums::Update::NewMessage(u) => (&u.message, false),
-                enums::Update::EditMessage(u) => (&u.message, true),
+            Some(match update {
+                enums::Update::NewMessage(u) => bot::Update {
+                    message: Some(Box::new(message::message(incoming(&u.message)?, context))),
+                    ..Default::default()
+                },
+                enums::Update::EditMessage(u) => bot::Update {
+                    edited_message: Some(Box::new(message::message(
+                        incoming(&u.message)?,
+                        context,
+                    ))),
+                    ..Default::default()
+                },
+                enums::Update::BotCallbackQuery(q) => bot::Update {
+                    callback_query: Some(Box::new(callback::query(q, context))),
+                    ..Default::default()
+                },
                 _ => return None,
-            };
-            match message {
-                enums::Message::Message(m) if !m.out => Some((&**m, edited)),
-                _ => None,
-            }
+            })
         })
         .collect()
+}
+
+/// Messages [`updates`] needs from the bot's box: what incoming messages reply to, and
+/// the messages of callback queries.
+pub fn wanted(updates: &enums::Updates) -> Vec<i32> {
+    let enums::Updates::Updates(batch) = updates else {
+        return Vec::new();
+    };
+    batch
+        .updates
+        .iter()
+        .filter_map(|update| match update {
+            enums::Update::NewMessage(u) => incoming(&u.message).and_then(message::reply_id),
+            enums::Update::EditMessage(u) => incoming(&u.message).and_then(message::reply_id),
+            enums::Update::BotCallbackQuery(q) => Some(q.msg_id),
+            _ => None,
+        })
+        .collect()
+}
+
+fn incoming(message: &enums::Message) -> Option<&types::Message> {
+    match message {
+        enums::Message::Message(m) if !m.out => Some(m),
+        _ => None,
+    }
 }

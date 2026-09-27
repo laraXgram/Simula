@@ -103,7 +103,7 @@ mod tests {
     use crate::errors::tdlib;
 
     fn translate(code: i32, message: &str, private_chat: bool) -> BotError {
-        let (code, message) = tdlib::translate(code, message, ErrorContext { private_chat });
+        let (code, message) = tdlib::translate(code, message, ErrorContext::Send { private_chat });
         format(code, &message)
     }
 

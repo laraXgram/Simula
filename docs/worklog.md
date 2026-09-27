@@ -5,6 +5,42 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-09-28 — M2 (part 3) · Callback queries (P2.9, P3.8, P4.4)
+
+- **Waits in the core** (`waits.rs`): some calls are answered later by another account
+  (callback queries now; inline and pre-checkout queries later). A handler calls
+  `ctx.defer(key, timeout_error)` inside its transaction, so the wait exists before the
+  other side can see the query; `Sandbox::invoke` awaits it after commit and
+  publication, off the sandbox thread, so the answering call can run; `ctx.answer`
+  hands the answer over only once the answering transaction commits. Waits of a call
+  whose transaction fails are cancelled. The timeout (default 15 s, an approximation of
+  Telegram's) is per sandbox; tests shorten it.
+- **Core**: `messages.getBotCallbackAnswer` checks the message and that it carries a
+  callback button with that data (`MESSAGE_ID_INVALID`, `DATA_INVALID`), sends the bot
+  `updateBotCallbackQuery` on the bot's own copy of the message, with a random query
+  id and a per-(bot, chat) `chat_instance` derived like access hashes, and waits
+  (`BOT_RESPONSE_TIMEOUT`). `messages.setBotCallbackAnswer` only accepts pending
+  queries addressed to that bot (`QUERY_ID_INVALID`), texts up to 200 characters
+  (`MESSAGE_TOO_LONG`) and, without games, only the bot's own `t.me` links
+  (`URL_INVALID`).
+- **Gateway**: `callback_query` updates (telegram-bot-api's `JsonCallbackQuery`: the
+  message with its own `reply_to_message`, or an `InaccessibleMessage` with date 0)
+  and `answerCallbackQuery` (`cache_time` clamped to 30 days like `get_integer_arg`,
+  unparsable ids become 0 like `td::to_integer`). The presenter now fetches any
+  messages an update needs, in two rounds (the messages, then what they reply to).
+- **tdlib error paths**: `ErrorContext` now names the path a call takes. Only message
+  sends go through tdlib's `on_send_message_fail` rewrites; edits, deletes and callback
+  answers get the server's errors unchanged, as with real tdlib.
+- **Control API**: `POST /accounts/{id}/press` presses a callback button by `data` or
+  by button `text` and returns the bot's answer.
+- **Verification**: core tests (answer delivered to the waiting press, second answer
+  rejected, timeout, wrong data), gateway tests (the whole round trip over HTTP,
+  answer errors, `t.me` answer URLs, timeouts). **Real library**: a Telegraf counter
+  bot (`bot.action` → `editMessageText` with a new keyboard → `answerCbQuery`) driven
+  by presses through the Control API: every press returns the bot's answer and the
+  user's message shows the edited text and button. Workspace: 126 tests, clippy clean.
+- Coverage: Bot API 10/185, TL 8/813.
+
 ## 2026-09-28 — M2 (part 2) · Edits and deletes (P2.9, P3.6)
 
 - **Core**: `messages.editMessage` and `messages.deleteMessages` for private chats.

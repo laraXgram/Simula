@@ -12,6 +12,7 @@ pub mod rpc;
 pub mod sandbox;
 pub mod services;
 pub mod store;
+pub mod waits;
 
 pub use ctx::{Caller, Ctx, SessionId};
 pub use error::{RpcError, RpcResult};

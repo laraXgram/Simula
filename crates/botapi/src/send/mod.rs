@@ -118,7 +118,7 @@ pub async fn send(ctx: &BotCtx, options: Options, content: Content) -> BotResult
             }
         }
     };
-    let updates = ctx.call(call, ErrorContext { private_chat }).await?;
+    let updates = ctx.call(call, ErrorContext::Send { private_chat }).await?;
     let (message, users) = sent_message(&updates)
         .ok_or_else(|| BotError::internal("messages.sendMessage returned no message"))?;
     Ok(present::message(&ctx.gateway, ctx.bot.id, message, users).await)

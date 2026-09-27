@@ -29,8 +29,8 @@ async fn deliver(gateway: &Gateway, batch: &AccountUpdates) {
     let simula_tl::enums::Updates::Updates(updates) = &batch.updates else {
         return;
     };
-    let messages = convert::update::messages(&batch.updates);
-    let context = present::context(gateway, batch.account, &messages, &updates.users).await;
+    let wanted = convert::update::wanted(&batch.updates);
+    let context = present::context(gateway, batch.account, wanted, &updates.users).await;
     let converted = convert::update::updates(&batch.updates, &context.entities());
 
     let state = gateway.bot_state(batch.account);

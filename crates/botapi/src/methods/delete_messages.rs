@@ -36,5 +36,5 @@ pub async fn handle(ctx: BotCtx, params: methods::DeleteMessages) -> BotResult<b
     }
     let chat = resolve::chat(&ctx, &params.chat_id).await?;
     let messages = lookup::messages(&ctx, chat, &ids).await?;
-    delete::delete(&ctx, chat, &messages).await
+    delete::delete(&ctx, &messages).await
 }

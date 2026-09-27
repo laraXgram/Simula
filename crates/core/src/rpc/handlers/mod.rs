@@ -18,8 +18,10 @@ use crate::error::RpcResult;
 pub const IMPLEMENTED: &[&str] = &[
     "messages.deleteMessages",
     "messages.editMessage",
+    "messages.getBotCallbackAnswer",
     "messages.getMessages",
     "messages.sendMessage",
+    "messages.setBotCallbackAnswer",
     "updates.getState",
     "users.getUsers",
 ];
@@ -31,10 +33,18 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesEditMessage(call) => messages::edit_message::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::MessagesGetBotCallbackAnswer(call) => {
+            messages::get_bot_callback_answer::handle(ctx, *call)
+                .map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
         Function::MessagesGetMessages(call) => messages::get_messages::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesSendMessage(call) => messages::send_message::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::MessagesSetBotCallbackAnswer(call) => {
+            messages::set_bot_callback_answer::handle(ctx, *call)
+                .map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
         Function::UpdatesGetState(call) => {
             updates::get_state::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
         }

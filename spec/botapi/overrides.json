@@ -11,6 +11,11 @@
       "handler_validates": true
     }
   },
+  "methods": {
+    "answerCallbackQuery": {
+      "params": { "text": { "//": "The server answers MESSAGE_TOO_LONG.", "handler_validates": true } }
+    }
+  },
   "types": {
     "Dice": {
       "fields": { "value": { "constraints": { "range": { "min": 1, "max": 64 } } } }

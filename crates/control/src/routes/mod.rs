@@ -22,6 +22,7 @@ pub fn router() -> Router<Arc<Sandbox>> {
         .route("/bots", post(accounts::create_bot))
         .route("/accounts/{id}/call", post(act::call))
         .route("/accounts/{id}/send", post(act::send))
+        .route("/accounts/{id}/press", post(act::press))
         .route("/accounts/{id}/updates", get(events::account_updates))
         .route("/events", get(events::all))
         .route("/clock", get(clock::get).put(clock::set))

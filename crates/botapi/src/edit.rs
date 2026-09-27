@@ -89,7 +89,7 @@ pub async fn edit(
         call.entities = Some(ctx.tl_entities(&text.entities)).filter(|e| !e.is_empty());
         call.message = Some(text.text);
     }
-    let updates = ctx.call(call, ErrorContext { private_chat }).await?;
+    let updates = ctx.call(call, ErrorContext::Plain).await?;
     let enums::Updates::Updates(batch) = &updates else {
         return Err(BotError::internal(
             "messages.editMessage returned no updates",

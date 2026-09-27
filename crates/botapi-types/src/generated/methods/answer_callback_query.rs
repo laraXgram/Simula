@@ -59,12 +59,5 @@ impl crate::Method for AnswerCallbackQuery {
 }
 
 impl crate::Validate for AnswerCallbackQuery {
-    fn validate_into(&self, path: &str, out: &mut Vec<crate::Violation>) {
-        {
-            let p = crate::validate::join(path, "text");
-            if let Some(v) = &self.text {
-                crate::validate::chars(&p, v, Some(0), Some(200), out);
-            }
-        }
-    }
+    fn validate_into(&self, _path: &str, _out: &mut Vec<crate::Violation>) {}
 }

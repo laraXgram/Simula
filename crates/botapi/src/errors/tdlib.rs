@@ -1,18 +1,18 @@
-//! MTProto error → tdlib error, as tdlib's managers translate them (see
-//! `td/telegram/MessagesManager.cpp`, the error handling after sending a message).
-//! Errors not listed pass through unchanged, as in tdlib.
+//! MTProto error → tdlib error. tdlib rewrites errors of message sends (see
+//! `MessagesManager::on_send_message_fail`); everything else passes through unchanged.
 
 use crate::error::ErrorContext;
 
 pub fn translate(code: i32, message: &str, context: ErrorContext) -> (i32, String) {
+    let ErrorContext::Send { private_chat } = context else {
+        return (code, message.to_owned());
+    };
     let (code, message) = match (code, message) {
         (400, "MESSAGE_TOO_LONG") => (400, "Message is too long"),
         (400, "MEDIA_CAPTION_TOO_LONG") => (400, "Message caption is too long"),
         (400, "INPUT_USER_DEACTIVATED") => (403, "User is deactivated"),
-        (400, "USER_IS_BOT") if context.private_chat => {
-            (403, "The bot can't send messages to the bot")
-        }
-        (400, "PEER_ID_INVALID") if context.private_chat => {
+        (400, "USER_IS_BOT") if private_chat => (403, "The bot can't send messages to the bot"),
+        (400, "PEER_ID_INVALID") if private_chat => {
             (403, "Bot can't initiate conversation with a user")
         }
         (400, "REPLY_TO_MONOFORUM_PEER_INVALID") => {

@@ -7,9 +7,10 @@ use rusqlite::Connection;
 
 use crate::clock::Clock;
 use crate::error::{RpcError, RpcResult};
-use crate::ids::{Peer, UserId, access_hash};
+use crate::ids::{Peer, UserId, access_hash, chat_instance};
 use crate::outbox::{AccountUpdates, Outbox};
 use crate::store::{self, accounts::Account};
+use crate::waits::{Answer, Deferred, WaitKey, Waits};
 
 /// One client connection of an account (a UI tab, a test, the Bot API gateway).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -27,6 +28,11 @@ pub struct Ctx<'a> {
     secret: &'a [u8; 32],
     caller: Option<Caller>,
     pub out: Outbox,
+    waits: &'a Waits,
+    /// Waits registered in this transaction; cancelled if it doesn't commit.
+    registered: Vec<WaitKey>,
+    deferred: Option<Deferred>,
+    answers: Vec<(WaitKey, Answer)>,
 }
 
 impl Ctx<'_> {
@@ -47,6 +53,36 @@ impl Ctx<'_> {
         access_hash(self.secret, viewer, target)
     }
 
+    pub fn chat_instance(&self, bot: UserId, chat: Peer) -> i64 {
+        chat_instance(self.secret, bot, chat)
+    }
+
+    /// Make this call's result wait for another account's answer (see [`crate::waits`]).
+    /// The handler's own return value is then discarded.
+    pub fn defer(&mut self, key: WaitKey, timeout_error: RpcError) {
+        let receiver = self.waits.register(key);
+        self.registered.push(key);
+        self.deferred = Some(Deferred {
+            key,
+            receiver,
+            timeout_error,
+        });
+    }
+
+    pub(crate) fn take_deferred(&mut self) -> Option<Deferred> {
+        self.deferred.take()
+    }
+
+    /// Whether some call is still waiting for `key`.
+    pub fn is_waiting(&self, key: WaitKey) -> bool {
+        self.waits.is_pending(key)
+    }
+
+    /// Answer a waiting call once this transaction commits.
+    pub fn answer(&mut self, key: WaitKey, answer: Answer) {
+        self.answers.push((key, answer));
+    }
+
     /// Session to tag updates for `account` with, if the caller is that account.
     pub fn origin_for(&self, account: UserId) -> Option<crate::ctx::SessionId> {
         self.caller
@@ -60,10 +96,15 @@ pub struct World {
     conn: Connection,
     clock: Arc<Clock>,
     secret: [u8; 32],
+    waits: Arc<Waits>,
 }
 
 impl World {
-    pub fn open(path: Option<&Path>, clock: Arc<Clock>) -> rusqlite::Result<Self> {
+    pub fn open(
+        path: Option<&Path>,
+        clock: Arc<Clock>,
+        waits: Arc<Waits>,
+    ) -> rusqlite::Result<Self> {
         let conn = store::open(path)?;
         let secret = match store::meta::get(&conn, "secret")? {
             Some(hex) => decode_hex(&hex),
@@ -77,6 +118,7 @@ impl World {
             conn,
             clock,
             secret,
+            waits,
         })
     }
 
@@ -94,13 +136,35 @@ impl World {
             secret: &self.secret,
             caller,
             out: Outbox::default(),
+            waits: &self.waits,
+            registered: Vec::new(),
+            deferred: None,
+            answers: Vec::new(),
         };
-        let result = f(&mut ctx)?;
-        let outbox = std::mem::take(&mut ctx.out);
-        let updates = outbox.render(&ctx)?;
+        let prepared = f(&mut ctx).and_then(|result| {
+            let outbox = std::mem::take(&mut ctx.out);
+            Ok((result, outbox.render(&ctx)?))
+        });
+        let registered = std::mem::take(&mut ctx.registered);
+        let answers = std::mem::take(&mut ctx.answers);
         drop(ctx);
-        tx.commit()?;
-        Ok((result, updates))
+        let committed = prepared.and_then(|done| {
+            tx.commit()?;
+            Ok(done)
+        });
+        match &committed {
+            Ok(_) => {
+                for (key, answer) in answers {
+                    self.waits.resolve(key, answer);
+                }
+            }
+            Err(_) => {
+                for key in registered {
+                    self.waits.cancel(key);
+                }
+            }
+        }
+        committed
     }
 
     pub fn secret(&self) -> [u8; 32] {

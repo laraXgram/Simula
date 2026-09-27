@@ -8,7 +8,7 @@ Every finished task is logged in [docs/worklog.md](docs/worklog.md) and committe
 
 **Targets:** Bot API **10.3** · MTProto layer from tdlib `telegram_api.tl`
 
-**Current focus:** M2 — sends, edits and deletes done; next callback queries, webhooks, commands
+**Current focus:** M2 — sends, edits, deletes and callbacks done; next webhooks, commands
 
 ---
 
@@ -22,7 +22,7 @@ vertical slice through several phases, so the architecture is exercised end to e
   Touches P2.1, P2.2, P2.4, P2.5, P2.7, P2.8, P2.9 (partial), P3.1, P3.2, P4.1, P4.4 (partial),
   then P1.9–P1.10 once handler files exist.
 - [~] **M2 — webhooks, formatting, keyboards, callbacks** (P3.3, P3.4, P3.6, wave 1 complete)
-  — formatting, keyboards, replies, edits and deletes done; callbacks, webhooks, commands to go
+  — formatting, keyboards, replies, edits, deletes and callbacks done; webhooks, commands to go
 - [ ] **M3 — client shell** talking TL over WebSocket (P5.1–P5.4)
 - [ ] **M4 — groups and channels** (P2.3, P2.10, P5.5)
 
@@ -56,7 +56,7 @@ vertical slice through several phases, so the architecture is exercised end to e
 - [~] P2.4 Message boxes (per-account vs per-channel IDs), canonical TL storage, presenters
 - [~] P2.5 Update engine: pts/qts/seq, channel pts, `Updates` shapes, difference log
 - [ ] P2.6 Files: storage, file references, thumbnails metadata
-- [~] P2.7 Virtual clock and scheduler (timers for polls, live locations, bans, scheduled posts)
+- [~] P2.7 Virtual clock and scheduler (timers for polls, live locations, bans, scheduled posts); waits for answers from other accounts (callback queries)
 - [~] P2.8 Event bus (RPC calls, updates, deliveries, logs)
 - [~] P2.9 TL handlers, wave 1: users/bots, messages send/edit/delete/forward, callbacks
 - [ ] P2.10 TL handlers, wave 2: chats/channels admin, invites, join requests, forums

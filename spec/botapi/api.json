@@ -30459,7 +30459,8 @@
               "max": 200,
               "unit": "chars"
             }
-          }
+          },
+          "handler_validates": true
         },
         {
           "name": "show_alert",

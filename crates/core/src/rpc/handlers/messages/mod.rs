@@ -2,5 +2,7 @@
 
 pub mod delete_messages;
 pub mod edit_message;
+pub mod get_bot_callback_answer;
 pub mod get_messages;
 pub mod send_message;
+pub mod set_bot_callback_answer;

@@ -4,6 +4,7 @@
 //! from the files present (`bun run codegen registries`); add a method by adding its file
 //! (`bun run codegen new:botapi <method>`).
 
+pub mod answer_callback_query;
 pub mod delete_message;
 pub mod delete_messages;
 pub mod delete_webhook;
@@ -22,6 +23,7 @@ use crate::error::BotResult;
 
 /// Bot API methods with a handler (stubs included).
 pub const IMPLEMENTED: &[&str] = &[
+    "answerCallbackQuery",
     "deleteMessage",
     "deleteMessages",
     "deleteWebhook",
@@ -40,6 +42,9 @@ pub async fn route(
     params: Map<String, Value>,
 ) -> Option<BotResult<Value>> {
     Some(match method {
+        "answercallbackquery" => {
+            run(ctx, params, Limits::Enforce, answer_callback_query::handle).await
+        }
         "deletemessage" => run(ctx, params, Limits::Enforce, delete_message::handle).await,
         "deletemessages" => run(ctx, params, Limits::Enforce, delete_messages::handle).await,
         "deletewebhook" => run(ctx, params, Limits::Enforce, delete_webhook::handle).await,

@@ -151,9 +151,14 @@ pub async fn user_sends(w: &World, text: &str, reply_to: Option<i32>) -> i32 {
         .unwrap()
 }
 
-/// The next `getUpdates` result, confirming everything before it.
+/// The next `getUpdates` result (long polling, as bots do), confirming everything before it.
 pub async fn next_updates(w: &World, offset: &mut i64) -> Vec<Value> {
-    let result = ok(w, "getUpdates", serde_json::json!({ "offset": *offset })).await;
+    let result = ok(
+        w,
+        "getUpdates",
+        serde_json::json!({ "offset": *offset, "timeout": 5 }),
+    )
+    .await;
     let updates = result.as_array().unwrap().clone();
     if let Some(last) = updates.last() {
         *offset = last["update_id"].as_i64().unwrap() + 1;
@@ -203,4 +208,25 @@ pub async fn user_copy(w: &World, id: i32) -> Option<types::Message> {
         enums::Message::Message(m) => Some(*m),
         _ => None,
     }
+}
+
+/// The user presses the callback button with `data` on their message `id`; the task
+/// finishes with the bot's answer.
+pub fn user_presses(
+    w: &World,
+    id: i32,
+    data: &str,
+) -> tokio::task::JoinHandle<Result<enums::messages::BotCallbackAnswer, simula_core::RpcError>> {
+    let sandbox = w.sandbox.clone();
+    let caller = Caller {
+        account: w.user.id,
+        session: None,
+    };
+    let call = functions::messages::GetBotCallbackAnswer {
+        peer: sandbox.input_peer(w.user.id, Peer::User(w.bot_id)),
+        msg_id: id,
+        data: Some(data.as_bytes().to_vec()),
+        ..Default::default()
+    };
+    tokio::spawn(async move { sandbox.call(caller, call).await })
 }

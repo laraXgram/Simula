@@ -66,11 +66,15 @@ impl BotError {
     }
 }
 
-/// What the translation depends on besides the error itself.
+/// Which tdlib path the call took; tdlib only rewrites errors of some.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct ErrorContext {
-    /// The request targets a private chat (with a user or bot).
-    pub private_chat: bool,
+pub enum ErrorContext {
+    /// Errors pass through tdlib unchanged.
+    #[default]
+    Plain,
+    /// Sending a message: tdlib's `on_send_message_fail` rewrites several errors, some
+    /// only for private chats (with a user or bot).
+    Send { private_chat: bool },
 }
 
 impl From<serde_json::Error> for BotError {

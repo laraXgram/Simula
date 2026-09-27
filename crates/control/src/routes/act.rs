@@ -1,4 +1,5 @@
-//! Acting as an account: any TL function (`call`), or common actions made simple (`send`).
+//! Acting as an account: any TL function (`call`), or common actions made simple
+//! (`send`, `press`).
 
 use std::sync::Arc;
 
@@ -78,4 +79,83 @@ async fn resolve(sandbox: &Sandbox, chat_id: &Value) -> Result<Peer, RpcError> {
             .ok_or_else(RpcError::peer_id_invalid),
         _ => Err(RpcError::peer_id_invalid()),
     }
+}
+
+#[derive(serde::Deserialize)]
+pub struct Press {
+    /// The chat, Bot API style (a user id or `@username`).
+    pub chat_id: Value,
+    /// The message, by id in this account's own box.
+    pub message_id: i32,
+    /// The button's callback data…
+    #[serde(default)]
+    pub data: Option<String>,
+    /// …or the button's text.
+    #[serde(default)]
+    pub text: Option<String>,
+}
+
+/// `POST /accounts/{id}/press` — press a callback button and wait for the bot's answer
+/// (`messages.getBotCallbackAnswer`). Answers `BOT_RESPONSE_TIMEOUT` if the bot is silent.
+pub async fn press(
+    State(sandbox): State<Arc<Sandbox>>,
+    Path(id): Path<i64>,
+    Json(body): Json<Press>,
+) -> ControlResult<Json<Value>> {
+    let peer = resolve(&sandbox, &body.chat_id).await?;
+    let data = match (body.data, body.text) {
+        (Some(data), _) => data.into_bytes(),
+        (None, Some(text)) => button_data(&sandbox, id, body.message_id, &text).await?,
+        (None, None) => return Err(RpcError::bad_request("DATA_INVALID: give data or text").into()),
+    };
+    let call = functions::messages::GetBotCallbackAnswer {
+        peer: sandbox.input_peer(UserId(id), peer),
+        msg_id: body.message_id,
+        data: Some(data),
+        ..Default::default()
+    };
+    let answer = sandbox.call(as_account(id), call).await?;
+    Ok(ok(serde_json::to_value(answer).unwrap_or_default()))
+}
+
+/// The callback data of the button labelled `text` on the account's message.
+async fn button_data(
+    sandbox: &Sandbox,
+    id: i64,
+    message_id: i32,
+    text: &str,
+) -> Result<Vec<u8>, RpcError> {
+    let found = sandbox
+        .call(
+            as_account(id),
+            functions::messages::GetMessages {
+                id: vec![simula_tl::types::InputMessageID { id: message_id }.into()],
+            },
+        )
+        .await?;
+    let simula_tl::enums::messages::Messages::Messages(found) = found else {
+        return Err(RpcError::bad_request("MESSAGE_ID_INVALID"));
+    };
+    let Some(simula_tl::enums::Message::Message(message)) = found.messages.first() else {
+        return Err(RpcError::bad_request("MESSAGE_ID_INVALID"));
+    };
+    use simula_tl::enums::{
+        InlineButtonType, KeyboardInlineButton, KeyboardInlineButtonRow, ReplyMarkup,
+    };
+    let Some(ReplyMarkup::ReplyInlineMarkup(inline)) = &message.reply_markup else {
+        return Err(RpcError::bad_request("DATA_INVALID: no inline keyboard"));
+    };
+    inline
+        .rows
+        .iter()
+        .flat_map(|KeyboardInlineButtonRow::KeyboardInlineButtonRow(row)| &row.buttons)
+        .find_map(
+            |KeyboardInlineButton::KeyboardInlineButton(button)| match &button.r#type {
+                InlineButtonType::Callback(callback) if button.text == text => {
+                    Some(callback.data.clone())
+                }
+                _ => None,
+            },
+        )
+        .ok_or_else(|| RpcError::bad_request("DATA_INVALID: no callback button with that text"))
 }

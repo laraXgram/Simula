@@ -1,5 +1,6 @@
 //! TL objects (as the bot sees them) → Bot API objects. One file per type family.
 
+pub mod callback;
 pub mod chat;
 pub mod entities;
 pub mod link_preview;

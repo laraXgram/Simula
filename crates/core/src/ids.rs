@@ -85,6 +85,18 @@ pub fn access_hash(secret: &[u8; 32], viewer: UserId, target: Peer) -> i64 {
     i64::from_le_bytes(digest[..8].try_into().expect("sha256 is 32 bytes"))
 }
 
+/// A bot's stable identifier for a chat its buttons live in (`chat_instance` of
+/// callback queries), derived like access hashes.
+pub fn chat_instance(secret: &[u8; 32], bot: UserId, chat: Peer) -> i64 {
+    let mut hasher = Sha256::new();
+    hasher.update(secret);
+    hasher.update(b"chat_instance");
+    hasher.update(bot.0.to_le_bytes());
+    hasher.update(chat.bot_api_id().to_le_bytes());
+    let digest = hasher.finalize();
+    i64::from_le_bytes(digest[..8].try_into().expect("sha256 is 32 bytes"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
