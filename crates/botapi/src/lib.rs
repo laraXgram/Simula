@@ -11,6 +11,7 @@ mod http;
 mod methods;
 mod resolve;
 mod state;
+mod text;
 mod updates;
 
 use std::sync::Arc;

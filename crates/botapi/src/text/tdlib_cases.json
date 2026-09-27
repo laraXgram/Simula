@@ -1,0 +1,2359 @@
+{
+ "source": "tdlib td/test/message_entities.cpp (parse_markdown_v2, parse_html tests)",
+ "cases": [
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<abacaba",
+   "error": "Unclosed start tag at byte offset 13"
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<abac aba>",
+   "error": "Unsupported start tag \"abac\" at byte offset 13"
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<abac>",
+   "error": "Unsupported start tag \"abac\" at byte offset 13"
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<i   =aba>",
+   "error": "Empty attribute name in the tag \"i\" at byte offset 13"
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<i    aba>",
+   "error": "Can't find end tag corresponding to start tag \"i\""
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<i    aba  =  ",
+   "error": "Unclosed start tag \"i\" at byte offset 13"
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<i    aba  =  190azAz-.,",
+   "error": "Unexpected end of name token at byte offset 27"
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<i    aba  =  \"&lt;&gt;&quot;>",
+   "error": "Unclosed start tag at byte offset 13"
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<i    aba  =  '&lt;&gt;&quot;>",
+   "error": "Unclosed start tag at byte offset 13"
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;</",
+   "error": "Unexpected end tag at byte offset 13"
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<b></b></",
+   "error": "Unexpected end tag at byte offset 20"
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<i>a</i   ",
+   "error": "Unclosed end tag at byte offset 17"
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<i>a</em   >",
+   "error": "Unmatched end tag at byte offset 17, expected \"</i>\", found \"</em>\""
+  },
+  {
+   "parser": "html",
+   "input": "",
+   "output": "",
+   "entities": []
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️",
+   "output": "➡️ ➡️",
+   "entities": []
+  },
+  {
+   "parser": "html",
+   "input": "&ge;&lt;&gt;&amp;&quot;&laquo;&raquo;&#12345678;",
+   "output": "&ge;<>&\"&laquo;&raquo;&#12345678;",
+   "entities": []
+  },
+  {
+   "parser": "html",
+   "input": "&Or;",
+   "output": "&Or;",
+   "entities": []
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<i>➡️ ➡️</i>",
+   "output": "➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 5,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<em>➡️ ➡️</em>",
+   "output": "➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 5,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<b>➡️ ➡️</b>",
+   "output": "➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "Bold",
+     "offset": 5,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<strong>➡️ ➡️</strong>",
+   "output": "➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "Bold",
+     "offset": 5,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<u>➡️ ➡️</u>",
+   "output": "➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "Underline",
+     "offset": 5,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<ins>➡️ ➡️</ins>",
+   "output": "➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "Underline",
+     "offset": 5,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<s>➡️ ➡️</s>",
+   "output": "➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "Strikethrough",
+     "offset": 5,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<strike>➡️ ➡️</strike>",
+   "output": "➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "Strikethrough",
+     "offset": 5,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<del>➡️ ➡️</del>",
+   "output": "➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "Strikethrough",
+     "offset": 5,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<blockquote>➡️ ➡️</blockquote>",
+   "output": "➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 5,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<i>➡️ ➡️</i><b>➡️ ➡️</b>",
+   "output": "➡️ ➡️➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 5,
+     "length": 5
+    },
+    {
+     "type": "Bold",
+     "offset": 10,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟<i>🏟 &lt🏟</i>",
+   "output": "🏟 🏟🏟 <🏟",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 5,
+     "length": 6
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟<i>🏟 &gt;<b aba   =   caba>&lt🏟</b></i>",
+   "output": "🏟 🏟🏟 ><🏟",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 5,
+     "length": 7
+    },
+    {
+     "type": "Bold",
+     "offset": 9,
+     "length": 3
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<i    aba  =  190azAz-.   >a</i>",
+   "output": "🏟 🏟<a",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 6,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<i    aba  =  190azAz-.>a</i>",
+   "output": "🏟 🏟<a",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 6,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<i    aba  =  \"&lt;&gt;&quot;\">a</i>",
+   "output": "🏟 🏟<a",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 6,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<i    aba  =  '&lt;&gt;&quot;'>a</i>",
+   "output": "🏟 🏟<a",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 6,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<i    aba  =  '&lt;&gt;&quot;'>a</>",
+   "output": "🏟 🏟<a",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 6,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<i>🏟 🏟&lt;</>",
+   "output": "🏟 🏟<🏟 🏟<",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 6,
+     "length": 6
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<i>a</    >",
+   "output": "🏟 🏟<a",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 6,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<i>a</i   >",
+   "output": "🏟 🏟<a",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 6,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<b></b>",
+   "output": "🏟 🏟<",
+   "entities": []
+  },
+  {
+   "parser": "html",
+   "input": "<i>\t</i>",
+   "output": "\t",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 0,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "<i>\r</i>",
+   "output": "\r",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 0,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "<i>\n</i>",
+   "output": "\n",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 0,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<span class = \"tg-spoiler\">➡️ ➡️</span><b>➡️ ➡️</b>",
+   "output": "➡️ ➡️➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "Spoiler",
+     "offset": 5,
+     "length": 5
+    },
+    {
+     "type": "Bold",
+     "offset": 10,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟<span class=\"tg-spoiler\">🏟 &lt🏟</span>",
+   "output": "🏟 🏟🏟 <🏟",
+   "entities": [
+    {
+     "type": "Spoiler",
+     "offset": 5,
+     "length": 6
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟<span class=\"tg-spoiler\">🏟 &gt;<b aba   =   caba>&lt🏟</b></span>",
+   "output": "🏟 🏟🏟 ><🏟",
+   "entities": [
+    {
+     "type": "Spoiler",
+     "offset": 5,
+     "length": 7
+    },
+    {
+     "type": "Bold",
+     "offset": 9,
+     "length": 3
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<tg-spoiler>➡️ ➡️</tg-spoiler><b>➡️ ➡️</b>",
+   "output": "➡️ ➡️➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "Spoiler",
+     "offset": 5,
+     "length": 5
+    },
+    {
+     "type": "Bold",
+     "offset": 10,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟<tg-spoiler>🏟 &lt🏟</tg-spoiler>",
+   "output": "🏟 🏟🏟 <🏟",
+   "entities": [
+    {
+     "type": "Spoiler",
+     "offset": 5,
+     "length": 6
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟<tg-spoiler>🏟 &gt;<b aba   =   caba>&lt🏟</b></tg-spoiler>",
+   "output": "🏟 🏟🏟 ><🏟",
+   "entities": [
+    {
+     "type": "Spoiler",
+     "offset": 5,
+     "length": 7
+    },
+    {
+     "type": "Bold",
+     "offset": 9,
+     "length": 3
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "<a href=telegram.org>\t</a>",
+   "output": "\t",
+   "entities": [
+    {
+     "type": "TextUrl",
+     "offset": 0,
+     "length": 1,
+     "arg": "http://telegram.org/"
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "<a href=telegram.org>\r</a>",
+   "output": "\r",
+   "entities": [
+    {
+     "type": "TextUrl",
+     "offset": 0,
+     "length": 1,
+     "arg": "http://telegram.org/"
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "<a href=telegram.org>\n</a>",
+   "output": "\n",
+   "entities": [
+    {
+     "type": "TextUrl",
+     "offset": 0,
+     "length": 1,
+     "arg": "http://telegram.org/"
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "<code><i><b> </b></i></code><i><b><code> </code></b></i>",
+   "output": "  ",
+   "entities": [
+    {
+     "type": "Code",
+     "offset": 0,
+     "length": 1
+    },
+    {
+     "type": "Bold",
+     "offset": 0,
+     "length": 1
+    },
+    {
+     "type": "Italic",
+     "offset": 0,
+     "length": 1
+    },
+    {
+     "type": "Code",
+     "offset": 1,
+     "length": 1
+    },
+    {
+     "type": "Bold",
+     "offset": 1,
+     "length": 1
+    },
+    {
+     "type": "Italic",
+     "offset": 1,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "<i><b> </b> <code> </code></i>",
+   "output": "   ",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 0,
+     "length": 3
+    },
+    {
+     "type": "Bold",
+     "offset": 0,
+     "length": 1
+    },
+    {
+     "type": "Code",
+     "offset": 2,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "<a href=telegram.org> </a>",
+   "output": " ",
+   "entities": [
+    {
+     "type": "TextUrl",
+     "offset": 0,
+     "length": 1,
+     "arg": "http://telegram.org/"
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "<a href  =\"telegram.org\"   > </a>",
+   "output": " ",
+   "entities": [
+    {
+     "type": "TextUrl",
+     "offset": 0,
+     "length": 1,
+     "arg": "http://telegram.org/"
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "<a   href=  'telegram.org'   > </a>",
+   "output": " ",
+   "entities": [
+    {
+     "type": "TextUrl",
+     "offset": 0,
+     "length": 1,
+     "arg": "http://telegram.org/"
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "<a   href=  'telegram.org?&lt;'   > </a>",
+   "output": " ",
+   "entities": [
+    {
+     "type": "TextUrl",
+     "offset": 0,
+     "length": 1,
+     "arg": "http://telegram.org/?<"
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "<a> </a>",
+   "output": " ",
+   "entities": []
+  },
+  {
+   "parser": "html",
+   "input": "<a>telegram.org </a>",
+   "output": "telegram.org ",
+   "entities": []
+  },
+  {
+   "parser": "html",
+   "input": "<a>telegram.org</a>",
+   "output": "telegram.org",
+   "entities": [
+    {
+     "type": "TextUrl",
+     "offset": 0,
+     "length": 12,
+     "arg": "http://telegram.org/"
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "<a>https://telegram.org/asdsa?asdasdwe#12e3we</a>",
+   "output": "https://telegram.org/asdsa?asdasdwe#12e3we",
+   "entities": [
+    {
+     "type": "TextUrl",
+     "offset": 0,
+     "length": 42,
+     "arg": "https://telegram.org/asdsa?asdasdwe#12e3we"
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<pre  >🏟 🏟&lt;</>",
+   "output": "🏟 🏟<🏟 🏟<",
+   "entities": [
+    {
+     "type": "Pre",
+     "offset": 6,
+     "length": 6
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<code >🏟 🏟&lt;</>",
+   "output": "🏟 🏟<🏟 🏟<",
+   "entities": [
+    {
+     "type": "Code",
+     "offset": 6,
+     "length": 6
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<pre><code>🏟 🏟&lt;</code></>",
+   "output": "🏟 🏟<🏟 🏟<",
+   "entities": [
+    {
+     "type": "Pre",
+     "offset": 6,
+     "length": 6
+    },
+    {
+     "type": "Code",
+     "offset": 6,
+     "length": 6
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<pre><code class=\"language-\">🏟 🏟&lt;</code></>",
+   "output": "🏟 🏟<🏟 🏟<",
+   "entities": [
+    {
+     "type": "Pre",
+     "offset": 6,
+     "length": 6
+    },
+    {
+     "type": "Code",
+     "offset": 6,
+     "length": 6
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<pre><code class=\"language-fift\">🏟 🏟&lt;</></>",
+   "output": "🏟 🏟<🏟 🏟<",
+   "entities": [
+    {
+     "type": "PreCode",
+     "offset": 6,
+     "length": 6,
+     "arg": "fift"
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<code class=\"language-fift\"><pre>🏟 🏟&lt;</></>",
+   "output": "🏟 🏟<🏟 🏟<",
+   "entities": [
+    {
+     "type": "PreCode",
+     "offset": 6,
+     "length": 6,
+     "arg": "fift"
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<pre><code class=\"language-fift\">🏟 🏟&lt;</> </>",
+   "output": "🏟 🏟<🏟 🏟< ",
+   "entities": [
+    {
+     "type": "Pre",
+     "offset": 6,
+     "length": 7
+    },
+    {
+     "type": "Code",
+     "offset": 6,
+     "length": 6
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟&lt;<pre> <code class=\"language-fift\">🏟 🏟&lt;</></>",
+   "output": "🏟 🏟< 🏟 🏟<",
+   "entities": [
+    {
+     "type": "Pre",
+     "offset": 6,
+     "length": 7
+    },
+    {
+     "type": "Code",
+     "offset": 7,
+     "length": 6
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<tg-emoji emoji-id = \"12345\">➡️ ➡️</tg-emoji><b>➡️ ➡️</b>",
+   "output": "➡️ ➡️➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "CustomEmoji",
+     "offset": 5,
+     "length": 5,
+     "arg": 12345
+    },
+    {
+     "type": "Bold",
+     "offset": 10,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟<tg-emoji emoji-id=\"54321\">🏟 &lt🏟</tg-emoji>",
+   "output": "🏟 🏟🏟 <🏟",
+   "entities": [
+    {
+     "type": "CustomEmoji",
+     "offset": 5,
+     "length": 6,
+     "arg": 54321
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "🏟 🏟<b aba   =   caba><tg-emoji emoji-id=\"1\">🏟</tg-emoji>1</b>",
+   "output": "🏟 🏟🏟1",
+   "entities": [
+    {
+     "type": "Bold",
+     "offset": 5,
+     "length": 3
+    },
+    {
+     "type": "CustomEmoji",
+     "offset": 5,
+     "length": 2,
+     "arg": 1
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<tg-time unix = \"12345\", format = \"r\">➡️ ➡️</tg-time><b>➡️ ➡️</b>",
+   "output": "➡️ ➡️➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "FormattedDate",
+     "offset": 5,
+     "length": 5,
+     "arg": [
+      12345,
+      1
+     ]
+    },
+    {
+     "type": "Bold",
+     "offset": 10,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<tg-time unix = \"12345\", format = \"t\">➡️ ➡️</tg-time><b>➡️ ➡️</b>",
+   "output": "➡️ ➡️➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "FormattedDate",
+     "offset": 5,
+     "length": 5,
+     "arg": [
+      12345,
+      2
+     ]
+    },
+    {
+     "type": "Bold",
+     "offset": 10,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<tg-time unix = \"12345\", format = \"T\">➡️ ➡️</tg-time><b>➡️ ➡️</b>",
+   "output": "➡️ ➡️➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "FormattedDate",
+     "offset": 5,
+     "length": 5,
+     "arg": [
+      12345,
+      4
+     ]
+    },
+    {
+     "type": "Bold",
+     "offset": 10,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<tg-time unix = \"12345\", format = \"d\">➡️ ➡️</tg-time><b>➡️ ➡️</b>",
+   "output": "➡️ ➡️➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "FormattedDate",
+     "offset": 5,
+     "length": 5,
+     "arg": [
+      12345,
+      8
+     ]
+    },
+    {
+     "type": "Bold",
+     "offset": 10,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<tg-time unix = \"12345\", format = \"D\">➡️ ➡️</tg-time><b>➡️ ➡️</b>",
+   "output": "➡️ ➡️➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "FormattedDate",
+     "offset": 5,
+     "length": 5,
+     "arg": [
+      12345,
+      16
+     ]
+    },
+    {
+     "type": "Bold",
+     "offset": 10,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<tg-time unix = \"12345\", format = \"w\">➡️ ➡️</tg-time><b>➡️ ➡️</b>",
+   "output": "➡️ ➡️➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "FormattedDate",
+     "offset": 5,
+     "length": 5,
+     "arg": [
+      12345,
+      32
+     ]
+    },
+    {
+     "type": "Bold",
+     "offset": 10,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<tg-time unix = \"12345\", format = \"W\">➡️ ➡️</tg-time><b>➡️ ➡️</b>",
+   "output": "➡️ ➡️➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "FormattedDate",
+     "offset": 5,
+     "length": 5,
+     "arg": [
+      12345,
+      32
+     ]
+    },
+    {
+     "type": "Bold",
+     "offset": 10,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<tg-time unix = \"12345\", format = \"tttTTdDwW\">➡️ ➡️</tg-time><b>➡️ ➡️</b>",
+   "output": "➡️ ➡️➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "FormattedDate",
+     "offset": 5,
+     "length": 5,
+     "arg": [
+      12345,
+      62
+     ]
+    },
+    {
+     "type": "Bold",
+     "offset": 10,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<tg-time unix = \"12345\", format = \"rt\">➡️ ➡️</tg-time><b>➡️ ➡️</b>",
+   "error": "Invalid date format used"
+  },
+  {
+   "parser": "html",
+   "input": "➡️ ➡️<tg-time unix = \"12345\", format = \"ts\">➡️ ➡️</tg-time><b>➡️ ➡️</b>",
+   "error": "Invalid date format used"
+  },
+  {
+   "parser": "html",
+   "input": "<blockquote   cite=\"\" askdlbas nasjdbaj nj12b3>a&lt;<pre  >b;</></>",
+   "output": "a<b;",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 0,
+     "length": 4
+    },
+    {
+     "type": "Pre",
+     "offset": 2,
+     "length": 2
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "<blockquote   expandable>a&lt;<pre  >b;</></>",
+   "output": "a<b;",
+   "entities": [
+    {
+     "type": "ExpandableBlockQuote",
+     "offset": 0,
+     "length": 4
+    },
+    {
+     "type": "Pre",
+     "offset": 2,
+     "length": 2
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "<blockquote   expandable   asd>a&lt;<pre  >b;</></>",
+   "output": "a<b;",
+   "entities": [
+    {
+     "type": "ExpandableBlockQuote",
+     "offset": 0,
+     "length": 4
+    },
+    {
+     "type": "Pre",
+     "offset": 2,
+     "length": 2
+    }
+   ]
+  },
+  {
+   "parser": "html",
+   "input": "<blockquote   expandable=false>a&lt;<pre  >b;</></>",
+   "output": "a<b;",
+   "entities": [
+    {
+     "type": "ExpandableBlockQuote",
+     "offset": 0,
+     "length": 4
+    },
+    {
+     "type": "Pre",
+     "offset": 2,
+     "length": 2
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟_abacaba",
+   "error": "Can't find end of Italic entity at byte offset 9"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟_abac * asd ",
+   "error": "Can't find end of Bold entity at byte offset 15"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟_abac * asd _",
+   "error": "Can't find end of Italic entity at byte offset 21"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟`",
+   "error": "Can't find end of Code entity at byte offset 9"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟```",
+   "error": "Can't find end of Pre entity at byte offset 9"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟```a",
+   "error": "Can't find end of Pre entity at byte offset 9"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟```a ",
+   "error": "Can't find end of PreCode entity at byte offset 9"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟__🏟 🏟_",
+   "error": "Can't find end of Italic entity at byte offset 20"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟_🏟 🏟__",
+   "error": "Can't find end of Underline entity at byte offset 19"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟```🏟 🏟`",
+   "error": "Can't find end of Code entity at byte offset 21"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟```🏟 🏟_",
+   "error": "Can't find end of PreCode entity at byte offset 9"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟```🏟 🏟\\`",
+   "error": "Can't find end of PreCode entity at byte offset 9"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "[telegram\\.org](asd\\)",
+   "error": "Can't find end of a URL at byte offset 16"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "[telegram\\.org](",
+   "error": "Can't find end of a URL at byte offset 16"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "[telegram\\.org](asd",
+   "error": "Can't find end of a URL at byte offset 16"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟__🏟 _🏟___",
+   "error": "Can't find end of Italic entity at byte offset 23"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟__",
+   "error": "Can't find end of Underline entity at byte offset 9"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟||test\\|",
+   "error": "Can't find end of Spoiler entity at byte offset 9"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟!",
+   "error": "Character '!' is reserved and must be escaped with the preceding '\\'"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟>",
+   "error": "Character '>' is reserved and must be escaped with the preceding '\\'"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟![",
+   "error": "Can't find end of CustomEmoji entity at byte offset 9"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟![👍",
+   "error": "Can't find end of CustomEmoji entity at byte offset 9"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟![👍]",
+   "error": "The entity must contain a tg://emoji or tg://time URL"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟![👍](tg://emoji?id=1234",
+   "error": "Can't find end of a URL at byte offset 17"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟![👍](t://emoji?id=1234)",
+   "error": "Invalid tg://emoji or tg://time URL specified"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟![👍](tg:emojis?id=1234)",
+   "error": "Invalid tg://emoji or tg://time URL specified"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟![👍](tg://emoji#test)",
+   "error": "Invalid tg://emoji or tg://time URL specified"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟![👍](tg://emoji?test=1#&id=25)",
+   "error": "Invalid tg://emoji or tg://time URL specified"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟![👍](tg://emoji?test=1231&id=025)",
+   "error": "Invalid tg://emoji or tg://time URL specified"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟![👍](tg://time?id=1234",
+   "error": "Can't find end of a URL at byte offset 17"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟![👍](t://time?id=1234)",
+   "error": "Invalid tg://emoji or tg://time URL specified"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟![👍](tg:times?id=1234)",
+   "error": "Invalid tg://emoji or tg://time URL specified"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟![👍](tg://time#test)",
+   "error": "Invalid tg://emoji or tg://time URL specified"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟![👍](tg://time?test=1#&date=25)",
+   "error": "Invalid tg://emoji or tg://time URL specified"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟![👍](tg://time?test=1231&date=025)",
+   "error": "Invalid tg://emoji or tg://time URL specified"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">*b\n>ld \n>bo\nld*\nasd\ndef",
+   "error": "Can't find end of Bold entity at byte offset 1"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">\n*a*>2",
+   "error": "Character '>' is reserved and must be escaped with the preceding '\\'"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">asd\n>q||e||w||\n||asdad",
+   "error": "Can't find end of Spoiler entity at byte offset 16"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">asd\n>q||ew\n||asdad",
+   "error": "Can't find end of Spoiler entity at byte offset 7"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">asd\n>q||e||w__\n||asdad",
+   "error": "Can't find end of Underline entity at byte offset 13"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">asd\n>q||e||w||a\n||asdad",
+   "error": "Can't find end of Spoiler entity at byte offset 13"
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "",
+   "output": "",
+   "entities": []
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "\\\\",
+   "output": "\\",
+   "entities": []
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "\\\\\\",
+   "output": "\\\\",
+   "entities": []
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "\\\\\\\\\\_\\*\\`",
+   "output": "\\\\_*`",
+   "entities": []
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "➡️ ➡️",
+   "output": "➡️ ➡️",
+   "entities": []
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟``",
+   "output": "🏟 🏟",
+   "entities": []
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟_abac \\* asd _",
+   "output": "🏟 🏟abac * asd ",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 5,
+     "length": 11
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 \\.🏟_🏟\\. 🏟_",
+   "output": "🏟 .🏟🏟. 🏟",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 6,
+     "length": 6
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "\\\\\\a\\b\\c\\d\\e\\f\\1\\2\\3\\4\\➡️\\",
+   "output": "\\abcdef1234\\➡️\\",
+   "entities": []
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "➡️ ➡️_➡️ ➡️_",
+   "output": "➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 5,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "➡️ ➡️_➡️ ➡️_*➡️ ➡️*",
+   "output": "➡️ ➡️➡️ ➡️➡️ ➡️",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 5,
+     "length": 5
+    },
+    {
+     "type": "Bold",
+     "offset": 10,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟_🏟 \\.🏟_",
+   "output": "🏟 🏟🏟 .🏟",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 5,
+     "length": 6
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟_🏟 *🏟*_",
+   "output": "🏟 🏟🏟 🏟",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 5,
+     "length": 5
+    },
+    {
+     "type": "Bold",
+     "offset": 8,
+     "length": 2
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟_🏟 __🏟___",
+   "output": "🏟 🏟🏟 🏟",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 5,
+     "length": 5
+    },
+    {
+     "type": "Underline",
+     "offset": 8,
+     "length": 2
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟__🏟 _🏟_ __",
+   "output": "🏟 🏟🏟 🏟 ",
+   "entities": [
+    {
+     "type": "Underline",
+     "offset": 5,
+     "length": 6
+    },
+    {
+     "type": "Italic",
+     "offset": 8,
+     "length": 2
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟__🏟 _🏟_\\___",
+   "output": "🏟 🏟🏟 🏟_",
+   "entities": [
+    {
+     "type": "Underline",
+     "offset": 5,
+     "length": 6
+    },
+    {
+     "type": "Italic",
+     "offset": 8,
+     "length": 2
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟`🏟 🏟```",
+   "output": "🏟 🏟🏟 🏟",
+   "entities": [
+    {
+     "type": "Code",
+     "offset": 5,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟```🏟 🏟```",
+   "output": "🏟 🏟 🏟",
+   "entities": [
+    {
+     "type": "PreCode",
+     "offset": 5,
+     "length": 3,
+     "arg": "🏟"
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟```🏟\n🏟```",
+   "output": "🏟 🏟🏟",
+   "entities": [
+    {
+     "type": "PreCode",
+     "offset": 5,
+     "length": 2,
+     "arg": "🏟"
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟```🏟\r🏟```",
+   "output": "🏟 🏟🏟",
+   "entities": [
+    {
+     "type": "PreCode",
+     "offset": 5,
+     "length": 2,
+     "arg": "🏟"
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟```🏟\n\r🏟```",
+   "output": "🏟 🏟🏟",
+   "entities": [
+    {
+     "type": "PreCode",
+     "offset": 5,
+     "length": 2,
+     "arg": "🏟"
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟```🏟\r\n🏟```",
+   "output": "🏟 🏟🏟",
+   "entities": [
+    {
+     "type": "PreCode",
+     "offset": 5,
+     "length": 2,
+     "arg": "🏟"
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟```🏟\n\n🏟```",
+   "output": "🏟 🏟\n🏟",
+   "entities": [
+    {
+     "type": "PreCode",
+     "offset": 5,
+     "length": 3,
+     "arg": "🏟"
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟```🏟\r\r🏟```",
+   "output": "🏟 🏟\r🏟",
+   "entities": [
+    {
+     "type": "PreCode",
+     "offset": 5,
+     "length": 3,
+     "arg": "🏟"
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟```🏟 \\\\\\`🏟```",
+   "output": "🏟 🏟 \\`🏟",
+   "entities": [
+    {
+     "type": "PreCode",
+     "offset": 5,
+     "length": 5,
+     "arg": "🏟"
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟**",
+   "output": "🏟 🏟",
+   "entities": []
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "||test||",
+   "output": "test",
+   "entities": [
+    {
+     "type": "Spoiler",
+     "offset": 0,
+     "length": 4
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟``",
+   "output": "🏟 🏟",
+   "entities": []
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟``````",
+   "output": "🏟 🏟",
+   "entities": []
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟____",
+   "output": "🏟 🏟",
+   "entities": []
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "`_* *_`__*` `*__",
+   "output": "_* *_ ",
+   "entities": [
+    {
+     "type": "Code",
+     "offset": 0,
+     "length": 5
+    },
+    {
+     "type": "Code",
+     "offset": 5,
+     "length": 1
+    },
+    {
+     "type": "Bold",
+     "offset": 5,
+     "length": 1
+    },
+    {
+     "type": "Underline",
+     "offset": 5,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "_* * ` `_",
+   "output": "   ",
+   "entities": [
+    {
+     "type": "Italic",
+     "offset": 0,
+     "length": 3
+    },
+    {
+     "type": "Bold",
+     "offset": 0,
+     "length": 1
+    },
+    {
+     "type": "Code",
+     "offset": 2,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "[](telegram.org)",
+   "output": "",
+   "entities": []
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "[ ](telegram.org)",
+   "output": " ",
+   "entities": [
+    {
+     "type": "TextUrl",
+     "offset": 0,
+     "length": 1,
+     "arg": "http://telegram.org/"
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "[ ](as)",
+   "output": " ",
+   "entities": []
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "[telegram\\.org]",
+   "output": "telegram.org",
+   "entities": [
+    {
+     "type": "TextUrl",
+     "offset": 0,
+     "length": 12,
+     "arg": "http://telegram.org/"
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "[telegram\\.org]a",
+   "output": "telegram.orga",
+   "entities": [
+    {
+     "type": "TextUrl",
+     "offset": 0,
+     "length": 12,
+     "arg": "http://telegram.org/"
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "[telegram\\.org](telegram.dog)",
+   "output": "telegram.org",
+   "entities": [
+    {
+     "type": "TextUrl",
+     "offset": 0,
+     "length": 12,
+     "arg": "http://telegram.dog/"
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "[telegram\\.org](https://telegram.dog?)",
+   "output": "telegram.org",
+   "entities": [
+    {
+     "type": "TextUrl",
+     "offset": 0,
+     "length": 12,
+     "arg": "https://telegram.dog/?"
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "[telegram\\.org](https://telegram.dog?\\\\\\()",
+   "output": "telegram.org",
+   "entities": [
+    {
+     "type": "TextUrl",
+     "offset": 0,
+     "length": 12,
+     "arg": "https://telegram.dog/?\\("
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "[telegram\\.org]()",
+   "output": "telegram.org",
+   "entities": []
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "[telegram\\.org](asdasd)",
+   "output": "telegram.org",
+   "entities": []
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "[telegram\\.org](tg:user?id=123456)",
+   "output": "telegram.org",
+   "entities": [
+    {
+     "type": "MentionName",
+     "offset": 0,
+     "length": 12,
+     "arg": 123456
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟![👍](TG://EMoJI/?test=1231&id=25#id=32)a",
+   "output": "🏟 🏟👍a",
+   "entities": [
+    {
+     "type": "CustomEmoji",
+     "offset": 5,
+     "length": 2,
+     "arg": 25
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟![👍](TG://TiME/?test=1231&unix=25#unix=32)a",
+   "output": "🏟 🏟👍a",
+   "entities": [
+    {
+     "type": "FormattedDate",
+     "offset": 5,
+     "length": 2,
+     "arg": [
+      25,
+      0
+     ]
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟![👍](TG://TiME/?test=1231&format=R&unix=25#unix=32)a",
+   "output": "🏟 🏟👍a",
+   "entities": [
+    {
+     "type": "FormattedDate",
+     "offset": 5,
+     "length": 2,
+     "arg": [
+      25,
+      1
+     ]
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟![👍](TG://TiME/?test=1231&format=dt&unix=25#unix=32)a",
+   "output": "🏟 🏟👍a",
+   "entities": [
+    {
+     "type": "FormattedDate",
+     "offset": 5,
+     "length": 2,
+     "arg": [
+      25,
+      10
+     ]
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟![👍](TG://TiME/?test=1231&format=DT&unix=25#unix=32)a",
+   "output": "🏟 🏟👍a",
+   "entities": [
+    {
+     "type": "FormattedDate",
+     "offset": 5,
+     "length": 2,
+     "arg": [
+      25,
+      20
+     ]
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟![👍](TG://TiME/?test=1231&format=w&unix=25#unix=32)a",
+   "output": "🏟 🏟👍a",
+   "entities": [
+    {
+     "type": "FormattedDate",
+     "offset": 5,
+     "length": 2,
+     "arg": [
+      25,
+      32
+     ]
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "🏟 🏟![👍](TG://TiME/?test=1231&format=Wt&unix=25#unix=32)a",
+   "output": "🏟 🏟👍a",
+   "entities": [
+    {
+     "type": "FormattedDate",
+     "offset": 5,
+     "length": 2,
+     "arg": [
+      25,
+      34
+     ]
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "> \n> \n>",
+   "output": " \n \n",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 0,
+     "length": 4
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "> \\>\n \\> \n>",
+   "output": " >\n > \n",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 0,
+     "length": 3
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "abc\n> \n> \n>\ndef",
+   "output": "abc\n \n \n\ndef",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 4,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">",
+   "output": "",
+   "entities": []
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">a",
+   "output": "a",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 0,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "\r>a",
+   "output": "\ra",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 1,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "\r\r>\r\ra\r\n\r",
+   "output": "\r\r\r\ra\r\n\r",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 2,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">*bold _italic bold ~italic bold strikethrough ||italic bold strikethrough spoiler||~ __underline italic bold___ bold*",
+   "output": "bold italic bold italic bold strikethrough italic bold strikethrough spoiler underline italic bold bold",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 0,
+     "length": 103
+    },
+    {
+     "type": "Bold",
+     "offset": 0,
+     "length": 103
+    },
+    {
+     "type": "Italic",
+     "offset": 5,
+     "length": 93
+    },
+    {
+     "type": "Strikethrough",
+     "offset": 17,
+     "length": 59
+    },
+    {
+     "type": "Spoiler",
+     "offset": 43,
+     "length": 33
+    },
+    {
+     "type": "Underline",
+     "offset": 77,
+     "length": 21
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">*b\n>ld \n>bo\n>ld*\nasd\ndef",
+   "output": "b\nld \nbo\nld\nasd\ndef",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 0,
+     "length": 12
+    },
+    {
+     "type": "Bold",
+     "offset": 0,
+     "length": 11
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "*a\n>b\n>ld \n>bo\n>ld\nasd*\ndef",
+   "output": "a\nb\nld \nbo\nld\nasd\ndef",
+   "entities": [
+    {
+     "type": "Bold",
+     "offset": 0,
+     "length": 17
+    },
+    {
+     "type": "BlockQuote",
+     "offset": 2,
+     "length": 12
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">`b\n>ld \n>bo\nld`\n>asd\ndef",
+   "output": "b\n>ld \n>bo\nld\nasd\ndef",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 0,
+     "length": 18
+    },
+    {
+     "type": "Code",
+     "offset": 0,
+     "length": 13
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "`>b\n>ld \n>bo\nld`\n>asd\ndef",
+   "output": ">b\n>ld \n>bo\nld\nasd\ndef",
+   "entities": [
+    {
+     "type": "Code",
+     "offset": 0,
+     "length": 14
+    },
+    {
+     "type": "BlockQuote",
+     "offset": 15,
+     "length": 4
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">1",
+   "output": "1",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 0,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">\n1",
+   "output": "\n1",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 0,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">\n\r>2",
+   "output": "\n\r2",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 0,
+     "length": 1
+    },
+    {
+     "type": "BlockQuote",
+     "offset": 2,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">\n**>2",
+   "output": "\n2",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 0,
+     "length": 1
+    },
+    {
+     "type": "BlockQuote",
+     "offset": 1,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">**\n>2",
+   "output": "\n2",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 0,
+     "length": 2
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">*abcd*",
+   "output": "abcd",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 0,
+     "length": 4
+    },
+    {
+     "type": "Bold",
+     "offset": 0,
+     "length": 4
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">*abcd*\n",
+   "output": "abcd\n",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 0,
+     "length": 5
+    },
+    {
+     "type": "Bold",
+     "offset": 0,
+     "length": 4
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "*>abcd\n*",
+   "output": "abcd\n",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 0,
+     "length": 5
+    },
+    {
+     "type": "Bold",
+     "offset": 0,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": "abc\n>def\n>def\n\r>ghi2\njkl",
+   "output": "abc\ndef\ndef\n\rghi2\njkl",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 4,
+     "length": 8
+    },
+    {
+     "type": "BlockQuote",
+     "offset": 13,
+     "length": 5
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">asd\n>q||e||w||\nasdad",
+   "output": "asd\nqew\nasdad",
+   "entities": [
+    {
+     "type": "ExpandableBlockQuote",
+     "offset": 0,
+     "length": 8
+    },
+    {
+     "type": "Spoiler",
+     "offset": 5,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">asd\n>q||ew||\nasdad",
+   "output": "asd\nqew\nasdad",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 0,
+     "length": 8
+    },
+    {
+     "type": "Spoiler",
+     "offset": 5,
+     "length": 2
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">asd\r\n>q||e||w||\r\nasdad",
+   "output": "asd\r\nqew\r\nasdad",
+   "entities": [
+    {
+     "type": "ExpandableBlockQuote",
+     "offset": 0,
+     "length": 10
+    },
+    {
+     "type": "Spoiler",
+     "offset": 6,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">asd\r\n>q||ew||\r\nasdad",
+   "output": "asd\r\nqew\r\nasdad",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 0,
+     "length": 10
+    },
+    {
+     "type": "Spoiler",
+     "offset": 6,
+     "length": 2
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">asd\r\n>q||e||w||\r\n",
+   "output": "asd\r\nqew\r\n",
+   "entities": [
+    {
+     "type": "ExpandableBlockQuote",
+     "offset": 0,
+     "length": 10
+    },
+    {
+     "type": "Spoiler",
+     "offset": 6,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">asd\r\n>q||ew||\r\n",
+   "output": "asd\r\nqew\r\n",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 0,
+     "length": 10
+    },
+    {
+     "type": "Spoiler",
+     "offset": 6,
+     "length": 2
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">asd\r\n>q||e||w||",
+   "output": "asd\r\nqew",
+   "entities": [
+    {
+     "type": "ExpandableBlockQuote",
+     "offset": 0,
+     "length": 8
+    },
+    {
+     "type": "Spoiler",
+     "offset": 6,
+     "length": 1
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">asd\r\n>q||ew||",
+   "output": "asd\r\nqew",
+   "entities": [
+    {
+     "type": "BlockQuote",
+     "offset": 0,
+     "length": 8
+    },
+    {
+     "type": "Spoiler",
+     "offset": 6,
+     "length": 2
+    }
+   ]
+  },
+  {
+   "parser": "markdown_v2",
+   "input": ">||",
+   "output": "",
+   "entities": []
+  }
+ ]
+}

@@ -9,7 +9,7 @@ use crate::ids::{Peer, UserId};
 use crate::services::{entities, updates};
 use crate::store::{self, messages::StoredMessage};
 
-/// Documented text limit for one message.
+/// Documented text limit for one message, in UTF-16 code units.
 pub const MAX_TEXT_LENGTH: usize = 4096;
 
 #[derive(Debug, Default)]
@@ -37,7 +37,8 @@ pub fn send_private(ctx: &mut Ctx<'_>, from: UserId, to: UserId, out: Outgoing) 
     if out.text.trim().is_empty() {
         return Err(RpcError::message_empty());
     }
-    if out.text.chars().count() > MAX_TEXT_LENGTH {
+    // Telegram measures message length in UTF-16 code units.
+    if entities::utf16_len(&out.text) as usize > MAX_TEXT_LENGTH {
         return Err(RpcError::message_too_long());
     }
     if sender.is_bot && recipient.is_bot && from != to {
@@ -50,7 +51,8 @@ pub fn send_private(ctx: &mut Ctx<'_>, from: UserId, to: UserId, out: Outgoing) 
 
     // Telegram adds mentions, hashtags, links… itself; bot commands only in chats with a bot.
     let with_commands = sender.is_bot || recipient.is_bot;
-    let entities = entities::merge(out.entities, entities::detect(&out.text, with_commands));
+    let explicit = entities::resolve_input(ctx, from, out.entities)?;
+    let entities = entities::merge(explicit, entities::detect(&out.text, with_commands));
 
     let date = ctx.now();
     let global_id = store::meta::next(ctx.db, "global_message", 1)?;

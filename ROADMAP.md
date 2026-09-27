@@ -8,7 +8,7 @@ Every finished task is logged in [docs/worklog.md](docs/worklog.md) and committe
 
 **Targets:** Bot API **10.3** · MTProto layer from tdlib `telegram_api.tl`
 
-**Current focus:** M2 — webhooks, formatting, keyboards, callbacks
+**Current focus:** M2 — webhooks, formatting, keyboards, callbacks (paused mid-formatting; see worklog)
 
 ---
 

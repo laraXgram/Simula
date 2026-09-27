@@ -4,6 +4,10 @@
 
 use simula_tl::{enums, types};
 
+use crate::ctx::Ctx;
+use crate::error::{RpcError, RpcResult};
+use crate::services::peers;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Mention,
@@ -62,6 +66,22 @@ pub fn merge(
     }));
     all.sort_by_key(|e| span(e).0);
     all
+}
+
+/// Client-sent entities as stored: a mention by `InputUser` becomes a mention by user id,
+/// after checking the sender may address that user.
+pub fn resolve_input(ctx: &Ctx<'_>, sender: crate::ids::UserId, entities: Vec<enums::MessageEntity>) -> RpcResult<Vec<enums::MessageEntity>> {
+    entities
+        .into_iter()
+        .map(|entity| match entity {
+            enums::MessageEntity::InputMessageEntityMentionName(e) => {
+                let user = peers::resolve_input_user(ctx, sender, &e.user_id)
+                    .map_err(|_| RpcError::bad_request("ENTITY_MENTION_USER_INVALID"))?;
+                Ok(types::MessageEntityMentionName { offset: e.offset, length: e.length, user_id: user.0 }.into())
+            }
+            other => Ok(other),
+        })
+        .collect()
 }
 
 fn span(entity: &enums::MessageEntity) -> (i32, i32) {

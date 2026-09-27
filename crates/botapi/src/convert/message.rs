@@ -22,7 +22,7 @@ pub fn message(m: &types::Message, entities_: &Entities<'_>) -> bot::Message {
         chat: chat(Peer::from_tl(&m.peer_id), entities_),
         edit_date: m.edit_date.map(Into::into),
         text: (!m.message.is_empty() && m.media.is_none()).then(|| m.message.clone()),
-        entities: entities(m.entities.as_ref()),
+        entities: entities(m.entities.as_ref(), entities_),
         ..Default::default()
     }
 }

@@ -5,6 +5,35 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-09-27 — M2 (in progress, paused) · Text formatting (P3.4)
+
+Stopped at the maintainer's request partway through wiring formatting into
+`sendMessage`. Committed as work in progress.
+
+- **Done and tested** — new `crates/botapi/src/text/` (tdlib's role in the gateway):
+  - line-by-line ports of tdlib's `parse_markdown` (legacy), `parse_markdown_v2` and
+    `parse_html` from `MessageEntity.cpp`, with their exact error texts;
+  - link normalization ported from `LinkManager::check_link_impl` + `parse_url`
+    (`http://` default, lowercase host, `/` path, spaces percent-encoded, `tg://user`,
+    `tg://emoji`, `tg://time`), tdlib's entity sort priorities, date formats;
+  - `prepare()`: telegram-bot-api's `get_formatted_text` (32 KB limit, `parse_mode`,
+    explicit `entities`) plus tdlib's validation and trimming, errors formatted as the
+    real Bot API does (`Bad Request: can't parse entities: …`);
+  - tests: **all 207 cases of tdlib's own parser suite** (121 MarkdownV2, 86 HTML, 56 of
+    them error cases), extracted automatically into `text/tdlib_cases.json`, pass; plus
+    the reserved-character loop, legacy Markdown, and `prepare()` errors/trimming.
+- **Done, compiles, tests not re-run:**
+  - core: `inputMessageEntityMentionName` → `messageEntityMentionName` with an access
+    hash check (`ENTITY_MENTION_USER_INVALID`); message length measured in UTF-16 units;
+  - Bot API output: `text_mention` (with the user), `custom_emoji`, `date_time`,
+    `bank_card_number` entities.
+- **Not done yet** (the scripted edit stopped here): `sendMessage` still rejects
+  `parse_mode`/`entities`/`reply_markup`; the `prepare()` call, `BotCtx::tl_entities`
+  and the `protect_content` / `link_preview_options` mapping still have to be wired in.
+  Until then the `text` module builds with dead-code warnings.
+- Next in M2 after that: keyboards, replies, edits/deletes, callback queries (with a
+  wait mechanism in the core), webhooks, commands.
+
 ## 2026-09-27 — P0.4 · CI
 
 - `.github/workflows/ci.yml` on pushes to `v2` and PRs, three jobs:
