@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [v2]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust (fmt, clippy, tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+
+  js:
+    name: TypeScript (biome, typecheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bunx biome ci .
+      - run: bun run typecheck
+
+  generated:
+    name: Generated code is fresh
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      # Regenerate from the committed specs; any difference means someone edited generated
+      # files by hand or forgot to run `bun run codegen generate`.
+      - run: bun run codegen generate
+      - run: git diff --exit-code && test -z "$(git status --porcelain)"
+      # The JSON the Rust crates emit must satisfy the generated TypeScript types.
+      - run: bun run codegen verify:ts

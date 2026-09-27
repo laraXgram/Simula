@@ -8,7 +8,7 @@ Every finished task is logged in [docs/worklog.md](docs/worklog.md) and committe
 
 **Targets:** Bot API **10.3** · MTProto layer from tdlib `telegram_api.tl`
 
-**Current focus:** P0.4 CI, then M2 (webhooks, formatting, keyboards, callbacks)
+**Current focus:** M2 — webhooks, formatting, keyboards, callbacks
 
 ---
 
@@ -32,7 +32,7 @@ vertical slice through several phases, so the architecture is exercised end to e
 - [x] P0.1 `v2` branch, v1 sources removed (kept on `master`)
 - [x] P0.2 Architecture doc, roadmap, worklog
 - [x] P0.3 Workspace skeleton: Cargo workspace, Bun workspace, lint/format (rustfmt, clippy, biome)
-- [ ] P0.4 CI: build, test, lint, "generated code is fresh" check
+- [x] P0.4 CI: build, test, lint, "generated code is fresh" check
 
 ## P1 — Specs & code generation
 

@@ -5,6 +5,17 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-09-27 — P0.4 · CI
+
+- `.github/workflows/ci.yml` on pushes to `v2` and PRs, three jobs:
+  - Rust: `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings`,
+    `cargo test --workspace`.
+  - TypeScript: `bun install --frozen-lockfile`, `biome ci`, `bun run typecheck`.
+  - Generated code: `bun run codegen generate` must leave the tree unchanged, then
+    `bun run codegen verify:ts` (Rust JSON vs TypeScript types).
+- Every step was run locally and passes (GitHub Actions itself can't run here; first
+  real run happens when the branch is pushed).
+
 ## 2026-09-27 — P1.9, P1.10 · Registries, scaffolding, coverage
 
 - **Adding a method = adding one file.** `bun run codegen registries` discovers
