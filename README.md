@@ -1,49 +1,21 @@
 # Simula
 
-![Chat interface](docs/art/chat.png)
+An offline Telegram simulator for building, testing and debugging Telegram bots — in any
+language, with any bot library, without internet access or Telegram itself.
 
-A local Telegram Bot API simulation environment for building, testing, and debugging Telegram bots with realtime runtime simulation and full API compatibility.
+> **v2 is a ground-up rewrite in progress.** The previous version lives on `master`.
+> See [ROADMAP.md](ROADMAP.md) for status and [docs/architecture.md](docs/architecture.md)
+> for the design.
 
-Simula allows developers to build and test Telegram bot integrations locally using any programming language, framework, or bot library. Instead of communicating with production Telegram services during development, bots interact with a local runtime environment, enabling faster iteration, safer debugging, and fully controlled testing workflows.
-
-[Full Documentation](https://laraxgram.github.io/simula)
-
-## Development Phases
-
-### Phase 1 — In Progress
-**Objective:** Achieve full API method parity with the official version
-
-- [ ] Expand API methods
-- [ ] Ensure 100% compatibility with the official implementation
-- [ ] Align behavior and responses with the official client
-- [ ] Validate stability of newly added methods
-
-### Phase 2
-**Objective:** Client rewrite using Electrobun and desktop distribution
-
-- [ ] Rewrite the client using Electrobun
-- [ ] Improve performance and maintainability
-- [ ] Prepare cross-platform desktop builds
-- [ ] Publish desktop releases for:
-  - [ ] Windows
-  - [ ] Linux
-  - [ ] macOS
-  
-## Contributing
-
-> [!IMPORTANT]
-> Since the client is currently undergoing a rewrite, pull requests related to the `client` will not be accepted until further notice.
-
-Thank you for considering contributing to the LaraGram Simula! The contribution guide can be found in the [LaraGram documentation](https://laraxgram.github.io/v3/contributions.html).
-
-## Code of Conduct
-
-In order to ensure that the LaraGram community is welcoming to all, please review and abide by the [Code of Conduct](https://laraxgram.github.io/v3/contributions.html#code-of-conduct).
-
-## Security Vulnerabilities
-
-If you discover a security vulnerability within LaraGram, please send an e-mail to LaraXGram via [laraxgram@gmail.com](mailto:laraxgram@gmail.com). All security vulnerabilities will be promptly addressed.
+- **Bot API compatible**: point your bot at Simula instead of `api.telegram.org`;
+  polling and webhooks both work.
+- **Real layering**: an MTProto (TL) core with a Bot API gateway on top, like Telegram's
+  own `telegram-bot-api` server.
+- **API-driven**: every action a person can do in the client is also available over the
+  Control API, so test suites can be written in any language.
+- **Client + dev tools**: a Telegram-like client for web and desktop (Windows, macOS,
+  Linux) with request logs, update inspectors, webhook console and more.
 
 ## License
 
-The LaraGram Simula is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+MIT — see [LICENSE.md](LICENSE.md).

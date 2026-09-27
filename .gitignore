@@ -1,71 +1,28 @@
-# Dependencies
+# Rust
+/target/
+**/*.rs.bk
+
+# JS / Bun
 node_modules/
-__pycache__/
-*.pyc
-target/
-
-# Build outputs
 dist/
-build/
-*.egg-info/
+*.tsbuildinfo
 
-# IDE
+# Codegen caches (raw downloads; parsed specs under spec/ are committed)
+.cache/
+
+# Runtime data
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+/data/
+/files/
+
+# Env / editors / OS
+.env
+.env.*
+!.env.example
 .idea/
 .vscode/
-*.swp
-*.swo
-
-# Environment
-.env
-.env.local
-.env.*.local
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Logs
-*.log
-npm-debug.log*
-
-# OS
 .DS_Store
 Thumbs.db
-
-# Rust
-Cargo.lock
-
-# JS
-/client/package.lock.json
-
-# Python
-venv/
-.venv/
-*.egg
-.eggs/
-
-# Cache
-.cache/
-.parcel-cache/
-
-# Test
-coverage/
-.coverage
-htmlcov/
-
-# Temp
-tmp/
-temp/
-*.tmp
-
-# Upload
-/files
-/api-server/files
-
-# Generated
-/scraper/output
-/scraper/src/output
-/api-server/src/generated/methods.rs
-/api-server/src/generated/types.rs
-/client/src/types/generated
