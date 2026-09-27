@@ -13,7 +13,12 @@ pub async fn chat(ctx: &BotCtx, chat_id: &ChatId) -> BotResult<Peer> {
         ChatId::Id(id) => {
             let peer = Peer::from_bot_api_id(*id).ok_or_else(not_found)?;
             if let Peer::User(user) = peer {
-                ctx.gateway.sandbox.account(user).await.map_err(BotError::internal)?.ok_or_else(not_found)?;
+                ctx.gateway
+                    .sandbox
+                    .account(user)
+                    .await
+                    .map_err(BotError::internal)?
+                    .ok_or_else(not_found)?;
             }
             Ok(peer)
         }

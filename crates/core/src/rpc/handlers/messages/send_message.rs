@@ -8,10 +8,15 @@ use crate::ids::Peer;
 use crate::render;
 use crate::services::{messages, peers};
 
-pub fn handle(ctx: &mut Ctx<'_>, req: functions::messages::SendMessage) -> RpcResult<enums::Updates> {
+pub fn handle(
+    ctx: &mut Ctx<'_>,
+    req: functions::messages::SendMessage,
+) -> RpcResult<enums::Updates> {
     let caller = ctx.caller()?;
     let Peer::User(to) = peers::resolve_input_peer(ctx, caller.account, &req.peer)? else {
-        return Err(RpcError::not_implemented("messages.sendMessage to groups and channels"));
+        return Err(RpcError::not_implemented(
+            "messages.sendMessage to groups and channels",
+        ));
     };
 
     let sent = messages::send_private(
@@ -31,7 +36,11 @@ pub fn handle(ctx: &mut Ctx<'_>, req: functions::messages::SendMessage) -> RpcRe
     let mentioned = ctx.out.users_for(caller.account);
     Ok(types::Updates {
         updates: vec![
-            types::UpdateMessageID { id: sent.message.id, random_id: req.random_id }.into(),
+            types::UpdateMessageID {
+                id: sent.message.id,
+                random_id: req.random_id,
+            }
+            .into(),
             sent.update,
         ],
         users: render::users(ctx, caller.account, &mentioned)?,

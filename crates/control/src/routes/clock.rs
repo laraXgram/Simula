@@ -30,7 +30,10 @@ pub struct Advance {
     pub by_ms: i64,
 }
 
-pub async fn advance(State(sandbox): State<Arc<Sandbox>>, Json(body): Json<Advance>) -> Json<Value> {
+pub async fn advance(
+    State(sandbox): State<Arc<Sandbox>>,
+    Json(body): Json<Advance>,
+) -> Json<Value> {
     sandbox.clock().advance(body.by_ms);
     state(&sandbox)
 }

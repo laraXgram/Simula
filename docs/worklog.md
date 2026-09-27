@@ -5,6 +5,30 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-09-27 — P1.9, P1.10 · Registries, scaffolding, coverage
+
+- **Adding a method = adding one file.** `bun run codegen registries` discovers
+  `crates/botapi/src/methods/<method>.rs` and `crates/core/src/rpc/handlers/<ns>/<fn>.rs`
+  and generates their `mod.rs` files: module lists, routing tables (`route`), and
+  `IMPLEMENTED` lists. File names are checked against the spec, so a typo is a codegen
+  error instead of silently dead code. Bot API handlers opt into clamping instead of
+  rejecting documented limits with `pub const LIMITS: Limits = Limits::Clamp;`.
+- `bun run codegen new:botapi <method>` / `new:tl <function>` scaffold a handler with the
+  right parameter and return types from the spec, marked `// @stub` until implemented.
+  Verified that scaffolds compile (`editMessageText` → `MessageOrTrue`,
+  `messages.getHistory` → `messages.Messages`).
+- `bun run codegen coverage` writes [coverage.md](coverage.md): per-section and
+  per-method status for Bot API 10.3 (now 5/185) and the handled TL functions (3/813).
+- `bun run codegen generate` regenerates everything from the committed specs;
+  `all` scrapes the docs first. A full regeneration writes 0 files, so the committed
+  output matches the specs (CI will enforce this).
+- Mixed directories (handwritten handlers + generated `mod.rs`) are synced by a writer
+  that only removes files carrying the `@generated` header.
+- Build hygiene: incremental compilation is now off workspace-wide (its caches for crates
+  built on the TL types took gigabytes on a small disk); building the whole workspace
+  avoids duplicate feature variants of the 190 MB TL library. `target/` went from
+  7.2 GB to ~1.5 GB. `cargo fmt` applied to all handwritten code.
+
 ## 2026-09-27 — M1 (part 2) · Bot API gateway, Control API, server — M1 done
 
 - **`simula-botapi`** (P3.1, P3.2, P3.7): `/bot<token>/<method>` over GET/POST with query,

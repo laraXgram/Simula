@@ -71,3 +71,50 @@ async function listFiles(dir: string): Promise<string[]> {
     return [];
   }
 }
+
+/**
+ * Like `syncTree`, for directories that mix handwritten and generated files: writes the
+ * tree, and removes only files carrying the `@generated` header that it no longer produces.
+ * Files are formatted one by one via stdin (rustfmt would otherwise follow `mod` items).
+ */
+export async function syncGenerated(outDir: string, tree: FileTree): Promise<SyncResult> {
+  const result: SyncResult = { written: 0, removed: 0, unchanged: 0 };
+  for (const [path, content] of tree) {
+    const formatted = path.endsWith(".rs") ? await rustfmtStdin(content) : content;
+    const target = Bun.file(join(outDir, path));
+    if ((await target.exists()) && (await target.text()) === formatted) {
+      result.unchanged++;
+      continue;
+    }
+    await mkdir(dirname(join(outDir, path)), { recursive: true });
+    await Bun.write(target, formatted);
+    result.written++;
+  }
+  for (const existing of await listFiles(outDir)) {
+    if (tree.has(existing) || !existing.endsWith(".rs")) continue;
+    const head = (await Bun.file(join(outDir, existing)).text()).split("\n", 1)[0];
+    if (head === GENERATED_HEADER) {
+      await rm(join(outDir, existing));
+      result.removed++;
+    }
+  }
+  return result;
+}
+
+async function rustfmtStdin(source: string): Promise<string> {
+  const binary = Bun.which("rustfmt") ?? join(process.env.HOME ?? "", ".cargo", "bin", "rustfmt");
+  const proc = Bun.spawn([binary, "--edition", "2024", "--emit", "stdout"], {
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  proc.stdin.write(source);
+  await proc.stdin.end();
+  const [out, err, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (code !== 0) throw new Error(`rustfmt failed: ${err}`);
+  return out;
+}

@@ -54,8 +54,16 @@ pub fn send_private(ctx: &mut Ctx<'_>, from: UserId, to: UserId, out: Outgoing) 
 
     let date = ctx.now();
     let global_id = store::meta::next(ctx.db, "global_message", 1)?;
-    let reply_markup = if sender.is_bot { out.reply_markup } else { None };
-    let sides: &[(UserId, UserId, bool)] = if from == to { &[(from, to, true)] } else { &[(from, to, true), (to, from, false)] };
+    let reply_markup = if sender.is_bot {
+        out.reply_markup
+    } else {
+        None
+    };
+    let sides: &[(UserId, UserId, bool)] = if from == to {
+        &[(from, to, true)]
+    } else {
+        &[(from, to, true), (to, from, false)]
+    };
 
     let mut sent = None;
     for &(owner, peer, is_out) in sides {
@@ -82,7 +90,12 @@ pub fn send_private(ctx: &mut Ctx<'_>, from: UserId, to: UserId, out: Outgoing) 
             },
         )?;
         let update = updates::push_pts(ctx, owner, [from, to], |pts, pts_count| {
-            types::UpdateNewMessage { message: message.clone().into(), pts, pts_count }.into()
+            types::UpdateNewMessage {
+                message: message.clone().into(),
+                pts,
+                pts_count,
+            }
+            .into()
         })?;
         if is_out {
             sent = Some(Sent { message, update });

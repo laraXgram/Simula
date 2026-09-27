@@ -46,14 +46,17 @@ pub struct Sandbox {
 impl Sandbox {
     pub fn open(config: SandboxConfig) -> std::io::Result<Arc<Self>> {
         let clock = Arc::new(Clock::default());
-        let mut world = World::open(config.path.as_deref(), clock.clone()).map_err(std::io::Error::other)?;
+        let mut world =
+            World::open(config.path.as_deref(), clock.clone()).map_err(std::io::Error::other)?;
         let secret = world.secret();
         let (jobs, queue) = mpsc::channel::<Job>();
-        std::thread::Builder::new().name(format!("sandbox-{}", config.id)).spawn(move || {
-            for job in queue {
-                job(&mut world);
-            }
-        })?;
+        std::thread::Builder::new()
+            .name(format!("sandbox-{}", config.id))
+            .spawn(move || {
+                for job in queue {
+                    job(&mut world);
+                }
+            })?;
         Ok(Arc::new(Self {
             id: config.id,
             jobs,
@@ -74,7 +77,10 @@ impl Sandbox {
     }
 
     /// Run `f` on the sandbox thread.
-    pub async fn run<R: Send + 'static>(&self, f: impl FnOnce(&mut World) -> R + Send + 'static) -> R {
+    pub async fn run<R: Send + 'static>(
+        &self,
+        f: impl FnOnce(&mut World) -> R + Send + 'static,
+    ) -> R {
         let (reply, result) = oneshot::channel();
         self.jobs
             .send(Box::new(move |world| {
@@ -89,7 +95,9 @@ impl Sandbox {
         let method = call.name();
         let request = serde_json::to_value(&call).unwrap_or_default();
         let started = Instant::now();
-        let outcome = self.run(move |world| world.transact(Some(caller), |ctx| rpc::dispatch(ctx, call))).await;
+        let outcome = self
+            .run(move |world| world.transact(Some(caller), |ctx| rpc::dispatch(ctx, call)))
+            .await;
 
         let (result, updates) = match outcome {
             Ok((reply, updates)) => (Ok(reply), updates),
@@ -100,7 +108,10 @@ impl Sandbox {
             account: caller.account,
             method,
             request,
-            result: result.as_ref().map(|reply| reply.to_json()).map_err(Clone::clone),
+            result: result
+                .as_ref()
+                .map(|reply| reply.to_json())
+                .map_err(Clone::clone),
             duration_us: started.elapsed().as_micros() as u64,
         });
         self.publish(updates);
@@ -132,15 +143,21 @@ impl Sandbox {
     }
 
     pub async fn account(&self, id: UserId) -> RpcResult<Option<Account>> {
-        self.run(move |world| store::accounts::get(world.connection(), id)).await.map_err(Into::into)
+        self.run(move |world| store::accounts::get(world.connection(), id))
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn account_by_token(&self, token: String) -> RpcResult<Option<Account>> {
-        self.run(move |world| store::accounts::by_token(world.connection(), &token)).await.map_err(Into::into)
+        self.run(move |world| store::accounts::by_token(world.connection(), &token))
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn accounts(&self) -> RpcResult<Vec<Account>> {
-        self.run(|world| store::accounts::list(world.connection())).await.map_err(Into::into)
+        self.run(|world| store::accounts::list(world.connection()))
+            .await
+            .map_err(Into::into)
     }
 
     /// The `InputPeer` that `viewer` uses to address `peer` (access hash included).
@@ -155,7 +172,10 @@ impl Sandbox {
     }
 
     pub fn add_listener(&self, listener: UpdateListener) {
-        self.listeners.lock().expect("listeners lock").push(listener);
+        self.listeners
+            .lock()
+            .expect("listeners lock")
+            .push(listener);
     }
 
     pub fn subscribe_updates(&self) -> broadcast::Receiver<Arc<AccountUpdates>> {

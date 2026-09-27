@@ -12,15 +12,34 @@ pub struct Violation {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Rule {
     /// Length in characters (Unicode scalar values) outside `min..=max`.
-    Chars { min: Option<u64>, max: Option<u64>, actual: u64 },
+    Chars {
+        min: Option<u64>,
+        max: Option<u64>,
+        actual: u64,
+    },
     /// Length in UTF-8 bytes outside `min..=max`.
-    Bytes { min: Option<u64>, max: Option<u64>, actual: u64 },
+    Bytes {
+        min: Option<u64>,
+        max: Option<u64>,
+        actual: u64,
+    },
     /// Number outside `min..=max`.
-    Range { min: Option<f64>, max: Option<f64>, actual: f64 },
+    Range {
+        min: Option<f64>,
+        max: Option<f64>,
+        actual: f64,
+    },
     /// Array size outside `min..=max`.
-    Items { min: Option<u64>, max: Option<u64>, actual: u64 },
+    Items {
+        min: Option<u64>,
+        max: Option<u64>,
+        actual: u64,
+    },
     /// String not among the documented values.
-    OneOf { allowed: &'static [&'static str], actual: String },
+    OneOf {
+        allowed: &'static [&'static str],
+        actual: String,
+    },
 }
 
 /// Implemented by every generated type and method; recurses into nested values.
@@ -36,37 +55,75 @@ pub trait Validate {
 
 /// `prefix.field`, or just `field` at the top level.
 pub fn join(prefix: &str, field: &str) -> String {
-    if prefix.is_empty() { field.to_owned() } else { format!("{prefix}.{field}") }
+    if prefix.is_empty() {
+        field.to_owned()
+    } else {
+        format!("{prefix}.{field}")
+    }
 }
 
 pub fn index(prefix: &str, i: usize) -> String {
     format!("{prefix}[{i}]")
 }
 
-pub fn chars(path: &str, value: &str, min: Option<u64>, max: Option<u64>, out: &mut Vec<Violation>) {
+pub fn chars(
+    path: &str,
+    value: &str,
+    min: Option<u64>,
+    max: Option<u64>,
+    out: &mut Vec<Violation>,
+) {
     let actual = value.chars().count() as u64;
     if min.is_some_and(|m| actual < m) || max.is_some_and(|m| actual > m) {
-        out.push(Violation { path: path.to_owned(), rule: Rule::Chars { min, max, actual } });
+        out.push(Violation {
+            path: path.to_owned(),
+            rule: Rule::Chars { min, max, actual },
+        });
     }
 }
 
-pub fn bytes(path: &str, value: &str, min: Option<u64>, max: Option<u64>, out: &mut Vec<Violation>) {
+pub fn bytes(
+    path: &str,
+    value: &str,
+    min: Option<u64>,
+    max: Option<u64>,
+    out: &mut Vec<Violation>,
+) {
     let actual = value.len() as u64;
     if min.is_some_and(|m| actual < m) || max.is_some_and(|m| actual > m) {
-        out.push(Violation { path: path.to_owned(), rule: Rule::Bytes { min, max, actual } });
+        out.push(Violation {
+            path: path.to_owned(),
+            rule: Rule::Bytes { min, max, actual },
+        });
     }
 }
 
 pub fn range(path: &str, value: f64, min: Option<f64>, max: Option<f64>, out: &mut Vec<Violation>) {
     if min.is_some_and(|m| value < m) || max.is_some_and(|m| value > m) {
-        out.push(Violation { path: path.to_owned(), rule: Rule::Range { min, max, actual: value } });
+        out.push(Violation {
+            path: path.to_owned(),
+            rule: Rule::Range {
+                min,
+                max,
+                actual: value,
+            },
+        });
     }
 }
 
-pub fn items<T>(path: &str, value: &[T], min: Option<u64>, max: Option<u64>, out: &mut Vec<Violation>) {
+pub fn items<T>(
+    path: &str,
+    value: &[T],
+    min: Option<u64>,
+    max: Option<u64>,
+    out: &mut Vec<Violation>,
+) {
     let actual = value.len() as u64;
     if min.is_some_and(|m| actual < m) || max.is_some_and(|m| actual > m) {
-        out.push(Violation { path: path.to_owned(), rule: Rule::Items { min, max, actual } });
+        out.push(Violation {
+            path: path.to_owned(),
+            rule: Rule::Items { min, max, actual },
+        });
     }
 }
 
@@ -74,7 +131,10 @@ pub fn one_of(path: &str, value: &str, allowed: &'static [&'static str], out: &m
     if !allowed.contains(&value) {
         out.push(Violation {
             path: path.to_owned(),
-            rule: Rule::OneOf { allowed, actual: value.to_owned() },
+            rule: Rule::OneOf {
+                allowed,
+                actual: value.to_owned(),
+            },
         });
     }
 }

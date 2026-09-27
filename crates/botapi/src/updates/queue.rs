@@ -23,7 +23,11 @@ pub struct UpdateQueue {
 impl Default for UpdateQueue {
     fn default() -> Self {
         // A fresh bot's first update_id is an arbitrary large number, not 1.
-        Self { next_id: rand::random_range(100_000_000..900_000_000), items: VecDeque::new(), allowed: None }
+        Self {
+            next_id: rand::random_range(100_000_000..900_000_000),
+            items: VecDeque::new(),
+            allowed: None,
+        }
     }
 }
 
@@ -36,7 +40,11 @@ impl UpdateQueue {
         update.update_id = self.next_id;
         self.next_id += 1;
         self.items.push_back((now_ms, update));
-        while self.items.front().is_some_and(|(at, _)| now_ms - at > RETENTION_MS) {
+        while self
+            .items
+            .front()
+            .is_some_and(|(at, _)| now_ms - at > RETENTION_MS)
+        {
             self.items.pop_front();
         }
         true
@@ -50,14 +58,22 @@ impl UpdateQueue {
                 self.items.pop_front();
             }
         } else {
-            while self.items.front().is_some_and(|(_, u)| u.update_id < offset) {
+            while self
+                .items
+                .front()
+                .is_some_and(|(_, u)| u.update_id < offset)
+            {
                 self.items.pop_front();
             }
         }
     }
 
     pub fn peek(&self, limit: usize) -> Vec<bot::Update> {
-        self.items.iter().take(limit).map(|(_, u)| u.clone()).collect()
+        self.items
+            .iter()
+            .take(limit)
+            .map(|(_, u)| u.clone())
+            .collect()
     }
 
     pub fn len(&self) -> usize {
@@ -95,7 +111,10 @@ mod tests {
     use super::*;
 
     fn message() -> bot::Update {
-        bot::Update { message: Some(Box::default()), ..Default::default() }
+        bot::Update {
+            message: Some(Box::default()),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -115,7 +134,10 @@ mod tests {
     #[test]
     fn allowed_updates_filter_and_default_opt_ins() {
         let mut queue = UpdateQueue::default();
-        let reaction = bot::Update { message_reaction: Some(Box::default()), ..Default::default() };
+        let reaction = bot::Update {
+            message_reaction: Some(Box::default()),
+            ..Default::default()
+        };
         assert!(!queue.push(reaction.clone(), 0), "reactions are opt-in");
         queue.set_allowed(vec!["message_reaction".into()]);
         assert!(queue.push(reaction, 0));

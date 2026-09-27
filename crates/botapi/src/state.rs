@@ -30,7 +30,9 @@ impl Gateway {
     /// `<id>:<secret>` → the bot. Telegram answers 404 for malformed tokens and 401 for
     /// well-formed unknown ones.
     pub async fn authenticate(&self, token: &str) -> BotResult<Account> {
-        let well_formed = token.split_once(':').is_some_and(|(id, secret)| id.parse::<i64>().is_ok() && !secret.is_empty());
+        let well_formed = token
+            .split_once(':')
+            .is_some_and(|(id, secret)| id.parse::<i64>().is_ok() && !secret.is_empty());
         if !well_formed {
             return Err(BotError::not_found());
         }
@@ -42,6 +44,11 @@ impl Gateway {
     }
 
     pub fn bot_state(&self, bot: UserId) -> Arc<BotState> {
-        self.bots.lock().expect("bots lock").entry(bot).or_default().clone()
+        self.bots
+            .lock()
+            .expect("bots lock")
+            .entry(bot)
+            .or_default()
+            .clone()
     }
 }

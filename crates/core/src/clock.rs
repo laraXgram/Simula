@@ -21,7 +21,9 @@ pub struct Clock {
 
 impl Default for Clock {
     fn default() -> Self {
-        Self { mode: Mutex::new(ClockMode::Real) }
+        Self {
+            mode: Mutex::new(ClockMode::Real),
+        }
     }
 }
 
@@ -52,14 +54,20 @@ impl Clock {
         let mut mode = self.mode.lock().expect("clock lock");
         *mode = match *mode {
             ClockMode::Real => ClockMode::Offset { offset_ms: by_ms },
-            ClockMode::Frozen { at_ms } => ClockMode::Frozen { at_ms: at_ms + by_ms },
-            ClockMode::Offset { offset_ms } => ClockMode::Offset { offset_ms: offset_ms + by_ms },
+            ClockMode::Frozen { at_ms } => ClockMode::Frozen {
+                at_ms: at_ms + by_ms,
+            },
+            ClockMode::Offset { offset_ms } => ClockMode::Offset {
+                offset_ms: offset_ms + by_ms,
+            },
         };
     }
 }
 
 fn wall_ms() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as i64)
 }
 
 #[cfg(test)]

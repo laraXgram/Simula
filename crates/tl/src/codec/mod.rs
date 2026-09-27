@@ -63,7 +63,10 @@ impl std::fmt::Display for DecodeError {
         match self {
             Self::UnexpectedEof => f.write_str("unexpected end of input"),
             Self::UnexpectedConstructor { id, expected } => {
-                write!(f, "unexpected constructor {id:#010x} while reading {expected}")
+                write!(
+                    f,
+                    "unexpected constructor {id:#010x} while reading {expected}"
+                )
             }
             Self::InvalidUtf8 => f.write_str("string is not valid UTF-8"),
             Self::TrailingBytes(n) => write!(f, "{n} trailing bytes after value"),

@@ -18,7 +18,15 @@ pub enum Event {
         duration_us: u64,
     },
     /// Updates were delivered to an account.
-    Updates { at_ms: i64, account: UserId, updates: Value },
+    Updates {
+        at_ms: i64,
+        account: UserId,
+        updates: Value,
+    },
     /// An account was created or changed outside TL (Control API).
-    Account { at_ms: i64, account: UserId, action: &'static str },
+    Account {
+        at_ms: i64,
+        account: UserId,
+        action: &'static str,
+    },
 }

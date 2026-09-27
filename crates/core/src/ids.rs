@@ -4,15 +4,21 @@ use sha2::{Digest, Sha256};
 use simula_tl::{enums, types};
 
 /// A user or bot account.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct UserId(pub i64);
 
 /// A basic (legacy) group.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct ChatId(pub i64);
 
 /// A supergroup, channel or forum.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct ChannelId(pub i64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -92,14 +98,23 @@ mod tests {
         ] {
             assert_eq!(Peer::from_bot_api_id(peer.bot_api_id()), Some(peer));
         }
-        assert_eq!(Peer::Channel(ChannelId(1_234_567_890)).bot_api_id(), -1_001_234_567_890);
+        assert_eq!(
+            Peer::Channel(ChannelId(1_234_567_890)).bot_api_id(),
+            -1_001_234_567_890
+        );
     }
 
     #[test]
     fn access_hashes_are_per_viewer() {
         let secret = [7; 32];
         let target = Peer::User(UserId(5));
-        assert_ne!(access_hash(&secret, UserId(1), target), access_hash(&secret, UserId(2), target));
-        assert_eq!(access_hash(&secret, UserId(1), target), access_hash(&secret, UserId(1), target));
+        assert_ne!(
+            access_hash(&secret, UserId(1), target),
+            access_hash(&secret, UserId(2), target)
+        );
+        assert_eq!(
+            access_hash(&secret, UserId(1), target),
+            access_hash(&secret, UserId(1), target)
+        );
     }
 }

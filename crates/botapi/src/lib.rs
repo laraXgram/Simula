@@ -16,6 +16,8 @@ mod updates;
 use std::sync::Arc;
 
 pub use error::{BotError, BotResult};
+/// Bot API methods Simula has a handler for.
+pub use methods::IMPLEMENTED as IMPLEMENTED_METHODS;
 pub use state::Gateway;
 
 /// Routes for `/bot<token>/<method>`.

@@ -13,7 +13,9 @@ use config::Config;
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .init();
 
     let config = match Config::from_args() {
@@ -37,7 +39,10 @@ async fn run(config: Config) -> std::io::Result<()> {
         }
         None => None,
     };
-    let sandbox = Sandbox::open(SandboxConfig { id: "default".into(), path: path.clone() })?;
+    let sandbox = Sandbox::open(SandboxConfig {
+        id: "default".into(),
+        path: path.clone(),
+    })?;
     let gateway = Gateway::new(sandbox.clone());
 
     let app = Router::new()
@@ -50,7 +55,9 @@ async fn run(config: Config) -> std::io::Result<()> {
         storage = %path.map_or_else(|| "memory".into(), |p| p.display().to_string()),
         "Simula listening on http://{address}  (Bot API: /bot<token>/<method>, Control API: /_simula/v1)"
     );
-    axum::serve(listener, app).with_graceful_shutdown(shutdown()).await
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown())
+        .await
 }
 
 async fn shutdown() {

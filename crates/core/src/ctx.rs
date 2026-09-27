@@ -49,7 +49,9 @@ impl Ctx<'_> {
 
     /// Session to tag updates for `account` with, if the caller is that account.
     pub fn origin_for(&self, account: UserId) -> Option<crate::ctx::SessionId> {
-        self.caller.filter(|c| c.account == account).and_then(|c| c.session)
+        self.caller
+            .filter(|c| c.account == account)
+            .and_then(|c| c.session)
     }
 }
 
@@ -71,7 +73,11 @@ impl World {
                 secret
             }
         };
-        Ok(Self { conn, clock, secret })
+        Ok(Self {
+            conn,
+            clock,
+            secret,
+        })
     }
 
     /// Run `f` in one transaction. On success the transaction commits and the updates it
@@ -82,7 +88,13 @@ impl World {
         f: impl FnOnce(&mut Ctx<'_>) -> RpcResult<R>,
     ) -> RpcResult<(R, Vec<AccountUpdates>)> {
         let tx = self.conn.transaction()?;
-        let mut ctx = Ctx { db: &tx, clock: &self.clock, secret: &self.secret, caller, out: Outbox::default() };
+        let mut ctx = Ctx {
+            db: &tx,
+            clock: &self.clock,
+            secret: &self.secret,
+            caller,
+            out: Outbox::default(),
+        };
         let result = f(&mut ctx)?;
         let outbox = std::mem::take(&mut ctx.out);
         let updates = outbox.render(&ctx)?;

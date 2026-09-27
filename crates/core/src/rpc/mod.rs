@@ -1,8 +1,7 @@
-//! TL function handlers, one file per function under `rpc/<namespace>/`.
+//! TL function handlers, one file per function under `rpc/handlers/<namespace>/`.
+//! `handlers/mod.rs` (generated) finds them; this file adds the call wrappers.
 
-mod messages;
-mod updates;
-mod users;
+mod handlers;
 
 use simula_tl::Function;
 
@@ -34,17 +33,17 @@ where
     }
 }
 
+pub use handlers::IMPLEMENTED;
+
 pub fn dispatch(ctx: &mut Ctx<'_>, call: Function) -> RpcResult<Box<dyn Reply>> {
-    Ok(match call {
+    match call {
         // Wrappers clients put around real calls.
-        Function::InvokeWithLayer(call) => return dispatch(ctx, *call.query),
-        Function::InitConnection(call) => return dispatch(ctx, *call.query),
-        Function::InvokeWithoutUpdates(call) => return dispatch(ctx, *call.query),
-
-        Function::MessagesSendMessage(call) => Box::new(messages::send_message::handle(ctx, *call)?),
-        Function::UpdatesGetState(call) => Box::new(updates::get_state::handle(ctx, *call)?),
-        Function::UsersGetUsers(call) => Box::new(users::get_users::handle(ctx, *call)?),
-
-        other => return Err(RpcError::not_implemented(other.name())),
-    })
+        Function::InvokeWithLayer(call) => dispatch(ctx, *call.query),
+        Function::InitConnection(call) => dispatch(ctx, *call.query),
+        Function::InvokeWithoutUpdates(call) => dispatch(ctx, *call.query),
+        call => match handlers::route(ctx, call) {
+            Ok(result) => result,
+            Err(unhandled) => Err(RpcError::not_implemented(unhandled.name())),
+        },
+    }
 }

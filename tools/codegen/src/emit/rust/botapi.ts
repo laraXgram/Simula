@@ -436,7 +436,11 @@ ${validateImpl(type.name, validateBody(infos))}${type.name === "Update" ? update
 /** `Update` carries exactly one optional payload; its field name is the update kind. */
 function updateKinds(infos: FieldInfo[]): string {
   const kinds = infos.filter((f) => !f.field.required).map((f) => f.field.name);
-  const checks = kinds.map((k) => `        if self.${ident(k)}.is_some() {\n            return Some("${k}");\n        }`).join("\n");
+  const checks = kinds
+    .map(
+      (k) => `        if self.${ident(k)}.is_some() {\n            return Some("${k}");\n        }`,
+    )
+    .join("\n");
   return `
 impl Update {
     /// Every update kind, as used in \`allowed_updates\`.

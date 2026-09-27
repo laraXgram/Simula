@@ -25,7 +25,11 @@ pub struct StoredMessage<'a> {
 }
 
 pub fn insert(conn: &Connection, row: &StoredMessage<'_>) -> rusqlite::Result<()> {
-    let from = row.message.from_id.as_ref().map(|p| Peer::from_tl(p).bot_api_id());
+    let from = row
+        .message
+        .from_id
+        .as_ref()
+        .map(|p| Peer::from_tl(p).bot_api_id());
     conn.execute(
         "INSERT INTO messages (owner_id, id, peer, from_id, out, date, global_id, random_id, body)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -56,7 +60,11 @@ pub fn get(conn: &Connection, owner: UserId, id: i32) -> rusqlite::Result<Option
 }
 
 /// A sender's earlier message with the same `random_id` (client retries are idempotent).
-pub fn by_random_id(conn: &Connection, owner: UserId, random_id: i64) -> rusqlite::Result<Option<i32>> {
+pub fn by_random_id(
+    conn: &Connection,
+    owner: UserId,
+    random_id: i64,
+) -> rusqlite::Result<Option<i32>> {
     conn.query_row(
         "SELECT id FROM messages WHERE owner_id = ?1 AND random_id = ?2",
         params![owner.0, random_id],

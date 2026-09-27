@@ -20,8 +20,14 @@ impl<'a> Reader<'a> {
     }
 
     pub fn read_bytes(&mut self, len: usize) -> Result<&'a [u8], DecodeError> {
-        let end = self.pos.checked_add(len).ok_or(DecodeError::UnexpectedEof)?;
-        let slice = self.buf.get(self.pos..end).ok_or(DecodeError::UnexpectedEof)?;
+        let end = self
+            .pos
+            .checked_add(len)
+            .ok_or(DecodeError::UnexpectedEof)?;
+        let slice = self
+            .buf
+            .get(self.pos..end)
+            .ok_or(DecodeError::UnexpectedEof)?;
         self.pos = end;
         Ok(slice)
     }
@@ -38,7 +44,10 @@ impl<'a> Reader<'a> {
 
     /// Peek at the next constructor id without consuming it.
     pub fn peek_u32(&self) -> Result<u32, DecodeError> {
-        let bytes = self.buf.get(self.pos..self.pos + 4).ok_or(DecodeError::UnexpectedEof)?;
+        let bytes = self
+            .buf
+            .get(self.pos..self.pos + 4)
+            .ok_or(DecodeError::UnexpectedEof)?;
         Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
     }
 }

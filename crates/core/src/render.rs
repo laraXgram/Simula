@@ -12,7 +12,12 @@ use crate::store::accounts::Account;
 
 pub fn user(ctx: &Ctx<'_>, viewer: &Account, account: &Account) -> enums::User {
     let is_self = viewer.id == account.id;
-    let bot_setting = |key: &str| account.extra.pointer(&format!("/bot/{key}")).and_then(|v| v.as_bool());
+    let bot_setting = |key: &str| {
+        account
+            .extra
+            .pointer(&format!("/bot/{key}"))
+            .and_then(|v| v.as_bool())
+    };
     types::User {
         self_: is_self,
         bot: account.is_bot,
@@ -28,7 +33,11 @@ pub fn user(ctx: &Ctx<'_>, viewer: &Account, account: &Account) -> enums::User {
         phone: if is_self { account.phone.clone() } else { None },
         bot_info_version: account.is_bot.then_some(1),
         // Bots learn their users' language; other users don't.
-        lang_code: if viewer.is_bot { account.lang_code.clone() } else { None },
+        lang_code: if viewer.is_bot {
+            account.lang_code.clone()
+        } else {
+            None
+        },
         ..Default::default()
     }
     .into()

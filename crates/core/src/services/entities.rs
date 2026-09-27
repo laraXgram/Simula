@@ -50,7 +50,10 @@ pub fn detect(text: &str, with_bot_commands: bool) -> Vec<enums::MessageEntity> 
 
 /// Explicit entities win; detected ones overlapping them are dropped (tdlib's
 /// `merge_entities`).
-pub fn merge(explicit: Vec<enums::MessageEntity>, detected: Vec<enums::MessageEntity>) -> Vec<enums::MessageEntity> {
+pub fn merge(
+    explicit: Vec<enums::MessageEntity>,
+    detected: Vec<enums::MessageEntity>,
+) -> Vec<enums::MessageEntity> {
     let spans: Vec<(i32, i32)> = explicit.iter().map(span).collect();
     let mut all = explicit;
     all.extend(detected.into_iter().filter(|d| {
@@ -91,7 +94,11 @@ fn is_ascii_word(c: char) -> bool {
 }
 
 fn is_hashtag_letter(c: char) -> bool {
-    c == '_' || c == '\u{200c}' || c == '\u{b7}' || ('\u{d80}'..='\u{dff}').contains(&c) || c.is_alphanumeric()
+    c == '_'
+        || c == '\u{200c}'
+        || c == '\u{b7}'
+        || ('\u{d80}'..='\u{dff}').contains(&c)
+        || c.is_alphanumeric()
 }
 
 /// Character before / at a char index, if any.
@@ -130,7 +137,11 @@ fn mentions(text: &str, chars: &[(usize, char)]) -> Vec<Found> {
         if size < 4 && !SHORT_USERNAMES.contains(&name.to_ascii_lowercase().as_str()) {
             continue;
         }
-        out.push(Found { kind: Kind::Mention, start, end: byte(text, chars, end) });
+        out.push(Found {
+            kind: Kind::Mention,
+            start,
+            end: byte(text, chars, end),
+        });
     }
     out
 }
@@ -156,7 +167,11 @@ fn bot_commands(text: &str, chars: &[(usize, char)]) -> Vec<Found> {
         if at(chars, end).is_some_and(blocks) {
             continue;
         }
-        out.push(Found { kind: Kind::BotCommand, start, end: byte(text, chars, end) });
+        out.push(Found {
+            kind: Kind::BotCommand,
+            start,
+            end: byte(text, chars, end),
+        });
     }
     out
 }
@@ -199,7 +214,11 @@ fn hashtags(text: &str, chars: &[(usize, char)]) -> Vec<Found> {
         if at(chars, ptr) == Some('#') || !was_letter {
             continue;
         }
-        out.push(Found { kind: Kind::Hashtag, start, end: byte(text, chars, end) });
+        out.push(Found {
+            kind: Kind::Hashtag,
+            start,
+            end: byte(text, chars, end),
+        });
     }
     out
 }
@@ -233,7 +252,11 @@ fn cashtags(text: &str, chars: &[(usize, char)]) -> Vec<Found> {
         if at(chars, ptr).is_some_and(|c| is_hashtag_letter(c) || c == '$') {
             continue;
         }
-        out.push(Found { kind: Kind::Cashtag, start, end: byte(text, chars, end) });
+        out.push(Found {
+            kind: Kind::Cashtag,
+            start,
+            end: byte(text, chars, end),
+        });
     }
     out
 }
@@ -245,16 +268,28 @@ fn urls(text: &str) -> Vec<Found> {
     let mut offset = 0;
     for word in text.split_inclusive(char::is_whitespace) {
         let token = word.trim_end_matches(char::is_whitespace);
-        let token = token.trim_end_matches(['.', ',', ';', ':', '!', '?', ')', ']', '}', '\'', '"']);
+        let token =
+            token.trim_end_matches(['.', ',', ';', ':', '!', '?', ')', ']', '}', '\'', '"']);
         let lower = token.to_ascii_lowercase();
         let lead = token.len() - token.trim_start_matches(['(', '[', '{', '\'', '"']).len();
         let body = &lower[lead..];
         let start = offset + lead;
         let end = offset + token.len();
-        if ["http://", "https://", "tg://", "www."].iter().any(|p| body.starts_with(p) && body.len() > p.len()) {
-            out.push(Found { kind: Kind::Url, start, end });
+        if ["http://", "https://", "tg://", "www."]
+            .iter()
+            .any(|p| body.starts_with(p) && body.len() > p.len())
+        {
+            out.push(Found {
+                kind: Kind::Url,
+                start,
+                end,
+            });
         } else if is_email(&token[lead..]) {
-            out.push(Found { kind: Kind::Email, start, end });
+            out.push(Found {
+                kind: Kind::Email,
+                start,
+                end,
+            });
         }
         offset += word.len();
     }
@@ -262,12 +297,21 @@ fn urls(text: &str) -> Vec<Found> {
 }
 
 fn is_email(s: &str) -> bool {
-    let Some((local, domain)) = s.split_once('@') else { return false };
-    let local_ok = !local.is_empty() && local.chars().all(|c| c.is_ascii_alphanumeric() || "._%+-".contains(c));
-    let Some((host, tld)) = domain.rsplit_once('.') else { return false };
+    let Some((local, domain)) = s.split_once('@') else {
+        return false;
+    };
+    let local_ok = !local.is_empty()
+        && local
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._%+-".contains(c));
+    let Some((host, tld)) = domain.rsplit_once('.') else {
+        return false;
+    };
     local_ok
         && !host.is_empty()
-        && host.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
+        && host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
         && tld.len() >= 2
         && tld.chars().all(|c| c.is_ascii_alphabetic())
 }
@@ -285,7 +329,10 @@ mod tests {
             Kind::Cashtag => cashtags(text, &chars),
             Kind::Url | Kind::Email => urls(text).into_iter().filter(|f| f.kind == kind).collect(),
         };
-        found.into_iter().map(|f| text[f.start..f.end].to_owned()).collect()
+        found
+            .into_iter()
+            .map(|f| text[f.start..f.end].to_owned())
+            .collect()
     }
 
     // Cases from tdlib's td/test/message_entities.cpp.
@@ -297,7 +344,10 @@ mod tests {
         assert!(texts("@abc @xyz @abc @xyz @xxx@yyy @ttt", Kind::Mention).is_empty());
         assert!(texts("no@mention", Kind::Mention).is_empty());
         assert!(texts("@n", Kind::Mention).is_empty());
-        assert_eq!(texts("@abcdefghijklmnopqrstuvwxyz123456", Kind::Mention).len(), 1);
+        assert_eq!(
+            texts("@abcdefghijklmnopqrstuvwxyz123456", Kind::Mention).len(),
+            1
+        );
         assert!(texts("@abcdefghijklmnopqrstuvwxyz1234567", Kind::Mention).is_empty());
         assert!(texts("нет@mention", Kind::Mention).is_empty());
         assert_eq!(texts("@gif @vid", Kind::Mention), ["@gif", "@vid"]);
@@ -342,9 +392,15 @@ mod tests {
 
     #[test]
     fn urls_and_emails() {
-        assert_eq!(texts("see https://example.com/a?b=1.", Kind::Url), ["https://example.com/a?b=1"]);
+        assert_eq!(
+            texts("see https://example.com/a?b=1.", Kind::Url),
+            ["https://example.com/a?b=1"]
+        );
         assert_eq!(texts("(www.telegram.org)", Kind::Url), ["www.telegram.org"]);
-        assert_eq!(texts("mail me: a.b@example.co.uk", Kind::Email), ["a.b@example.co.uk"]);
+        assert_eq!(
+            texts("mail me: a.b@example.co.uk", Kind::Email),
+            ["a.b@example.co.uk"]
+        );
     }
 
     #[test]
@@ -352,13 +408,26 @@ mod tests {
         // "😀" is two UTF-16 units; "سلام " is five.
         let entities = detect("😀 سلام /start", true);
         let value = serde_json::to_value(&entities[0]).unwrap();
-        assert_eq!((value["_"].as_str(), value["offset"].as_i64(), value["length"].as_i64()), (Some("messageEntityBotCommand"), Some(8), Some(6)));
+        assert_eq!(
+            (
+                value["_"].as_str(),
+                value["offset"].as_i64(),
+                value["length"].as_i64()
+            ),
+            (Some("messageEntityBotCommand"), Some(8), Some(6))
+        );
     }
 
     #[test]
     fn commands_need_a_bot_and_explicit_entities_win() {
         assert!(detect("/start", false).is_empty());
-        let explicit: Vec<enums::MessageEntity> = vec![types::MessageEntityBold { offset: 0, length: 6 }.into()];
+        let explicit: Vec<enums::MessageEntity> = vec![
+            types::MessageEntityBold {
+                offset: 0,
+                length: 6,
+            }
+            .into(),
+        ];
         let merged = merge(explicit, detect("/start now", true));
         assert_eq!(merged.len(), 1);
     }

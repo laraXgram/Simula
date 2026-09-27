@@ -39,7 +39,9 @@ async fn handle(
         Ok(bot) => bot,
         Err(error) => return response::error(&error),
     };
-    let info = registry::METHODS.iter().find(|m| m.name.eq_ignore_ascii_case(&method));
+    let info = registry::METHODS
+        .iter()
+        .find(|m| m.name.eq_ignore_ascii_case(&method));
     let decoded = match decode::decode(request, info).await {
         Ok(decoded) => decoded,
         Err(error) => return response::error(&error),

@@ -42,7 +42,9 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<Account> {
 
 pub fn insert(conn: &Connection, account: &Account) -> rusqlite::Result<()> {
     conn.execute(
-        &format!("INSERT INTO accounts ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"),
+        &format!(
+            "INSERT INTO accounts ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"
+        ),
         params![
             account.id.0,
             account.is_bot,
@@ -57,24 +59,39 @@ pub fn insert(conn: &Connection, account: &Account) -> rusqlite::Result<()> {
             account.created_at,
         ],
     )?;
-    conn.execute("INSERT INTO account_state (account_id) VALUES (?1)", [account.id.0])?;
+    conn.execute(
+        "INSERT INTO account_state (account_id) VALUES (?1)",
+        [account.id.0],
+    )?;
     Ok(())
 }
 
 pub fn get(conn: &Connection, id: UserId) -> rusqlite::Result<Option<Account>> {
-    conn.query_row(&format!("SELECT {COLUMNS} FROM accounts WHERE id = ?1"), [id.0], from_row)
-        .optional()
+    conn.query_row(
+        &format!("SELECT {COLUMNS} FROM accounts WHERE id = ?1"),
+        [id.0],
+        from_row,
+    )
+    .optional()
 }
 
 pub fn by_token(conn: &Connection, token: &str) -> rusqlite::Result<Option<Account>> {
-    conn.query_row(&format!("SELECT {COLUMNS} FROM accounts WHERE bot_token = ?1"), [token], from_row)
-        .optional()
+    conn.query_row(
+        &format!("SELECT {COLUMNS} FROM accounts WHERE bot_token = ?1"),
+        [token],
+        from_row,
+    )
+    .optional()
 }
 
 pub fn by_username(conn: &Connection, username: &str) -> rusqlite::Result<Option<Account>> {
     let name = username.trim_start_matches('@');
-    conn.query_row(&format!("SELECT {COLUMNS} FROM accounts WHERE username = ?1"), [name], from_row)
-        .optional()
+    conn.query_row(
+        &format!("SELECT {COLUMNS} FROM accounts WHERE username = ?1"),
+        [name],
+        from_row,
+    )
+    .optional()
 }
 
 pub fn list(conn: &Connection) -> rusqlite::Result<Vec<Account>> {

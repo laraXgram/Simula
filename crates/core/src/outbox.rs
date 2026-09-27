@@ -52,7 +52,10 @@ impl Outbox {
 
     /// Users mentioned so far in `account`'s updates.
     pub fn users_for(&self, account: UserId) -> BTreeSet<UserId> {
-        self.pending.get(&account).map(|p| p.users.clone()).unwrap_or_default()
+        self.pending
+            .get(&account)
+            .map(|p| p.users.clone())
+            .unwrap_or_default()
     }
 
     pub fn render(self, ctx: &Ctx<'_>) -> RpcResult<Vec<AccountUpdates>> {
@@ -65,8 +68,14 @@ impl Outbox {
                     account,
                     is_bot: ctx.account(account)?.is_bot,
                     origin: pending.origin,
-                    updates: types::Updates { updates: pending.updates, users, chats: vec![], date, seq: 0 }
-                        .into(),
+                    updates: types::Updates {
+                        updates: pending.updates,
+                        users,
+                        chats: vec![],
+                        date,
+                        seq: 0,
+                    }
+                    .into(),
                 })
             })
             .collect()

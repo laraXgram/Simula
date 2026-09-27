@@ -21,7 +21,8 @@ impl IntoResponse for ControlError {
             .ok()
             .and_then(|code| StatusCode::from_u16(code).ok())
             .unwrap_or(StatusCode::BAD_REQUEST);
-        let body = json!({ "ok": false, "error": { "code": self.0.code, "message": self.0.message } });
+        let body =
+            json!({ "ok": false, "error": { "code": self.0.code, "message": self.0.message } });
         (status, Json(body)).into_response()
     }
 }

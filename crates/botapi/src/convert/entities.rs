@@ -19,9 +19,17 @@ pub fn entity(e: &enums::MessageEntity) -> Option<bot::MessageEntity> {
         E::Strike(e) => ("strikethrough", e.offset, e.length, None, None),
         E::Spoiler(e) => ("spoiler", e.offset, e.length, None, None),
         E::Code(e) => ("code", e.offset, e.length, None, None),
-        E::Pre(e) => ("pre", e.offset, e.length, None, (!e.language.is_empty()).then(|| e.language.clone())),
+        E::Pre(e) => (
+            "pre",
+            e.offset,
+            e.length,
+            None,
+            (!e.language.is_empty()).then(|| e.language.clone()),
+        ),
         E::TextUrl(e) => ("text_link", e.offset, e.length, Some(e.url.clone()), None),
-        E::Blockquote(e) if e.collapsed => ("expandable_blockquote", e.offset, e.length, None, None),
+        E::Blockquote(e) if e.collapsed => {
+            ("expandable_blockquote", e.offset, e.length, None, None)
+        }
         E::Blockquote(e) => ("blockquote", e.offset, e.length, None, None),
         _ => return None,
     };

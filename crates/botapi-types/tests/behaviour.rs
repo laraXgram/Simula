@@ -5,7 +5,9 @@ use serde_json::{Value, json};
 use simula_botapi_types::types::{
     InlineQueryResult, MaybeInaccessibleMessage, Message, ReplyMarkup, Update,
 };
-use simula_botapi_types::{ChatId, InputFile, Method, ParamKind, Rule, Validate, methods, registry};
+use simula_botapi_types::{
+    ChatId, InputFile, Method, ParamKind, Rule, Validate, methods, registry,
+};
 
 /// Telegram JSON → types → JSON must be lossless.
 fn assert_lossless<T: serde::Serialize + serde::de::DeserializeOwned>(wire: Value) -> T {
@@ -27,7 +29,10 @@ fn private_message_update_is_lossless() {
             "entities": [{ "offset": 0, "length": 6, "type": "bot_command" }]
         }
     }));
-    assert_eq!(update.message.unwrap().text.as_deref(), Some("/start hello"));
+    assert_eq!(
+        update.message.unwrap().text.as_deref(),
+        Some("/start hello")
+    );
 }
 
 #[test]
@@ -35,7 +40,10 @@ fn inaccessible_callback_message_is_told_apart_by_date_zero() {
     let chat = json!({ "id": -1001, "title": "Group", "type": "supergroup" });
     let inaccessible: MaybeInaccessibleMessage =
         assert_lossless(json!({ "chat": chat, "message_id": 5, "date": 0 }));
-    assert!(matches!(inaccessible, MaybeInaccessibleMessage::InaccessibleMessage(_)));
+    assert!(matches!(
+        inaccessible,
+        MaybeInaccessibleMessage::InaccessibleMessage(_)
+    ));
 
     let regular: MaybeInaccessibleMessage =
         assert_lossless(json!({ "chat": chat, "message_id": 5, "date": 1700000000 }));
@@ -53,7 +61,8 @@ fn cached_and_url_photo_results_share_a_type_tag() {
     }));
     assert!(matches!(by_url, InlineQueryResult::Photo(_)));
 
-    let unknown = serde_json::from_value::<InlineQueryResult>(json!({ "type": "hologram", "id": "3" }));
+    let unknown =
+        serde_json::from_value::<InlineQueryResult>(json!({ "type": "hologram", "id": "3" }));
     assert!(unknown.is_err());
 }
 
@@ -72,9 +81,18 @@ fn reply_markup_variants_including_force_reply_on_keyboards() {
 
 #[test]
 fn unset_optionals_and_false_flags_are_omitted() {
-    let message = Message { message_id: 1, date: 2, ..Default::default() };
+    let message = Message {
+        message_id: 1,
+        date: 2,
+        ..Default::default()
+    };
     let wire = serde_json::to_value(&message).unwrap();
-    let mut keys: Vec<&str> = wire.as_object().unwrap().keys().map(String::as_str).collect();
+    let mut keys: Vec<&str> = wire
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
     keys.sort_unstable();
     assert_eq!(keys, ["chat", "date", "message_id"]);
 }
@@ -84,7 +102,10 @@ fn chat_id_accepts_numbers_numeric_strings_and_usernames() {
     let parse = |v: Value| serde_json::from_value::<ChatId>(v).unwrap();
     assert_eq!(parse(json!(-1001234)), ChatId::Id(-1001234));
     assert_eq!(parse(json!("-1001234")), ChatId::Id(-1001234));
-    assert_eq!(parse(json!("@channel")), ChatId::Username("@channel".into()));
+    assert_eq!(
+        parse(json!("@channel")),
+        ChatId::Username("@channel".into())
+    );
 }
 
 #[test]
@@ -108,32 +129,64 @@ fn nested_limits_report_the_full_path() {
     .unwrap();
     let violations = request.validate().unwrap_err();
     assert_eq!(violations.len(), 1);
-    assert_eq!(violations[0].path, "reply_markup.inline_keyboard[0][0].callback_data");
-    assert_eq!(violations[0].rule, Rule::Bytes { min: Some(1), max: Some(64), actual: 65 });
+    assert_eq!(
+        violations[0].path,
+        "reply_markup.inline_keyboard[0][0].callback_data"
+    );
+    assert_eq!(
+        violations[0].rule,
+        Rule::Bytes {
+            min: Some(1),
+            max: Some(64),
+            actual: 65
+        }
+    );
 }
 
 #[test]
 fn documented_ranges_items_and_enums() {
     let updates: methods::GetUpdates = serde_json::from_value(json!({ "limit": 101 })).unwrap();
-    assert!(matches!(updates.validate().unwrap_err()[0].rule, Rule::Range { actual, .. } if actual == 101.0));
+    assert!(
+        matches!(updates.validate().unwrap_err()[0].rule, Rule::Range { actual, .. } if actual == 101.0)
+    );
 
     let action: methods::SendChatAction =
         serde_json::from_value(json!({ "chat_id": 1, "action": "dancing" })).unwrap();
-    assert!(matches!(action.validate().unwrap_err()[0].rule, Rule::OneOf { .. }));
+    assert!(matches!(
+        action.validate().unwrap_err()[0].rule,
+        Rule::OneOf { .. }
+    ));
 
     let group: methods::SendMediaGroup = serde_json::from_value(json!({
         "chat_id": 1, "media": [{ "type": "photo", "media": "AgAD" }]
     }))
     .unwrap();
-    assert_eq!(group.validate().unwrap_err()[0].rule, Rule::Items { min: Some(2), max: Some(10), actual: 1 });
+    assert_eq!(
+        group.validate().unwrap_err()[0].rule,
+        Rule::Items {
+            min: Some(2),
+            max: Some(10),
+            actual: 1
+        }
+    );
 }
 
 #[test]
 fn registry_describes_every_method() {
     assert_eq!(registry::METHODS.len(), 185);
-    let send = registry::METHODS.iter().find(|m| m.name == "sendMessage").unwrap();
+    let send = registry::METHODS
+        .iter()
+        .find(|m| m.name == "sendMessage")
+        .unwrap();
     let chat_id = send.params.iter().find(|p| p.name == "chat_id").unwrap();
-    assert_eq!((chat_id.kind, chat_id.required), (ParamKind::IntegerOrString, true));
-    let markup = send.params.iter().find(|p| p.name == "reply_markup").unwrap();
+    assert_eq!(
+        (chat_id.kind, chat_id.required),
+        (ParamKind::IntegerOrString, true)
+    );
+    let markup = send
+        .params
+        .iter()
+        .find(|p| p.name == "reply_markup")
+        .unwrap();
     assert_eq!(markup.kind, ParamKind::Json);
 }

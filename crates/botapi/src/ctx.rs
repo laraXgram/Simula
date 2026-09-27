@@ -16,7 +16,10 @@ pub struct BotCtx {
 
 impl BotCtx {
     pub fn caller(&self) -> Caller {
-        Caller { account: self.bot.id, session: Some(self.gateway.session) }
+        Caller {
+            account: self.bot.id,
+            session: Some(self.gateway.session),
+        }
     }
 
     /// Run a TL function as the bot; MTProto errors are translated like tdlib would.
@@ -25,7 +28,11 @@ impl BotCtx {
         F: RemoteCall + Into<Function>,
         F::Return: 'static,
     {
-        self.gateway.sandbox.call(self.caller(), call).await.map_err(|e| BotError::from_rpc(&e, context))
+        self.gateway
+            .sandbox
+            .call(self.caller(), call)
+            .await
+            .map_err(|e| BotError::from_rpc(&e, context))
     }
 
     pub fn input_peer(&self, peer: Peer) -> enums::InputPeer {

@@ -18,7 +18,12 @@ pub type BotResult<T> = Result<T, BotError>;
 
 impl BotError {
     pub fn new(code: u16, description: impl Into<String>) -> Self {
-        Self { code, description: description.into(), retry_after: None, migrate_to_chat_id: None }
+        Self {
+            code,
+            description: description.into(),
+            retry_after: None,
+            migrate_to_chat_id: None,
+        }
     }
 
     pub fn bad_request(message: impl std::fmt::Display) -> Self {
@@ -43,7 +48,10 @@ impl BotError {
 
     /// A documented method Simula doesn't simulate yet. Not a Telegram response.
     pub fn not_implemented(method: &str) -> Self {
-        Self::new(501, format!("Not Implemented: Simula doesn't support {method} yet"))
+        Self::new(
+            501,
+            format!("Not Implemented: Simula doesn't support {method} yet"),
+        )
     }
 
     pub fn internal(error: impl std::fmt::Display) -> Self {

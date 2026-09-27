@@ -3,7 +3,10 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
 pub fn get(conn: &Connection, key: &str) -> rusqlite::Result<Option<String>> {
-    conn.query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| row.get(0)).optional()
+    conn.query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| {
+        row.get(0)
+    })
+    .optional()
 }
 
 pub fn set(conn: &Connection, key: &str, value: &str) -> rusqlite::Result<()> {

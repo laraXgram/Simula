@@ -39,14 +39,9 @@ all = { level = "warn", priority = -1 }
 [profile.dev]
 # Generated TL code is large; keep debug info light so builds stay small on disk.
 debug = "line-tables-only"
+# Incremental caches for crates built on the TL types reach gigabytes. Off by default;
+# set CARGO_INCREMENTAL=1 to trade disk for faster rebuilds.
+incremental = false
 
 [profile.dev.package."*"]
 debug = false
-
-# The generated TL crate is ~175k lines and rarely changes: incremental caches for it
-# cost gigabytes of disk for no speed-up.
-[profile.dev.package.simula-tl]
-incremental = false
-
-[profile.dev.package.simula-botapi-types]
-incremental = false

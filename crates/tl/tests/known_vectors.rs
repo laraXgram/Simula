@@ -1,7 +1,9 @@
 //! Codec checks against fixed byte strings and JSON text. The round-trip suite can't
 //! catch a mistake that the encoder and decoder share; these can.
 
-use simula_tl::{Deserializable, Function, Identifiable, Serializable, enums, functions, mtproto, types};
+use simula_tl::{
+    Deserializable, Function, Identifiable, Serializable, enums, functions, mtproto, types,
+};
 
 fn hex(s: &str) -> Vec<u8> {
     let digits: String = s.split_whitespace().collect();
@@ -16,7 +18,9 @@ const NONCE: &str = "51 A1 14 3F C7 A3 66 6B E4 BE 54 D6 89 0A 02 DC";
 /// <https://core.telegram.org/mtproto/samples-auth_key>, step 1 payload body.
 #[test]
 fn req_pq_multi_matches_official_sample() {
-    let call = mtproto::functions::ReqPqMulti { nonce: hex(NONCE).try_into().unwrap() };
+    let call = mtproto::functions::ReqPqMulti {
+        nonce: hex(NONCE).try_into().unwrap(),
+    };
     assert_eq!(call.to_bytes(), hex(&format!("F1 8E 7E BE {NONCE}")));
 }
 
@@ -79,7 +83,10 @@ fn flags_are_computed_from_fields() {
         ..empty_send_message()
     };
     let bytes = call.to_bytes();
-    assert_eq!(&bytes[..4], &functions::messages::SendMessage::CONSTRUCTOR_ID.to_le_bytes());
+    assert_eq!(
+        &bytes[..4],
+        &functions::messages::SendMessage::CONSTRUCTOR_ID.to_le_bytes()
+    );
     // silent = flags.5, schedule_date = flags.10
     let flags = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
     assert_eq!(flags, (1 << 5) | (1 << 10));
@@ -93,9 +100,15 @@ fn generic_query_nests_a_whole_function() {
         query: Box::new(Function::from(functions::help::GetConfig {})),
     };
     let bytes = call.to_bytes();
-    assert_eq!(&bytes[..4], &functions::InvokeWithLayer::CONSTRUCTOR_ID.to_le_bytes());
+    assert_eq!(
+        &bytes[..4],
+        &functions::InvokeWithLayer::CONSTRUCTOR_ID.to_le_bytes()
+    );
     assert_eq!(&bytes[4..8], &simula_tl::LAYER.to_le_bytes());
-    assert_eq!(&bytes[8..], &functions::help::GetConfig::CONSTRUCTOR_ID.to_le_bytes());
+    assert_eq!(
+        &bytes[8..],
+        &functions::help::GetConfig::CONSTRUCTOR_ID.to_le_bytes()
+    );
 
     let json = serde_json::to_value(Function::from(call)).unwrap();
     assert_eq!(json["_"], "invokeWithLayer");
@@ -104,20 +117,37 @@ fn generic_query_nests_a_whole_function() {
 
 #[test]
 fn json_tl_shape() {
-    let entity: enums::MessageEntity = types::MessageEntityBold { offset: 0, length: 5 }.into();
+    let entity: enums::MessageEntity = types::MessageEntityBold {
+        offset: 0,
+        length: 5,
+    }
+    .into();
     assert_eq!(
         serde_json::to_string(&entity).unwrap(),
         r#"{"_":"messageEntityBold","offset":0,"length":5}"#
     );
 
     // long → string (64-bit safe for JavaScript), and numbers are accepted on input.
-    let peer: enums::InputPeer =
-        types::InputPeerUser { user_id: 1 << 53, access_hash: -1 }.into();
+    let peer: enums::InputPeer = types::InputPeerUser {
+        user_id: 1 << 53,
+        access_hash: -1,
+    }
+    .into();
     let json = serde_json::to_string(&peer).unwrap();
-    assert_eq!(json, r#"{"_":"inputPeerUser","user_id":"9007199254740992","access_hash":"-1"}"#);
+    assert_eq!(
+        json,
+        r#"{"_":"inputPeerUser","user_id":"9007199254740992","access_hash":"-1"}"#
+    );
     let parsed: enums::InputPeer =
         serde_json::from_str(r#"{"_":"inputPeerUser","user_id":5,"access_hash":"-1"}"#).unwrap();
-    assert_eq!(parsed, types::InputPeerUser { user_id: 5, access_hash: -1 }.into());
+    assert_eq!(
+        parsed,
+        types::InputPeerUser {
+            user_id: 5,
+            access_hash: -1
+        }
+        .into()
+    );
 
     // Unset optional fields and false bit flags are omitted.
     let json = serde_json::to_value(Function::from(empty_send_message())).unwrap();
@@ -130,7 +160,10 @@ fn rejects_unknown_constructors() {
     let err = enums::MessageEntity::from_bytes(&[0xef, 0xbe, 0xad, 0xde]).unwrap_err();
     assert_eq!(
         err,
-        simula_tl::DecodeError::UnexpectedConstructor { id: 0xdead_beef, expected: "MessageEntity" }
+        simula_tl::DecodeError::UnexpectedConstructor {
+            id: 0xdead_beef,
+            expected: "MessageEntity"
+        }
     );
     let err = serde_json::from_str::<enums::MessageEntity>(r#"{"_":"nope"}"#).unwrap_err();
     assert!(err.to_string().contains("unknown variant"), "{err}");

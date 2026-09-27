@@ -138,6 +138,8 @@ fn strip_at(username: String) -> String {
 fn generate_token(id: UserId) -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-";
     let mut rng = rand::rng();
-    let secret: String = (0..33).map(|_| ALPHABET[rng.random_range(0..ALPHABET.len())] as char).collect();
+    let secret: String = (0..33)
+        .map(|_| ALPHABET[rng.random_range(0..ALPHABET.len())] as char)
+        .collect();
     format!("{}:AA{secret}", id.0)
 }

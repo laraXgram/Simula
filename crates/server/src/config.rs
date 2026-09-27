@@ -22,11 +22,16 @@ impl Config {
         let env = |key: &str| std::env::var(key).ok();
         let mut host = env("SIMULA_HOST").unwrap_or_else(|| "127.0.0.1".into());
         let mut port = env("SIMULA_PORT").unwrap_or_else(|| "8081".into());
-        let mut data_dir = Some(PathBuf::from(env("SIMULA_DATA_DIR").unwrap_or_else(|| "data".into())));
+        let mut data_dir = Some(PathBuf::from(
+            env("SIMULA_DATA_DIR").unwrap_or_else(|| "data".into()),
+        ));
 
         let mut args = std::env::args().skip(1);
         while let Some(arg) = args.next() {
-            let mut value = || args.next().ok_or_else(|| format!("{arg} needs a value\n\n{USAGE}"));
+            let mut value = || {
+                args.next()
+                    .ok_or_else(|| format!("{arg} needs a value\n\n{USAGE}"))
+            };
             match arg.as_str() {
                 "--host" => host = value()?,
                 "--port" => port = value()?,

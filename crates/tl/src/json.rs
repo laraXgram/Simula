@@ -81,7 +81,10 @@ pub mod vec_long {
         s.collect_seq(v.iter().map(|x| Long(*x)))
     }
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<i64>, D::Error> {
-        Ok(Vec::<Long>::deserialize(d)?.into_iter().map(|l| l.0).collect())
+        Ok(Vec::<Long>::deserialize(d)?
+            .into_iter()
+            .map(|l| l.0)
+            .collect())
     }
 }
 
@@ -123,7 +126,10 @@ pub mod vec_bytes {
         s.collect_seq(v.iter().map(|b| STANDARD.encode(b)))
     }
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Vec<u8>>, D::Error> {
-        Ok(Vec::<Base64>::deserialize(d)?.into_iter().map(|b| b.0).collect())
+        Ok(Vec::<Base64>::deserialize(d)?
+            .into_iter()
+            .map(|b| b.0)
+            .collect())
     }
 }
 

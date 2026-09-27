@@ -91,7 +91,9 @@ export class TlContext {
       changed = false;
       for (const c of all) {
         if (this.defaultable.has(c.name)) continue;
-        const ok = c.params.every((p) => p.type.kind === "flags" || !!p.flag || this.typeDefaultable(p.type));
+        const ok = c.params.every(
+          (p) => p.type.kind === "flags" || !!p.flag || this.typeDefaultable(p.type),
+        );
         if (ok) {
           this.defaultable.add(c.name);
           changed = true;
@@ -100,7 +102,9 @@ export class TlContext {
       for (const type of this.boxedTypes) {
         if (this.enumDefault.has(type)) continue;
         const constructors = this.schema.constructors.filter((c) => resultName(c) === type);
-        const pick = constructors.find((c) => c.params.length === 0) ?? constructors.find((c) => this.defaultable.has(c.name));
+        const pick =
+          constructors.find((c) => c.params.length === 0) ??
+          constructors.find((c) => this.defaultable.has(c.name));
         if (pick) {
           this.enumDefault.set(type, pick);
           changed = true;
@@ -112,7 +116,8 @@ export class TlContext {
   private typeDefaultable(type: TlType): boolean {
     switch (type.kind) {
       case "named":
-        if (type.name in PRIMITIVES || (type.name === "string" && this.options.binaryStrings)) return true;
+        if (type.name in PRIMITIVES || (type.name === "string" && this.options.binaryStrings))
+          return true;
         return type.bare ? this.defaultable.has(type.name) : this.enumDefault.has(type.name);
       case "vector":
         return true;
@@ -358,7 +363,9 @@ function structItem(ctx: TlContext, c: TlCombinator): string {
   const body = fields(ctx, c)
     .map((f) => `${serdeAttrs(f)}pub ${f.name}: ${f.rust},`)
     .join("\n");
-  const derive = ctx.defaultable.has(c.name) ? DERIVE.replace("PartialEq, ", "PartialEq, Default, ") : DERIVE;
+  const derive = ctx.defaultable.has(c.name)
+    ? DERIVE.replace("PartialEq, ", "PartialEq, Default, ")
+    : DERIVE;
   return `/// \`${formatCombinator(c)}\`\n${derive}\npub struct ${pascal(splitName(c.name).local)} {\n${body}\n}\n`;
 }
 
@@ -410,9 +417,12 @@ function emitEnum(ctx: TlContext, typeName: string, items: TlCombinator[]): stri
   const vs = variants(typeName, items);
   const payload = (v: Variant) => ctx.structPath(v.c.name);
 
-    const isDefault = (v: Variant) => v.unit && ctx.enumDefault.get(typeName) === v.c;
+  const isDefault = (v: Variant) => v.unit && ctx.enumDefault.get(typeName) === v.c;
   const decl = vs
-    .map((v) => `#[serde(rename = "${v.c.name}")]\n${isDefault(v) ? "#[default]\n" : ""}${v.name}${v.unit ? "" : `(Box<${payload(v)}>)`},`)
+    .map(
+      (v) =>
+        `#[serde(rename = "${v.c.name}")]\n${isDefault(v) ? "#[default]\n" : ""}${v.name}${v.unit ? "" : `(Box<${payload(v)}>)`},`,
+    )
     .join("\n");
   const pat = (v: Variant, bind = "_") => `Self::${v.name}${v.unit ? "" : `(${bind})`}`;
 
@@ -439,9 +449,10 @@ function emitEnum(ctx: TlContext, typeName: string, items: TlCombinator[]): stri
   const fallbackVariant = fallback ? vs.find((v) => v.c === fallback) : undefined;
   // A unit default is derived (`#[default]`); a boxed payload needs a manual impl.
   const derivedDefault = fallbackVariant?.unit === true;
-  const defaultImpl = fallbackVariant && !derivedDefault
-    ? `impl Default for ${name} {\n    fn default() -> Self {\n        ${fallbackVariant.unit ? `Self::${fallbackVariant.name}` : `Self::${fallbackVariant.name}(Box::default())`}\n    }\n}\n`
-    : "";
+  const defaultImpl =
+    fallbackVariant && !derivedDefault
+      ? `impl Default for ${name} {\n    fn default() -> Self {\n        ${fallbackVariant.unit ? `Self::${fallbackVariant.name}` : `Self::${fallbackVariant.name}(Box::default())`}\n    }\n}\n`
+      : "";
 
   return `/// TL type \`${typeName}\`.
 ${derivedDefault ? DERIVE.replace("PartialEq, ", "PartialEq, Default, ") : DERIVE}
@@ -489,7 +500,15 @@ ${froms}`;
 }
 
 /** Rust types returned by value from accessors; everything else by reference. */
-const COPY_TYPES = new Set(["i32", "i64", "f64", "bool", "Option<i32>", "Option<i64>", "Option<f64>"]);
+const COPY_TYPES = new Set([
+  "i32",
+  "i64",
+  "f64",
+  "bool",
+  "Option<i32>",
+  "Option<i64>",
+  "Option<f64>",
+]);
 
 /**
  * Accessors for fields every constructor of the type has with the same Rust type, e.g.
@@ -501,12 +520,16 @@ function commonAccessors(ctx: TlContext, vs: Variant[]): string {
   const [first, ...rest] = perVariant;
   if (!first) return "";
   const common = [...first.values()].filter(
-    (f) => !["name", "constructor_id"].includes(f.name) && rest.every((m) => m.get(f.name)?.rust === f.rust),
+    (f) =>
+      !["name", "constructor_id"].includes(f.name) &&
+      rest.every((m) => m.get(f.name)?.rust === f.rust),
   );
   return common
     .map((f) => {
       const byValue = COPY_TYPES.has(f.rust);
-      const arms = vs.map((v) => `Self::${v.name}(x) => ${byValue ? "" : "&"}x.${f.name},`).join("\n");
+      const arms = vs
+        .map((v) => `Self::${v.name}(x) => ${byValue ? "" : "&"}x.${f.name},`)
+        .join("\n");
       return `    pub fn ${f.name}(&self) -> ${byValue ? f.rust : `&${f.rust}`} {\n        match self {\n${arms}\n        }\n    }\n`;
     })
     .join("\n");

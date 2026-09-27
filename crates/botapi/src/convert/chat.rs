@@ -19,6 +19,10 @@ pub fn chat(peer: Peer, entities: &Entities<'_>) -> bot::Chat {
             }
         }
         // Groups and channels arrive with M4.
-        other => bot::Chat { id: other.bot_api_id(), r#type: "group".into(), ..Default::default() },
+        other => bot::Chat {
+            id: other.bot_api_id(),
+            r#type: "group".into(),
+            ..Default::default()
+        },
     }
 }

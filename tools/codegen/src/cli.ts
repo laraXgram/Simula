@@ -1,5 +1,7 @@
 import { buildBotApiSpec } from "./botapi";
 import { diffAgainstRef, diffFiles } from "./diff";
+import { emitCoverage } from "./emit/coverage";
+import { emitRegistries, scaffoldBotApi, scaffoldTl } from "./emit/registries";
 import { emitRustBotApi, emitRustTl } from "./emit/rust";
 import { emitTs } from "./emit/ts";
 import { buildTlSchemas, importTl } from "./tl";
@@ -17,6 +19,12 @@ commands:
   rust:botapi            generate crates/botapi-types/src/generated from spec/botapi/api.json
   ts                     generate packages/schema/src/generated (TL + Bot API TypeScript types)
   verify:ts              type-check the JSON the Rust crates produce against the TS types
+  registries             regenerate handler module lists and routing tables
+  new:botapi <method>    scaffold a Bot API method handler from the spec
+  new:tl <function>      scaffold a TL function handler from the schema
+  coverage               write docs/coverage.md
+  generate               everything below the specs, from the committed specs (CI checks this is a no-op)
+  all [--offline]        scrape the Bot API docs, then generate
 `;
 
 const [command, ...args] = process.argv.slice(2);
@@ -88,6 +96,47 @@ switch (command) {
     );
     break;
   }
+  case "registries": {
+    const { botapi, tl } = await emitRegistries();
+    console.log(`registries: ${botapi} Bot API method handlers, ${tl} TL function handlers`);
+    break;
+  }
+  case "new:botapi":
+  case "new:tl": {
+    const name = args.find((arg) => !arg.startsWith("--"));
+    if (!name) {
+      console.error(USAGE);
+      process.exit(1);
+    }
+    const file = command === "new:botapi" ? await scaffoldBotApi(name) : await scaffoldTl(name);
+    console.log(`created ${file}`);
+    break;
+  }
+  case "coverage":
+    printCoverage(await emitCoverage());
+    break;
+  case "all":
+  case "generate": {
+    if (command === "all") {
+      const spec = await buildBotApiSpec({ offline });
+      console.log(
+        `spec: Bot API ${spec.release.version}, ${spec.methods.length} methods, ${spec.types.length} types`,
+      );
+    }
+    await printTl();
+    for (const [name, run] of [
+      ["crates/tl", emitRustTl],
+      ["crates/botapi-types", emitRustBotApi],
+      ["packages/schema", emitTs],
+    ] as const) {
+      const r = await run();
+      console.log(`${name}: ${r.written} written, ${r.unchanged} unchanged, ${r.removed} removed`);
+    }
+    const { botapi, tl } = await emitRegistries();
+    console.log(`registries: ${botapi} Bot API handlers, ${tl} TL handlers`);
+    printCoverage(await emitCoverage());
+    break;
+  }
   default:
     console.error(USAGE);
     process.exit(command ? 1 : 0);
@@ -100,4 +149,10 @@ async function printTl() {
       `${schema.file}${layer}: ${schema.constructors.length} constructors, ${schema.functions.length} functions`,
     );
   }
+}
+
+function printCoverage(c: Awaited<ReturnType<typeof emitCoverage>>) {
+  console.log(
+    `coverage: Bot API ${c.botapi.implemented}/${c.botapi.total} (+${c.botapi.stubs} stubs), TL ${c.tl.implemented}/${c.tl.total} (+${c.tl.stubs} stubs) → docs/coverage.md`,
+  );
 }

@@ -1,4 +1,6 @@
-use super::{BOOL_FALSE_ID, BOOL_TRUE_ID, DecodeError, Deserializable, Reader, Serializable, VECTOR_ID};
+use super::{
+    BOOL_FALSE_ID, BOOL_TRUE_ID, DecodeError, Deserializable, Reader, Serializable, VECTOR_ID,
+};
 
 // int / long / double: little-endian, fixed width.
 
@@ -77,7 +79,10 @@ impl Deserializable for bool {
         match reader.read_u32()? {
             BOOL_TRUE_ID => Ok(true),
             BOOL_FALSE_ID => Ok(false),
-            id => Err(DecodeError::UnexpectedConstructor { id, expected: "Bool" }),
+            id => Err(DecodeError::UnexpectedConstructor {
+                id,
+                expected: "Bool",
+            }),
         }
     }
 }
@@ -148,7 +153,10 @@ impl<T: Deserializable> Deserializable for Vec<T> {
     fn deserialize(reader: &mut Reader<'_>) -> Result<Self, DecodeError> {
         match reader.read_u32()? {
             VECTOR_ID => read_bare_vector(reader),
-            id => Err(DecodeError::UnexpectedConstructor { id, expected: "Vector" }),
+            id => Err(DecodeError::UnexpectedConstructor {
+                id,
+                expected: "Vector",
+            }),
         }
     }
 }
@@ -191,7 +199,10 @@ mod tests {
     #[test]
     fn short_string_is_padded_to_four_bytes() {
         assert_eq!("abc".to_string().to_bytes(), [3, b'a', b'b', b'c']);
-        assert_eq!("abcd".to_string().to_bytes(), [4, b'a', b'b', b'c', b'd', 0, 0, 0]);
+        assert_eq!(
+            "abcd".to_string().to_bytes(),
+            [4, b'a', b'b', b'c', b'd', 0, 0, 0]
+        );
         assert_eq!(String::new().to_bytes(), [0, 0, 0, 0]);
     }
 
@@ -229,9 +240,15 @@ mod tests {
 
     #[test]
     fn rejects_truncated_input_and_absurd_counts() {
-        assert_eq!(String::from_bytes(&[5, b'a']), Err(DecodeError::UnexpectedEof));
+        assert_eq!(
+            String::from_bytes(&[5, b'a']),
+            Err(DecodeError::UnexpectedEof)
+        );
         let mut huge = VECTOR_ID.to_le_bytes().to_vec();
         huge.extend_from_slice(&i32::MAX.to_le_bytes());
-        assert_eq!(Vec::<i32>::from_bytes(&huge), Err(DecodeError::UnexpectedEof));
+        assert_eq!(
+            Vec::<i32>::from_bytes(&huge),
+            Err(DecodeError::UnexpectedEof)
+        );
     }
 }

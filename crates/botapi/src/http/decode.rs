@@ -31,7 +31,9 @@ pub async fn decode(request: Request, info: Option<&MethodInfo>) -> BotResult<De
     let mut decoded = DecodedRequest::default();
     if let Some(query) = request.uri().query() {
         for (key, value) in form_pairs(query)? {
-            decoded.params.insert(key.clone(), coerce(info, &key, value));
+            decoded
+                .params
+                .insert(key.clone(), coerce(info, &key, value));
         }
     }
 
@@ -39,7 +41,13 @@ pub async fn decode(request: Request, info: Option<&MethodInfo>) -> BotResult<De
         .headers()
         .get(CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
-        .map(|v| v.split(';').next().unwrap_or("").trim().to_ascii_lowercase())
+        .map(|v| {
+            v.split(';')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase()
+        })
         .unwrap_or_default();
 
     match content_type.as_str() {
@@ -64,7 +72,9 @@ pub async fn decode(request: Request, info: Option<&MethodInfo>) -> BotResult<De
         "application/x-www-form-urlencoded" => {
             let body = body_bytes(request).await?;
             for (key, value) in form_pairs(std::str::from_utf8(&body).unwrap_or(""))? {
-                decoded.params.insert(key.clone(), coerce(info, &key, value));
+                decoded
+                    .params
+                    .insert(key.clone(), coerce(info, &key, value));
             }
         }
         "multipart/form-data" => {
@@ -79,16 +89,30 @@ pub async fn decode(request: Request, info: Option<&MethodInfo>) -> BotResult<De
                 let name = field.name().unwrap_or_default().to_owned();
                 let file_name = field.file_name().map(str::to_owned);
                 let content_type = field.content_type().map(str::to_owned);
-                let bytes = field.bytes().await.map_err(|_| BotError::bad_request("request body is too big"))?;
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|_| BotError::bad_request("request body is too big"))?;
                 if file_name.is_some() {
                     // A file sent directly as a parameter is an `attach://` to itself.
                     if kind(info, &name) == Some(ParamKind::InputFile) {
-                        decoded.params.insert(name.clone(), Value::String(format!("attach://{name}")));
+                        decoded
+                            .params
+                            .insert(name.clone(), Value::String(format!("attach://{name}")));
                     }
-                    decoded.files.insert(name, Upload { file_name, content_type, bytes });
+                    decoded.files.insert(
+                        name,
+                        Upload {
+                            file_name,
+                            content_type,
+                            bytes,
+                        },
+                    );
                 } else {
                     let text = String::from_utf8_lossy(&bytes).into_owned();
-                    decoded.params.insert(name.clone(), coerce(info, &name, text));
+                    decoded
+                        .params
+                        .insert(name.clone(), coerce(info, &name, text));
                 }
             }
         }
@@ -104,7 +128,8 @@ async fn body_bytes(request: Request) -> BotResult<axum::body::Bytes> {
 }
 
 fn form_pairs(input: &str) -> BotResult<Vec<(String, String)>> {
-    serde_urlencoded::from_str(input).map_err(|_| BotError::bad_request("can't parse request parameters"))
+    serde_urlencoded::from_str(input)
+        .map_err(|_| BotError::bad_request("can't parse request parameters"))
 }
 
 fn kind(info: Option<&MethodInfo>, name: &str) -> Option<ParamKind> {
@@ -115,7 +140,11 @@ fn kind(info: Option<&MethodInfo>, name: &str) -> Option<ParamKind> {
 /// stay strings, so deserialization reports them precisely.
 fn coerce(info: Option<&MethodInfo>, name: &str, value: String) -> Value {
     match kind(info, name) {
-        Some(ParamKind::Integer) => value.trim().parse::<i64>().map(Value::from).unwrap_or(Value::String(value)),
+        Some(ParamKind::Integer) => value
+            .trim()
+            .parse::<i64>()
+            .map(Value::from)
+            .unwrap_or(Value::String(value)),
         Some(ParamKind::Float) => value
             .trim()
             .parse::<f64>()

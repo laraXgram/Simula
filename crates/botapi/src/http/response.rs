@@ -12,7 +12,8 @@ pub fn ok(result: Value) -> Response {
 }
 
 pub fn error(error: &BotError) -> Response {
-    let mut body = json!({ "ok": false, "error_code": error.code, "description": error.description });
+    let mut body =
+        json!({ "ok": false, "error_code": error.code, "description": error.description });
     let mut parameters = serde_json::Map::new();
     if let Some(retry_after) = error.retry_after {
         parameters.insert("retry_after".into(), retry_after.into());

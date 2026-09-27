@@ -8,7 +8,7 @@ Every finished task is logged in [docs/worklog.md](docs/worklog.md) and committe
 
 **Targets:** Bot API **10.3** · MTProto layer from tdlib `telegram_api.tl`
 
-**Current focus:** P1.9–P1.10 registries, then M2
+**Current focus:** P0.4 CI, then M2 (webhooks, formatting, keyboards, callbacks)
 
 ---
 
@@ -44,8 +44,8 @@ vertical slice through several phases, so the architecture is exercised end to e
 - [x] P1.6 Rust emitter: TL types + binary codec + JSON-TL codec (`simula-tl`)
 - [x] P1.7 Rust emitter: Bot API types, method param structs, validators (`simula-botapi-types`)
 - [x] P1.8 TypeScript emitter: TL + Bot API types for the client and SDKs
-- [ ] P1.9 Registry emitters: TL dispatch table, Bot API method table, stubs for new methods
-- [ ] P1.10 Coverage report: implemented / partial / stub per method, generated from registries
+- [x] P1.9 Registry emitters: TL dispatch table, Bot API method table, stubs for new methods
+- [x] P1.10 Coverage report: implemented / partial / stub per method, generated from registries → [docs/coverage.md](docs/coverage.md)
 
 ## P2 — Core engine (MTProto semantics)
 

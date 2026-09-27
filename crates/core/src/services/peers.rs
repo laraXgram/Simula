@@ -8,10 +8,16 @@ use crate::error::{RpcError, RpcResult};
 use crate::ids::{ChannelId, ChatId, Peer, UserId};
 use crate::store;
 
-pub fn resolve_input_peer(ctx: &Ctx<'_>, viewer: UserId, input: &enums::InputPeer) -> RpcResult<Peer> {
+pub fn resolve_input_peer(
+    ctx: &Ctx<'_>,
+    viewer: UserId,
+    input: &enums::InputPeer,
+) -> RpcResult<Peer> {
     match input {
         enums::InputPeer::InputPeerSelf => Ok(Peer::User(viewer)),
-        enums::InputPeer::User(p) => resolve_user(ctx, viewer, p.user_id, p.access_hash).map(Peer::User),
+        enums::InputPeer::User(p) => {
+            resolve_user(ctx, viewer, p.user_id, p.access_hash).map(Peer::User)
+        }
         enums::InputPeer::Chat(p) => Ok(Peer::Chat(ChatId(p.chat_id))),
         enums::InputPeer::Channel(p) => {
             let peer = Peer::Channel(ChannelId(p.channel_id));
@@ -24,7 +30,11 @@ pub fn resolve_input_peer(ctx: &Ctx<'_>, viewer: UserId, input: &enums::InputPee
     }
 }
 
-pub fn resolve_input_user(ctx: &Ctx<'_>, viewer: UserId, input: &enums::InputUser) -> RpcResult<UserId> {
+pub fn resolve_input_user(
+    ctx: &Ctx<'_>,
+    viewer: UserId,
+    input: &enums::InputUser,
+) -> RpcResult<UserId> {
     match input {
         enums::InputUser::InputUserSelf => Ok(viewer),
         enums::InputUser::InputUser(p) => resolve_user(ctx, viewer, p.user_id, p.access_hash),
@@ -32,9 +42,16 @@ pub fn resolve_input_user(ctx: &Ctx<'_>, viewer: UserId, input: &enums::InputUse
     }
 }
 
-fn resolve_user(ctx: &Ctx<'_>, viewer: UserId, user_id: i64, access_hash: i64) -> RpcResult<UserId> {
+fn resolve_user(
+    ctx: &Ctx<'_>,
+    viewer: UserId,
+    user_id: i64,
+    access_hash: i64,
+) -> RpcResult<UserId> {
     let id = UserId(user_id);
-    if access_hash != ctx.access_hash(viewer, Peer::User(id)) || store::accounts::get(ctx.db, id)?.is_none() {
+    if access_hash != ctx.access_hash(viewer, Peer::User(id))
+        || store::accounts::get(ctx.db, id)?.is_none()
+    {
         return Err(RpcError::peer_id_invalid());
     }
     Ok(id)
@@ -50,8 +67,16 @@ pub fn input_peer(ctx: &Ctx<'_>, viewer: UserId, peer: Peer) -> enums::InputPeer
 
 pub fn input_peer_with_hash(peer: Peer, access_hash: i64) -> enums::InputPeer {
     match peer {
-        Peer::User(id) => types::InputPeerUser { user_id: id.0, access_hash }.into(),
+        Peer::User(id) => types::InputPeerUser {
+            user_id: id.0,
+            access_hash,
+        }
+        .into(),
         Peer::Chat(id) => types::InputPeerChat { chat_id: id.0 }.into(),
-        Peer::Channel(id) => types::InputPeerChannel { channel_id: id.0, access_hash }.into(),
+        Peer::Channel(id) => types::InputPeerChannel {
+            channel_id: id.0,
+            access_hash,
+        }
+        .into(),
     }
 }
