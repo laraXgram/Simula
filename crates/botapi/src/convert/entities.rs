@@ -28,26 +28,46 @@ pub fn entity(e: &enums::MessageEntity, users: &Entities<'_>) -> Option<bot::Mes
         E::Strike(_) => base("strikethrough"),
         E::Spoiler(_) => base("spoiler"),
         E::Code(_) => base("code"),
-        E::Pre(p) => bot::MessageEntity { language: (!p.language.is_empty()).then(|| p.language.clone()), ..base("pre") },
-        E::TextUrl(t) => bot::MessageEntity { url: Some(t.url.clone()), ..base("text_link") },
+        E::Pre(p) => bot::MessageEntity {
+            language: (!p.language.is_empty()).then(|| p.language.clone()),
+            ..base("pre")
+        },
+        E::TextUrl(t) => bot::MessageEntity {
+            url: Some(t.url.clone()),
+            ..base("text_link")
+        },
         E::MentionName(m) => bot::MessageEntity {
-            user: Some(Box::new(users.user(m.user_id).map(|u| user(u, false)).unwrap_or(bot::User {
-                id: m.user_id,
-                ..Default::default()
-            }))),
+            user: Some(Box::new(
+                users
+                    .user(m.user_id)
+                    .map(|u| user(u, false))
+                    .unwrap_or(bot::User {
+                        id: m.user_id,
+                        ..Default::default()
+                    }),
+            )),
             ..base("text_mention")
         },
-        E::CustomEmoji(c) => bot::MessageEntity { custom_emoji_id: Some(c.document_id.to_string()), ..base("custom_emoji") },
+        E::CustomEmoji(c) => bot::MessageEntity {
+            custom_emoji_id: Some(c.document_id.to_string()),
+            ..base("custom_emoji")
+        },
         E::Blockquote(b) if b.collapsed => base("expandable_blockquote"),
         E::Blockquote(_) => base("blockquote"),
         E::FormattedDate(d) => {
             let format = if d.relative {
                 "r".to_owned()
             } else {
-                [(d.day_of_week, 'w'), (d.short_date, 'd'), (d.long_date, 'D'), (d.short_time, 't'), (d.long_time, 'T')]
-                    .into_iter()
-                    .filter_map(|(on, c)| on.then_some(c))
-                    .collect()
+                [
+                    (d.day_of_week, 'w'),
+                    (d.short_date, 'd'),
+                    (d.long_date, 'D'),
+                    (d.short_time, 't'),
+                    (d.long_time, 'T'),
+                ]
+                .into_iter()
+                .filter_map(|(on, c)| on.then_some(c))
+                .collect()
             };
             bot::MessageEntity {
                 unix_time: Some(d.date.into()),
@@ -59,7 +79,10 @@ pub fn entity(e: &enums::MessageEntity, users: &Entities<'_>) -> Option<bot::Mes
     })
 }
 
-pub fn entities(list: Option<&Vec<enums::MessageEntity>>, users: &Entities<'_>) -> Option<Vec<bot::MessageEntity>> {
+pub fn entities(
+    list: Option<&Vec<enums::MessageEntity>>,
+    users: &Entities<'_>,
+) -> Option<Vec<bot::MessageEntity>> {
     let converted: Vec<_> = list?.iter().filter_map(|e| entity(e, users)).collect();
     (!converted.is_empty()).then_some(converted)
 }

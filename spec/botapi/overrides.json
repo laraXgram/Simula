@@ -1,7 +1,11 @@
 {
   "//": "Manual corrections applied on top of the scraped docs. Every key must match the spec; stale entries fail the build.",
   "all_fields": {
-    "parse_mode": { "constraints": { "enum": ["HTML", "Markdown", "MarkdownV2"] } }
+    "parse_mode": {
+      "constraints": { "enum": ["HTML", "Markdown", "MarkdownV2"] },
+      "handler_validates": true
+    },
+    "style": { "handler_validates": true }
   },
   "types": {
     "Dice": {
@@ -12,6 +16,11 @@
         "opening_minute": { "constraints": { "range": { "min": 0, "max": 10080 } } },
         "closing_minute": { "constraints": { "range": { "min": 0, "max": 11520 } } }
       }
+    },
+    "KeyboardButton": { "string_shorthand": "text" },
+    "InlineKeyboardButton": {
+      "//": "The server checks it: BUTTON_DATA_INVALID, not a generic length error.",
+      "fields": { "callback_data": { "handler_validates": true } }
     }
   }
 }

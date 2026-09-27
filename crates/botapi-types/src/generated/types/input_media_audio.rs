@@ -35,12 +35,6 @@ pub struct InputMediaAudio {
 impl crate::Validate for InputMediaAudio {
     fn validate_into(&self, path: &str, out: &mut Vec<crate::Violation>) {
         {
-            let p = crate::validate::join(path, "parse_mode");
-            if let Some(v) = &self.parse_mode {
-                crate::validate::one_of(&p, v, &["HTML", "Markdown", "MarkdownV2"], out);
-            }
-        }
-        {
             let p = crate::validate::join(path, "caption_entities");
             crate::Validate::validate_into(&self.caption_entities, &p, out);
         }

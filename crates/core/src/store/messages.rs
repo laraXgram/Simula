@@ -59,6 +59,37 @@ pub fn get(conn: &Connection, owner: UserId, id: i32) -> rusqlite::Result<Option
     Ok(body.map(|b| serde_json::from_str(&b).expect("stored message is valid JSON-TL")))
 }
 
+/// A message in `owner`'s box, if it belongs to the dialog with `peer`.
+pub fn get_in(
+    conn: &Connection,
+    owner: UserId,
+    peer: Peer,
+    id: i32,
+) -> rusqlite::Result<Option<(i64, types::Message)>> {
+    let row: Option<(i64, String)> = conn
+        .query_row(
+            "SELECT global_id, body FROM messages
+             WHERE owner_id = ?1 AND id = ?2 AND peer = ?3 AND deleted = 0",
+            params![owner.0, id, peer.bot_api_id()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    Ok(row.map(|(global_id, body)| {
+        let message = serde_json::from_str(&body).expect("stored message is valid JSON-TL");
+        (global_id, message)
+    }))
+}
+
+/// The id of `owner`'s copy of a message, found through the copies' shared `global_id`.
+pub fn copy_id(conn: &Connection, owner: UserId, global_id: i64) -> rusqlite::Result<Option<i32>> {
+    conn.query_row(
+        "SELECT id FROM messages WHERE owner_id = ?1 AND global_id = ?2 AND deleted = 0",
+        params![owner.0, global_id],
+        |row| row.get(0),
+    )
+    .optional()
+}
+
 /// A sender's earlier message with the same `random_id` (client retries are idempotent).
 pub fn by_random_id(
     conn: &Connection,

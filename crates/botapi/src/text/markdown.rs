@@ -57,13 +57,18 @@ pub fn parse(text: &str) -> Result<(String, Vec<Entity>), String> {
         }
 
         let entity_offset = utf16;
-        while i < size && (t[i] != end_character || (is_pre && !(at(t, i + 1) == b'`' && at(t, i + 2) == b'`'))) {
+        while i < size
+            && (t[i] != end_character
+                || (is_pre && !(at(t, i + 1) == b'`' && at(t, i + 2) == b'`')))
+        {
             utf16 += utf16_units(t[i]);
             out.push(t[i]);
             i += 1;
         }
         if i == size {
-            return Err(format!("Can't find end of the entity starting at byte offset {begin_pos}"));
+            return Err(format!(
+                "Can't find end of the entity starting at byte offset {begin_pos}"
+            ));
         }
 
         if entity_offset != utf16 {
@@ -101,5 +106,8 @@ pub fn parse(text: &str) -> Result<(String, Vec<Entity>), String> {
         }
         i += 1;
     }
-    Ok((String::from_utf8(out).map_err(|_| "Strings must be encoded in UTF-8".to_owned())?, entities))
+    Ok((
+        String::from_utf8(out).map_err(|_| "Strings must be encoded in UTF-8".to_owned())?,
+        entities,
+    ))
 }

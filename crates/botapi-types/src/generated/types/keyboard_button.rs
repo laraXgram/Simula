@@ -4,6 +4,7 @@
 ///
 /// <https://core.telegram.org/bots/api#keyboardbutton>
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(remote = "Self")]
 pub struct KeyboardButton {
     /// Text of the button. If none of the fields other than *text*, *icon_custom_emoji_id*, and *style* are used, it will be sent as a message when the button is pressed.
     pub text: String,
@@ -39,12 +40,6 @@ pub struct KeyboardButton {
 impl crate::Validate for KeyboardButton {
     fn validate_into(&self, path: &str, out: &mut Vec<crate::Violation>) {
         {
-            let p = crate::validate::join(path, "style");
-            if let Some(v) = &self.style {
-                crate::validate::one_of(&p, v, &["danger", "success", "primary"], out);
-            }
-        }
-        {
             let p = crate::validate::join(path, "request_users");
             crate::Validate::validate_into(&self.request_users, &p, out);
         }
@@ -64,5 +59,32 @@ impl crate::Validate for KeyboardButton {
             let p = crate::validate::join(path, "web_app");
             crate::Validate::validate_into(&self.web_app, &p, out);
         }
+    }
+}
+
+impl crate::StringShorthand for KeyboardButton {
+    fn from_string(text: String) -> Self {
+        Self {
+            text,
+            ..Default::default()
+        }
+    }
+
+    fn deserialize_object<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Self, D::Error> {
+        Self::deserialize(deserializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for KeyboardButton {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        crate::shorthand::deserialize(deserializer)
+    }
+}
+
+impl serde::Serialize for KeyboardButton {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        Self::serialize(self, serializer)
     }
 }

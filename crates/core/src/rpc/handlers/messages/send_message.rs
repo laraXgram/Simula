@@ -27,8 +27,12 @@ pub fn handle(
             text: req.message,
             entities: req.entities.unwrap_or_default(),
             reply_markup: req.reply_markup,
+            reply_to: req.reply_to,
             random_id: Some(req.random_id),
             silent: req.silent,
+            noforwards: req.noforwards,
+            invert_media: req.invert_media,
+            effect: req.effect,
         },
     )?;
 

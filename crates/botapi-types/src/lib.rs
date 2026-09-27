@@ -11,4 +11,6 @@ mod runtime;
 
 pub use generated::{methods, registry, tags, types};
 pub use runtime::validate::{self, Rule, Validate, Violation};
-pub use runtime::{ChatId, InputFile, Method, MethodInfo, ParamKind, ParamSpec};
+pub use runtime::{
+    ChatId, InputFile, Method, MethodInfo, ParamKind, ParamSpec, StringShorthand, shorthand,
+};

@@ -1,105 +1,14 @@
 //! The Bot API over HTTP, in process: what a bot library would see.
 
+mod support;
+
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use serde_json::{Value, json};
-use simula_botapi::Gateway;
-use simula_core::services::accounts::{self, NewBot, NewUser};
-use simula_core::{Account, Caller, Sandbox, SandboxConfig};
-use simula_tl::functions;
-use tower::ServiceExt;
-
-struct World {
-    app: Router,
-    sandbox: Arc<Sandbox>,
-    user: Account,
-    token: String,
-}
-
-async fn world() -> World {
-    let sandbox = Sandbox::open(SandboxConfig {
-        id: "test".into(),
-        path: None,
-    })
-    .unwrap();
-    let user = sandbox
-        .admin(|ctx| {
-            accounts::create_user(
-                ctx,
-                NewUser {
-                    first_name: "Alice".into(),
-                    lang_code: Some("en".into()),
-                    ..Default::default()
-                },
-            )
-        })
-        .await
-        .unwrap();
-    let bot = sandbox
-        .admin(|ctx| {
-            accounts::create_bot(
-                ctx,
-                NewBot {
-                    first_name: "Echo".into(),
-                    username: "echo_bot".into(),
-                    ..Default::default()
-                },
-            )
-        })
-        .await
-        .unwrap();
-    let app = simula_botapi::router(Gateway::new(sandbox.clone()));
-    World {
-        app,
-        sandbox,
-        user,
-        token: bot.bot_token.unwrap(),
-    }
-}
-
-async fn send(app: &Router, request: Request<Body>) -> (StatusCode, Value) {
-    let response = app.clone().oneshot(request).await.unwrap();
-    let status = response.status();
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    (status, serde_json::from_slice(&bytes).unwrap())
-}
-
-async fn post(w: &World, method: &str, body: Value) -> (StatusCode, Value) {
-    let request = Request::post(format!("/bot{}/{method}", w.token))
-        .header("content-type", "application/json")
-        .body(Body::from(body.to_string()))
-        .unwrap();
-    send(&w.app, request).await
-}
-
-async fn user_writes(w: &World, text: &str) {
-    let bot_id = w.token.split(':').next().unwrap().parse().unwrap();
-    let peer = w.sandbox.input_peer(
-        w.user.id,
-        simula_core::Peer::User(simula_core::UserId(bot_id)),
-    );
-    w.sandbox
-        .call(
-            Caller {
-                account: w.user.id,
-                session: None,
-            },
-            functions::messages::SendMessage {
-                peer,
-                message: text.into(),
-                random_id: rand::random(),
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
-}
+use serde_json::json;
+use support::{post, send, user_writes, world};
 
 #[tokio::test]
 async fn get_me_describes_the_bot() {

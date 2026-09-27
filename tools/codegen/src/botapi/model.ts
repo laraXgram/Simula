@@ -34,6 +34,12 @@ export interface Field {
   /** Markdown rendering of the docs description. */
   description: string;
   constraints?: Constraints;
+  /**
+   * The handler checks this field itself, as telegram-bot-api does by hand (e.g.
+   * `parse_mode` is case-insensitive and accepts "none"). Generated validators skip it;
+   * types still carry the documented values.
+   */
+  handler_validates?: true;
 }
 
 export interface Method {
@@ -53,6 +59,11 @@ export interface ObjectType {
   section: string;
   description: string;
   fields: Field[];
+  /**
+   * A bare String is accepted in place of the object and fills this field
+   * (KeyboardButton: "For simple text buttons, String can be used instead of this object").
+   */
+  string_shorthand?: string;
 }
 
 export interface UnionType {

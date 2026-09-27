@@ -6,6 +6,7 @@ use simula_tl::{enums, types};
 use crate::ctx::Ctx;
 use crate::error::{RpcError, RpcResult};
 use crate::ids::{ChannelId, ChatId, Peer, UserId};
+use crate::services::messages;
 use crate::store;
 
 pub fn resolve_input_peer(
@@ -49,12 +50,21 @@ fn resolve_user(
     access_hash: i64,
 ) -> RpcResult<UserId> {
     let id = UserId(user_id);
-    if access_hash != ctx.access_hash(viewer, Peer::User(id))
-        || store::accounts::get(ctx.db, id)?.is_none()
-    {
+    if store::accounts::get(ctx.db, id)?.is_none() {
+        return Err(RpcError::peer_id_invalid());
+    }
+    let valid = access_hash == ctx.access_hash(viewer, Peer::User(id))
+        // Bots may pass 0 for users they have met (tdlib does when it has no hash).
+        || (access_hash == 0 && ctx.account(viewer)?.is_bot && knows(ctx, viewer, id)?);
+    if !valid {
         return Err(RpcError::peer_id_invalid());
     }
     Ok(id)
+}
+
+/// Whether `viewer` has met `user`: they share a dialog. (Shared groups come with P2.3.)
+fn knows(ctx: &Ctx<'_>, viewer: UserId, user: UserId) -> RpcResult<bool> {
+    Ok(viewer == user || messages::has_dialog(ctx, viewer, Peer::User(user))?)
 }
 
 /// The `InputPeer` that `viewer` would send to address `peer`.

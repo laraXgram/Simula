@@ -1,33 +1,44 @@
-//! Delivery of the core's update batches to bot queues. Runs synchronously inside the
-//! sandbox's publish step, so when a call returns, bots can already fetch its updates.
+//! Delivery of the core's update batches to bot queues. The sandbox awaits this before
+//! the call that produced the batch returns, so bots can already fetch its updates.
 
 use std::sync::{Arc, Weak};
 
 use simula_core::AccountUpdates;
 
 use crate::convert;
+use crate::present;
 use crate::state::Gateway;
 
 pub fn attach(gateway: &Arc<Gateway>) {
     let weak: Weak<Gateway> = Arc::downgrade(gateway);
     gateway.sandbox.add_listener(Arc::new(move |batch| {
-        if let Some(gateway) = weak.upgrade() {
-            deliver(&gateway, batch);
-        }
+        let weak = weak.clone();
+        Box::pin(async move {
+            if let Some(gateway) = weak.upgrade() {
+                deliver(&gateway, &batch).await;
+            }
+        })
     }));
 }
 
-fn deliver(gateway: &Gateway, batch: &AccountUpdates) {
+async fn deliver(gateway: &Gateway, batch: &AccountUpdates) {
     // The gateway's own calls already returned their results.
     if !batch.is_bot || batch.origin == Some(gateway.session) {
         return;
     }
+    let simula_tl::enums::Updates::Updates(updates) = &batch.updates else {
+        return;
+    };
+    let messages = convert::update::messages(&batch.updates);
+    let context = present::context(gateway, batch.account, &messages, &updates.users).await;
+    let converted = convert::update::updates(&batch.updates, &context.entities());
+
     let state = gateway.bot_state(batch.account);
     let now = gateway.sandbox.clock().now_ms();
     let mut queued = false;
     {
         let mut queue = state.queue.lock().expect("queue lock");
-        for update in convert::update::updates(&batch.updates) {
+        for update in converted {
             queued |= queue.push(update, now);
         }
     }

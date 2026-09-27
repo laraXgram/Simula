@@ -98,12 +98,6 @@ impl crate::Method for EditMessageText {
 impl crate::Validate for EditMessageText {
     fn validate_into(&self, path: &str, out: &mut Vec<crate::Violation>) {
         {
-            let p = crate::validate::join(path, "parse_mode");
-            if let Some(v) = &self.parse_mode {
-                crate::validate::one_of(&p, v, &["HTML", "Markdown", "MarkdownV2"], out);
-            }
-        }
-        {
             let p = crate::validate::join(path, "entities");
             crate::Validate::validate_into(&self.entities, &p, out);
         }

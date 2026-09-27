@@ -57,18 +57,6 @@ pub struct InlineKeyboardButton {
 impl crate::Validate for InlineKeyboardButton {
     fn validate_into(&self, path: &str, out: &mut Vec<crate::Violation>) {
         {
-            let p = crate::validate::join(path, "style");
-            if let Some(v) = &self.style {
-                crate::validate::one_of(&p, v, &["danger", "success", "primary"], out);
-            }
-        }
-        {
-            let p = crate::validate::join(path, "callback_data");
-            if let Some(v) = &self.callback_data {
-                crate::validate::bytes(&p, v, Some(1), Some(64), out);
-            }
-        }
-        {
             let p = crate::validate::join(path, "web_app");
             crate::Validate::validate_into(&self.web_app, &p, out);
         }

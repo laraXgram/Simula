@@ -3151,7 +3151,7 @@ export interface ReplyKeyboardMarkup {
   /**
    * Array of button rows, each represented by an Array of [KeyboardButton](https://core.telegram.org/bots/api#keyboardbutton) objects
    */
-  keyboard: KeyboardButton[][];
+  keyboard: (KeyboardButton | string)[][];
   /**
    * Requests clients to always show the keyboard when the regular keyboard is hidden. Defaults to *False*, in which case the custom keyboard can be hidden and opened with a keyboard icon.
    */
@@ -13451,7 +13451,7 @@ export interface SavePreparedKeyboardButtonParams {
   /**
    * A JSON-serialized object describing the button to be saved. The button must be of the type *request_users*, *request_chat*, or *request_managed_bot*.
    */
-  button: KeyboardButton;
+  button: KeyboardButton | string;
 }
 
 /**

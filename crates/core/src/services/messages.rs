@@ -1,12 +1,14 @@
 //! Creating messages in boxes and fanning out `updateNewMessage`.
 
+use std::collections::BTreeSet;
+
 use rusqlite::params;
 use simula_tl::{enums, types};
 
 use crate::ctx::Ctx;
 use crate::error::{RpcError, RpcResult};
 use crate::ids::{Peer, UserId};
-use crate::services::{entities, updates};
+use crate::services::{entities, markup, replies, updates};
 use crate::store::{self, messages::StoredMessage};
 
 /// Documented text limit for one message, in UTF-16 code units.
@@ -18,8 +20,15 @@ pub struct Outgoing {
     pub entities: Vec<enums::MessageEntity>,
     /// Only bots may attach keyboards; ignored for users, as in Telegram.
     pub reply_markup: Option<enums::ReplyMarkup>,
+    pub reply_to: Option<enums::InputReplyTo>,
     pub random_id: Option<i64>,
     pub silent: bool,
+    /// Protected content: can't be forwarded or saved.
+    pub noforwards: bool,
+    /// Show the link preview above the text.
+    pub invert_media: bool,
+    /// Message effect (private chats only). Simula has no effect catalog, so any id is kept.
+    pub effect: Option<i64>,
 }
 
 pub struct Sent {
@@ -53,14 +62,11 @@ pub fn send_private(ctx: &mut Ctx<'_>, from: UserId, to: UserId, out: Outgoing) 
     let with_commands = sender.is_bot || recipient.is_bot;
     let explicit = entities::resolve_input(ctx, from, out.entities)?;
     let entities = entities::merge(explicit, entities::detect(&out.text, with_commands));
+    let reply_markup = markup::normalize(ctx, from, out.reply_markup)?;
+    let reply_to = replies::resolve(ctx, from, Peer::User(to), out.reply_to.as_ref())?;
 
     let date = ctx.now();
     let global_id = store::meta::next(ctx.db, "global_message", 1)?;
-    let reply_markup = if sender.is_bot {
-        out.reply_markup
-    } else {
-        None
-    };
     let sides: &[(UserId, UserId, bool)] = if from == to {
         &[(from, to, true)]
     } else {
@@ -72,13 +78,20 @@ pub fn send_private(ctx: &mut Ctx<'_>, from: UserId, to: UserId, out: Outgoing) 
         let message = types::Message {
             out: is_out,
             silent: out.silent,
+            noforwards: out.noforwards,
+            invert_media: out.invert_media,
             id: store::messages::next_id(ctx.db, owner)?,
             from_id: Some(Peer::User(from).to_tl()),
             peer_id: Peer::User(peer).to_tl(),
+            reply_to: reply_to
+                .as_ref()
+                .map(|target| replies::header(ctx, owner, target))
+                .transpose()?,
             date,
             message: out.text.clone(),
             entities: (!entities.is_empty()).then(|| entities.clone()),
             reply_markup: reply_markup.clone(),
+            effect: out.effect,
             ..Default::default()
         };
         store::messages::insert(
@@ -91,7 +104,7 @@ pub fn send_private(ctx: &mut Ctx<'_>, from: UserId, to: UserId, out: Outgoing) 
                 message: &message,
             },
         )?;
-        let update = updates::push_pts(ctx, owner, [from, to], |pts, pts_count| {
+        let update = updates::push_pts(ctx, owner, users(&message), |pts, pts_count| {
             types::UpdateNewMessage {
                 message: message.clone().into(),
                 pts,
@@ -106,7 +119,27 @@ pub fn send_private(ctx: &mut Ctx<'_>, from: UserId, to: UserId, out: Outgoing) 
     sent.ok_or_else(|| RpcError::internal("sender copy missing"))
 }
 
-fn has_dialog(ctx: &Ctx<'_>, owner: UserId, peer: Peer) -> RpcResult<bool> {
+/// Users a message refers to; whoever receives the message receives these users too.
+pub fn users(message: &types::Message) -> BTreeSet<UserId> {
+    let peers = [Some(&message.peer_id), message.from_id.as_ref()];
+    let mut users: BTreeSet<UserId> = peers
+        .into_iter()
+        .flatten()
+        .filter_map(|peer| match Peer::from_tl(peer) {
+            Peer::User(id) => Some(id),
+            _ => None,
+        })
+        .collect();
+    for entity in message.entities.iter().flatten() {
+        if let enums::MessageEntity::MentionName(mention) = entity {
+            users.insert(UserId(mention.user_id));
+        }
+    }
+    users.extend(markup::users(message.reply_markup.as_ref()));
+    users
+}
+
+pub(crate) fn has_dialog(ctx: &Ctx<'_>, owner: UserId, peer: Peer) -> RpcResult<bool> {
     Ok(ctx.db.query_row(
         "SELECT EXISTS (SELECT 1 FROM messages WHERE owner_id = ?1 AND peer = ?2)",
         params![owner.0, peer.bot_api_id()],

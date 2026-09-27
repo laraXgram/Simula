@@ -5,6 +5,76 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-09-28 — M2 (part 1) · Send pipeline: formatting, keyboards, replies (P3.4, P3.6)
+
+- **Send pipeline** (`crates/botapi/src/send/`), shared by every future `send*` method,
+  in telegram-bot-api's `do_send_message` order: parse the common options, reply
+  parameters and reply markup → resolve the chat → check the replied message → "tdlib"
+  finishes the markup and text → TL call → the bot's copy of the message, presented.
+  `sendMessage` is now a thin handler on top of it.
+- **Formatting wired in** (P3.4 done): `text::parse` (telegram-bot-api's
+  `get_formatted_text`, before the chat is resolved) and `Formatted::fix` (tdlib's
+  `fix_formatted_text`, after), so errors come in the real order. Mentions by id are
+  sent the way tdlib does for bots: `inputUser` with access hash 0, which the core now
+  accepts from a bot only for users it has met.
+- **Keyboards**: a port of telegram-bot-api's `get_reply_markup` (which fields make which
+  button, in its priority order; lenient styles; its error texts) and tdlib's
+  `get_reply_markup`/`get_input_reply_markup` (empty buttons skipped, 12 per row and
+  300 in all, request buttons only in private chats, "personal" only outside them,
+  `check_link` for URL / login / Web App buttons with tdlib's messages). The core
+  normalizes input button forms into stored ones (`inputInlineButtonTypeUserProfile` →
+  `inlineButtonTypeUserProfile`, URL-auth button ids, peer requests) and rejects
+  callback data over 64 bytes with `BUTTON_DATA_INVALID`. Bots see inline keyboards on
+  messages exactly as telegram-bot-api renders them.
+- **Replies**: `reply_parameters` with quotes (parsed, trimmed, only quote-allowed entity
+  kinds, position shifted like tdlib's `MessageQuote`), `allow_sending_without_reply`,
+  "message to be replied not found". In the core, each copy of a reply points at its
+  owner's copy of the target (via `global_id`); quotes are located in UTF-16 units,
+  nearest the given position (`QUOTE_TEXT_INVALID`, `REPLY_MESSAGE_ID_INVALID`).
+- **`reply_to_message` in updates**: sandbox update listeners are now async and awaited
+  before a call returns, so the gateway fetches replied messages with the new
+  `messages.getMessages` handler, as telegram-bot-api has tdlib do — and updates are
+  still fetchable the moment the causing call returns.
+- **Options**: `protect_content` → `noforwards` → `has_protected_content`;
+  `disable_notification`; `message_effect_id` → `effect_id`; `link_preview_options`
+  (`is_disabled` → `no_webpage`, `show_above_text` → `invert_media`). Received text
+  follows tdlib's rule: a link and no preview reads as `is_disabled` — Simula is
+  offline and never builds previews, which is what Telegram shows when a preview
+  can't be fetched.
+- **Legacy parameters** telegram-bot-api still honours are rewritten before decoding
+  (`reply_to_message_id` + `allow_sending_without_reply`, `disable_web_page_preview`),
+  so older bots keep their replies instead of silently losing them.
+- **Spec-level fixes** found on the way:
+  - `KeyboardButton` may be a bare string (the docs say so; Telegraf's
+    `Markup.keyboard([...])` sends exactly that). New `string_shorthand` type override:
+    Rust accepts both forms via a `remote = "Self"` derive plus a small visitor, TS
+    types it as `KeyboardButton | string`.
+  - New `handler_validates` field override for fields the server parses by hand:
+    `parse_mode` ("html", "none" are valid), button `style` (case-insensitive,
+    "default"), `callback_data` (the error is `BUTTON_DATA_INVALID`). Generated
+    validators skip them; TS keeps the documented literal types.
+- **Explicitly not simulated yet** (answer 501): ephemeral messages, suggested posts,
+  business connections, topics, replies to other chats / checklist tasks / poll
+  options, `login_url` buttons naming another bot. Effects are stored but not checked
+  against a catalog.
+- **Verification**
+  - `tests/send_pipeline.rs` over in-process HTTP: parse modes in any casing,
+    `text_mention`, explicit entities, error order (parse errors before "chat not
+    found", whitespace after), inline keyboards round trip, `BUTTON_DATA_INVALID`,
+    string reply keyboards from a form body, replies both ways with quotes, missing
+    reply targets, legacy parameters, protected content / effects / link previews.
+    Unit tests for the markup port, `check_link` errors, legacy rewriting, the
+    link-preview rule and quote location. Workspace: 112 tests, 0 warnings, clippy
+    clean; `verify:ts` accepts all 3242 Rust samples; regeneration writes 0 files.
+  - **Real library**: an unmodified Telegraf 4.16 bot against the `simula` binary —
+    `Markup.keyboard([["Yes","No"]])` arrives as a reply keyboard, `replyWithHTML` with
+    `reply_parameters` and an inline keyboard lands in the user's box with a bold
+    entity and a reply header pointing at the user's own copy, and the user's reply to
+    it reaches the bot with `reply_to_message` filled in.
+- Next in M2: edits and deletes (`editMessageText`, `editMessageReplyMarkup`,
+  `deleteMessage(s)`, edit pipeline), callback queries (with a wait mechanism in the
+  core), webhooks, bot commands.
+
 ## 2026-09-27 — M2 (in progress, paused) · Text formatting (P3.4)
 
 Stopped at the maintainer's request partway through wiring formatting into

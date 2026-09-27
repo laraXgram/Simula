@@ -15,11 +15,18 @@ use crate::ctx::Ctx;
 use crate::error::RpcResult;
 
 /// TL functions with a handler (stubs included).
-pub const IMPLEMENTED: &[&str] = &["messages.sendMessage", "updates.getState", "users.getUsers"];
+pub const IMPLEMENTED: &[&str] = &[
+    "messages.getMessages",
+    "messages.sendMessage",
+    "updates.getState",
+    "users.getUsers",
+];
 
 /// Run the handler for `call`, or hand the call back when there is none.
 pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Reply>>, Function> {
     Ok(match call {
+        Function::MessagesGetMessages(call) => messages::get_messages::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesSendMessage(call) => messages::send_message::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::UpdatesGetState(call) => {

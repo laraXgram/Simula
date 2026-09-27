@@ -19,10 +19,27 @@ pub enum Kind {
     BlockQuote,
     ExpandableBlockQuote,
     /// `tg://time?unix=…&format=…`.
-    FormattedDate { unix: i32, format: DateFormat },
+    FormattedDate {
+        unix: i32,
+        format: DateFormat,
+    },
 }
 
 impl Kind {
+    /// tdlib's `is_allowed_quote_entity_type`.
+    pub fn allowed_in_quote(&self) -> bool {
+        matches!(
+            self,
+            Kind::Bold
+                | Kind::Italic
+                | Kind::Underline
+                | Kind::Strikethrough
+                | Kind::Spoiler
+                | Kind::CustomEmoji(_)
+                | Kind::FormattedDate { .. }
+        )
+    }
+
     /// tdlib's `MessageEntity::get_type_priority`, the tie-break when offset and length match.
     fn priority(&self) -> u8 {
         match self {
@@ -57,7 +74,10 @@ impl DateFormat {
     /// `r`/`R` alone means relative; otherwise any of `t T d D w W`.
     pub fn parse(format: &str) -> Result<Self, String> {
         if format == "r" || format == "R" {
-            return Ok(Self { relative: true, ..Self::default() });
+            return Ok(Self {
+                relative: true,
+                ..Self::default()
+            });
         }
         let mut flags = Self::default();
         for c in format.chars() {
@@ -83,7 +103,11 @@ pub struct Entity {
 
 impl Entity {
     pub fn new(kind: Kind, offset: i32, length: i32) -> Self {
-        Self { kind, offset, length }
+        Self {
+            kind,
+            offset,
+            length,
+        }
     }
 }
 
@@ -98,7 +122,10 @@ pub fn sort(entities: &mut [Entity]) {
 }
 
 /// The TL entity for `entity`. Mentions by id need an `InputUser` from the caller.
-pub fn to_tl(entity: &Entity, input_user: impl Fn(i64) -> Option<enums::InputUser>) -> Option<enums::MessageEntity> {
+pub fn to_tl(
+    entity: &Entity,
+    input_user: impl Fn(i64) -> Option<enums::InputUser>,
+) -> Option<enums::MessageEntity> {
     let (offset, length) = (entity.offset, entity.length);
     Some(match &entity.kind {
         Kind::Bold => types::MessageEntityBold { offset, length }.into(),
@@ -107,17 +134,48 @@ pub fn to_tl(entity: &Entity, input_user: impl Fn(i64) -> Option<enums::InputUse
         Kind::Strikethrough => types::MessageEntityStrike { offset, length }.into(),
         Kind::Spoiler => types::MessageEntitySpoiler { offset, length }.into(),
         Kind::Code => types::MessageEntityCode { offset, length }.into(),
-        Kind::Pre => types::MessageEntityPre { offset, length, language: String::new() }.into(),
-        Kind::PreCode(language) => types::MessageEntityPre { offset, length, language: language.clone() }.into(),
-        Kind::TextUrl(url) => types::MessageEntityTextUrl { offset, length, url: url.clone() }.into(),
-        Kind::MentionName(user_id) => {
-            types::InputMessageEntityMentionName { offset, length, user_id: input_user(*user_id)? }.into()
+        Kind::Pre => types::MessageEntityPre {
+            offset,
+            length,
+            language: String::new(),
         }
-        Kind::CustomEmoji(document_id) => {
-            types::MessageEntityCustomEmoji { offset, length, document_id: *document_id }.into()
+        .into(),
+        Kind::PreCode(language) => types::MessageEntityPre {
+            offset,
+            length,
+            language: language.clone(),
         }
-        Kind::BlockQuote => types::MessageEntityBlockquote { collapsed: false, offset, length }.into(),
-        Kind::ExpandableBlockQuote => types::MessageEntityBlockquote { collapsed: true, offset, length }.into(),
+        .into(),
+        Kind::TextUrl(url) => types::MessageEntityTextUrl {
+            offset,
+            length,
+            url: url.clone(),
+        }
+        .into(),
+        Kind::MentionName(user_id) => types::InputMessageEntityMentionName {
+            offset,
+            length,
+            user_id: input_user(*user_id)?,
+        }
+        .into(),
+        Kind::CustomEmoji(document_id) => types::MessageEntityCustomEmoji {
+            offset,
+            length,
+            document_id: *document_id,
+        }
+        .into(),
+        Kind::BlockQuote => types::MessageEntityBlockquote {
+            collapsed: false,
+            offset,
+            length,
+        }
+        .into(),
+        Kind::ExpandableBlockQuote => types::MessageEntityBlockquote {
+            collapsed: true,
+            offset,
+            length,
+        }
+        .into(),
         Kind::FormattedDate { unix, format } => types::MessageEntityFormattedDate {
             relative: format.relative,
             day_of_week: format.day_of_week,

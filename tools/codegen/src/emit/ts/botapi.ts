@@ -14,6 +14,9 @@ const DOCS = "https://core.telegram.org/bots/api";
 export function emitTsBotApi(spec: BotApiSpec, names: BotApiNames): string {
   const out: string[] = [];
   const anonymous = new Map<string, TypeRef[]>();
+  const shorthands = new Set(
+    spec.types.flatMap((t) => (t.kind === "object" && t.string_shorthand ? [t.name] : [])),
+  );
 
   const type = (ref: TypeRef): string => {
     switch (ref.kind) {
@@ -21,10 +24,10 @@ export function emitTsBotApi(spec: BotApiSpec, names: BotApiNames): string {
         return PRIMITIVES[ref.name];
       case "array": {
         const inner = type(ref.of);
-        return `${inner.includes(" ") ? `(${inner})` : inner}[]`;
+        return `${inner.includes(" ") && !inner.endsWith("[]") ? `(${inner})` : inner}[]`;
       }
       case "ref":
-        return ref.name;
+        return shorthands.has(ref.name) ? `${ref.name} | string` : ref.name;
       case "union": {
         const key = formatTypeRef(ref);
         const name = names.unions[key];

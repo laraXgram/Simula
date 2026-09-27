@@ -1,6 +1,7 @@
 //! HTTP surface: `/bot<token>/<method>` with GET or POST, like api.telegram.org.
 
 mod decode;
+mod legacy;
 mod response;
 
 use std::sync::Arc;
@@ -42,10 +43,13 @@ async fn handle(
     let info = registry::METHODS
         .iter()
         .find(|m| m.name.eq_ignore_ascii_case(&method));
-    let decoded = match decode::decode(request, info).await {
+    let mut decoded = match decode::decode(request, info).await {
         Ok(decoded) => decoded,
         Err(error) => return response::error(&error),
     };
+    if let Some(info) = info {
+        legacy::rewrite(info, &mut decoded.params);
+    }
     let ctx = BotCtx { gateway, bot };
     match dispatch::dispatch(ctx, &method, decoded).await {
         Ok(result) => response::ok(result),

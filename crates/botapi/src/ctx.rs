@@ -3,10 +3,11 @@
 use std::sync::Arc;
 
 use simula_core::{Account, Caller, Peer};
-use simula_tl::{Function, RemoteCall, enums};
+use simula_tl::{Function, RemoteCall, enums, types};
 
 use crate::error::{BotError, BotResult, ErrorContext};
 use crate::state::Gateway;
+use crate::text::{self, Entity};
 use crate::updates::queue::BotState;
 
 pub struct BotCtx {
@@ -37,6 +38,27 @@ impl BotCtx {
 
     pub fn input_peer(&self, peer: Peer) -> enums::InputPeer {
         self.gateway.sandbox.input_peer(self.bot.id, peer)
+    }
+
+    /// A user as tdlib addresses users it has no access hash for: by id with hash 0,
+    /// which the server accepts from a bot for users it has met.
+    pub fn input_user(&self, user_id: i64) -> enums::InputUser {
+        if user_id == self.bot.id.0 {
+            return enums::InputUser::InputUserSelf;
+        }
+        types::InputUser {
+            user_id,
+            access_hash: 0,
+        }
+        .into()
+    }
+
+    /// Parsed entities as sent in a TL call.
+    pub fn tl_entities(&self, entities: &[Entity]) -> Vec<enums::MessageEntity> {
+        entities
+            .iter()
+            .filter_map(|e| text::entity::to_tl(e, |id| Some(self.input_user(id))))
+            .collect()
     }
 
     pub fn state(&self) -> Arc<BotState> {

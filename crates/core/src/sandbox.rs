@@ -1,7 +1,9 @@
 //! A sandbox is one isolated Telegram world. Its state lives on a dedicated thread that
 //! runs jobs one at a time, each in its own transaction: no locks, deterministic order.
 
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::Instant;
@@ -21,9 +23,11 @@ use crate::store::{self, accounts::Account};
 
 type Job = Box<dyn FnOnce(&mut World) + Send>;
 
-/// Called synchronously with every published batch, before the call that produced it
-/// returns. Gateways use this so an action's effects are visible as soon as it completes.
-pub type UpdateListener = Arc<dyn Fn(&AccountUpdates) + Send + Sync>;
+/// Awaited for every published batch before the call that produced it returns, so an
+/// action's effects are visible to gateways as soon as it completes. Listeners may call
+/// back into the sandbox (the gateway fetches replied messages, as tdlib does).
+pub type UpdateListener =
+    Arc<dyn Fn(Arc<AccountUpdates>) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 const CHANNEL_CAPACITY: usize = 4096;
 
@@ -114,7 +118,7 @@ impl Sandbox {
                 .map_err(Clone::clone),
             duration_us: started.elapsed().as_micros() as u64,
         });
-        self.publish(updates);
+        self.publish(updates).await;
         result
     }
 
@@ -138,7 +142,7 @@ impl Sandbox {
         f: impl FnOnce(&mut Ctx<'_>) -> RpcResult<R> + Send + 'static,
     ) -> RpcResult<R> {
         let (result, updates) = self.run(move |world| world.transact(None, f)).await?;
-        self.publish(updates);
+        self.publish(updates).await;
         Ok(result)
     }
 
@@ -190,18 +194,19 @@ impl Sandbox {
         let _ = self.events.send(Arc::new(event));
     }
 
-    fn publish(&self, updates: Vec<AccountUpdates>) {
+    async fn publish(&self, updates: Vec<AccountUpdates>) {
         for batch in updates {
             self.emit(Event::Updates {
                 at_ms: self.clock.now_ms(),
                 account: batch.account,
                 updates: serde_json::to_value(&batch.updates).unwrap_or_default(),
             });
+            let batch = Arc::new(batch);
             let listeners = self.listeners.lock().expect("listeners lock").clone();
             for listener in &listeners {
-                listener(&batch);
+                listener(batch.clone()).await;
             }
-            let _ = self.updates.send(Arc::new(batch));
+            let _ = self.updates.send(batch);
         }
     }
 }

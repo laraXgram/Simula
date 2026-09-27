@@ -46,11 +46,18 @@ struct Info {
 }
 
 fn reserved(c: u8) -> String {
-    format!("Character '{}' is reserved and must be escaped with the preceding '\\'", c as char)
+    format!(
+        "Character '{}' is reserved and must be escaped with the preceding '\\'",
+        c as char
+    )
 }
 
 fn unclosed(info: &Info) -> String {
-    format!("Can't find end of {} entity at byte offset {}", info.open.name(), info.entity_byte_offset)
+    format!(
+        "Can't find end of {} entity at byte offset {}",
+        info.open.name(),
+        info.entity_byte_offset
+    )
 }
 
 /// Read `(url)` starting at `i` (just past `(`), with `\` escapes. Returns the URL and the
@@ -120,7 +127,9 @@ pub fn parse(text: &str) -> Result<(String, Vec<Entity>), String> {
                 Open::Bold => c == b'*',
                 Open::Italic => c == b'_' && at(t, i + 1) != b'_',
                 Open::Code => c == b'`',
-                Open::Pre | Open::PreCode => c == b'`' && at(t, i + 1) == b'`' && at(t, i + 2) == b'`',
+                Open::Pre | Open::PreCode => {
+                    c == b'`' && at(t, i + 1) == b'`' && at(t, i + 2) == b'`'
+                }
                 Open::TextUrl | Open::CustomEmoji => c == b']',
                 Open::Underline => c == b'_' && at(t, i + 1) == b'_',
                 Open::Strikethrough => c == b'~',
@@ -191,7 +200,13 @@ pub fn parse(text: &str) -> Result<(String, Vec<Entity>), String> {
                 _ => return Err(reserved(c)),
             };
             if let Some(open) = open {
-                nested.push(Info { open, argument, entity_offset: utf16, entity_byte_offset, entity_begin_pos: out.len() });
+                nested.push(Info {
+                    open,
+                    argument,
+                    entity_offset: utf16,
+                    entity_byte_offset,
+                    entity_begin_pos: out.len(),
+                });
             }
         } else {
             // The end of an entity.
@@ -213,7 +228,8 @@ pub fn parse(text: &str) -> Result<(String, Vec<Entity>), String> {
 
             let top = nested.last_mut().expect("an entity is open");
             let argument = std::mem::take(&mut top.argument);
-            let (entity_offset, entity_begin_pos, open) = (top.entity_offset, top.entity_begin_pos, top.open);
+            let (entity_offset, entity_begin_pos, open) =
+                (top.entity_offset, top.entity_begin_pos, top.open);
             let mut skip = utf16 == entity_offset;
             let kind = match open {
                 Open::Bold => Some(Kind::Bold),
@@ -265,7 +281,10 @@ pub fn parse(text: &str) -> Result<(String, Vec<Entity>), String> {
                     if let Some(id) = link::custom_emoji_id(&url) {
                         Some(Kind::CustomEmoji(id))
                     } else if let Some((unix, format)) = link::formatted_date(&url) {
-                        Some(Kind::FormattedDate { unix, format: DateFormat::parse(&format)? })
+                        Some(Kind::FormattedDate {
+                            unix,
+                            format: DateFormat::parse(&format)?,
+                        })
                     } else {
                         return Err("Invalid tg://emoji or tg://time URL specified".into());
                     }
@@ -276,7 +295,11 @@ pub fn parse(text: &str) -> Result<(String, Vec<Entity>), String> {
                     can_start_blockquote = true;
                     utf16 += 1;
                     skip = false;
-                    Some(if expandable { Kind::ExpandableBlockQuote } else { Kind::BlockQuote })
+                    Some(if expandable {
+                        Kind::ExpandableBlockQuote
+                    } else {
+                        Kind::BlockQuote
+                    })
                 }
             };
             if !skip && let Some(kind) = kind {
@@ -311,5 +334,8 @@ pub fn parse(text: &str) -> Result<(String, Vec<Entity>), String> {
     }
 
     entity::sort(&mut entities);
-    Ok((String::from_utf8(out).map_err(|_| "Strings must be encoded in UTF-8".to_owned())?, entities))
+    Ok((
+        String::from_utf8(out).map_err(|_| "Strings must be encoded in UTF-8".to_owned())?,
+        entities,
+    ))
 }

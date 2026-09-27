@@ -5,8 +5,23 @@ use super::entity::{self, DateFormat, Entity, Kind};
 use super::link;
 
 const TAGS: &[&str] = &[
-    "a", "b", "strong", "i", "em", "s", "strike", "del", "u", "ins", "tg-spoiler", "tg-emoji", "tg-time", "span",
-    "pre", "code", "blockquote",
+    "a",
+    "b",
+    "strong",
+    "i",
+    "em",
+    "s",
+    "strike",
+    "del",
+    "u",
+    "ins",
+    "tg-spoiler",
+    "tg-emoji",
+    "tg-time",
+    "span",
+    "pre",
+    "code",
+    "blockquote",
 ];
 
 struct Info {
@@ -27,7 +42,8 @@ fn decode_entity(t: &[u8], pos: usize) -> Option<(u32, usize)> {
         if at(t, pos + 2) == b'x' {
             end += 1;
             while at(t, end).is_ascii_hexdigit() {
-                value = (value * 16 + u64::from((at(t, end) as char).to_digit(16)?)).min(u64::from(u32::MAX));
+                value = (value * 16 + u64::from((at(t, end) as char).to_digit(16)?))
+                    .min(u64::from(u32::MAX));
                 end += 1;
             }
         } else {
@@ -105,7 +121,9 @@ pub fn parse(text: &str) -> Result<(String, Vec<Entity>), String> {
             }
             let tag = lower(&t[begin_pos + 1..i]);
             if !TAGS.contains(&tag.as_str()) {
-                return Err(format!("Unsupported start tag \"{tag}\" at byte offset {begin_pos}"));
+                return Err(format!(
+                    "Unsupported start tag \"{tag}\" at byte offset {begin_pos}"
+                ));
             }
 
             let mut argument = String::new();
@@ -118,19 +136,24 @@ pub fn parse(text: &str) -> Result<(String, Vec<Entity>), String> {
                     break;
                 }
                 let attribute_begin = i;
-                while !is_space(at(t, i)) && !matches!(at(t, i), b'=' | b'>' | b'/' | b'"' | b'\'') {
+                while !is_space(at(t, i)) && !matches!(at(t, i), b'=' | b'>' | b'/' | b'"' | b'\'')
+                {
                     i += 1;
                 }
                 let attribute = lossy(&t[attribute_begin..i]);
                 if attribute.is_empty() {
-                    return Err(format!("Empty attribute name in the tag \"{tag}\" at byte offset {begin_pos}"));
+                    return Err(format!(
+                        "Empty attribute name in the tag \"{tag}\" at byte offset {begin_pos}"
+                    ));
                 }
                 while at(t, i) != 0 && is_space(at(t, i)) {
                     i += 1;
                 }
                 if at(t, i) != b'=' {
                     if at(t, i) == 0 {
-                        return Err(format!("Unclosed start tag \"{tag}\" at byte offset {begin_pos}"));
+                        return Err(format!(
+                            "Unclosed start tag \"{tag}\" at byte offset {begin_pos}"
+                        ));
                     }
                     if tag == "blockquote" && attribute == "expandable" {
                         argument = "1".into();
@@ -142,7 +165,9 @@ pub fn parse(text: &str) -> Result<(String, Vec<Entity>), String> {
                     i += 1;
                 }
                 if at(t, i) == 0 {
-                    return Err(format!("Unclosed start tag \"{tag}\" at byte offset {begin_pos}"));
+                    return Err(format!(
+                        "Unclosed start tag \"{tag}\" at byte offset {begin_pos}"
+                    ));
                 }
 
                 let value = if at(t, i) != b'\'' && at(t, i) != b'"' {
@@ -152,7 +177,9 @@ pub fn parse(text: &str) -> Result<(String, Vec<Entity>), String> {
                         i += 1;
                     }
                     if !is_space(at(t, i)) && at(t, i) != b'>' {
-                        return Err(format!("Unexpected end of name token at byte offset {token_begin}"));
+                        return Err(format!(
+                            "Unexpected end of name token at byte offset {token_begin}"
+                        ));
                     }
                     lower(&t[token_begin..i])
                 } else {
@@ -181,9 +208,15 @@ pub fn parse(text: &str) -> Result<(String, Vec<Entity>), String> {
                 }
 
                 match (tag.as_str(), attribute.as_str()) {
-                    ("a", "href") | ("tg-emoji", "emoji-id") | ("tg-time", "format") => argument = value,
-                    ("code", "class") if value.starts_with("language-") => argument = value[9..].to_owned(),
-                    ("span", "class") if value.starts_with("tg-") => argument = value[3..].to_owned(),
+                    ("a", "href") | ("tg-emoji", "emoji-id") | ("tg-time", "format") => {
+                        argument = value
+                    }
+                    ("code", "class") if value.starts_with("language-") => {
+                        argument = value[9..].to_owned()
+                    }
+                    ("span", "class") if value.starts_with("tg-") => {
+                        argument = value[3..].to_owned()
+                    }
                     ("blockquote", "expandable") => argument = "1".into(),
                     ("tg-time", "unix") => date = value.parse().unwrap_or(0),
                     _ => {}
@@ -191,9 +224,17 @@ pub fn parse(text: &str) -> Result<(String, Vec<Entity>), String> {
             }
 
             if tag == "span" && argument != "spoiler" {
-                return Err(format!("Tag \"span\" must have class \"tg-spoiler\" at byte offset {begin_pos}"));
+                return Err(format!(
+                    "Tag \"span\" must have class \"tg-spoiler\" at byte offset {begin_pos}"
+                ));
             }
-            nested.push(Info { tag, argument, date, entity_offset: utf16, entity_begin_pos: out.len() });
+            nested.push(Info {
+                tag,
+                argument,
+                date,
+                entity_offset: utf16,
+                entity_begin_pos: out.len(),
+            });
         } else {
             // The end of an entity.
             if nested.is_empty() {
@@ -233,7 +274,10 @@ pub fn parse(text: &str) -> Result<(String, Vec<Entity>), String> {
                     },
                     "tg-time" => {
                         let format = DateFormat::parse(&top.argument)?;
-                        (top.date > 0).then_some(Kind::FormattedDate { unix: top.date, format })
+                        (top.date > 0).then_some(Kind::FormattedDate {
+                            unix: top.date,
+                            format,
+                        })
                     }
                     "a" => {
                         let url = if top.argument.is_empty() {
@@ -250,7 +294,9 @@ pub fn parse(text: &str) -> Result<(String, Vec<Entity>), String> {
                         // <pre><code class="language-x">…</code></pre> → one PreCode.
                         match (entities.last_mut(), code_arguments.last()) {
                             (Some(last), Some(language))
-                                if last.kind == Kind::Code && same_span(last) && !language.is_empty() =>
+                                if last.kind == Kind::Code
+                                    && same_span(last)
+                                    && !language.is_empty() =>
                             {
                                 last.kind = Kind::PreCode(language.clone());
                                 None
@@ -259,7 +305,11 @@ pub fn parse(text: &str) -> Result<(String, Vec<Entity>), String> {
                         }
                     }
                     "code" => match entities.last_mut() {
-                        Some(last) if last.kind == Kind::Pre && same_span(last) && !top.argument.is_empty() => {
+                        Some(last)
+                            if last.kind == Kind::Pre
+                                && same_span(last)
+                                && !top.argument.is_empty() =>
+                        {
                             last.kind = Kind::PreCode(std::mem::take(&mut top.argument));
                             None
                         }
@@ -283,7 +333,10 @@ pub fn parse(text: &str) -> Result<(String, Vec<Entity>), String> {
         i += 1;
     }
     if let Some(top) = nested.last() {
-        return Err(format!("Can't find end tag corresponding to start tag \"{}\"", top.tag));
+        return Err(format!(
+            "Can't find end tag corresponding to start tag \"{}\"",
+            top.tag
+        ));
     }
     if invalid_surrogate {
         return Err(
@@ -292,5 +345,8 @@ pub fn parse(text: &str) -> Result<(String, Vec<Entity>), String> {
         );
     }
     entity::sort(&mut entities);
-    Ok((String::from_utf8(out).map_err(|_| "Strings must be encoded in UTF-8".to_owned())?, entities))
+    Ok((
+        String::from_utf8(out).map_err(|_| "Strings must be encoded in UTF-8".to_owned())?,
+        entities,
+    ))
 }

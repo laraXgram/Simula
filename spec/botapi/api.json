@@ -4856,6 +4856,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the text. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -4909,6 +4910,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the title. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -7188,7 +7190,8 @@
               "success",
               "primary"
             ]
-          }
+          },
+          "handler_validates": true
         },
         {
           "name": "request_users",
@@ -7253,7 +7256,8 @@
           "required": false,
           "description": "If specified, the described [Web App](https://core.telegram.org/bots/webapps) will be launched when the button is pressed. The Web App will be able to send a “web_app_data” service message. Available in private chats only."
         }
-      ]
+      ],
+      "string_shorthand": "text"
     },
     {
       "kind": "object",
@@ -7588,7 +7592,8 @@
               "success",
               "primary"
             ]
-          }
+          },
+          "handler_validates": true
         },
         {
           "name": "url",
@@ -7613,7 +7618,8 @@
               "max": 64,
               "unit": "bytes"
             }
-          }
+          },
+          "handler_validates": true
         },
         {
           "name": "web_app",
@@ -12454,6 +12460,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the animation caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -12582,6 +12589,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the audio caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -12692,6 +12700,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the document caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -12813,6 +12822,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the live photo caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -12958,6 +12968,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the photo caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -13207,6 +13218,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the video caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -13335,6 +13347,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the voice message caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -14272,7 +14285,8 @@
               "primary",
               "link"
             ]
-          }
+          },
+          "handler_validates": true
         },
         {
           "name": "url",
@@ -18190,6 +18204,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the photo caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -18369,6 +18384,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -18548,6 +18564,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -18692,6 +18709,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the video caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -18854,6 +18872,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the audio caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -18989,6 +19008,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the voice message caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -19106,6 +19126,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the document caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -19791,6 +19812,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the photo caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -19917,6 +19939,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -20043,6 +20066,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -20241,6 +20265,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the document caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -20367,6 +20392,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the video caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -20493,6 +20519,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the voice message caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -20601,6 +20628,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the audio caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -20703,6 +20731,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the message text. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -23532,6 +23561,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the message text. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -23975,6 +24005,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the new caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -24307,6 +24338,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the photo caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -24552,6 +24584,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the video caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -24779,6 +24812,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the audio caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -25051,6 +25085,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the document caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -25341,6 +25376,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the video caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -25622,6 +25658,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the animation caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -25849,6 +25886,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the voice message caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -26288,6 +26326,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the media caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -27879,6 +27918,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the message text. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -32301,6 +32341,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the story caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -32481,6 +32522,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the story caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -32751,6 +32793,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the message text. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -32889,6 +32932,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the message caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -33513,6 +33557,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the message text. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",
@@ -33699,6 +33744,7 @@
           },
           "required": false,
           "description": "Mode for parsing entities in the message caption. See [formatting options](#formatting-options) for more details.",
+          "handler_validates": true,
           "constraints": {
             "enum": [
               "HTML",

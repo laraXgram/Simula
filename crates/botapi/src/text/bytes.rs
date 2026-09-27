@@ -7,7 +7,11 @@ pub fn at(text: &[u8], i: usize) -> u8 {
 
 /// UTF-16 units contributed by a UTF-8 byte: 1 for a lead byte, 2 for 4-byte sequences.
 pub fn utf16_units(byte: u8) -> i32 {
-    if byte & 0xc0 == 0x80 { 0 } else { 1 + i32::from(byte >= 0xf0) }
+    if byte & 0xc0 == 0x80 {
+        0
+    } else {
+        1 + i32::from(byte >= 0xf0)
+    }
 }
 
 /// tdlib's `is_space` (NUL included, which stops scans at the end of the text).

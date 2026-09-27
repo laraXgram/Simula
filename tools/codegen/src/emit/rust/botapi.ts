@@ -366,7 +366,8 @@ function validateBody(infos: FieldInfo[]): string {
   const lines: string[] = [];
   for (const f of infos) {
     if (f.tag || f.trueFlag) continue;
-    const c = f.field.constraints;
+    // Handlers that parse a field themselves also report its errors, in Telegram's words.
+    const c = f.field.handler_validates ? undefined : f.field.constraints;
     const checks: string[] = [];
     const n = (v: number | undefined) => (v === undefined ? "None" : `Some(${v})`);
     const nf = (v: number | undefined) => (v === undefined ? "None" : `Some(${v}f64)`);
@@ -425,12 +426,43 @@ function derives(defaultable: boolean): string {
 
 function emitObject(model: Model, type: ObjectType): string {
   const infos = type.fields.map((f) => fieldInfo(model, type.name, f));
+  const shorthand = type.string_shorthand;
+  // With a string shorthand the derives become inherent functions (`remote = "Self"`) that
+  // the handwritten-runtime visitor calls for the object form.
+  const remote = shorthand ? `#[serde(remote = "Self")]\n` : "";
   return `${doc(type.description)}${docLink(type.name)}${derives(model.isDefaultable(type.name))}
-pub struct ${type.name} {
+${remote}pub struct ${type.name} {
 ${structBody(infos)}
 }
 
-${validateImpl(type.name, validateBody(infos))}${type.name === "Update" ? updateKinds(infos) : ""}`;
+${validateImpl(type.name, validateBody(infos))}${shorthand ? shorthandImpls(type.name, shorthand) : ""}${type.name === "Update" ? updateKinds(infos) : ""}`;
+}
+
+/** Serde impls for a type that also accepts a bare string for `field`. */
+function shorthandImpls(name: string, field: string): string {
+  return `
+impl crate::StringShorthand for ${name} {
+    fn from_string(${ident(field)}: String) -> Self {
+        Self { ${ident(field)}, ..Default::default() }
+    }
+
+    fn deserialize_object<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::deserialize(deserializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ${name} {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        crate::shorthand::deserialize(deserializer)
+    }
+}
+
+impl serde::Serialize for ${name} {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        Self::serialize(self, serializer)
+    }
+}
+`;
 }
 
 /** `Update` carries exactly one optional payload; its field name is the update kind. */

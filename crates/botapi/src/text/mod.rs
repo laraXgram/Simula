@@ -7,7 +7,7 @@ pub mod entity;
 mod fix;
 mod html;
 mod input;
-mod link;
+pub mod link;
 mod markdown;
 mod markdown_v2;
 
@@ -27,8 +27,13 @@ pub struct Formatted {
     pub entities: Vec<Entity>,
 }
 
-/// Text plus `parse_mode` or explicit `entities` → final text and entities.
-pub fn prepare(text: &str, parse_mode: Option<&str>, entities: Option<&[bot::MessageEntity]>) -> Result<Formatted, BotError> {
+/// telegram-bot-api's `get_formatted_text`: text plus `parse_mode` or explicit `entities`.
+/// Runs before the chat is resolved; [`Formatted::fix`] runs after, as in tdlib.
+pub fn parse(
+    text: &str,
+    parse_mode: Option<&str>,
+    entities: Option<&[bot::MessageEntity]>,
+) -> Result<Formatted, BotError> {
     if text.len() > MAX_INPUT_BYTES {
         return Err(bot_error(400, "Text is too long"));
     }
@@ -46,7 +51,31 @@ pub fn prepare(text: &str, parse_mode: Option<&str>, entities: Option<&[bot::Mes
             .map_err(|message| bot_error(400, &format!("Can't parse MessageEntity: {message}")))?;
         (text.to_owned(), converted)
     };
-    fix::fix(text, entities).map_err(|message| bot_error(400, message))
+    Ok(Formatted { text, entities })
+}
+
+impl Formatted {
+    /// tdlib's `fix_formatted_text` before sending: invalid entities dropped, whitespace
+    /// trimmed; an empty result is an error.
+    pub fn fix(self) -> Result<Formatted, BotError> {
+        fix::fix(self.text, self.entities)
+            .map(|(fixed, _)| fixed)
+            .map_err(|message| bot_error(400, message))
+    }
+
+    /// A reply quote as tdlib builds it (`MessageQuote`): fixed like a message, only the
+    /// entity kinds quotes may carry, and `position` shifted past trimmed characters.
+    /// Quotes that end up empty or invalid are dropped rather than rejected.
+    pub fn into_quote(self, position: i32) -> Option<(Formatted, i32)> {
+        let (mut quote, trimmed) = fix::fix(self.text, self.entities).ok()?;
+        quote.entities.retain(|e| e.kind.allowed_in_quote());
+        let position = if (0..=1_000_000).contains(&position) {
+            position + trimmed
+        } else {
+            0
+        };
+        Some((quote, position))
+    }
 }
 
 #[cfg(test)]

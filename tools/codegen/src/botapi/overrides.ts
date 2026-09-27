@@ -1,4 +1,4 @@
-import type { BotApiSpec, Constraints, Field, TypeDef } from "./model";
+import type { BotApiSpec, Constraints, Field, ObjectType, TypeDef } from "./model";
 import { parseTypeExpr } from "./type-expr";
 
 /**
@@ -22,11 +22,14 @@ interface MethodOverride {
 interface TypeOverride {
   fields?: Record<string, FieldOverride>;
   discriminator?: string | null;
+  /** Name of the String field a bare string fills (see `ObjectType.string_shorthand`). */
+  string_shorthand?: string;
 }
 
 interface FieldOverride {
   type?: string;
   required?: boolean;
+  handler_validates?: boolean;
   /** Merged into scraped constraints; a `null` value removes that key. */
   constraints?: { [K in keyof Constraints]?: Constraints[K] | null };
 }
@@ -68,6 +71,7 @@ export function applyOverrides(spec: BotApiSpec, overrides: Overrides): string[]
       continue;
     }
     if (patch.discriminator !== undefined) patchDiscriminator(type, patch.discriminator, errors);
+    if (patch.string_shorthand !== undefined) patchShorthand(type, patch.string_shorthand, errors);
     for (const [field, fieldPatch] of Object.entries(patch.fields ?? {})) {
       const target = type.kind === "object" ? type.fields.find((f) => f.name === field) : undefined;
       if (target) patchField(target, fieldPatch);
@@ -81,6 +85,8 @@ export function applyOverrides(spec: BotApiSpec, overrides: Overrides): string[]
 function patchField(field: Field, patch: FieldOverride) {
   if (patch.type) field.type = parseTypeExpr(patch.type);
   if (patch.required !== undefined) field.required = patch.required;
+  if (patch.handler_validates === true) field.handler_validates = true;
+  else if (patch.handler_validates === false) delete field.handler_validates;
   if (patch.constraints) {
     const merged: Record<string, unknown> = { ...field.constraints };
     for (const [key, value] of Object.entries(patch.constraints)) {
@@ -99,4 +105,18 @@ function patchDiscriminator(type: TypeDef, value: string | null, errors: string[
   }
   if (value === null) delete type.discriminator;
   else type.discriminator = value;
+}
+
+function patchShorthand(type: TypeDef, field: string, errors: string[]) {
+  const target = type.kind === "object" ? type.fields.find((f) => f.name === field) : undefined;
+  const isString = target?.type.kind === "primitive" && target.type.name === "String";
+  if (!target?.required || !isString) {
+    errors.push(`overrides: "${type.name}.${field}" is not a required String field`);
+    return;
+  }
+  if (!/String\*? can be used instead of this object/.test(type.description)) {
+    errors.push(`overrides: "${type.name}" docs no longer allow a String instead of the object`);
+    return;
+  }
+  (type as ObjectType).string_shorthand = field;
 }

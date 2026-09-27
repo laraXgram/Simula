@@ -32,7 +32,11 @@ fn kind(e: &bot::MessageEntity) -> Result<Option<Kind>, String> {
         "text_link" => Kind::TextUrl(e.url.clone().ok_or_else(|| required("url"))?),
         "text_mention" => Kind::MentionName(e.user.as_ref().ok_or_else(|| required("user"))?.id),
         "custom_emoji" => Kind::CustomEmoji(
-            e.custom_emoji_id.as_deref().ok_or_else(|| required("custom_emoji_id"))?.parse().map_err(|_| "Can't parse custom_emoji_id")?,
+            e.custom_emoji_id
+                .as_deref()
+                .ok_or_else(|| required("custom_emoji_id"))?
+                .parse()
+                .map_err(|_| "Can't parse custom_emoji_id")?,
         ),
         "blockquote" => Kind::BlockQuote,
         "expandable_blockquote" => Kind::ExpandableBlockQuote,
@@ -40,7 +44,8 @@ fn kind(e: &bot::MessageEntity) -> Result<Option<Kind>, String> {
             unix: e.unix_time.ok_or_else(|| required("unix_time"))? as i32,
             format: DateFormat::parse(e.date_time_format.as_deref().unwrap_or(""))?,
         },
-        "mention" | "hashtag" | "cashtag" | "bot_command" | "url" | "email" | "phone_number" | "bank_card_number" => {
+        "mention" | "hashtag" | "cashtag" | "bot_command" | "url" | "email" | "phone_number"
+        | "bank_card_number" => {
             return Ok(None);
         }
         _ => return Err("Unsupported type specified".into()),

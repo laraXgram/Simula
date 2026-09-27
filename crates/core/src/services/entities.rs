@@ -70,14 +70,23 @@ pub fn merge(
 
 /// Client-sent entities as stored: a mention by `InputUser` becomes a mention by user id,
 /// after checking the sender may address that user.
-pub fn resolve_input(ctx: &Ctx<'_>, sender: crate::ids::UserId, entities: Vec<enums::MessageEntity>) -> RpcResult<Vec<enums::MessageEntity>> {
+pub fn resolve_input(
+    ctx: &Ctx<'_>,
+    sender: crate::ids::UserId,
+    entities: Vec<enums::MessageEntity>,
+) -> RpcResult<Vec<enums::MessageEntity>> {
     entities
         .into_iter()
         .map(|entity| match entity {
             enums::MessageEntity::InputMessageEntityMentionName(e) => {
                 let user = peers::resolve_input_user(ctx, sender, &e.user_id)
                     .map_err(|_| RpcError::bad_request("ENTITY_MENTION_USER_INVALID"))?;
-                Ok(types::MessageEntityMentionName { offset: e.offset, length: e.length, user_id: user.0 }.into())
+                Ok(types::MessageEntityMentionName {
+                    offset: e.offset,
+                    length: e.length,
+                    user_id: user.0,
+                }
+                .into())
             }
             other => Ok(other),
         })

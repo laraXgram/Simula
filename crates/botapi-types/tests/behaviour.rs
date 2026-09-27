@@ -80,6 +80,45 @@ fn reply_markup_variants_including_force_reply_on_keyboards() {
 }
 
 #[test]
+fn keyboard_buttons_may_be_bare_strings() {
+    // What Telegraf's `Markup.keyboard(["Yes", "No"])` sends.
+    let markup: ReplyMarkup = serde_json::from_value(json!({
+        "keyboard": [["Yes", { "text": "Share phone", "request_contact": true }]],
+        "resize_keyboard": true
+    }))
+    .unwrap();
+    let ReplyMarkup::ReplyKeyboardMarkup(keyboard) = markup else {
+        panic!("reply keyboard expected");
+    };
+    let row = &keyboard.keyboard[0];
+    assert_eq!(row[0].text, "Yes");
+    assert_eq!(row[0].request_contact, None);
+    assert_eq!(row[1].request_contact, Some(true));
+    // The object form is what goes back out.
+    assert_eq!(
+        serde_json::to_value(&row[0]).unwrap(),
+        json!({ "text": "Yes" })
+    );
+    assert!(serde_json::from_value::<ReplyMarkup>(json!({ "keyboard": [[1]] })).is_err());
+}
+
+#[test]
+fn fields_parsed_by_the_server_are_not_prevalidated() {
+    // telegram-bot-api lowercases parse_mode and accepts "none"; button styles likewise.
+    for mode in ["html", "none", "markdownv2"] {
+        let send: methods::SendMessage =
+            serde_json::from_value(json!({ "chat_id": 1, "text": "x", "parse_mode": mode }))
+                .unwrap();
+        assert!(send.validate().is_ok(), "{mode}");
+    }
+    let markup: ReplyMarkup = serde_json::from_value(json!({
+        "inline_keyboard": [[{ "text": "Go", "callback_data": "go", "style": "Primary" }]]
+    }))
+    .unwrap();
+    assert!(markup.validate().is_ok());
+}
+
+#[test]
 fn unset_optionals_and_false_flags_are_omitted() {
     let message = Message {
         message_id: 1,
@@ -124,21 +163,21 @@ fn nested_limits_report_the_full_path() {
     let request: methods::SendMessage = serde_json::from_value(json!({
         "chat_id": 1,
         "text": "hi",
-        "reply_markup": { "inline_keyboard": [[{ "text": "ok", "callback_data": "x".repeat(65) }]] }
+        "reply_markup": { "inline_keyboard": [[{ "text": "ok", "copy_text": { "text": "x".repeat(257) } }]] }
     }))
     .unwrap();
     let violations = request.validate().unwrap_err();
     assert_eq!(violations.len(), 1);
     assert_eq!(
         violations[0].path,
-        "reply_markup.inline_keyboard[0][0].callback_data"
+        "reply_markup.inline_keyboard[0][0].copy_text.text"
     );
     assert_eq!(
         violations[0].rule,
-        Rule::Bytes {
+        Rule::Chars {
             min: Some(1),
-            max: Some(64),
-            actual: 65
+            max: Some(256),
+            actual: 257
         }
     );
 }
