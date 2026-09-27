@@ -12,10 +12,15 @@ export function tag(node: Node): string {
 
 /** Render a docs fragment as compact Markdown (links, emphasis, code, lists). */
 export function toMarkdown(node: Node): string {
-  return render(node)
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  return (
+    render(node)
+      .replace(/[ \t]+\n/g, "\n")
+      // `<br>- item` pseudo-lists: a plain line right after an item would otherwise
+      // continue that item in Markdown.
+      .replace(/^(- .*)\n(?!- |\n)/gm, "$1\n\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim()
+  );
 }
 
 function render(node: Node): string {

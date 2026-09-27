@@ -54,6 +54,7 @@ This document records the load-bearing decisions. The plan and progress live in
 spec/                     source-of-truth inputs (committed)
   botapi/api.json           parsed Bot API spec (methods, types, constraints)
   botapi/overrides.json     manual corrections applied on top of the scrape
+  botapi/names.json         names for the docs' anonymous unions (e.g. ReplyMarkup)
   tl/*.tl                   vendored tdlib schemas (telegram_api, mtproto_api)
   tl/*.json                 parsed TL schemas; tl/source.json records layer + tdlib commit
 tools/codegen/            Bun/TS: scrape, parse, emit, diff, coverage (build-time only)

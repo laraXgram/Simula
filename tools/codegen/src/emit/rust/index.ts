@@ -1,7 +1,10 @@
 import { join } from "node:path";
-import { ROOT } from "../../paths";
+import { loadBotApiSpec } from "../../botapi";
+import { paths, ROOT } from "../../paths";
 import { loadTlSchema } from "../../tl";
 import { type FileTree, GENERATED_HEADER, type SyncResult, syncTree } from "../writer";
+import { type BotApiNames, emitBotApi, Model } from "./botapi";
+import { emitBotApiRoundtripTests } from "./botapi-tests";
 import { emitTlSchema } from "./tl";
 import { emitTlRoundtripTests } from "./tl-tests";
 
@@ -30,4 +33,19 @@ export async function emitRustTl(): Promise<SyncResult> {
   await syncTree(join(ROOT, "crates", "tl", "tests", "roundtrip"), new Map([["main.rs", tests]]));
 
   return syncTree(join(ROOT, "crates", "tl", "src", "generated"), tree);
+}
+
+/** Generate crates/botapi-types/src/generated from spec/botapi/api.json. */
+export async function emitRustBotApi(): Promise<SyncResult> {
+  const names = (await Bun.file(paths.botapi.names).json()) as BotApiNames;
+  const spec = await loadBotApiSpec();
+  const tests = emitBotApiRoundtripTests(new Model(spec, names), spec);
+  await syncTree(
+    join(ROOT, "crates", "botapi-types", "tests", "roundtrip"),
+    new Map([["main.rs", tests]]),
+  );
+  return syncTree(
+    join(ROOT, "crates", "botapi-types", "src", "generated"),
+    emitBotApi(spec, names),
+  );
 }

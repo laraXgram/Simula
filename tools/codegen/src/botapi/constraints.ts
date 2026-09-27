@@ -27,6 +27,9 @@ export function extractConstraints(type: TypeRef, markdown: string): Constraints
   }
 
   if (isNumber && !isArray) {
+    // "Always 0. The field can be used to differentiate regular and inaccessible messages."
+    const always = /^Always (-?\d+)\b/.exec(text.trim());
+    if (always) c.const = Number(always[1]);
     const range = rangeOf(text);
     if (range) c.range = range;
   }

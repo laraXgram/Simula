@@ -1,0 +1,12 @@
+{
+  "//": "Names for the docs' anonymous unions, keyed by docs notation. A new anonymous union fails codegen until it is named here. Builtins are handwritten runtime types.",
+  "builtins": ["ChatId", "InputFile"],
+  "unions": {
+    "Integer or String": "ChatId",
+    "InputFile or String": "InputFile",
+    "InlineKeyboardMarkup or ReplyKeyboardMarkup or ReplyKeyboardRemove or ForceReply": "ReplyMarkup",
+    "Message or True": "MessageOrTrue",
+    "InputMediaAudio or InputMediaDocument or InputMediaLivePhoto or InputMediaPhoto or InputMediaVideo": "MediaGroupItem",
+    "InputMediaAnimation or InputMediaAudio or InputMediaDocument or InputMediaPhoto or InputMediaVideo or InputMediaVoiceNote": "RichMessageMedia"
+  }
+}

@@ -8,6 +8,7 @@ export const paths = {
     html: join(ROOT, ".cache", "botapi.html"),
     spec: join(ROOT, "spec", "botapi", "api.json"),
     overrides: join(ROOT, "spec", "botapi", "overrides.json"),
+    names: join(ROOT, "spec", "botapi", "names.json"),
   },
   tl: {
     dir: join(ROOT, "spec", "tl"),

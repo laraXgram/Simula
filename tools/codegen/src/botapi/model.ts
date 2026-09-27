@@ -21,8 +21,8 @@ export interface Constraints {
   items?: { min?: number; max?: number };
   /** Allowed string values. */
   enum?: string[];
-  /** Fixed value — the discriminator of a union variant ("always “creator”"). */
-  const?: string;
+  /** Fixed value — the discriminator of a union variant ("always “creator”", "Always 0"). */
+  const?: string | number;
   /** Documented default ("Defaults to 100"). Type names are kept as strings. */
   default?: string | number | boolean;
 }

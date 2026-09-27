@@ -1,6 +1,6 @@
 import { buildBotApiSpec } from "./botapi";
 import { diffAgainstRef, diffFiles } from "./diff";
-import { emitRustTl } from "./emit/rust";
+import { emitRustBotApi, emitRustTl } from "./emit/rust";
 import { buildTlSchemas, importTl } from "./tl";
 
 const USAGE = `usage: bun run codegen <command> [options]
@@ -12,6 +12,7 @@ commands:
   diff [--base <ref>]    report spec changes against a git ref (default HEAD)
   diff:files <a> <b>     report changes between two spec files of the same kind
   rust:tl                generate crates/tl/src/generated from spec/tl/*.json
+  rust:botapi            generate crates/botapi-types/src/generated from spec/botapi/api.json
 `;
 
 const [command, ...args] = process.argv.slice(2);
@@ -59,6 +60,13 @@ switch (command) {
     const result = await emitRustTl();
     console.log(
       `crates/tl: ${result.written} written, ${result.unchanged} unchanged, ${result.removed} removed`,
+    );
+    break;
+  }
+  case "rust:botapi": {
+    const result = await emitRustBotApi();
+    console.log(
+      `crates/botapi-types: ${result.written} written, ${result.unchanged} unchanged, ${result.removed} removed`,
     );
     break;
   }

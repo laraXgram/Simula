@@ -5,6 +5,39 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-09-27 — P1.7 · `simula-botapi-types`
+
+- `bun run codegen rust:botapi` generates `crates/botapi-types/src/generated/` (593 files):
+  one struct per object type, one enum per union, one parameter struct per method
+  (`Method` with `NAME`, `PARAMS`, `MULTIPART`, `Return`), `Validate` for everything,
+  `registry::METHODS` (185 methods with parameter kinds for request coercion) and
+  `BOT_API_VERSION`.
+- Unions are untagged serde enums made exact by **tag types**: every documented constant
+  ("always “photo”", "Always 0") is a unit type that serializes to its value and rejects
+  others, so a wrong variant fails and the next is tried. Variants are ordered most
+  specific first. This handles `InlineQueryResultPhoto` vs `…CachedPhoto` (same tag),
+  `MaybeInaccessibleMessage` (date 0) and `InputMessageContent` (no tag) with no
+  hand-written code. `spec/botapi/names.json` names the 6 anonymous unions
+  (`ChatId`, `InputFile`, `ReplyMarkup`, `MessageOrTrue`, `MediaGroupItem`,
+  `RichMessageMedia`); an unnamed new one fails codegen.
+- Handwritten runtime: `InputFile` (`attach://` uploads vs file_id/URL references),
+  `ChatId` (numbers, numeric strings, usernames), `Method`/`ParamSpec`, structured
+  `Violation`s with full paths (the gateway maps them to Telegram's texts), tag macros.
+- Layout decisions driven by measurements: optional nested objects and union payloads
+  are boxed. Inline, `Update` was **167 KB** and `Message` 22 KB (a stack overflow in
+  tests); now 224 B and 1.3 KB. Recursive types are boxed via SCC analysis; `Default`
+  is derived wherever possible so large structs are easy to build.
+- Lengths "after entities parsing" are left to the gateway (they need the parsed text).
+- **Verification**: generated round trip of **771** fully populated samples — every
+  object, every method, and every union variant *through its union* (which checks the
+  discrimination). Handwritten tests: lossless real Telegram payloads, date-0
+  inaccessible messages, cached vs URL photos, keyboards with `force_reply`, `chat_id`
+  coercion, `attach://`, nested violation paths
+  (`reply_markup.inline_keyboard[0][0].callback_data`), ranges/items/enums, registry.
+  0 warnings, 0 clippy warnings.
+- Spec fix found on the way: the docs' `<br>- item` pseudo-lists produced Markdown where
+  the following line continued the last item; `toMarkdown` now separates them.
+
 ## 2026-09-27 — P0.3, P1.6 · Workspaces and the `simula-tl` crate
 
 - Workspaces: Cargo (`resolver = 3`, edition 2024, `unsafe_code = forbid`, clippy

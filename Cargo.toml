@@ -10,6 +10,7 @@ license = "MIT"
 repository = "https://github.com/laraXgram/Simula"
 
 [workspace.dependencies]
+simula-botapi-types = { path = "crates/botapi-types" }
 simula-tl = { path = "crates/tl" }
 
 base64 = "0.23"
@@ -32,4 +33,7 @@ debug = false
 # The generated TL crate is ~175k lines and rarely changes: incremental caches for it
 # cost gigabytes of disk for no speed-up.
 [profile.dev.package.simula-tl]
+incremental = false
+
+[profile.dev.package.simula-botapi-types]
 incremental = false
