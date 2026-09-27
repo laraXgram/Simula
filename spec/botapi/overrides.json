@@ -15,6 +15,9 @@
     "answerCallbackQuery": {
       "params": { "text": { "//": "The server answers MESSAGE_TOO_LONG.", "handler_validates": true } }
     },
+    "setMyCommands": {
+      "params": { "commands": { "//": "The server answers BOT_COMMANDS_TOO_MUCH.", "handler_validates": true } }
+    },
     "setWebhook": {
       "//": "telegram-bot-api clamps max_connections and checks the secret token itself.",
       "params": {
@@ -34,6 +37,13 @@
       }
     },
     "KeyboardButton": { "string_shorthand": "text" },
+    "BotCommand": {
+      "//": "tdlib trims and checks commands with its own texts; the server checks characters.",
+      "fields": {
+        "command": { "handler_validates": true },
+        "description": { "handler_validates": true }
+      }
+    },
     "InlineKeyboardButton": {
       "//": "The server checks it: BUTTON_DATA_INVALID, not a generic length error.",
       "fields": { "callback_data": { "handler_validates": true } }

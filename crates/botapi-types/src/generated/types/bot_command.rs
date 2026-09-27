@@ -15,20 +15,5 @@ pub struct BotCommand {
 }
 
 impl crate::Validate for BotCommand {
-    fn validate_into(&self, path: &str, out: &mut Vec<crate::Violation>) {
-        {
-            let p = crate::validate::join(path, "command");
-            {
-                let v = &self.command;
-                crate::validate::chars(&p, v, Some(1), Some(32), out);
-            }
-        }
-        {
-            let p = crate::validate::join(path, "description");
-            {
-                let v = &self.description;
-                crate::validate::chars(&p, v, Some(1), Some(256), out);
-            }
-        }
-    }
+    fn validate_into(&self, _path: &str, _out: &mut Vec<crate::Violation>) {}
 }

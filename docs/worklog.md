@@ -5,6 +5,34 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-09-28 — M2 (part 5) · Bot commands — M2 done (P2.9, P3.8)
+
+- **Core**: `bots.setBotCommands`, `bots.getBotCommands`, `bots.resetBotCommands`.
+  One list per (bot, scope, language) in a new `bot_commands` table (migration 0002);
+  scopes are stored by key (`default`, `users`, `chats`, `chat_admins`, `peer:<id>`,
+  `peer_admins:<id>`, `peer_user:<id>:<user>`), with the named chats and users checked
+  like any input peer. The server's rules: at most 100 commands
+  (`BOT_COMMANDS_TOO_MUCH`), 1–32 of `a-z0-9_` (`BOT_COMMAND_INVALID`), descriptions
+  of 1–256 characters (`BOT_COMMAND_DESCRIPTION_INVALID`), "" or a two-letter language
+  (`LANG_CODE_INVALID`), bots only. Reads return exactly the list for that scope and
+  language, with no fallback, and setting an empty list removes it.
+- **Gateway**: `setMyCommands`, `getMyCommands`, `deleteMyCommands` with
+  telegram-bot-api's scope parsing and chat checks ("chat not found", "can't use
+  specified scope in private chats", "can't parse BotCommandScope: Invalid user_id
+  specified") and tdlib's command handling: trimmed, a leading `/` dropped, "command
+  must be non-empty", "command length must not exceed 32", "command description
+  length must not exceed 256", "invalid language code specified". `is_ephemeral`
+  (Bot API 10.3) maps to the TL `ephemeral` flag. `BotCommand.command`,
+  `BotCommand.description` and `setMyCommands.commands` join the `handler_validates`
+  fields.
+- **Verification**: gateway tests for scopes and languages (default, `fa`, a private
+  chat, no fallback, deletion) and every error above. Workspace: 133 tests, clippy
+  clean; regeneration writes 0 files; `verify:ts` passes.
+- Coverage: Bot API 14/185, TL 11/813.
+- **M2 is complete**: formatting, keyboards, replies, edits, deletes, callback queries,
+  webhooks and commands, each checked against telegram-bot-api / tdlib behaviour and,
+  where a real library exercises it, against unmodified Telegraf.
+
 ## 2026-09-28 — M2 (part 4) · Webhooks (P3.3)
 
 - **`setWebhook` / `deleteWebhook` / `getWebhookInfo`** in telegram-bot-api's order and

@@ -42,10 +42,6 @@ impl crate::Validate for SetMyCommands {
     fn validate_into(&self, path: &str, out: &mut Vec<crate::Violation>) {
         {
             let p = crate::validate::join(path, "commands");
-            {
-                let v = &self.commands;
-                crate::validate::items(&p, v, None, Some(100), out);
-            }
             crate::Validate::validate_into(&self.commands, &p, out);
         }
         {

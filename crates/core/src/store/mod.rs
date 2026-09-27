@@ -2,6 +2,7 @@
 //! Queries take `&Connection`, so they work inside the handler's transaction.
 
 pub mod accounts;
+pub mod bot_commands;
 pub mod messages;
 pub mod meta;
 pub mod updates;
@@ -10,7 +11,10 @@ use std::path::Path;
 
 use rusqlite::Connection;
 
-const MIGRATIONS: &[&str] = &[include_str!("migrations/0001_init.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("migrations/0001_init.sql"),
+    include_str!("migrations/0002_bot_commands.sql"),
+];
 
 /// Open (or create) a sandbox database. `None` keeps it in memory, for tests.
 pub fn open(path: Option<&Path>) -> rusqlite::Result<Connection> {

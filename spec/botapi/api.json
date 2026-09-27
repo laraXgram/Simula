@@ -11307,7 +11307,8 @@
               "max": 32,
               "unit": "chars"
             }
-          }
+          },
+          "handler_validates": true
         },
         {
           "name": "description",
@@ -11323,7 +11324,8 @@
               "max": 256,
               "unit": "chars"
             }
-          }
+          },
+          "handler_validates": true
         },
         {
           "name": "is_ephemeral",
@@ -30724,7 +30726,8 @@
             "items": {
               "max": 100
             }
-          }
+          },
+          "handler_validates": true
         },
         {
           "name": "scope",

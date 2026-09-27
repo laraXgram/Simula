@@ -5,6 +5,7 @@ mod support;
 
 mod bot_flow;
 mod callbacks;
+mod commands;
 mod edit_delete;
 mod send_pipeline;
 mod webhooks;

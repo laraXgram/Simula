@@ -4,6 +4,7 @@
 //! list and routing table are generated from the files present
 //! (`bun run codegen registries`); add one with `bun run codegen new:tl <function>`.
 
+pub mod bots;
 pub mod messages;
 pub mod updates;
 pub mod users;
@@ -16,6 +17,9 @@ use crate::error::RpcResult;
 
 /// TL functions with a handler (stubs included).
 pub const IMPLEMENTED: &[&str] = &[
+    "bots.getBotCommands",
+    "bots.resetBotCommands",
+    "bots.setBotCommands",
     "messages.deleteMessages",
     "messages.editMessage",
     "messages.getBotCallbackAnswer",
@@ -29,6 +33,12 @@ pub const IMPLEMENTED: &[&str] = &[
 /// Run the handler for `call`, or hand the call back when there is none.
 pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Reply>>, Function> {
     Ok(match call {
+        Function::BotsGetBotCommands(call) => bots::get_bot_commands::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::BotsResetBotCommands(call) => bots::reset_bot_commands::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::BotsSetBotCommands(call) => bots::set_bot_commands::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesDeleteMessages(call) => messages::delete_messages::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesEditMessage(call) => messages::edit_message::handle(ctx, *call)

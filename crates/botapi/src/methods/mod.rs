@@ -7,13 +7,16 @@
 pub mod answer_callback_query;
 pub mod delete_message;
 pub mod delete_messages;
+pub mod delete_my_commands;
 pub mod delete_webhook;
 pub mod edit_message_reply_markup;
 pub mod edit_message_text;
 pub mod get_me;
+pub mod get_my_commands;
 pub mod get_updates;
 pub mod get_webhook_info;
 pub mod send_message;
+pub mod set_my_commands;
 pub mod set_webhook;
 
 use serde_json::{Map, Value};
@@ -27,13 +30,16 @@ pub const IMPLEMENTED: &[&str] = &[
     "answerCallbackQuery",
     "deleteMessage",
     "deleteMessages",
+    "deleteMyCommands",
     "deleteWebhook",
     "editMessageReplyMarkup",
     "editMessageText",
     "getMe",
+    "getMyCommands",
     "getUpdates",
     "getWebhookInfo",
     "sendMessage",
+    "setMyCommands",
     "setWebhook",
 ];
 
@@ -49,6 +55,7 @@ pub async fn route(
         }
         "deletemessage" => run(ctx, params, Limits::Enforce, delete_message::handle).await,
         "deletemessages" => run(ctx, params, Limits::Enforce, delete_messages::handle).await,
+        "deletemycommands" => run(ctx, params, Limits::Enforce, delete_my_commands::handle).await,
         "deletewebhook" => run(ctx, params, Limits::Enforce, delete_webhook::handle).await,
         "editmessagereplymarkup" => {
             run(
@@ -61,9 +68,11 @@ pub async fn route(
         }
         "editmessagetext" => run(ctx, params, Limits::Enforce, edit_message_text::handle).await,
         "getme" => run(ctx, params, Limits::Enforce, get_me::handle).await,
+        "getmycommands" => run(ctx, params, Limits::Enforce, get_my_commands::handle).await,
         "getupdates" => run(ctx, params, get_updates::LIMITS, get_updates::handle).await,
         "getwebhookinfo" => run(ctx, params, Limits::Enforce, get_webhook_info::handle).await,
         "sendmessage" => run(ctx, params, Limits::Enforce, send_message::handle).await,
+        "setmycommands" => run(ctx, params, Limits::Enforce, set_my_commands::handle).await,
         "setwebhook" => run(ctx, params, Limits::Enforce, set_webhook::handle).await,
         _ => return None,
     })

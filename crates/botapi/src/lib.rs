@@ -2,6 +2,7 @@
 //! translates Bot API requests into TL calls on the core, converts the results and
 //! updates back, and delivers updates by long polling (and, later, webhooks).
 
+mod commands;
 mod convert;
 mod ctx;
 mod delete;

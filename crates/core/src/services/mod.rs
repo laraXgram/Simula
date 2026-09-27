@@ -2,6 +2,7 @@
 
 pub mod accounts;
 pub mod callbacks;
+pub mod commands;
 pub mod deletes;
 pub mod edits;
 pub mod entities;
