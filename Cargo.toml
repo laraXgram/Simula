@@ -28,3 +28,8 @@ debug = "line-tables-only"
 
 [profile.dev.package."*"]
 debug = false
+
+# The generated TL crate is ~175k lines and rarely changes: incremental caches for it
+# cost gigabytes of disk for no speed-up.
+[profile.dev.package.simula-tl]
+incremental = false

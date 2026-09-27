@@ -30,6 +30,9 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
     combinators** (all fields set, all bit flags on, `long`s past 2^32) round-trips
     through both the binary and the JSON codec.
   - 0 compiler warnings, 0 clippy warnings; clean build of the crate ≈ 1.5 min.
+- Disk: incremental caches for the generated crate reached 6.5 GB (several variants:
+  lib, test, clippy). `simula-tl` now builds non-incrementally (it rarely changes);
+  `target/` dropped from 7.3 GB to 1.4 GB.
 - Bugs caught by those tests and fixed in the emitter: `mtproto_api.tl` declares binary
   payloads (`pq`, `g_a`, `encrypted_data`) as `string`, so that schema maps `string` to
   bytes; TL's uppercase SRP params (`A`, `M1`, `srp_B`) become snake_case Rust fields
