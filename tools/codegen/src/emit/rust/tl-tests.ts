@@ -51,8 +51,21 @@ where
     assert_eq!(decoded, value, "binary round trip");
 
     let json = serde_json::to_string(&value).expect("json encode");
+    dump(std::any::type_name::<T>(), &json);
     let decoded: T = serde_json::from_str(&json).unwrap_or_else(|e| panic!("json decode of {json}: {e}"));
     assert_eq!(decoded, value, "json round trip of {json}");
+}
+
+/// With \`SIMULA_SAMPLES_DIR\` set, every sample's JSON is appended there so
+/// \`bun run codegen verify:ts\` can type-check it against the TypeScript types.
+fn dump(type_name: &str, json: &str) {
+    use std::io::Write;
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let Some(dir) = std::env::var_os("SIMULA_SAMPLES_DIR") else { return };
+    let _guard = LOCK.lock().unwrap();
+    let path = std::path::Path::new(&dir).join(format!("{}.jsonl", env!("CARGO_PKG_NAME")));
+    let mut file = std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
+    file.write_all(format!("{type_name}\t{json}\n").as_bytes()).unwrap();
 }
 
 ${tests.join("\n\n")}

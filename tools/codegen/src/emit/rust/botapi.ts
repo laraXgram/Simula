@@ -388,7 +388,9 @@ function validateBody(infos: FieldInfo[]): string {
     }
     if (c?.range && /\b(i64|f64)\b/.test(f.rust) && !f.rust.includes("Vec")) {
       const value = /\bi64\b/.test(f.rust) ? "*v as f64" : "*v";
-      checks.push(`crate::validate::range(&p, ${value}, ${nf(c.range.min)}, ${nf(c.range.max)}, out);`);
+      checks.push(
+        `crate::validate::range(&p, ${value}, ${nf(c.range.min)}, ${nf(c.range.max)}, out);`,
+      );
     }
     if (c?.items && f.rust.includes("Vec")) {
       checks.push(`crate::validate::items(&p, v, ${n(c.items.min)}, ${n(c.items.max)}, out);`);

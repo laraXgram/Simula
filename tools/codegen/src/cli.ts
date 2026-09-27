@@ -1,7 +1,9 @@
 import { buildBotApiSpec } from "./botapi";
 import { diffAgainstRef, diffFiles } from "./diff";
 import { emitRustBotApi, emitRustTl } from "./emit/rust";
+import { emitTs } from "./emit/ts";
 import { buildTlSchemas, importTl } from "./tl";
+import { verifyTsSamples } from "./verify/ts-samples";
 
 const USAGE = `usage: bun run codegen <command> [options]
 
@@ -13,6 +15,8 @@ commands:
   diff:files <a> <b>     report changes between two spec files of the same kind
   rust:tl                generate crates/tl/src/generated from spec/tl/*.json
   rust:botapi            generate crates/botapi-types/src/generated from spec/botapi/api.json
+  ts                     generate packages/schema/src/generated (TL + Bot API TypeScript types)
+  verify:ts              type-check the JSON the Rust crates produce against the TS types
 `;
 
 const [command, ...args] = process.argv.slice(2);
@@ -67,6 +71,20 @@ switch (command) {
     const result = await emitRustBotApi();
     console.log(
       `crates/botapi-types: ${result.written} written, ${result.unchanged} unchanged, ${result.removed} removed`,
+    );
+    break;
+  }
+  case "ts": {
+    const result = await emitTs();
+    console.log(
+      `packages/schema: ${result.written} written, ${result.unchanged} unchanged, ${result.removed} removed`,
+    );
+    break;
+  }
+  case "verify:ts": {
+    const { samples, skipped } = await verifyTsSamples();
+    console.log(
+      `TypeScript accepts all ${samples} Rust samples (${skipped} mtproto samples skipped)`,
     );
     break;
   }

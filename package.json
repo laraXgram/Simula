@@ -2,12 +2,15 @@
   "name": "simula",
   "private": true,
   "type": "module",
-  "workspaces": ["tools/*"],
+  "workspaces": [
+    "tools/*",
+    "packages/*"
+  ],
   "scripts": {
     "codegen": "bun tools/codegen/src/cli.ts",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "typecheck": "tsc -p tools/codegen --noEmit"
+    "typecheck": "tsc -p tools/codegen --noEmit && tsc -p packages/schema --noEmit"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",

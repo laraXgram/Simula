@@ -1,0 +1,10 @@
+{
+  "name": "@simula/schema",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tl": "./src/generated/tl.ts",
+    "./botapi": "./src/generated/botapi.ts"
+  }
+}

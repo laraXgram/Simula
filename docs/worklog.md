@@ -5,6 +5,27 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-09-27 — P1.8 · TypeScript types (`@simula/schema`)
+
+- `bun run codegen ts` generates `packages/schema/src/generated/{tl,botapi}.ts`:
+  - **TL**: JSON-TL interfaces named exactly as in TL (`messageEntityBold` with
+    `_: "messageEntityBold"`, union `MessageEntity`), TL namespaces as TS namespaces,
+    `long`/`bytes` as strings, the `Function` union, and `Methods` mapping every function
+    to params and result for a typed RPC client. The 20 namespace types that shadow root
+    types (e.g. `messages.ChatFull`) reference root types through private aliases;
+    `true`/`null` constructors are escaped.
+  - **Bot API**: interfaces with literal types for constants and enums, `<Method>Params`
+    per method, `Methods` map, `ChatId`, `InputFile`, the named anonymous unions.
+- **Cross-language verification** (`bun run codegen verify:ts`): the generated Rust
+  round-trip tests dump the JSON they produce (`SIMULA_SAMPLES_DIR`), and each value is
+  type-checked as `<json> satisfies <TsType>` (excess-property checks make it strict in
+  both directions). **TypeScript accepts all 3242 Rust samples** (2471 TL, 771 Bot
+  API). First run caught the Rust samples using free text where the docs define an
+  enum; samples now use documented values.
+- Open item for the session gateway (P4/P5): `messages.receivedQueue` and
+  `photos.deletePhotos` return `Vector<long>`; top-level results must be encoded as
+  strings there to match the JSON-TL convention.
+
 ## 2026-09-27 — P1.7 · `simula-botapi-types`
 
 - `bun run codegen rust:botapi` generates `crates/botapi-types/src/generated/` (593 files):

@@ -66,6 +66,8 @@ crates/                   Rust workspace (runtime)
   control/                  simula-control: Control API + OpenAPI
   transport/                simula-transport: MTProto wire protocol (later phase)
   server/                   simula-server: the binary
+packages/
+  schema/                   @simula/schema: generated TL + Bot API TypeScript types
 apps/
   web/                      React + TS client
   desktop/                  bunium shell (spawns simula-server as a sidecar)

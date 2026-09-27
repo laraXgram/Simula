@@ -7,8 +7,34 @@ where
     T: PartialEq + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
 {
     let json = serde_json::to_string(&value).expect("encode");
+    dump(std::any::type_name::<T>(), &json);
     let decoded: T = serde_json::from_str(&json).unwrap_or_else(|e| panic!("decode {json}: {e}"));
     assert_eq!(decoded, value, "round trip of {json}");
+}
+
+/// With `SIMULA_SAMPLES_DIR` set, every sample's JSON is appended there so
+/// `bun run codegen verify:ts` can type-check it against the TypeScript types.
+fn dump(type_name: &str, json: &str) {
+    use std::io::Write;
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let Some(dir) = std::env::var_os("SIMULA_SAMPLES_DIR") else {
+        return;
+    };
+    let _guard = LOCK.lock().unwrap();
+    let path = std::path::Path::new(&dir).join(format!("{}.jsonl", env!("CARGO_PKG_NAME")));
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .unwrap();
+    file.write_all(
+        format!(
+            "{type_name}	{json}
+"
+        )
+        .as_bytes(),
+    )
+    .unwrap();
 }
 
 #[test]
@@ -31,7 +57,7 @@ fn roundtrip_00() {
             business_connection_id: None,
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -162,7 +188,7 @@ fn roundtrip_00() {
             business_connection_id: None,
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -293,7 +319,7 @@ fn roundtrip_00() {
             business_connection_id: None,
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -424,7 +450,7 @@ fn roundtrip_00() {
             business_connection_id: None,
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -582,7 +608,7 @@ fn roundtrip_00() {
             business_connection_id: None,
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -713,7 +739,7 @@ fn roundtrip_00() {
             business_connection_id: None,
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -833,7 +859,7 @@ fn roundtrip_00() {
                 business_connection_id: String::from("sample ✓"),
                 chat: simula_botapi_types::types::Chat {
                     id: 7,
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("private"),
                     title: None,
                     username: None,
                     first_name: None,
@@ -860,7 +886,7 @@ fn roundtrip_00() {
             business_connection_id: None,
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -979,7 +1005,7 @@ fn roundtrip_00() {
             simula_botapi_types::types::MessageReactionUpdated {
                 chat: simula_botapi_types::types::Chat {
                     id: 7,
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("private"),
                     title: None,
                     username: None,
                     first_name: None,
@@ -999,7 +1025,7 @@ fn roundtrip_00() {
             simula_botapi_types::types::MessageReactionCountUpdated {
                 chat: simula_botapi_types::types::Chat {
                     id: 7,
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("private"),
                     title: None,
                     username: None,
                     first_name: None,
@@ -1184,7 +1210,7 @@ fn roundtrip_00() {
             total_voter_count: 7,
             is_closed: true,
             is_anonymous: true,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("regular"),
             allows_multiple_answers: true,
             allows_revoting: true,
             members_only: true,
@@ -1209,7 +1235,7 @@ fn roundtrip_00() {
         my_chat_member: Some(Box::new(simula_botapi_types::types::ChatMemberUpdated {
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -1333,7 +1359,7 @@ fn roundtrip_00() {
         chat_member: Some(Box::new(simula_botapi_types::types::ChatMemberUpdated {
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -1457,7 +1483,7 @@ fn roundtrip_00() {
         chat_join_request: Some(Box::new(simula_botapi_types::types::ChatJoinRequest {
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -1494,7 +1520,7 @@ fn roundtrip_00() {
         chat_boost: Some(Box::new(simula_botapi_types::types::ChatBoostUpdated {
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -1520,7 +1546,7 @@ fn roundtrip_00() {
         removed_chat_boost: Some(Box::new(simula_botapi_types::types::ChatBoostRemoved {
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -1605,14 +1631,14 @@ fn roundtrip_00() {
                     supports_join_request_queries: None,
                 },
                 invoice_payload: String::from("sample ✓"),
-                state: String::from("sample ✓"),
+                state: String::from("canceled"),
             },
         )),
         stopped_message_generation: Some(Box::new(
             simula_botapi_types::types::MessageGenerationStopped {
                 chat: simula_botapi_types::types::Chat {
                     id: 7,
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("private"),
                     title: None,
                     username: None,
                     first_name: None,
@@ -1658,7 +1684,7 @@ fn roundtrip_00() {
     });
     check(simula_botapi_types::types::Chat {
         id: 7,
-        r#type: String::from("sample ✓"),
+        r#type: String::from("private"),
         title: Some(String::from("sample ✓")),
         username: Some(String::from("sample ✓")),
         first_name: Some(String::from("sample ✓")),
@@ -1668,7 +1694,7 @@ fn roundtrip_00() {
     });
     check(simula_botapi_types::types::ChatFullInfo {
         id: 7,
-        r#type: String::from("sample ✓"),
+        r#type: String::from("private"),
         title: Some(String::from("sample ✓")),
         username: Some(String::from("sample ✓")),
         first_name: Some(String::from("sample ✓")),
@@ -1704,7 +1730,7 @@ fn roundtrip_00() {
         })),
         personal_chat: Some(Box::new(simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -1714,7 +1740,7 @@ fn roundtrip_00() {
         })),
         parent_chat: Some(Box::new(simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -1756,7 +1782,7 @@ fn roundtrip_00() {
             business_connection_id: None,
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -1999,7 +2025,7 @@ fn roundtrip_00() {
         })),
         sender_chat: Some(Box::new(simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -2055,7 +2081,7 @@ fn roundtrip_00() {
         business_connection_id: Some(String::from("sample ✓")),
         chat: simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -2090,7 +2116,7 @@ fn roundtrip_00() {
             business_connection_id: None,
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -2248,7 +2274,7 @@ fn roundtrip_00() {
         reply_to_story: Some(Box::new(simula_botapi_types::types::Story {
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -2302,7 +2328,7 @@ fn roundtrip_00() {
         })),
         guest_bot_caller_chat: Some(Box::new(simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -2319,7 +2345,7 @@ fn roundtrip_00() {
         paid_star_count: Some(7),
         text: Some(String::from("sample ✓")),
         entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -2337,7 +2363,7 @@ fn roundtrip_00() {
             show_above_text: None,
         })),
         suggested_post_info: Some(Box::new(simula_botapi_types::types::SuggestedPostInfo {
-            state: String::from("sample ✓"),
+            state: String::from("pending"),
             price: None,
             send_date: None,
         })),
@@ -2400,7 +2426,7 @@ fn roundtrip_00() {
         sticker: Some(Box::new(simula_botapi_types::types::Sticker {
             file_id: String::from("sample ✓"),
             file_unique_id: String::from("sample ✓"),
-            r#type: String::from("sample ✓"),
+            r#type: String::from("regular"),
             width: 7,
             height: 7,
             is_animated: true,
@@ -2417,7 +2443,7 @@ fn roundtrip_00() {
         story: Some(Box::new(simula_botapi_types::types::Story {
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -2458,7 +2484,7 @@ fn roundtrip_00() {
         })),
         caption: Some(String::from("sample ✓")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -2504,7 +2530,7 @@ fn roundtrip_00() {
             total_voter_count: 7,
             is_closed: true,
             is_anonymous: true,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("regular"),
             allows_multiple_answers: true,
             allows_revoting: true,
             members_only: true,
@@ -2632,7 +2658,7 @@ fn roundtrip_00() {
                 simula_botapi_types::types::InaccessibleMessage {
                     chat: simula_botapi_types::types::Chat {
                         id: 7,
-                        r#type: String::from("sample ✓"),
+                        r#type: String::from("private"),
                         title: None,
                         username: None,
                         first_name: None,
@@ -2688,7 +2714,7 @@ fn roundtrip_00() {
                 sticker: simula_botapi_types::types::Sticker {
                     file_id: String::from("sample ✓"),
                     file_unique_id: String::from("sample ✓"),
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("regular"),
                     width: 7,
                     height: 7,
                     is_animated: true,
@@ -2735,7 +2761,7 @@ fn roundtrip_00() {
                     sticker: simula_botapi_types::types::Sticker {
                         file_id: String::from("sample ✓"),
                         file_unique_id: String::from("sample ✓"),
-                        r#type: String::from("sample ✓"),
+                        r#type: String::from("regular"),
                         width: 7,
                         height: 7,
                         is_animated: true,
@@ -2757,7 +2783,7 @@ fn roundtrip_00() {
                     sticker: simula_botapi_types::types::Sticker {
                         file_id: String::from("sample ✓"),
                         file_unique_id: String::from("sample ✓"),
-                        r#type: String::from("sample ✓"),
+                        r#type: String::from("regular"),
                         width: 7,
                         height: 7,
                         is_animated: true,
@@ -2789,7 +2815,7 @@ fn roundtrip_00() {
                 colors: None,
                 publisher_chat: None,
             },
-            origin: String::from("sample ✓"),
+            origin: String::from("upgrade"),
             text: None,
             entities: None,
             is_private: false,
@@ -2805,7 +2831,7 @@ fn roundtrip_00() {
                 sticker: simula_botapi_types::types::Sticker {
                     file_id: String::from("sample ✓"),
                     file_unique_id: String::from("sample ✓"),
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("regular"),
                     width: 7,
                     height: 7,
                     is_animated: true,
@@ -2976,7 +3002,7 @@ fn roundtrip_00() {
         giveaway_winners: Some(Box::new(simula_botapi_types::types::GiveawayWinners {
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -3052,7 +3078,7 @@ fn roundtrip_00() {
             simula_botapi_types::types::SuggestedPostApprovalFailed {
                 suggested_post_message: None,
                 price: simula_botapi_types::types::SuggestedPostPrice {
-                    currency: String::from("sample ✓"),
+                    currency: String::from("XTR"),
                     amount: 7,
                 },
             },
@@ -3065,14 +3091,14 @@ fn roundtrip_00() {
         )),
         suggested_post_paid: Some(Box::new(simula_botapi_types::types::SuggestedPostPaid {
             suggested_post_message: None,
-            currency: String::from("sample ✓"),
+            currency: String::from("XTR"),
             amount: None,
             star_amount: None,
         })),
         suggested_post_refunded: Some(Box::new(
             simula_botapi_types::types::SuggestedPostRefunded {
                 suggested_post_message: None,
-                reason: String::from("sample ✓"),
+                reason: String::from("post_deleted"),
             },
         )),
         video_chat_scheduled: Some(Box::new(simula_botapi_types::types::VideoChatScheduled {
@@ -3098,7 +3124,7 @@ fn roundtrip_00() {
     check(simula_botapi_types::types::InaccessibleMessage {
         chat: simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -3114,7 +3140,7 @@ fn roundtrip_00() {
             simula_botapi_types::types::InaccessibleMessage {
                 chat: simula_botapi_types::types::Chat {
                     id: 7,
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("private"),
                     title: None,
                     username: None,
                     first_name: None,
@@ -3160,7 +3186,7 @@ fn roundtrip_00() {
                 })),
                 sender_chat: Some(Box::new(simula_botapi_types::types::Chat {
                     id: 7,
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("private"),
                     title: None,
                     username: None,
                     first_name: None,
@@ -3216,7 +3242,7 @@ fn roundtrip_00() {
                 business_connection_id: Some(String::from("sample ✓")),
                 chat: simula_botapi_types::types::Chat {
                     id: 7,
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("private"),
                     title: None,
                     username: None,
                     first_name: None,
@@ -3251,7 +3277,7 @@ fn roundtrip_00() {
                     business_connection_id: None,
                     chat: simula_botapi_types::types::Chat {
                         id: 7,
-                        r#type: String::from("sample ✓"),
+                        r#type: String::from("private"),
                         title: None,
                         username: None,
                         first_name: None,
@@ -3409,7 +3435,7 @@ fn roundtrip_00() {
                 reply_to_story: Some(Box::new(simula_botapi_types::types::Story {
                     chat: simula_botapi_types::types::Chat {
                         id: 7,
-                        r#type: String::from("sample ✓"),
+                        r#type: String::from("private"),
                         title: None,
                         username: None,
                         first_name: None,
@@ -3463,7 +3489,7 @@ fn roundtrip_00() {
                 })),
                 guest_bot_caller_chat: Some(Box::new(simula_botapi_types::types::Chat {
                     id: 7,
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("private"),
                     title: None,
                     username: None,
                     first_name: None,
@@ -3480,7 +3506,7 @@ fn roundtrip_00() {
                 paid_star_count: Some(7),
                 text: Some(String::from("sample ✓")),
                 entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("mention"),
                     offset: 7,
                     length: 7,
                     url: None,
@@ -3501,7 +3527,7 @@ fn roundtrip_00() {
                 )),
                 suggested_post_info: Some(Box::new(
                     simula_botapi_types::types::SuggestedPostInfo {
-                        state: String::from("sample ✓"),
+                        state: String::from("pending"),
                         price: None,
                         send_date: None,
                     },
@@ -3565,7 +3591,7 @@ fn roundtrip_00() {
                 sticker: Some(Box::new(simula_botapi_types::types::Sticker {
                     file_id: String::from("sample ✓"),
                     file_unique_id: String::from("sample ✓"),
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("regular"),
                     width: 7,
                     height: 7,
                     is_animated: true,
@@ -3582,7 +3608,7 @@ fn roundtrip_00() {
                 story: Some(Box::new(simula_botapi_types::types::Story {
                     chat: simula_botapi_types::types::Chat {
                         id: 7,
-                        r#type: String::from("sample ✓"),
+                        r#type: String::from("private"),
                         title: None,
                         username: None,
                         first_name: None,
@@ -3623,7 +3649,7 @@ fn roundtrip_00() {
                 })),
                 caption: Some(String::from("sample ✓")),
                 caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("mention"),
                     offset: 7,
                     length: 7,
                     url: None,
@@ -3669,7 +3695,7 @@ fn roundtrip_00() {
                     total_voter_count: 7,
                     is_closed: true,
                     is_anonymous: true,
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("regular"),
                     allows_multiple_answers: true,
                     allows_revoting: true,
                     members_only: true,
@@ -3797,7 +3823,7 @@ fn roundtrip_00() {
                         Box::new(simula_botapi_types::types::InaccessibleMessage {
                             chat: simula_botapi_types::types::Chat {
                                 id: 7,
-                                r#type: String::from("sample ✓"),
+                                r#type: String::from("private"),
                                 title: None,
                                 username: None,
                                 first_name: None,
@@ -3853,7 +3879,7 @@ fn roundtrip_00() {
                         sticker: simula_botapi_types::types::Sticker {
                             file_id: String::from("sample ✓"),
                             file_unique_id: String::from("sample ✓"),
-                            r#type: String::from("sample ✓"),
+                            r#type: String::from("regular"),
                             width: 7,
                             height: 7,
                             is_animated: true,
@@ -3900,7 +3926,7 @@ fn roundtrip_00() {
                             sticker: simula_botapi_types::types::Sticker {
                                 file_id: String::from("sample ✓"),
                                 file_unique_id: String::from("sample ✓"),
-                                r#type: String::from("sample ✓"),
+                                r#type: String::from("regular"),
                                 width: 7,
                                 height: 7,
                                 is_animated: true,
@@ -3922,7 +3948,7 @@ fn roundtrip_00() {
                             sticker: simula_botapi_types::types::Sticker {
                                 file_id: String::from("sample ✓"),
                                 file_unique_id: String::from("sample ✓"),
-                                r#type: String::from("sample ✓"),
+                                r#type: String::from("regular"),
                                 width: 7,
                                 height: 7,
                                 is_animated: true,
@@ -3954,7 +3980,7 @@ fn roundtrip_00() {
                         colors: None,
                         publisher_chat: None,
                     },
-                    origin: String::from("sample ✓"),
+                    origin: String::from("upgrade"),
                     text: None,
                     entities: None,
                     is_private: false,
@@ -3970,7 +3996,7 @@ fn roundtrip_00() {
                         sticker: simula_botapi_types::types::Sticker {
                             file_id: String::from("sample ✓"),
                             file_unique_id: String::from("sample ✓"),
-                            r#type: String::from("sample ✓"),
+                            r#type: String::from("regular"),
                             width: 7,
                             height: 7,
                             is_animated: true,
@@ -4155,7 +4181,7 @@ fn roundtrip_00() {
                 giveaway_winners: Some(Box::new(simula_botapi_types::types::GiveawayWinners {
                     chat: simula_botapi_types::types::Chat {
                         id: 7,
-                        r#type: String::from("sample ✓"),
+                        r#type: String::from("private"),
                         title: None,
                         username: None,
                         first_name: None,
@@ -4235,7 +4261,7 @@ fn roundtrip_00() {
                     simula_botapi_types::types::SuggestedPostApprovalFailed {
                         suggested_post_message: None,
                         price: simula_botapi_types::types::SuggestedPostPrice {
-                            currency: String::from("sample ✓"),
+                            currency: String::from("XTR"),
                             amount: 7,
                         },
                     },
@@ -4249,7 +4275,7 @@ fn roundtrip_00() {
                 suggested_post_paid: Some(Box::new(
                     simula_botapi_types::types::SuggestedPostPaid {
                         suggested_post_message: None,
-                        currency: String::from("sample ✓"),
+                        currency: String::from("XTR"),
                         amount: None,
                         star_amount: None,
                     },
@@ -4257,7 +4283,7 @@ fn roundtrip_00() {
                 suggested_post_refunded: Some(Box::new(
                     simula_botapi_types::types::SuggestedPostRefunded {
                         suggested_post_message: None,
-                        reason: String::from("sample ✓"),
+                        reason: String::from("post_deleted"),
                     },
                 )),
                 video_chat_scheduled: Some(Box::new(
@@ -4282,7 +4308,7 @@ fn roundtrip_00() {
         )),
     );
     check(simula_botapi_types::types::MessageEntity {
-        r#type: String::from("sample ✓"),
+        r#type: String::from("mention"),
         offset: 7,
         length: 7,
         url: Some(String::from("sample ✓")),
@@ -4314,7 +4340,7 @@ fn roundtrip_00() {
     check(simula_botapi_types::types::TextQuote {
         text: String::from("sample ✓"),
         entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -4337,7 +4363,7 @@ fn roundtrip_00() {
         )),
         chat: Some(Box::new(simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -4407,7 +4433,7 @@ fn roundtrip_00() {
         sticker: Some(Box::new(simula_botapi_types::types::Sticker {
             file_id: String::from("sample ✓"),
             file_unique_id: String::from("sample ✓"),
-            r#type: String::from("sample ✓"),
+            r#type: String::from("regular"),
             width: 7,
             height: 7,
             is_animated: true,
@@ -4424,7 +4450,7 @@ fn roundtrip_00() {
         story: Some(Box::new(simula_botapi_types::types::Story {
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -4504,7 +4530,7 @@ fn roundtrip_00() {
         giveaway_winners: Some(Box::new(simula_botapi_types::types::GiveawayWinners {
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -4547,7 +4573,7 @@ fn roundtrip_00() {
             total_voter_count: 7,
             is_closed: true,
             is_anonymous: true,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("regular"),
             allows_multiple_answers: true,
             allows_revoting: true,
             members_only: true,
@@ -4589,7 +4615,7 @@ fn roundtrip_00() {
         quote: Some(String::from("sample ✓")),
         quote_parse_mode: Some(String::from("sample ✓")),
         quote_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -4614,7 +4640,7 @@ fn roundtrip_00() {
             date: 7,
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -4665,7 +4691,7 @@ fn roundtrip_00() {
             date: 7,
             sender_chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -4710,7 +4736,7 @@ fn roundtrip_00() {
         date: 7,
         sender_chat: simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -4725,7 +4751,7 @@ fn roundtrip_00() {
         date: 7,
         chat: simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -4810,7 +4836,7 @@ fn roundtrip_00() {
     check(simula_botapi_types::types::Story {
         chat: simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -5067,7 +5093,7 @@ fn roundtrip_00() {
         sticker: Some(Box::new(simula_botapi_types::types::Sticker {
             file_id: String::from("sample ✓"),
             file_unique_id: String::from("sample ✓"),
-            r#type: String::from("sample ✓"),
+            r#type: String::from("regular"),
             width: 7,
             height: 7,
             is_animated: true,
@@ -5132,9 +5158,9 @@ fn roundtrip_00() {
                 media: String::from("sample ✓"),
                 photo: String::from("sample ✓"),
                 caption: Some(String::from("sample ✓")),
-                parse_mode: Some(String::from("sample ✓")),
+                parse_mode: Some(String::from("HTML")),
                 caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("mention"),
                     offset: 7,
                     length: 7,
                     url: None,
@@ -5166,9 +5192,9 @@ fn roundtrip_00() {
                 media: String::from("sample ✓"),
                 thumbnail: Some(String::from("sample ✓")),
                 caption: Some(String::from("sample ✓")),
-                parse_mode: Some(String::from("sample ✓")),
+                parse_mode: Some(String::from("HTML")),
                 caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("mention"),
                     offset: 7,
                     length: 7,
                     url: None,
@@ -5196,9 +5222,9 @@ fn roundtrip_01() {
             media: String::from("sample ✓"),
             thumbnail: Some(String::from("sample ✓")),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -5220,9 +5246,9 @@ fn roundtrip_01() {
                 media: String::from("sample ✓"),
                 thumbnail: Some(String::from("sample ✓")),
                 caption: Some(String::from("sample ✓")),
-                parse_mode: Some(String::from("sample ✓")),
+                parse_mode: Some(String::from("HTML")),
                 caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("mention"),
                     offset: 7,
                     length: 7,
                     url: None,
@@ -5241,9 +5267,9 @@ fn roundtrip_01() {
             r#type: simula_botapi_types::tags::Photo,
             media: String::from("sample ✓"),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -5265,9 +5291,9 @@ fn roundtrip_01() {
             cover: Some(String::from("sample ✓")),
             start_timestamp: Some(7),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -5307,9 +5333,9 @@ fn roundtrip_01() {
                 media: String::from("sample ✓"),
                 photo: String::from("sample ✓"),
                 caption: Some(String::from("sample ✓")),
-                parse_mode: Some(String::from("sample ✓")),
+                parse_mode: Some(String::from("HTML")),
                 caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("mention"),
                     offset: 7,
                     length: 7,
                     url: None,
@@ -5341,9 +5367,9 @@ fn roundtrip_01() {
                 media: String::from("sample ✓"),
                 thumbnail: Some(String::from("sample ✓")),
                 caption: Some(String::from("sample ✓")),
-                parse_mode: Some(String::from("sample ✓")),
+                parse_mode: Some(String::from("HTML")),
                 caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("mention"),
                     offset: 7,
                     length: 7,
                     url: None,
@@ -5375,9 +5401,9 @@ fn roundtrip_01() {
                 r#type: simula_botapi_types::tags::Photo,
                 media: String::from("sample ✓"),
                 caption: Some(String::from("sample ✓")),
-                parse_mode: Some(String::from("sample ✓")),
+                parse_mode: Some(String::from("HTML")),
                 caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("mention"),
                     offset: 7,
                     length: 7,
                     url: None,
@@ -5410,9 +5436,9 @@ fn roundtrip_01() {
                 cover: Some(String::from("sample ✓")),
                 start_timestamp: Some(7),
                 caption: Some(String::from("sample ✓")),
-                parse_mode: Some(String::from("sample ✓")),
+                parse_mode: Some(String::from("HTML")),
                 caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("mention"),
                     offset: 7,
                     length: 7,
                     url: None,
@@ -5435,7 +5461,7 @@ fn roundtrip_01() {
         persistent_id: String::from("sample ✓"),
         text: String::from("sample ✓"),
         text_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -5480,7 +5506,7 @@ fn roundtrip_01() {
         })),
         added_by_chat: Some(Box::new(simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -5494,7 +5520,7 @@ fn roundtrip_01() {
         text: String::from("sample ✓"),
         text_parse_mode: Some(String::from("sample ✓")),
         text_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -5524,7 +5550,7 @@ fn roundtrip_01() {
         poll_id: String::from("sample ✓"),
         voter_chat: Some(Box::new(simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -5559,7 +5585,7 @@ fn roundtrip_01() {
         id: String::from("sample ✓"),
         question: String::from("sample ✓"),
         question_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -5582,7 +5608,7 @@ fn roundtrip_01() {
         total_voter_count: 7,
         is_closed: true,
         is_anonymous: true,
-        r#type: String::from("sample ✓"),
+        r#type: String::from("regular"),
         allows_multiple_answers: true,
         allows_revoting: true,
         members_only: true,
@@ -5590,7 +5616,7 @@ fn roundtrip_01() {
         correct_option_ids: Some(vec![7]),
         explanation: Some(String::from("sample ✓")),
         explanation_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -5616,7 +5642,7 @@ fn roundtrip_01() {
         close_date: Some(7),
         description: Some(String::from("sample ✓")),
         description_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -5643,7 +5669,7 @@ fn roundtrip_01() {
         id: 7,
         text: String::from("sample ✓"),
         text_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -5675,7 +5701,7 @@ fn roundtrip_01() {
         })),
         completed_by_chat: Some(Box::new(simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -5688,7 +5714,7 @@ fn roundtrip_01() {
     check(simula_botapi_types::types::Checklist {
         title: String::from("sample ✓"),
         title_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -5712,9 +5738,9 @@ fn roundtrip_01() {
     check(simula_botapi_types::types::InputChecklistTask {
         id: 7,
         text: String::from("sample ✓"),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         text_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -5727,9 +5753,9 @@ fn roundtrip_01() {
     });
     check(simula_botapi_types::types::InputChecklist {
         title: String::from("sample ✓"),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         title_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -5908,12 +5934,12 @@ fn roundtrip_01() {
             supports_join_request_queries: None,
         },
         invoice_payload: String::from("sample ✓"),
-        state: String::from("sample ✓"),
+        state: String::from("canceled"),
     });
     check(simula_botapi_types::types::MessageGenerationStopped {
         chat: simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -5930,7 +5956,7 @@ fn roundtrip_01() {
                 simula_botapi_types::types::InaccessibleMessage {
                     chat: simula_botapi_types::types::Chat {
                         id: 7,
-                        r#type: String::from("sample ✓"),
+                        r#type: String::from("private"),
                         title: None,
                         username: None,
                         first_name: None,
@@ -5946,7 +5972,7 @@ fn roundtrip_01() {
         option_persistent_id: String::from("sample ✓"),
         option_text: String::from("sample ✓"),
         option_text_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -5963,7 +5989,7 @@ fn roundtrip_01() {
                 simula_botapi_types::types::InaccessibleMessage {
                     chat: simula_botapi_types::types::Chat {
                         id: 7,
-                        r#type: String::from("sample ✓"),
+                        r#type: String::from("private"),
                         title: None,
                         username: None,
                         first_name: None,
@@ -5979,7 +6005,7 @@ fn roundtrip_01() {
         option_persistent_id: String::from("sample ✓"),
         option_text: String::from("sample ✓"),
         option_text_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -6164,7 +6190,7 @@ fn roundtrip_01() {
             business_connection_id: None,
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -6299,7 +6325,7 @@ fn roundtrip_01() {
             business_connection_id: None,
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -6544,7 +6570,7 @@ fn roundtrip_02() {
             business_connection_id: None,
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -6660,7 +6686,7 @@ fn roundtrip_02() {
             reply_markup: None,
         })),
         price: Some(Box::new(simula_botapi_types::types::SuggestedPostPrice {
-            currency: String::from("sample ✓"),
+            currency: String::from("XTR"),
             amount: 7,
         })),
         send_date: 7,
@@ -6682,7 +6708,7 @@ fn roundtrip_02() {
             business_connection_id: None,
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -6798,7 +6824,7 @@ fn roundtrip_02() {
             reply_markup: None,
         })),
         price: simula_botapi_types::types::SuggestedPostPrice {
-            currency: String::from("sample ✓"),
+            currency: String::from("XTR"),
             amount: 7,
         },
     });
@@ -6819,7 +6845,7 @@ fn roundtrip_02() {
             business_connection_id: None,
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -6953,7 +6979,7 @@ fn roundtrip_02() {
             business_connection_id: None,
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -7068,7 +7094,7 @@ fn roundtrip_02() {
             web_app_data: None,
             reply_markup: None,
         })),
-        currency: String::from("sample ✓"),
+        currency: String::from("XTR"),
         amount: Some(7),
         star_amount: Some(Box::new(simula_botapi_types::types::StarAmount {
             amount: 7,
@@ -7092,7 +7118,7 @@ fn roundtrip_02() {
             business_connection_id: None,
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -7207,7 +7233,7 @@ fn roundtrip_02() {
             web_app_data: None,
             reply_markup: None,
         })),
-        reason: String::from("sample ✓"),
+        reason: String::from("post_deleted"),
     });
     check(simula_botapi_types::types::GiveawayCreated {
         prize_star_count: Some(7),
@@ -7215,7 +7241,7 @@ fn roundtrip_02() {
     check(simula_botapi_types::types::Giveaway {
         chats: vec![simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -7235,7 +7261,7 @@ fn roundtrip_02() {
     check(simula_botapi_types::types::GiveawayWinners {
         chat: simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -7293,7 +7319,7 @@ fn roundtrip_02() {
             business_connection_id: None,
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -7418,20 +7444,20 @@ fn roundtrip_02() {
         show_above_text: Some(true),
     });
     check(simula_botapi_types::types::SuggestedPostPrice {
-        currency: String::from("sample ✓"),
+        currency: String::from("XTR"),
         amount: 7,
     });
     check(simula_botapi_types::types::SuggestedPostInfo {
-        state: String::from("sample ✓"),
+        state: String::from("pending"),
         price: Some(Box::new(simula_botapi_types::types::SuggestedPostPrice {
-            currency: String::from("sample ✓"),
+            currency: String::from("XTR"),
             amount: 7,
         })),
         send_date: Some(7),
     });
     check(simula_botapi_types::types::SuggestedPostParameters {
         price: Some(Box::new(simula_botapi_types::types::SuggestedPostPrice {
-            currency: String::from("sample ✓"),
+            currency: String::from("XTR"),
             amount: 7,
         })),
         send_date: Some(7),
@@ -7498,7 +7524,7 @@ fn roundtrip_02() {
     check(simula_botapi_types::types::KeyboardButton {
         text: String::from("sample ✓"),
         icon_custom_emoji_id: Some(String::from("sample ✓")),
-        style: Some(String::from("sample ✓")),
+        style: Some(String::from("danger")),
         request_users: Some(Box::new(
             simula_botapi_types::types::KeyboardButtonRequestUsers {
                 request_id: 7,
@@ -7626,7 +7652,7 @@ fn roundtrip_02() {
     check(simula_botapi_types::types::InlineKeyboardButton {
         text: String::from("sample ✓"),
         icon_custom_emoji_id: Some(String::from("sample ✓")),
-        style: Some(String::from("sample ✓")),
+        style: Some(String::from("danger")),
         url: Some(String::from("sample ✓")),
         callback_data: Some(String::from("sample ✓")),
         web_app: Some(Box::new(simula_botapi_types::types::WebAppInfo {
@@ -7700,7 +7726,7 @@ fn roundtrip_02() {
                 simula_botapi_types::types::InaccessibleMessage {
                     chat: simula_botapi_types::types::Chat {
                         id: 7,
-                        r#type: String::from("sample ✓"),
+                        r#type: String::from("private"),
                         title: None,
                         username: None,
                         first_name: None,
@@ -7792,7 +7818,7 @@ fn roundtrip_03() {
     check(simula_botapi_types::types::ChatMemberUpdated {
         chat: simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -8323,7 +8349,7 @@ fn roundtrip_03() {
     check(simula_botapi_types::types::ChatJoinRequest {
         chat: simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -8417,7 +8443,7 @@ fn roundtrip_03() {
         sticker: Some(Box::new(simula_botapi_types::types::Sticker {
             file_id: String::from("sample ✓"),
             file_unique_id: String::from("sample ✓"),
-            r#type: String::from("sample ✓"),
+            r#type: String::from("regular"),
             width: 7,
             height: 7,
             is_animated: true,
@@ -8627,7 +8653,7 @@ fn roundtrip_03() {
     check(simula_botapi_types::types::MessageReactionUpdated {
         chat: simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -8658,7 +8684,7 @@ fn roundtrip_03() {
         })),
         actor_chat: Some(Box::new(simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -8683,7 +8709,7 @@ fn roundtrip_03() {
     check(simula_botapi_types::types::MessageReactionCountUpdated {
         chat: simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -8724,7 +8750,7 @@ fn roundtrip_04() {
         sticker: simula_botapi_types::types::Sticker {
             file_id: String::from("sample ✓"),
             file_unique_id: String::from("sample ✓"),
-            r#type: String::from("sample ✓"),
+            r#type: String::from("regular"),
             width: 7,
             height: 7,
             is_animated: true,
@@ -8754,7 +8780,7 @@ fn roundtrip_04() {
         unique_gift_variant_count: Some(7),
         publisher_chat: Some(Box::new(simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -8769,7 +8795,7 @@ fn roundtrip_04() {
             sticker: simula_botapi_types::types::Sticker {
                 file_id: String::from("sample ✓"),
                 file_unique_id: String::from("sample ✓"),
-                r#type: String::from("sample ✓"),
+                r#type: String::from("regular"),
                 width: 7,
                 height: 7,
                 is_animated: true,
@@ -8801,7 +8827,7 @@ fn roundtrip_04() {
         sticker: simula_botapi_types::types::Sticker {
             file_id: String::from("sample ✓"),
             file_unique_id: String::from("sample ✓"),
-            r#type: String::from("sample ✓"),
+            r#type: String::from("regular"),
             width: 7,
             height: 7,
             is_animated: true,
@@ -8816,14 +8842,14 @@ fn roundtrip_04() {
             file_size: None,
         },
         rarity_per_mille: 7,
-        rarity: Some(String::from("sample ✓")),
+        rarity: Some(String::from("uncommon")),
     });
     check(simula_botapi_types::types::UniqueGiftSymbol {
         name: String::from("sample ✓"),
         sticker: simula_botapi_types::types::Sticker {
             file_id: String::from("sample ✓"),
             file_unique_id: String::from("sample ✓"),
-            r#type: String::from("sample ✓"),
+            r#type: String::from("regular"),
             width: 7,
             height: 7,
             is_animated: true,
@@ -8873,7 +8899,7 @@ fn roundtrip_04() {
             sticker: simula_botapi_types::types::Sticker {
                 file_id: String::from("sample ✓"),
                 file_unique_id: String::from("sample ✓"),
-                r#type: String::from("sample ✓"),
+                r#type: String::from("regular"),
                 width: 7,
                 height: 7,
                 is_animated: true,
@@ -8895,7 +8921,7 @@ fn roundtrip_04() {
             sticker: simula_botapi_types::types::Sticker {
                 file_id: String::from("sample ✓"),
                 file_unique_id: String::from("sample ✓"),
-                r#type: String::from("sample ✓"),
+                r#type: String::from("regular"),
                 width: 7,
                 height: 7,
                 is_animated: true,
@@ -8934,7 +8960,7 @@ fn roundtrip_04() {
         })),
         publisher_chat: Some(Box::new(simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -8949,7 +8975,7 @@ fn roundtrip_04() {
             sticker: simula_botapi_types::types::Sticker {
                 file_id: String::from("sample ✓"),
                 file_unique_id: String::from("sample ✓"),
-                r#type: String::from("sample ✓"),
+                r#type: String::from("regular"),
                 width: 7,
                 height: 7,
                 is_animated: true,
@@ -8982,7 +9008,7 @@ fn roundtrip_04() {
         can_be_upgraded: true,
         text: Some(String::from("sample ✓")),
         entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -9006,7 +9032,7 @@ fn roundtrip_04() {
                 sticker: simula_botapi_types::types::Sticker {
                     file_id: String::from("sample ✓"),
                     file_unique_id: String::from("sample ✓"),
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("regular"),
                     width: 7,
                     height: 7,
                     is_animated: true,
@@ -9028,7 +9054,7 @@ fn roundtrip_04() {
                 sticker: simula_botapi_types::types::Sticker {
                     file_id: String::from("sample ✓"),
                     file_unique_id: String::from("sample ✓"),
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("regular"),
                     width: 7,
                     height: 7,
                     is_animated: true,
@@ -9060,10 +9086,10 @@ fn roundtrip_04() {
             colors: None,
             publisher_chat: None,
         },
-        origin: String::from("sample ✓"),
+        origin: String::from("upgrade"),
         text: Some(String::from("sample ✓")),
         entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -9074,7 +9100,7 @@ fn roundtrip_04() {
             date_time_format: None,
         }]),
         is_private: true,
-        last_resale_currency: Some(String::from("sample ✓")),
+        last_resale_currency: Some(String::from("XTR")),
         last_resale_amount: Some(7),
         owned_gift_id: Some(String::from("sample ✓")),
         transfer_star_count: Some(7),
@@ -9088,7 +9114,7 @@ fn roundtrip_04() {
                 sticker: simula_botapi_types::types::Sticker {
                     file_id: String::from("sample ✓"),
                     file_unique_id: String::from("sample ✓"),
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("regular"),
                     width: 7,
                     height: 7,
                     is_animated: true,
@@ -9138,7 +9164,7 @@ fn roundtrip_04() {
             send_date: 7,
             text: Some(String::from("sample ✓")),
             entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -9171,7 +9197,7 @@ fn roundtrip_04() {
                     sticker: simula_botapi_types::types::Sticker {
                         file_id: String::from("sample ✓"),
                         file_unique_id: String::from("sample ✓"),
-                        r#type: String::from("sample ✓"),
+                        r#type: String::from("regular"),
                         width: 7,
                         height: 7,
                         is_animated: true,
@@ -9193,7 +9219,7 @@ fn roundtrip_04() {
                     sticker: simula_botapi_types::types::Sticker {
                         file_id: String::from("sample ✓"),
                         file_unique_id: String::from("sample ✓"),
-                        r#type: String::from("sample ✓"),
+                        r#type: String::from("regular"),
                         width: 7,
                         height: 7,
                         is_animated: true,
@@ -9260,7 +9286,7 @@ fn roundtrip_04() {
             sticker: simula_botapi_types::types::Sticker {
                 file_id: String::from("sample ✓"),
                 file_unique_id: String::from("sample ✓"),
-                r#type: String::from("sample ✓"),
+                r#type: String::from("regular"),
                 width: 7,
                 height: 7,
                 is_animated: true,
@@ -9310,7 +9336,7 @@ fn roundtrip_04() {
         send_date: 7,
         text: Some(String::from("sample ✓")),
         entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -9341,7 +9367,7 @@ fn roundtrip_04() {
                 sticker: simula_botapi_types::types::Sticker {
                     file_id: String::from("sample ✓"),
                     file_unique_id: String::from("sample ✓"),
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("regular"),
                     width: 7,
                     height: 7,
                     is_animated: true,
@@ -9363,7 +9389,7 @@ fn roundtrip_04() {
                 sticker: simula_botapi_types::types::Sticker {
                     file_id: String::from("sample ✓"),
                     file_unique_id: String::from("sample ✓"),
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("regular"),
                     width: 7,
                     height: 7,
                     is_animated: true,
@@ -9432,7 +9458,7 @@ fn roundtrip_04() {
                     sticker: simula_botapi_types::types::Sticker {
                         file_id: String::from("sample ✓"),
                         file_unique_id: String::from("sample ✓"),
-                        r#type: String::from("sample ✓"),
+                        r#type: String::from("regular"),
                         width: 7,
                         height: 7,
                         is_animated: true,
@@ -9800,7 +9826,7 @@ fn roundtrip_05() {
     check(simula_botapi_types::types::ChatBoostUpdated {
         chat: simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -9826,7 +9852,7 @@ fn roundtrip_05() {
     check(simula_botapi_types::types::ChatBoostRemoved {
         chat: simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -9968,7 +9994,7 @@ fn roundtrip_05() {
         business_connection_id: String::from("sample ✓"),
         chat: simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -10001,9 +10027,9 @@ fn roundtrip_05() {
             media: String::from("sample ✓"),
             photo: String::from("sample ✓"),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -10023,9 +10049,9 @@ fn roundtrip_05() {
             media: String::from("sample ✓"),
             thumbnail: Some(String::from("sample ✓")),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -10048,9 +10074,9 @@ fn roundtrip_05() {
             media: String::from("sample ✓"),
             thumbnail: Some(String::from("sample ✓")),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -10071,9 +10097,9 @@ fn roundtrip_05() {
             media: String::from("sample ✓"),
             thumbnail: Some(String::from("sample ✓")),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -10091,9 +10117,9 @@ fn roundtrip_05() {
             r#type: simula_botapi_types::tags::Photo,
             media: String::from("sample ✓"),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -10115,9 +10141,9 @@ fn roundtrip_05() {
             cover: Some(String::from("sample ✓")),
             start_timestamp: Some(7),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -10140,9 +10166,9 @@ fn roundtrip_05() {
         media: String::from("sample ✓"),
         thumbnail: Some(String::from("sample ✓")),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -10163,9 +10189,9 @@ fn roundtrip_05() {
         media: String::from("sample ✓"),
         thumbnail: Some(String::from("sample ✓")),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -10184,9 +10210,9 @@ fn roundtrip_05() {
         media: String::from("sample ✓"),
         thumbnail: Some(String::from("sample ✓")),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -10207,9 +10233,9 @@ fn roundtrip_05() {
         media: String::from("sample ✓"),
         photo: String::from("sample ✓"),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -10232,9 +10258,9 @@ fn roundtrip_05() {
         r#type: simula_botapi_types::tags::Photo,
         media: String::from("sample ✓"),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -10270,9 +10296,9 @@ fn roundtrip_05() {
         cover: Some(String::from("sample ✓")),
         start_timestamp: Some(7),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -10293,9 +10319,9 @@ fn roundtrip_05() {
         r#type: simula_botapi_types::tags::VoiceNote,
         media: String::from("sample ✓"),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -10404,7 +10430,7 @@ fn roundtrip_05() {
     check(simula_botapi_types::types::Sticker {
         file_id: String::from("sample ✓"),
         file_unique_id: String::from("sample ✓"),
-        r#type: String::from("sample ✓"),
+        r#type: String::from("regular"),
         width: 7,
         height: 7,
         is_animated: true,
@@ -10425,7 +10451,7 @@ fn roundtrip_05() {
             file_path: None,
         })),
         mask_position: Some(Box::new(simula_botapi_types::types::MaskPosition {
-            point: String::from("sample ✓"),
+            point: String::from("forehead"),
             x_shift: 1.5,
             y_shift: 1.5,
             scale: 1.5,
@@ -10437,11 +10463,11 @@ fn roundtrip_05() {
     check(simula_botapi_types::types::StickerSet {
         name: String::from("sample ✓"),
         title: String::from("sample ✓"),
-        sticker_type: String::from("sample ✓"),
+        sticker_type: String::from("regular"),
         stickers: vec![simula_botapi_types::types::Sticker {
             file_id: String::from("sample ✓"),
             file_unique_id: String::from("sample ✓"),
-            r#type: String::from("sample ✓"),
+            r#type: String::from("regular"),
             width: 7,
             height: 7,
             is_animated: true,
@@ -10464,17 +10490,17 @@ fn roundtrip_05() {
         })),
     });
     check(simula_botapi_types::types::MaskPosition {
-        point: String::from("sample ✓"),
+        point: String::from("forehead"),
         x_shift: 1.5,
         y_shift: 1.5,
         scale: 1.5,
     });
     check(simula_botapi_types::types::InputSticker {
         sticker: String::from("sample ✓"),
-        format: String::from("sample ✓"),
+        format: String::from("static"),
         emoji_list: vec![String::from("sample ✓")],
         mask_position: Some(Box::new(simula_botapi_types::types::MaskPosition {
-            point: String::from("sample ✓"),
+            point: String::from("forehead"),
             x_shift: 1.5,
             y_shift: 1.5,
             scale: 1.5,
@@ -10550,7 +10576,7 @@ fn roundtrip_06() {
         text: Box::new(simula_botapi_types::types::RichText::String(String::from(
             "sample ✓",
         ))),
-        style: Some(String::from("sample ✓")),
+        style: Some(String::from("danger")),
         url: Some(String::from("sample ✓")),
         callback_data: Some(String::from("sample ✓")),
         web_app: Some(Box::new(simula_botapi_types::types::WebAppInfo {
@@ -11047,8 +11073,8 @@ fn roundtrip_07() {
         is_header: true,
         colspan: Some(7),
         rowspan: Some(7),
-        align: String::from("sample ✓"),
-        valign: String::from("sample ✓"),
+        align: String::from("left"),
+        valign: String::from("top"),
     });
     check(simula_botapi_types::types::RichBlockListItem {
         label: String::from("sample ✓"),
@@ -11062,7 +11088,7 @@ fn roundtrip_07() {
         has_checkbox: true,
         is_checked: true,
         value: Some(7),
-        r#type: Some(String::from("sample ✓")),
+        r#type: Some(String::from("a")),
     });
     check(simula_botapi_types::types::RichBlock::Map(Box::new(
         simula_botapi_types::types::RichBlockMap {
@@ -11248,7 +11274,7 @@ fn roundtrip_07() {
                 copy_text: None,
                 disabled: None,
             }],
-            align: Some(String::from("sample ✓")),
+            align: Some(String::from("left")),
         },
     )));
     check(simula_botapi_types::types::RichBlock::Animation(Box::new(
@@ -11533,7 +11559,7 @@ fn roundtrip_07() {
             copy_text: None,
             disabled: None,
         }],
-        align: Some(String::from("sample ✓")),
+        align: Some(String::from("left")),
     });
 }
 
@@ -11657,7 +11683,7 @@ fn roundtrip_08() {
         has_checkbox: true,
         is_checked: true,
         value: Some(7),
-        r#type: Some(String::from("sample ✓")),
+        r#type: Some(String::from("a")),
     });
     check(simula_botapi_types::types::InputRichBlock::SectionHeading(
         Box::new(simula_botapi_types::types::InputRichBlockSectionHeading {
@@ -11842,7 +11868,7 @@ fn roundtrip_08() {
                 copy_text: None,
                 disabled: None,
             }],
-            align: Some(String::from("sample ✓")),
+            align: Some(String::from("left")),
         }),
     ));
     check(simula_botapi_types::types::InputRichBlock::Animation(
@@ -12131,7 +12157,7 @@ fn roundtrip_08() {
             copy_text: None,
             disabled: None,
         }],
-        align: Some(String::from("sample ✓")),
+        align: Some(String::from("left")),
     });
     check(simula_botapi_types::types::InputRichBlockAnimation {
         r#type: simula_botapi_types::tags::Animation,
@@ -12273,7 +12299,7 @@ fn roundtrip_09() {
         },
         query: String::from("sample ✓"),
         offset: String::from("sample ✓"),
-        chat_type: Some(String::from("sample ✓")),
+        chat_type: Some(String::from("sender")),
         location: Some(Box::new(simula_botapi_types::types::Location {
             latitude: 1.5,
             longitude: 1.5,
@@ -12346,9 +12372,9 @@ fn roundtrip_09() {
             thumbnail_url: String::from("sample ✓"),
             title: String::from("sample ✓"),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -12401,9 +12427,9 @@ fn roundtrip_09() {
             id: String::from("sample ✓"),
             title: String::from("sample ✓"),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -12414,7 +12440,7 @@ fn roundtrip_09() {
                 date_time_format: None,
             }]),
             document_url: String::from("sample ✓"),
-            mime_type: String::from("sample ✓"),
+            mime_type: String::from("application/pdf"),
             description: Some(String::from("sample ✓")),
             reply_markup: Some(Box::new(simula_botapi_types::types::InlineKeyboardMarkup {
                 inline_keyboard: vec![],
@@ -12506,9 +12532,9 @@ fn roundtrip_09() {
                 document_file_id: String::from("sample ✓"),
                 description: Some(String::from("sample ✓")),
                 caption: Some(String::from("sample ✓")),
-                parse_mode: Some(String::from("sample ✓")),
+                parse_mode: Some(String::from("HTML")),
                 caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("mention"),
                     offset: 7,
                     length: 7,
                     url: None,
@@ -12559,9 +12585,9 @@ fn roundtrip_09() {
             title: String::from("sample ✓"),
             description: Some(String::from("sample ✓")),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -12611,9 +12637,9 @@ fn roundtrip_09() {
             voice_file_id: String::from("sample ✓"),
             title: String::from("sample ✓"),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -12703,9 +12729,9 @@ fn roundtrip_09() {
             audio_url: String::from("sample ✓"),
             title: String::from("sample ✓"),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -12801,12 +12827,12 @@ fn roundtrip_09() {
             gif_height: Some(7),
             gif_duration: Some(7),
             thumbnail_url: String::from("sample ✓"),
-            thumbnail_mime_type: Some(String::from("sample ✓")),
+            thumbnail_mime_type: Some(String::from("image/jpeg")),
             title: Some(String::from("sample ✓")),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -12858,12 +12884,12 @@ fn roundtrip_09() {
             mpeg4_height: Some(7),
             mpeg4_duration: Some(7),
             thumbnail_url: String::from("sample ✓"),
-            thumbnail_mime_type: Some(String::from("sample ✓")),
+            thumbnail_mime_type: Some(String::from("image/jpeg")),
             title: Some(String::from("sample ✓")),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -12917,9 +12943,9 @@ fn roundtrip_09() {
             title: Some(String::from("sample ✓")),
             description: Some(String::from("sample ✓")),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -12969,9 +12995,9 @@ fn roundtrip_09() {
             voice_url: String::from("sample ✓"),
             title: String::from("sample ✓"),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -13020,9 +13046,9 @@ fn roundtrip_09() {
             id: String::from("sample ✓"),
             audio_file_id: String::from("sample ✓"),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -13071,9 +13097,9 @@ fn roundtrip_09() {
             gif_file_id: String::from("sample ✓"),
             title: Some(String::from("sample ✓")),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -13124,9 +13150,9 @@ fn roundtrip_09() {
                 mpeg4_file_id: String::from("sample ✓"),
                 title: Some(String::from("sample ✓")),
                 caption: Some(String::from("sample ✓")),
-                parse_mode: Some(String::from("sample ✓")),
+                parse_mode: Some(String::from("HTML")),
                 caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("mention"),
                     offset: 7,
                     length: 7,
                     url: None,
@@ -13178,9 +13204,9 @@ fn roundtrip_09() {
             title: Some(String::from("sample ✓")),
             description: Some(String::from("sample ✓")),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -13322,9 +13348,9 @@ fn roundtrip_09() {
         title: Some(String::from("sample ✓")),
         description: Some(String::from("sample ✓")),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -13374,12 +13400,12 @@ fn roundtrip_09() {
         gif_height: Some(7),
         gif_duration: Some(7),
         thumbnail_url: String::from("sample ✓"),
-        thumbnail_mime_type: Some(String::from("sample ✓")),
+        thumbnail_mime_type: Some(String::from("image/jpeg")),
         title: Some(String::from("sample ✓")),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -13429,12 +13455,12 @@ fn roundtrip_09() {
         mpeg4_height: Some(7),
         mpeg4_duration: Some(7),
         thumbnail_url: String::from("sample ✓"),
-        thumbnail_mime_type: Some(String::from("sample ✓")),
+        thumbnail_mime_type: Some(String::from("image/jpeg")),
         title: Some(String::from("sample ✓")),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -13484,9 +13510,9 @@ fn roundtrip_09() {
         thumbnail_url: String::from("sample ✓"),
         title: String::from("sample ✓"),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -13538,9 +13564,9 @@ fn roundtrip_09() {
         audio_url: String::from("sample ✓"),
         title: String::from("sample ✓"),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -13589,9 +13615,9 @@ fn roundtrip_09() {
         voice_url: String::from("sample ✓"),
         title: String::from("sample ✓"),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -13638,9 +13664,9 @@ fn roundtrip_09() {
         id: String::from("sample ✓"),
         title: String::from("sample ✓"),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -13651,7 +13677,7 @@ fn roundtrip_09() {
             date_time_format: None,
         }]),
         document_url: String::from("sample ✓"),
-        mime_type: String::from("sample ✓"),
+        mime_type: String::from("application/pdf"),
         description: Some(String::from("sample ✓")),
         reply_markup: Some(Box::new(simula_botapi_types::types::InlineKeyboardMarkup {
             inline_keyboard: vec![],
@@ -13833,9 +13859,9 @@ fn roundtrip_09() {
         title: Some(String::from("sample ✓")),
         description: Some(String::from("sample ✓")),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -13883,9 +13909,9 @@ fn roundtrip_09() {
         gif_file_id: String::from("sample ✓"),
         title: Some(String::from("sample ✓")),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -13934,9 +13960,9 @@ fn roundtrip_09() {
             mpeg4_file_id: String::from("sample ✓"),
             title: Some(String::from("sample ✓")),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -14022,9 +14048,9 @@ fn roundtrip_09() {
             document_file_id: String::from("sample ✓"),
             description: Some(String::from("sample ✓")),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -14073,9 +14099,9 @@ fn roundtrip_09() {
         title: String::from("sample ✓"),
         description: Some(String::from("sample ✓")),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -14123,9 +14149,9 @@ fn roundtrip_09() {
         voice_file_id: String::from("sample ✓"),
         title: String::from("sample ✓"),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -14171,9 +14197,9 @@ fn roundtrip_09() {
         id: String::from("sample ✓"),
         audio_file_id: String::from("sample ✓"),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -14287,9 +14313,9 @@ fn roundtrip_10() {
         simula_botapi_types::types::InputMessageContent::InputTextMessageContent(Box::new(
             simula_botapi_types::types::InputTextMessageContent {
                 message_text: String::from("sample ✓"),
-                parse_mode: Some(String::from("sample ✓")),
+                parse_mode: Some(String::from("HTML")),
                 entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("mention"),
                     offset: 7,
                     length: 7,
                     url: None,
@@ -14327,9 +14353,9 @@ fn roundtrip_10() {
     );
     check(simula_botapi_types::types::InputTextMessageContent {
         message_text: String::from("sample ✓"),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -14646,7 +14672,7 @@ fn roundtrip_10() {
         })),
         affiliate_chat: Some(Box::new(simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -14661,7 +14687,7 @@ fn roundtrip_10() {
     check(simula_botapi_types::types::TransactionPartner::User(
         Box::new(simula_botapi_types::types::TransactionPartnerUser {
             r#type: simula_botapi_types::tags::User,
-            transaction_type: String::from("sample ✓"),
+            transaction_type: String::from("invoice_payment"),
             user: simula_botapi_types::types::User {
                 id: 7,
                 is_bot: true,
@@ -14703,7 +14729,7 @@ fn roundtrip_10() {
                 sticker: simula_botapi_types::types::Sticker {
                     file_id: String::from("sample ✓"),
                     file_unique_id: String::from("sample ✓"),
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("regular"),
                     width: 7,
                     height: 7,
                     is_animated: true,
@@ -14737,7 +14763,7 @@ fn roundtrip_10() {
             r#type: simula_botapi_types::tags::Chat,
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -14750,7 +14776,7 @@ fn roundtrip_10() {
                 sticker: simula_botapi_types::types::Sticker {
                     file_id: String::from("sample ✓"),
                     file_unique_id: String::from("sample ✓"),
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("regular"),
                     width: 7,
                     height: 7,
                     is_animated: true,
@@ -14838,7 +14864,7 @@ fn roundtrip_10() {
     ));
     check(simula_botapi_types::types::TransactionPartnerUser {
         r#type: simula_botapi_types::tags::User,
-        transaction_type: String::from("sample ✓"),
+        transaction_type: String::from("invoice_payment"),
         user: simula_botapi_types::types::User {
             id: 7,
             is_bot: true,
@@ -14880,7 +14906,7 @@ fn roundtrip_10() {
             sticker: simula_botapi_types::types::Sticker {
                 file_id: String::from("sample ✓"),
                 file_unique_id: String::from("sample ✓"),
-                r#type: String::from("sample ✓"),
+                r#type: String::from("regular"),
                 width: 7,
                 height: 7,
                 is_animated: true,
@@ -14912,7 +14938,7 @@ fn roundtrip_10() {
         r#type: simula_botapi_types::tags::Chat,
         chat: simula_botapi_types::types::Chat {
             id: 7,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("private"),
             title: None,
             username: None,
             first_name: None,
@@ -14925,7 +14951,7 @@ fn roundtrip_10() {
             sticker: simula_botapi_types::types::Sticker {
                 file_id: String::from("sample ✓"),
                 file_unique_id: String::from("sample ✓"),
-                r#type: String::from("sample ✓"),
+                r#type: String::from("regular"),
                 width: 7,
                 height: 7,
                 is_animated: true,
@@ -15036,7 +15062,7 @@ fn roundtrip_10() {
     });
     check(simula_botapi_types::types::PassportData {
         data: vec![simula_botapi_types::types::EncryptedPassportElement {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("personal_details"),
             data: None,
             phone_number: None,
             email: None,
@@ -15060,7 +15086,7 @@ fn roundtrip_10() {
         file_date: 7,
     });
     check(simula_botapi_types::types::EncryptedPassportElement {
-        r#type: String::from("sample ✓"),
+        r#type: String::from("personal_details"),
         data: Some(String::from("sample ✓")),
         phone_number: Some(String::from("sample ✓")),
         email: Some(String::from("sample ✓")),
@@ -15104,7 +15130,7 @@ fn roundtrip_10() {
     check(simula_botapi_types::types::PassportElementError::DataField(
         Box::new(simula_botapi_types::types::PassportElementErrorDataField {
             source: simula_botapi_types::tags::Data,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("personal_details"),
             field_name: String::from("sample ✓"),
             data_hash: String::from("sample ✓"),
             message: String::from("sample ✓"),
@@ -15113,7 +15139,7 @@ fn roundtrip_10() {
     check(simula_botapi_types::types::PassportElementError::FrontSide(
         Box::new(simula_botapi_types::types::PassportElementErrorFrontSide {
             source: simula_botapi_types::tags::FrontSide,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("passport"),
             file_hash: String::from("sample ✓"),
             message: String::from("sample ✓"),
         }),
@@ -15126,7 +15152,7 @@ fn roundtrip_11() {
         simula_botapi_types::types::PassportElementError::ReverseSide(Box::new(
             simula_botapi_types::types::PassportElementErrorReverseSide {
                 source: simula_botapi_types::tags::ReverseSide,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("driver_license"),
                 file_hash: String::from("sample ✓"),
                 message: String::from("sample ✓"),
             },
@@ -15135,7 +15161,7 @@ fn roundtrip_11() {
     check(simula_botapi_types::types::PassportElementError::Selfie(
         Box::new(simula_botapi_types::types::PassportElementErrorSelfie {
             source: simula_botapi_types::tags::Selfie,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("passport"),
             file_hash: String::from("sample ✓"),
             message: String::from("sample ✓"),
         }),
@@ -15143,7 +15169,7 @@ fn roundtrip_11() {
     check(simula_botapi_types::types::PassportElementError::File(
         Box::new(simula_botapi_types::types::PassportElementErrorFile {
             source: simula_botapi_types::tags::File,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("utility_bill"),
             file_hash: String::from("sample ✓"),
             message: String::from("sample ✓"),
         }),
@@ -15151,7 +15177,7 @@ fn roundtrip_11() {
     check(simula_botapi_types::types::PassportElementError::Files(
         Box::new(simula_botapi_types::types::PassportElementErrorFiles {
             source: simula_botapi_types::tags::Files,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("utility_bill"),
             file_hashes: vec![String::from("sample ✓")],
             message: String::from("sample ✓"),
         }),
@@ -15160,7 +15186,7 @@ fn roundtrip_11() {
         simula_botapi_types::types::PassportElementError::TranslationFile(Box::new(
             simula_botapi_types::types::PassportElementErrorTranslationFile {
                 source: simula_botapi_types::tags::TranslationFile,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("passport"),
                 file_hash: String::from("sample ✓"),
                 message: String::from("sample ✓"),
             },
@@ -15170,7 +15196,7 @@ fn roundtrip_11() {
         simula_botapi_types::types::PassportElementError::TranslationFiles(Box::new(
             simula_botapi_types::types::PassportElementErrorTranslationFiles {
                 source: simula_botapi_types::tags::TranslationFiles,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("passport"),
                 file_hashes: vec![String::from("sample ✓")],
                 message: String::from("sample ✓"),
             },
@@ -15188,47 +15214,47 @@ fn roundtrip_11() {
     );
     check(simula_botapi_types::types::PassportElementErrorDataField {
         source: simula_botapi_types::tags::Data,
-        r#type: String::from("sample ✓"),
+        r#type: String::from("personal_details"),
         field_name: String::from("sample ✓"),
         data_hash: String::from("sample ✓"),
         message: String::from("sample ✓"),
     });
     check(simula_botapi_types::types::PassportElementErrorFrontSide {
         source: simula_botapi_types::tags::FrontSide,
-        r#type: String::from("sample ✓"),
+        r#type: String::from("passport"),
         file_hash: String::from("sample ✓"),
         message: String::from("sample ✓"),
     });
     check(
         simula_botapi_types::types::PassportElementErrorReverseSide {
             source: simula_botapi_types::tags::ReverseSide,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("driver_license"),
             file_hash: String::from("sample ✓"),
             message: String::from("sample ✓"),
         },
     );
     check(simula_botapi_types::types::PassportElementErrorSelfie {
         source: simula_botapi_types::tags::Selfie,
-        r#type: String::from("sample ✓"),
+        r#type: String::from("passport"),
         file_hash: String::from("sample ✓"),
         message: String::from("sample ✓"),
     });
     check(simula_botapi_types::types::PassportElementErrorFile {
         source: simula_botapi_types::tags::File,
-        r#type: String::from("sample ✓"),
+        r#type: String::from("utility_bill"),
         file_hash: String::from("sample ✓"),
         message: String::from("sample ✓"),
     });
     check(simula_botapi_types::types::PassportElementErrorFiles {
         source: simula_botapi_types::tags::Files,
-        r#type: String::from("sample ✓"),
+        r#type: String::from("utility_bill"),
         file_hashes: vec![String::from("sample ✓")],
         message: String::from("sample ✓"),
     });
     check(
         simula_botapi_types::types::PassportElementErrorTranslationFile {
             source: simula_botapi_types::tags::TranslationFile,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("passport"),
             file_hash: String::from("sample ✓"),
             message: String::from("sample ✓"),
         },
@@ -15236,7 +15262,7 @@ fn roundtrip_11() {
     check(
         simula_botapi_types::types::PassportElementErrorTranslationFiles {
             source: simula_botapi_types::tags::TranslationFiles,
-            r#type: String::from("sample ✓"),
+            r#type: String::from("passport"),
             file_hashes: vec![String::from("sample ✓")],
             message: String::from("sample ✓"),
         },
@@ -15261,7 +15287,7 @@ fn roundtrip_11() {
         }],
         text: Some(String::from("sample ✓")),
         text_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -15351,9 +15377,9 @@ fn roundtrip_11() {
                 media: String::from("sample ✓"),
                 photo: String::from("sample ✓"),
                 caption: Some(String::from("sample ✓")),
-                parse_mode: Some(String::from("sample ✓")),
+                parse_mode: Some(String::from("HTML")),
                 caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("mention"),
                     offset: 7,
                     length: 7,
                     url: None,
@@ -15374,9 +15400,9 @@ fn roundtrip_11() {
             media: String::from("sample ✓"),
             thumbnail: Some(String::from("sample ✓")),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -15398,9 +15424,9 @@ fn roundtrip_11() {
                 media: String::from("sample ✓"),
                 thumbnail: Some(String::from("sample ✓")),
                 caption: Some(String::from("sample ✓")),
-                parse_mode: Some(String::from("sample ✓")),
+                parse_mode: Some(String::from("HTML")),
                 caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("mention"),
                     offset: 7,
                     length: 7,
                     url: None,
@@ -15419,9 +15445,9 @@ fn roundtrip_11() {
             r#type: simula_botapi_types::tags::Photo,
             media: String::from("sample ✓"),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -15443,9 +15469,9 @@ fn roundtrip_11() {
             cover: Some(String::from("sample ✓")),
             start_timestamp: Some(7),
             caption: Some(String::from("sample ✓")),
-            parse_mode: Some(String::from("sample ✓")),
+            parse_mode: Some(String::from("HTML")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -15495,7 +15521,7 @@ fn roundtrip_11() {
             })),
             sender_chat: Some(Box::new(simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -15551,7 +15577,7 @@ fn roundtrip_11() {
             business_connection_id: Some(String::from("sample ✓")),
             chat: simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -15586,7 +15612,7 @@ fn roundtrip_11() {
                 business_connection_id: None,
                 chat: simula_botapi_types::types::Chat {
                     id: 7,
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("private"),
                     title: None,
                     username: None,
                     first_name: None,
@@ -15744,7 +15770,7 @@ fn roundtrip_11() {
             reply_to_story: Some(Box::new(simula_botapi_types::types::Story {
                 chat: simula_botapi_types::types::Chat {
                     id: 7,
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("private"),
                     title: None,
                     username: None,
                     first_name: None,
@@ -15798,7 +15824,7 @@ fn roundtrip_11() {
             })),
             guest_bot_caller_chat: Some(Box::new(simula_botapi_types::types::Chat {
                 id: 7,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("private"),
                 title: None,
                 username: None,
                 first_name: None,
@@ -15815,7 +15841,7 @@ fn roundtrip_11() {
             paid_star_count: Some(7),
             text: Some(String::from("sample ✓")),
             entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -15833,7 +15859,7 @@ fn roundtrip_11() {
                 show_above_text: None,
             })),
             suggested_post_info: Some(Box::new(simula_botapi_types::types::SuggestedPostInfo {
-                state: String::from("sample ✓"),
+                state: String::from("pending"),
                 price: None,
                 send_date: None,
             })),
@@ -15896,7 +15922,7 @@ fn roundtrip_11() {
             sticker: Some(Box::new(simula_botapi_types::types::Sticker {
                 file_id: String::from("sample ✓"),
                 file_unique_id: String::from("sample ✓"),
-                r#type: String::from("sample ✓"),
+                r#type: String::from("regular"),
                 width: 7,
                 height: 7,
                 is_animated: true,
@@ -15913,7 +15939,7 @@ fn roundtrip_11() {
             story: Some(Box::new(simula_botapi_types::types::Story {
                 chat: simula_botapi_types::types::Chat {
                     id: 7,
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("private"),
                     title: None,
                     username: None,
                     first_name: None,
@@ -15954,7 +15980,7 @@ fn roundtrip_11() {
             })),
             caption: Some(String::from("sample ✓")),
             caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                r#type: String::from("sample ✓"),
+                r#type: String::from("mention"),
                 offset: 7,
                 length: 7,
                 url: None,
@@ -16000,7 +16026,7 @@ fn roundtrip_11() {
                 total_voter_count: 7,
                 is_closed: true,
                 is_anonymous: true,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("regular"),
                 allows_multiple_answers: true,
                 allows_revoting: true,
                 members_only: true,
@@ -16128,7 +16154,7 @@ fn roundtrip_11() {
                     Box::new(simula_botapi_types::types::InaccessibleMessage {
                         chat: simula_botapi_types::types::Chat {
                             id: 7,
-                            r#type: String::from("sample ✓"),
+                            r#type: String::from("private"),
                             title: None,
                             username: None,
                             first_name: None,
@@ -16184,7 +16210,7 @@ fn roundtrip_11() {
                     sticker: simula_botapi_types::types::Sticker {
                         file_id: String::from("sample ✓"),
                         file_unique_id: String::from("sample ✓"),
-                        r#type: String::from("sample ✓"),
+                        r#type: String::from("regular"),
                         width: 7,
                         height: 7,
                         is_animated: true,
@@ -16231,7 +16257,7 @@ fn roundtrip_11() {
                         sticker: simula_botapi_types::types::Sticker {
                             file_id: String::from("sample ✓"),
                             file_unique_id: String::from("sample ✓"),
-                            r#type: String::from("sample ✓"),
+                            r#type: String::from("regular"),
                             width: 7,
                             height: 7,
                             is_animated: true,
@@ -16253,7 +16279,7 @@ fn roundtrip_11() {
                         sticker: simula_botapi_types::types::Sticker {
                             file_id: String::from("sample ✓"),
                             file_unique_id: String::from("sample ✓"),
-                            r#type: String::from("sample ✓"),
+                            r#type: String::from("regular"),
                             width: 7,
                             height: 7,
                             is_animated: true,
@@ -16285,7 +16311,7 @@ fn roundtrip_11() {
                     colors: None,
                     publisher_chat: None,
                 },
-                origin: String::from("sample ✓"),
+                origin: String::from("upgrade"),
                 text: None,
                 entities: None,
                 is_private: false,
@@ -16301,7 +16327,7 @@ fn roundtrip_11() {
                     sticker: simula_botapi_types::types::Sticker {
                         file_id: String::from("sample ✓"),
                         file_unique_id: String::from("sample ✓"),
-                        r#type: String::from("sample ✓"),
+                        r#type: String::from("regular"),
                         width: 7,
                         height: 7,
                         is_animated: true,
@@ -16476,7 +16502,7 @@ fn roundtrip_11() {
             giveaway_winners: Some(Box::new(simula_botapi_types::types::GiveawayWinners {
                 chat: simula_botapi_types::types::Chat {
                     id: 7,
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("private"),
                     title: None,
                     username: None,
                     first_name: None,
@@ -16552,7 +16578,7 @@ fn roundtrip_11() {
                 simula_botapi_types::types::SuggestedPostApprovalFailed {
                     suggested_post_message: None,
                     price: simula_botapi_types::types::SuggestedPostPrice {
-                        currency: String::from("sample ✓"),
+                        currency: String::from("XTR"),
                         amount: 7,
                     },
                 },
@@ -16565,14 +16591,14 @@ fn roundtrip_11() {
             )),
             suggested_post_paid: Some(Box::new(simula_botapi_types::types::SuggestedPostPaid {
                 suggested_post_message: None,
-                currency: String::from("sample ✓"),
+                currency: String::from("XTR"),
                 amount: None,
                 star_amount: None,
             })),
             suggested_post_refunded: Some(Box::new(
                 simula_botapi_types::types::SuggestedPostRefunded {
                     suggested_post_message: None,
-                    reason: String::from("sample ✓"),
+                    reason: String::from("post_deleted"),
                 },
             )),
             video_chat_scheduled: Some(Box::new(simula_botapi_types::types::VideoChatScheduled {
@@ -16603,9 +16629,9 @@ fn roundtrip_11() {
                 media: String::from("sample ✓"),
                 thumbnail: Some(String::from("sample ✓")),
                 caption: Some(String::from("sample ✓")),
-                parse_mode: Some(String::from("sample ✓")),
+                parse_mode: Some(String::from("HTML")),
                 caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("mention"),
                     offset: 7,
                     length: 7,
                     url: None,
@@ -16630,9 +16656,9 @@ fn roundtrip_11() {
                 media: String::from("sample ✓"),
                 thumbnail: Some(String::from("sample ✓")),
                 caption: Some(String::from("sample ✓")),
-                parse_mode: Some(String::from("sample ✓")),
+                parse_mode: Some(String::from("HTML")),
                 caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("mention"),
                     offset: 7,
                     length: 7,
                     url: None,
@@ -16655,9 +16681,9 @@ fn roundtrip_11() {
                 media: String::from("sample ✓"),
                 thumbnail: Some(String::from("sample ✓")),
                 caption: Some(String::from("sample ✓")),
-                parse_mode: Some(String::from("sample ✓")),
+                parse_mode: Some(String::from("HTML")),
                 caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("mention"),
                     offset: 7,
                     length: 7,
                     url: None,
@@ -16677,9 +16703,9 @@ fn roundtrip_11() {
                 r#type: simula_botapi_types::tags::Photo,
                 media: String::from("sample ✓"),
                 caption: Some(String::from("sample ✓")),
-                parse_mode: Some(String::from("sample ✓")),
+                parse_mode: Some(String::from("HTML")),
                 caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("mention"),
                     offset: 7,
                     length: 7,
                     url: None,
@@ -16703,9 +16729,9 @@ fn roundtrip_11() {
                 cover: Some(String::from("sample ✓")),
                 start_timestamp: Some(7),
                 caption: Some(String::from("sample ✓")),
-                parse_mode: Some(String::from("sample ✓")),
+                parse_mode: Some(String::from("HTML")),
                 caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("mention"),
                     offset: 7,
                     length: 7,
                     url: None,
@@ -16730,9 +16756,9 @@ fn roundtrip_11() {
                 r#type: simula_botapi_types::tags::VoiceNote,
                 media: String::from("sample ✓"),
                 caption: Some(String::from("sample ✓")),
-                parse_mode: Some(String::from("sample ✓")),
+                parse_mode: Some(String::from("HTML")),
                 caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-                    r#type: String::from("sample ✓"),
+                    r#type: String::from("mention"),
                     offset: 7,
                     length: 7,
                     url: None,
@@ -16783,9 +16809,9 @@ fn roundtrip_11() {
             },
         )),
         text: String::from("sample ✓"),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -16867,9 +16893,9 @@ fn roundtrip_11() {
         message_id: 7,
         video_start_timestamp: Some(7),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -16935,9 +16961,9 @@ fn roundtrip_11() {
         )),
         photo: simula_botapi_types::InputFile::Reference(String::from("file_id")),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -16995,9 +17021,9 @@ fn roundtrip_11() {
         live_photo: simula_botapi_types::InputFile::Reference(String::from("file_id")),
         photo: simula_botapi_types::InputFile::Reference(String::from("file_id")),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -17058,9 +17084,9 @@ fn roundtrip_12() {
         )),
         audio: simula_botapi_types::InputFile::Reference(String::from("file_id")),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -17124,9 +17150,9 @@ fn roundtrip_12() {
             "file_id",
         ))),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -17192,9 +17218,9 @@ fn roundtrip_12() {
         ))),
         start_timestamp: Some(7),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -17258,9 +17284,9 @@ fn roundtrip_12() {
             "file_id",
         ))),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -17317,9 +17343,9 @@ fn roundtrip_12() {
         )),
         voice: simula_botapi_types::InputFile::Reference(String::from("file_id")),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -17425,9 +17451,9 @@ fn roundtrip_12() {
         )],
         payload: Some(String::from("sample ✓")),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -17658,7 +17684,7 @@ fn roundtrip_12() {
         question: String::from("sample ✓"),
         question_parse_mode: Some(String::from("sample ✓")),
         question_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -17687,7 +17713,7 @@ fn roundtrip_12() {
         explanation: Some(String::from("sample ✓")),
         explanation_parse_mode: Some(String::from("sample ✓")),
         explanation_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -17718,7 +17744,7 @@ fn roundtrip_12() {
         description: Some(String::from("sample ✓")),
         description_parse_mode: Some(String::from("sample ✓")),
         description_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -17804,7 +17830,7 @@ fn roundtrip_12() {
         chat_id: simula_botapi_types::ChatId::Username(String::from("@channel")),
         message_thread_id: Some(7),
         direct_messages_topic_id: Some(7),
-        emoji: Some(String::from("sample ✓")),
+        emoji: Some(String::from("🎲")),
         disable_notification: Some(true),
         protect_content: Some(true),
         allow_paid_broadcast: Some(true),
@@ -17841,9 +17867,9 @@ fn roundtrip_12() {
         message_thread_id: Some(7),
         draft_id: 7,
         text: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -17860,7 +17886,7 @@ fn roundtrip_12() {
         business_connection_id: Some(String::from("sample ✓")),
         chat_id: simula_botapi_types::ChatId::Username(String::from("@channel")),
         message_thread_id: Some(7),
-        action: String::from("sample ✓"),
+        action: String::from("typing"),
     });
     check(simula_botapi_types::methods::SetMessageReaction {
         chat_id: simula_botapi_types::ChatId::Username(String::from("@channel")),
@@ -18037,7 +18063,7 @@ fn roundtrip_12() {
     });
     check(simula_botapi_types::methods::AnswerChatJoinRequestQuery {
         chat_join_request_query_id: String::from("sample ✓"),
-        result: String::from("sample ✓"),
+        result: String::from("approve"),
     });
     check(simula_botapi_types::methods::SendChatJoinRequestWebApp {
         chat_join_request_query_id: String::from("sample ✓"),
@@ -18321,7 +18347,7 @@ fn roundtrip_13() {
         text: Some(String::from("sample ✓")),
         text_parse_mode: Some(String::from("sample ✓")),
         text_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -18339,7 +18365,7 @@ fn roundtrip_13() {
         text: Some(String::from("sample ✓")),
         text_parse_mode: Some(String::from("sample ✓")),
         text_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -18491,9 +18517,9 @@ fn roundtrip_14() {
         )),
         active_period: 7,
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -18542,9 +18568,9 @@ fn roundtrip_14() {
             },
         )),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -18648,9 +18674,9 @@ fn roundtrip_14() {
         message_id: Some(7),
         inline_message_id: Some(String::from("sample ✓")),
         text: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -18688,9 +18714,9 @@ fn roundtrip_14() {
         message_id: Some(7),
         inline_message_id: Some(String::from("sample ✓")),
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -18803,9 +18829,9 @@ fn roundtrip_14() {
         receiver_user_id: 7,
         ephemeral_message_id: 7,
         text: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -18861,9 +18887,9 @@ fn roundtrip_14() {
         receiver_user_id: 7,
         ephemeral_message_id: 7,
         caption: Some(String::from("sample ✓")),
-        parse_mode: Some(String::from("sample ✓")),
+        parse_mode: Some(String::from("HTML")),
         caption_entities: Some(vec![simula_botapi_types::types::MessageEntity {
-            r#type: String::from("sample ✓"),
+            r#type: String::from("mention"),
             offset: 7,
             length: 7,
             url: None,
@@ -18978,7 +19004,7 @@ fn roundtrip_14() {
     check(simula_botapi_types::methods::UploadStickerFile {
         user_id: 7,
         sticker: simula_botapi_types::InputFile::Attach(String::from("upload")),
-        sticker_format: String::from("sample ✓"),
+        sticker_format: String::from("static"),
     });
     check(simula_botapi_types::methods::CreateNewStickerSet {
         user_id: 7,
@@ -18986,7 +19012,7 @@ fn roundtrip_14() {
         title: String::from("sample ✓"),
         stickers: vec![simula_botapi_types::types::InputSticker {
             sticker: String::from("sample ✓"),
-            format: String::from("sample ✓"),
+            format: String::from("static"),
             emoji_list: vec![],
             mask_position: None,
             keywords: None,
@@ -18999,7 +19025,7 @@ fn roundtrip_14() {
         name: String::from("sample ✓"),
         sticker: simula_botapi_types::types::InputSticker {
             sticker: String::from("sample ✓"),
-            format: String::from("sample ✓"),
+            format: String::from("static"),
             emoji_list: vec![],
             mask_position: None,
             keywords: None,
@@ -19018,7 +19044,7 @@ fn roundtrip_14() {
         old_sticker: String::from("sample ✓"),
         sticker: simula_botapi_types::types::InputSticker {
             sticker: String::from("sample ✓"),
-            format: String::from("sample ✓"),
+            format: String::from("static"),
             emoji_list: vec![],
             mask_position: None,
             keywords: None,
@@ -19039,7 +19065,7 @@ fn roundtrip_15() {
     check(simula_botapi_types::methods::SetStickerMaskPosition {
         sticker: String::from("sample ✓"),
         mask_position: Some(Box::new(simula_botapi_types::types::MaskPosition {
-            point: String::from("sample ✓"),
+            point: String::from("forehead"),
             x_shift: 1.5,
             y_shift: 1.5,
             scale: 1.5,
@@ -19055,7 +19081,7 @@ fn roundtrip_15() {
         thumbnail: Some(simula_botapi_types::InputFile::Reference(String::from(
             "file_id",
         ))),
-        format: String::from("sample ✓"),
+        format: String::from("static"),
     });
     check(
         simula_botapi_types::methods::SetCustomEmojiStickerSetThumbnail {
@@ -19280,7 +19306,7 @@ fn roundtrip_15() {
         errors: vec![simula_botapi_types::types::PassportElementError::DataField(
             Box::new(simula_botapi_types::types::PassportElementErrorDataField {
                 source: simula_botapi_types::tags::Data,
-                r#type: String::from("sample ✓"),
+                r#type: String::from("personal_details"),
                 field_name: String::from("sample ✓"),
                 data_hash: String::from("sample ✓"),
                 message: String::from("sample ✓"),

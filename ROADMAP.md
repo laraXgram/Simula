@@ -8,7 +8,7 @@ Every finished task is logged in [docs/worklog.md](docs/worklog.md) and committe
 
 **Targets:** Bot API **10.3** · MTProto layer from tdlib `telegram_api.tl`
 
-**Current focus:** P1 — specs & code generation (next: P1.8 TypeScript types)
+**Current focus:** P1 — specs & code generation (next: P1.9 registries and stubs)
 
 ---
 
@@ -28,7 +28,7 @@ Every finished task is logged in [docs/worklog.md](docs/worklog.md) and committe
 - [x] P1.5 Spec diff: report what changed between two Bot API versions / TL layers
 - [x] P1.6 Rust emitter: TL types + binary codec + JSON-TL codec (`simula-tl`)
 - [x] P1.7 Rust emitter: Bot API types, method param structs, validators (`simula-botapi-types`)
-- [ ] P1.8 TypeScript emitter: TL + Bot API types for the client and SDKs
+- [x] P1.8 TypeScript emitter: TL + Bot API types for the client and SDKs
 - [ ] P1.9 Registry emitters: TL dispatch table, Bot API method table, stubs for new methods
 - [ ] P1.10 Coverage report: implemented / partial / stub per method, generated from registries
 

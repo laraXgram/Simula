@@ -46,8 +46,21 @@ where
     T: PartialEq + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
 {
     let json = serde_json::to_string(&value).expect("encode");
+    dump(std::any::type_name::<T>(), &json);
     let decoded: T = serde_json::from_str(&json).unwrap_or_else(|e| panic!("decode {json}: {e}"));
     assert_eq!(decoded, value, "round trip of {json}");
+}
+
+/// With \`SIMULA_SAMPLES_DIR\` set, every sample's JSON is appended there so
+/// \`bun run codegen verify:ts\` can type-check it against the TypeScript types.
+fn dump(type_name: &str, json: &str) {
+    use std::io::Write;
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let Some(dir) = std::env::var_os("SIMULA_SAMPLES_DIR") else { return };
+    let _guard = LOCK.lock().unwrap();
+    let path = std::path::Path::new(&dir).join(format!("{}.jsonl", env!("CARGO_PKG_NAME")));
+    let mut file = std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
+    file.write_all(format!("{type_name}\t{json}\n").as_bytes()).unwrap();
 }
 
 ${tests.join("\n\n")}
@@ -106,6 +119,17 @@ class Sampler {
           return `${name}: ${field.required ? tag : mode === "full" ? `Some(${tag})` : "None"},`;
         }
         if (info.trueFlag) return `${name}: ${mode === "full"},`;
+        // Enum-constrained strings get a documented value, as Telegram would send.
+        const allowed = field.constraints?.enum?.[0];
+        if (
+          allowed !== undefined &&
+          field.type.kind === "primitive" &&
+          field.type.name === "String"
+        ) {
+          if (!field.required && mode === "min") return `${name}: None,`;
+          const value = `String::from(${JSON.stringify(allowed)})`;
+          return field.required ? `${name}: ${value},` : `${name}: Some(${value}),`;
+        }
         if (!field.required && mode === "min") return `${name}: None,`;
         const boxed = info.rust.replace(/^Option</, "").startsWith("Box<");
         const inner =
