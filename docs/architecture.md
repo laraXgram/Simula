@@ -55,7 +55,7 @@ spec/                     source-of-truth inputs (committed)
   botapi/api.json           parsed Bot API spec (methods, types, constraints)
   botapi/overrides.json     manual corrections applied on top of the scrape
   tl/*.tl                   vendored tdlib schemas (telegram_api, mtproto_api)
-  tl/schema.json            parsed TL schema
+  tl/*.json                 parsed TL schemas; tl/source.json records layer + tdlib commit
 tools/codegen/            Bun/TS: scrape, parse, emit, diff, coverage (build-time only)
 crates/                   Rust workspace (runtime)
   tl/                       simula-tl: generated TL types + binary/JSON codecs

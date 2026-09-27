@@ -9,4 +9,9 @@ export const paths = {
     spec: join(ROOT, "spec", "botapi", "api.json"),
     overrides: join(ROOT, "spec", "botapi", "overrides.json"),
   },
+  tl: {
+    dir: join(ROOT, "spec", "tl"),
+    source: join(ROOT, "spec", "tl", "source.json"),
+    files: ["telegram_api", "mtproto_api"] as const,
+  },
 } as const;

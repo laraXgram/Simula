@@ -1,0 +1,1299 @@
+{
+  "file": "mtproto_api.tl",
+  "constructors": [
+    {
+      "name": "dummyHttpWait",
+      "id": "c937ca2e",
+      "params": [],
+      "result": {
+        "kind": "named",
+        "name": "HttpWait",
+        "bare": false
+      }
+    },
+    {
+      "name": "resPQ",
+      "id": "05162463",
+      "params": [
+        {
+          "name": "nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        },
+        {
+          "name": "server_nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        },
+        {
+          "name": "pq",
+          "type": {
+            "kind": "named",
+            "name": "string",
+            "bare": true
+          }
+        },
+        {
+          "name": "server_public_key_fingerprints",
+          "type": {
+            "kind": "vector",
+            "of": {
+              "kind": "named",
+              "name": "long",
+              "bare": true
+            },
+            "bare": false
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "ResPQ",
+        "bare": false
+      }
+    },
+    {
+      "name": "p_q_inner_data_dc",
+      "id": "a9f55f95",
+      "params": [
+        {
+          "name": "pq",
+          "type": {
+            "kind": "named",
+            "name": "string",
+            "bare": true
+          }
+        },
+        {
+          "name": "p",
+          "type": {
+            "kind": "named",
+            "name": "string",
+            "bare": true
+          }
+        },
+        {
+          "name": "q",
+          "type": {
+            "kind": "named",
+            "name": "string",
+            "bare": true
+          }
+        },
+        {
+          "name": "nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        },
+        {
+          "name": "server_nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        },
+        {
+          "name": "new_nonce",
+          "type": {
+            "kind": "named",
+            "name": "int256",
+            "bare": true
+          }
+        },
+        {
+          "name": "dc",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "P_Q_inner_data",
+        "bare": false
+      }
+    },
+    {
+      "name": "p_q_inner_data_temp_dc",
+      "id": "56fddf88",
+      "params": [
+        {
+          "name": "pq",
+          "type": {
+            "kind": "named",
+            "name": "string",
+            "bare": true
+          }
+        },
+        {
+          "name": "p",
+          "type": {
+            "kind": "named",
+            "name": "string",
+            "bare": true
+          }
+        },
+        {
+          "name": "q",
+          "type": {
+            "kind": "named",
+            "name": "string",
+            "bare": true
+          }
+        },
+        {
+          "name": "nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        },
+        {
+          "name": "server_nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        },
+        {
+          "name": "new_nonce",
+          "type": {
+            "kind": "named",
+            "name": "int256",
+            "bare": true
+          }
+        },
+        {
+          "name": "dc",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        },
+        {
+          "name": "expires_in",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "P_Q_inner_data",
+        "bare": false
+      }
+    },
+    {
+      "name": "server_DH_params_ok",
+      "id": "d0e8075c",
+      "params": [
+        {
+          "name": "nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        },
+        {
+          "name": "server_nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        },
+        {
+          "name": "encrypted_answer",
+          "type": {
+            "kind": "named",
+            "name": "string",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "Server_DH_Params",
+        "bare": false
+      }
+    },
+    {
+      "name": "server_DH_inner_data",
+      "id": "b5890dba",
+      "params": [
+        {
+          "name": "nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        },
+        {
+          "name": "server_nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        },
+        {
+          "name": "g",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        },
+        {
+          "name": "dh_prime",
+          "type": {
+            "kind": "named",
+            "name": "string",
+            "bare": true
+          }
+        },
+        {
+          "name": "g_a",
+          "type": {
+            "kind": "named",
+            "name": "string",
+            "bare": true
+          }
+        },
+        {
+          "name": "server_time",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "Server_DH_inner_data",
+        "bare": false
+      }
+    },
+    {
+      "name": "client_DH_inner_data",
+      "id": "6643b654",
+      "params": [
+        {
+          "name": "nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        },
+        {
+          "name": "server_nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        },
+        {
+          "name": "retry_id",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        },
+        {
+          "name": "g_b",
+          "type": {
+            "kind": "named",
+            "name": "string",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "Client_DH_Inner_Data",
+        "bare": false
+      }
+    },
+    {
+      "name": "dh_gen_ok",
+      "id": "3bcbf734",
+      "params": [
+        {
+          "name": "nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        },
+        {
+          "name": "server_nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        },
+        {
+          "name": "new_nonce_hash1",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "Set_client_DH_params_answer",
+        "bare": false
+      }
+    },
+    {
+      "name": "dh_gen_retry",
+      "id": "46dc1fb9",
+      "params": [
+        {
+          "name": "nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        },
+        {
+          "name": "server_nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        },
+        {
+          "name": "new_nonce_hash2",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "Set_client_DH_params_answer",
+        "bare": false
+      }
+    },
+    {
+      "name": "dh_gen_fail",
+      "id": "a69dae02",
+      "params": [
+        {
+          "name": "nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        },
+        {
+          "name": "server_nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        },
+        {
+          "name": "new_nonce_hash3",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "Set_client_DH_params_answer",
+        "bare": false
+      }
+    },
+    {
+      "name": "bind_auth_key_inner",
+      "id": "75a3f765",
+      "params": [
+        {
+          "name": "nonce",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        },
+        {
+          "name": "temp_auth_key_id",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        },
+        {
+          "name": "perm_auth_key_id",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        },
+        {
+          "name": "temp_session_id",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        },
+        {
+          "name": "expires_at",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "BindAuthKeyInner",
+        "bare": false
+      }
+    },
+    {
+      "name": "rpc_error",
+      "id": "2144ca19",
+      "params": [
+        {
+          "name": "error_code",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        },
+        {
+          "name": "error_message",
+          "type": {
+            "kind": "named",
+            "name": "string",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "RpcError",
+        "bare": false
+      }
+    },
+    {
+      "name": "rpc_answer_unknown",
+      "id": "5e2ad36e",
+      "params": [],
+      "result": {
+        "kind": "named",
+        "name": "RpcDropAnswer",
+        "bare": false
+      }
+    },
+    {
+      "name": "rpc_answer_dropped_running",
+      "id": "cd78e586",
+      "params": [],
+      "result": {
+        "kind": "named",
+        "name": "RpcDropAnswer",
+        "bare": false
+      }
+    },
+    {
+      "name": "rpc_answer_dropped",
+      "id": "a43ad8b7",
+      "params": [
+        {
+          "name": "msg_id",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        },
+        {
+          "name": "seq_no",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        },
+        {
+          "name": "bytes",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "RpcDropAnswer",
+        "bare": false
+      }
+    },
+    {
+      "name": "future_salt",
+      "id": "0949d9dc",
+      "params": [
+        {
+          "name": "valid_since",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        },
+        {
+          "name": "valid_until",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        },
+        {
+          "name": "salt",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "FutureSalt",
+        "bare": false
+      }
+    },
+    {
+      "name": "future_salts",
+      "id": "ae500895",
+      "params": [
+        {
+          "name": "req_msg_id",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        },
+        {
+          "name": "now",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        },
+        {
+          "name": "salts",
+          "type": {
+            "kind": "vector",
+            "of": {
+              "kind": "named",
+              "name": "future_salt",
+              "bare": true
+            },
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "FutureSalts",
+        "bare": false
+      }
+    },
+    {
+      "name": "pong",
+      "id": "347773c5",
+      "params": [
+        {
+          "name": "msg_id",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        },
+        {
+          "name": "ping_id",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "Pong",
+        "bare": false
+      }
+    },
+    {
+      "name": "new_session_created",
+      "id": "9ec20908",
+      "params": [
+        {
+          "name": "first_msg_id",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        },
+        {
+          "name": "unique_id",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        },
+        {
+          "name": "server_salt",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "NewSession",
+        "bare": false
+      }
+    },
+    {
+      "name": "gzip_packed",
+      "id": "3072cfa1",
+      "params": [
+        {
+          "name": "packed_data",
+          "type": {
+            "kind": "named",
+            "name": "string",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "GzipPacked",
+        "bare": false
+      }
+    },
+    {
+      "name": "msgs_ack",
+      "id": "62d6b459",
+      "params": [
+        {
+          "name": "msg_ids",
+          "type": {
+            "kind": "vector",
+            "of": {
+              "kind": "named",
+              "name": "long",
+              "bare": true
+            },
+            "bare": false
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "MsgsAck",
+        "bare": false
+      }
+    },
+    {
+      "name": "bad_msg_notification",
+      "id": "a7eff811",
+      "params": [
+        {
+          "name": "bad_msg_id",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        },
+        {
+          "name": "bad_msg_seqno",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        },
+        {
+          "name": "error_code",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "BadMsgNotification",
+        "bare": false
+      }
+    },
+    {
+      "name": "bad_server_salt",
+      "id": "edab447b",
+      "params": [
+        {
+          "name": "bad_msg_id",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        },
+        {
+          "name": "bad_msg_seqno",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        },
+        {
+          "name": "error_code",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        },
+        {
+          "name": "new_server_salt",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "BadMsgNotification",
+        "bare": false
+      }
+    },
+    {
+      "name": "msg_resend_req",
+      "id": "7d861a08",
+      "params": [
+        {
+          "name": "msg_ids",
+          "type": {
+            "kind": "vector",
+            "of": {
+              "kind": "named",
+              "name": "long",
+              "bare": true
+            },
+            "bare": false
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "MsgResendReq",
+        "bare": false
+      }
+    },
+    {
+      "name": "msgs_state_req",
+      "id": "da69fb52",
+      "params": [
+        {
+          "name": "msg_ids",
+          "type": {
+            "kind": "vector",
+            "of": {
+              "kind": "named",
+              "name": "long",
+              "bare": true
+            },
+            "bare": false
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "MsgsStateReq",
+        "bare": false
+      }
+    },
+    {
+      "name": "msgs_state_info",
+      "id": "04deb57d",
+      "params": [
+        {
+          "name": "req_msg_id",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        },
+        {
+          "name": "info",
+          "type": {
+            "kind": "named",
+            "name": "string",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "MsgsStateInfo",
+        "bare": false
+      }
+    },
+    {
+      "name": "msgs_all_info",
+      "id": "8cc0d131",
+      "params": [
+        {
+          "name": "msg_ids",
+          "type": {
+            "kind": "vector",
+            "of": {
+              "kind": "named",
+              "name": "long",
+              "bare": true
+            },
+            "bare": false
+          }
+        },
+        {
+          "name": "info",
+          "type": {
+            "kind": "named",
+            "name": "string",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "MsgsAllInfo",
+        "bare": false
+      }
+    },
+    {
+      "name": "msg_detailed_info",
+      "id": "276d3ec6",
+      "params": [
+        {
+          "name": "msg_id",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        },
+        {
+          "name": "answer_msg_id",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        },
+        {
+          "name": "bytes",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "MsgDetailedInfo",
+        "bare": false
+      }
+    },
+    {
+      "name": "msg_new_detailed_info",
+      "id": "809db6df",
+      "params": [
+        {
+          "name": "answer_msg_id",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        },
+        {
+          "name": "bytes",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "MsgDetailedInfo",
+        "bare": false
+      }
+    },
+    {
+      "name": "rsa_public_key",
+      "id": "7a19cb76",
+      "params": [
+        {
+          "name": "n",
+          "type": {
+            "kind": "named",
+            "name": "string",
+            "bare": true
+          }
+        },
+        {
+          "name": "e",
+          "type": {
+            "kind": "named",
+            "name": "string",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "RSAPublicKey",
+        "bare": false
+      }
+    },
+    {
+      "name": "destroy_auth_key_ok",
+      "id": "f660e1d4",
+      "params": [],
+      "result": {
+        "kind": "named",
+        "name": "DestroyAuthKeyRes",
+        "bare": false
+      }
+    },
+    {
+      "name": "destroy_auth_key_none",
+      "id": "0a9f2259",
+      "params": [],
+      "result": {
+        "kind": "named",
+        "name": "DestroyAuthKeyRes",
+        "bare": false
+      }
+    },
+    {
+      "name": "destroy_auth_key_fail",
+      "id": "ea109b13",
+      "params": [],
+      "result": {
+        "kind": "named",
+        "name": "DestroyAuthKeyRes",
+        "bare": false
+      }
+    }
+  ],
+  "functions": [
+    {
+      "name": "req_pq_multi",
+      "id": "be7e8ef1",
+      "params": [
+        {
+          "name": "nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "ResPQ",
+        "bare": false
+      }
+    },
+    {
+      "name": "req_DH_params",
+      "id": "d712e4be",
+      "params": [
+        {
+          "name": "nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        },
+        {
+          "name": "server_nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        },
+        {
+          "name": "p",
+          "type": {
+            "kind": "named",
+            "name": "string",
+            "bare": true
+          }
+        },
+        {
+          "name": "q",
+          "type": {
+            "kind": "named",
+            "name": "string",
+            "bare": true
+          }
+        },
+        {
+          "name": "public_key_fingerprint",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        },
+        {
+          "name": "encrypted_data",
+          "type": {
+            "kind": "named",
+            "name": "string",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "Server_DH_Params",
+        "bare": false
+      }
+    },
+    {
+      "name": "set_client_DH_params",
+      "id": "f5045f1f",
+      "params": [
+        {
+          "name": "nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        },
+        {
+          "name": "server_nonce",
+          "type": {
+            "kind": "named",
+            "name": "int128",
+            "bare": true
+          }
+        },
+        {
+          "name": "encrypted_data",
+          "type": {
+            "kind": "named",
+            "name": "string",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "Set_client_DH_params_answer",
+        "bare": false
+      }
+    },
+    {
+      "name": "rpc_drop_answer",
+      "id": "58e4a740",
+      "params": [
+        {
+          "name": "req_msg_id",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "RpcDropAnswer",
+        "bare": false
+      }
+    },
+    {
+      "name": "get_future_salts",
+      "id": "b921bd04",
+      "params": [
+        {
+          "name": "num",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "FutureSalts",
+        "bare": false
+      }
+    },
+    {
+      "name": "ping_delay_disconnect",
+      "id": "f3427b8c",
+      "params": [
+        {
+          "name": "ping_id",
+          "type": {
+            "kind": "named",
+            "name": "long",
+            "bare": true
+          }
+        },
+        {
+          "name": "disconnect_delay",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "Pong",
+        "bare": false
+      }
+    },
+    {
+      "name": "http_wait",
+      "id": "9299359f",
+      "params": [
+        {
+          "name": "max_delay",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        },
+        {
+          "name": "wait_after",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        },
+        {
+          "name": "max_wait",
+          "type": {
+            "kind": "named",
+            "name": "int",
+            "bare": true
+          }
+        }
+      ],
+      "result": {
+        "kind": "named",
+        "name": "HttpWait",
+        "bare": false
+      }
+    },
+    {
+      "name": "destroy_auth_key",
+      "id": "d1435160",
+      "params": [],
+      "result": {
+        "kind": "named",
+        "name": "DestroyAuthKeyRes",
+        "bare": false
+      }
+    }
+  ]
+}

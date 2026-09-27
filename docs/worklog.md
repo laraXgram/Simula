@@ -5,6 +5,26 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-09-27 — P1.4 · TL schema parser
+
+- `bun run codegen tl:import <tdlib-dir>` vendors `telegram_api.tl` and `mtproto_api.tl`
+  into `spec/tl/` and records the layer and tdlib commit in `spec/tl/source.json`;
+  `bun run codegen tl` parses them into `spec/tl/telegram_api.json` / `mtproto_api.json`.
+- Imported **layer 229** from tdlib `bc9c263e2` (2026-08-24):
+  1660 constructors + 813 functions (telegram_api), 33 + 8 (mtproto_api).
+- Structured types: named (boxed/bare), `Vector<T>`/`vector<T>`, generics (`{X:Type}`,
+  `!X`), flags fields (`flags:#`, `flags2.3?Type`).
+- **Verification**: every id is recomputed with the TL CRC32 rule. All real API
+  combinators match; the three that don't (`accessPointRule`, `help.configSimple`,
+  `gzip_packed`) were hashed from Telegram's original `bytes` declarations that tdlib
+  rewrites, and are reported as warnings.
+- tdlib-only declarations are dropped: `invokeWith*Prefix` helpers (they reuse real
+  function ids, which would break a server-side decoder), `test.*`, `*Legacy`.
+  Duplicate ids now fail the build.
+- Note for P8: tdlib comments out `rpc_result`, `msg_container`, `msg_copy`, `ping`
+  and `destroy_session` in `mtproto_api.tl` because it handles them by hand. The
+  transport will need them (hand-written or an extra `.tl`).
+
 ## 2026-09-27 — P1.1, P1.2, P1.3 · Bot API spec pipeline
 
 - `bun run codegen botapi [--offline]` downloads core.telegram.org/bots/api (cached in
