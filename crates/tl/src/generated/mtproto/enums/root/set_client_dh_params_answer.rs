@@ -19,6 +19,22 @@ impl Default for SetClientDHParamsAnswer {
 }
 
 impl SetClientDHParamsAnswer {
+    pub fn nonce(&self) -> &[u8; 16] {
+        match self {
+            Self::DhGenOk(x) => &x.nonce,
+            Self::DhGenRetry(x) => &x.nonce,
+            Self::DhGenFail(x) => &x.nonce,
+        }
+    }
+
+    pub fn server_nonce(&self) -> &[u8; 16] {
+        match self {
+            Self::DhGenOk(x) => &x.server_nonce,
+            Self::DhGenRetry(x) => &x.server_nonce,
+            Self::DhGenFail(x) => &x.server_nonce,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::DhGenOk(_) => 0x3bcbf734,

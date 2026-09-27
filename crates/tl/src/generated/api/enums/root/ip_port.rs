@@ -17,6 +17,20 @@ impl Default for IpPort {
 }
 
 impl IpPort {
+    pub fn ipv4(&self) -> i32 {
+        match self {
+            Self::IpPort(x) => x.ipv4,
+            Self::Secret(x) => x.ipv4,
+        }
+    }
+
+    pub fn port(&self) -> i32 {
+        match self {
+            Self::IpPort(x) => x.port,
+            Self::Secret(x) => x.port,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::IpPort(_) => 0xd433ad73,

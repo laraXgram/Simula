@@ -19,6 +19,14 @@ impl Default for Message {
 }
 
 impl Message {
+    pub fn id(&self) -> i32 {
+        match self {
+            Self::Empty(x) => x.id,
+            Self::Message(x) => x.id,
+            Self::Service(x) => x.id,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Empty(_) => 0x90a6ca84,

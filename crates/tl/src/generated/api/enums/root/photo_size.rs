@@ -25,6 +25,17 @@ impl Default for PhotoSize {
 }
 
 impl PhotoSize {
+    pub fn r#type(&self) -> &String {
+        match self {
+            Self::Empty(x) => &x.r#type,
+            Self::PhotoSize(x) => &x.r#type,
+            Self::PhotoCachedSize(x) => &x.r#type,
+            Self::PhotoStrippedSize(x) => &x.r#type,
+            Self::Progressive(x) => &x.r#type,
+            Self::PhotoPathSize(x) => &x.r#type,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Empty(_) => 0x0e17e23c,

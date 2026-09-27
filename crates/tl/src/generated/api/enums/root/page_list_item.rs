@@ -17,6 +17,20 @@ impl Default for PageListItem {
 }
 
 impl PageListItem {
+    pub fn checkbox(&self) -> bool {
+        match self {
+            Self::Text(x) => x.checkbox,
+            Self::Blocks(x) => x.checkbox,
+        }
+    }
+
+    pub fn checked(&self) -> bool {
+        match self {
+            Self::Text(x) => x.checked,
+            Self::Blocks(x) => x.checked,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Text(_) => 0x2f58683c,

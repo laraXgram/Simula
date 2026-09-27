@@ -17,6 +17,20 @@ impl Default for ChatlistInvite {
 }
 
 impl ChatlistInvite {
+    pub fn chats(&self) -> &Vec<crate::generated::api::enums::Chat> {
+        match self {
+            Self::Already(x) => &x.chats,
+            Self::ChatlistInvite(x) => &x.chats,
+        }
+    }
+
+    pub fn users(&self) -> &Vec<crate::generated::api::enums::User> {
+        match self {
+            Self::Already(x) => &x.users,
+            Self::ChatlistInvite(x) => &x.users,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Already(_) => 0xfa87f659,

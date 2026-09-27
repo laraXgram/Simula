@@ -17,6 +17,13 @@ impl Default for SavedMusic {
 }
 
 impl SavedMusic {
+    pub fn count(&self) -> i32 {
+        match self {
+            Self::NotModified(x) => x.count,
+            Self::SavedMusic(x) => x.count,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::NotModified(_) => 0xe3878aa4,

@@ -17,6 +17,13 @@ impl Default for InputRichFile {
 }
 
 impl InputRichFile {
+    pub fn id(&self) -> &String {
+        match self {
+            Self::Photo(x) => &x.id,
+            Self::Document(x) => &x.id,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Photo(_) => 0x9b00622b,

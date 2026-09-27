@@ -17,6 +17,27 @@ impl Default for Blocked {
 }
 
 impl Blocked {
+    pub fn blocked(&self) -> &Vec<crate::generated::api::enums::PeerBlocked> {
+        match self {
+            Self::Blocked(x) => &x.blocked,
+            Self::Slice(x) => &x.blocked,
+        }
+    }
+
+    pub fn chats(&self) -> &Vec<crate::generated::api::enums::Chat> {
+        match self {
+            Self::Blocked(x) => &x.chats,
+            Self::Slice(x) => &x.chats,
+        }
+    }
+
+    pub fn users(&self) -> &Vec<crate::generated::api::enums::User> {
+        match self {
+            Self::Blocked(x) => &x.users,
+            Self::Slice(x) => &x.users,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Blocked(_) => 0x0ade1591,

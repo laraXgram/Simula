@@ -17,6 +17,13 @@ impl Default for InputSecureFile {
 }
 
 impl InputSecureFile {
+    pub fn id(&self) -> i64 {
+        match self {
+            Self::Uploaded(x) => x.id,
+            Self::InputSecureFile(x) => x.id,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Uploaded(_) => 0x3334b0f0,

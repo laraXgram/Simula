@@ -17,6 +17,13 @@ impl Default for GiveawayInfo {
 }
 
 impl GiveawayInfo {
+    pub fn start_date(&self) -> i32 {
+        match self {
+            Self::GiveawayInfo(x) => x.start_date,
+            Self::Results(x) => x.start_date,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::GiveawayInfo(_) => 0x4367daa0,

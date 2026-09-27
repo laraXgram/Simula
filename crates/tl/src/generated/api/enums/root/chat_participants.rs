@@ -17,6 +17,13 @@ impl Default for ChatParticipants {
 }
 
 impl ChatParticipants {
+    pub fn chat_id(&self) -> i64 {
+        match self {
+            Self::Forbidden(x) => x.chat_id,
+            Self::ChatParticipants(x) => x.chat_id,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Forbidden(_) => 0x8763d3e1,

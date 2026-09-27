@@ -17,6 +17,55 @@ impl Default for PQInnerData {
 }
 
 impl PQInnerData {
+    pub fn pq(&self) -> &Vec<u8> {
+        match self {
+            Self::Dc(x) => &x.pq,
+            Self::TempDc(x) => &x.pq,
+        }
+    }
+
+    pub fn p(&self) -> &Vec<u8> {
+        match self {
+            Self::Dc(x) => &x.p,
+            Self::TempDc(x) => &x.p,
+        }
+    }
+
+    pub fn q(&self) -> &Vec<u8> {
+        match self {
+            Self::Dc(x) => &x.q,
+            Self::TempDc(x) => &x.q,
+        }
+    }
+
+    pub fn nonce(&self) -> &[u8; 16] {
+        match self {
+            Self::Dc(x) => &x.nonce,
+            Self::TempDc(x) => &x.nonce,
+        }
+    }
+
+    pub fn server_nonce(&self) -> &[u8; 16] {
+        match self {
+            Self::Dc(x) => &x.server_nonce,
+            Self::TempDc(x) => &x.server_nonce,
+        }
+    }
+
+    pub fn new_nonce(&self) -> &[u8; 32] {
+        match self {
+            Self::Dc(x) => &x.new_nonce,
+            Self::TempDc(x) => &x.new_nonce,
+        }
+    }
+
+    pub fn dc(&self) -> i32 {
+        match self {
+            Self::Dc(x) => x.dc,
+            Self::TempDc(x) => x.dc,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Dc(_) => 0xa9f55f95,

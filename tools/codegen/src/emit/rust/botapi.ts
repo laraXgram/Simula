@@ -430,7 +430,25 @@ pub struct ${type.name} {
 ${structBody(infos)}
 }
 
-${validateImpl(type.name, validateBody(infos))}`;
+${validateImpl(type.name, validateBody(infos))}${type.name === "Update" ? updateKinds(infos) : ""}`;
+}
+
+/** `Update` carries exactly one optional payload; its field name is the update kind. */
+function updateKinds(infos: FieldInfo[]): string {
+  const kinds = infos.filter((f) => !f.field.required).map((f) => f.field.name);
+  const checks = kinds.map((k) => `        if self.${ident(k)}.is_some() {\n            return Some("${k}");\n        }`).join("\n");
+  return `
+impl Update {
+    /// Every update kind, as used in \`allowed_updates\`.
+    pub const KINDS: &'static [&'static str] = &[${kinds.map((k) => JSON.stringify(k)).join(", ")}];
+
+    /// The kind of this update (the name of its payload field).
+    pub fn kind(&self) -> Option<&'static str> {
+${checks}
+        None
+    }
+}
+`;
 }
 
 export function variantName(union: string, ref: TypeRef): string {

@@ -17,6 +17,27 @@ impl Default for PostInteractionCounters {
 }
 
 impl PostInteractionCounters {
+    pub fn views(&self) -> i32 {
+        match self {
+            Self::Message(x) => x.views,
+            Self::Story(x) => x.views,
+        }
+    }
+
+    pub fn forwards(&self) -> i32 {
+        match self {
+            Self::Message(x) => x.forwards,
+            Self::Story(x) => x.forwards,
+        }
+    }
+
+    pub fn reactions(&self) -> i32 {
+        match self {
+            Self::Message(x) => x.reactions,
+            Self::Story(x) => x.reactions,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Message(_) => 0xe7058e7f,

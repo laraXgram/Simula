@@ -17,6 +17,13 @@ impl Default for InputPasskeyResponse {
 }
 
 impl InputPasskeyResponse {
+    pub fn client_data(&self) -> &crate::generated::api::enums::DataJSON {
+        match self {
+            Self::Register(x) => &x.client_data,
+            Self::Login(x) => &x.client_data,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Register(_) => 0x3e63935c,

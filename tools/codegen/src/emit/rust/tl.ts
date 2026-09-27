@@ -453,6 +453,7 @@ ${decl}
 ${defaultImpl}
 
 impl ${name} {
+${commonAccessors(ctx, vs)}
     pub fn constructor_id(&self) -> u32 {
         match self {
 ${ids}
@@ -485,6 +486,30 @@ ${de}
 }
 
 ${froms}`;
+}
+
+/** Rust types returned by value from accessors; everything else by reference. */
+const COPY_TYPES = new Set(["i32", "i64", "f64", "bool", "Option<i32>", "Option<i64>", "Option<f64>"]);
+
+/**
+ * Accessors for fields every constructor of the type has with the same Rust type, e.g.
+ * `MessageEntity::offset()`. Names clashing with the enum's own methods are skipped.
+ */
+function commonAccessors(ctx: TlContext, vs: Variant[]): string {
+  if (vs.length < 2 || vs.some((v) => v.unit)) return "";
+  const perVariant = vs.map((v) => new Map(fields(ctx, v.c).map((f) => [f.name, f])));
+  const [first, ...rest] = perVariant;
+  if (!first) return "";
+  const common = [...first.values()].filter(
+    (f) => !["name", "constructor_id"].includes(f.name) && rest.every((m) => m.get(f.name)?.rust === f.rust),
+  );
+  return common
+    .map((f) => {
+      const byValue = COPY_TYPES.has(f.rust);
+      const arms = vs.map((v) => `Self::${v.name}(x) => ${byValue ? "" : "&"}x.${f.name},`).join("\n");
+      return `    pub fn ${f.name}(&self) -> ${byValue ? f.rust : `&${f.rust}`} {\n        match self {\n${arms}\n        }\n    }\n`;
+    })
+    .join("\n");
 }
 
 function emitFunctions(put: Put, ctx: TlContext, functions: TlCombinator[]) {

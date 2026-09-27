@@ -17,6 +17,20 @@ impl Default for InputBotInlineMessageID {
 }
 
 impl InputBotInlineMessageID {
+    pub fn dc_id(&self) -> i32 {
+        match self {
+            Self::InputBotInlineMessageID(x) => x.dc_id,
+            Self::InputBotInlineMessageID64(x) => x.dc_id,
+        }
+    }
+
+    pub fn access_hash(&self) -> i64 {
+        match self {
+            Self::InputBotInlineMessageID(x) => x.access_hash,
+            Self::InputBotInlineMessageID64(x) => x.access_hash,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::InputBotInlineMessageID(_) => 0x890c3d89,

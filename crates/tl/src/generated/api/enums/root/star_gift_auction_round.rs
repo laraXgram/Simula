@@ -17,6 +17,20 @@ impl Default for StarGiftAuctionRound {
 }
 
 impl StarGiftAuctionRound {
+    pub fn num(&self) -> i32 {
+        match self {
+            Self::StarGiftAuctionRound(x) => x.num,
+            Self::Extendable(x) => x.num,
+        }
+    }
+
+    pub fn duration(&self) -> i32 {
+        match self {
+            Self::StarGiftAuctionRound(x) => x.duration,
+            Self::Extendable(x) => x.duration,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::StarGiftAuctionRound(_) => 0x3aae0528,

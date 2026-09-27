@@ -17,6 +17,34 @@ impl Default for WallPaper {
 }
 
 impl WallPaper {
+    pub fn id(&self) -> i64 {
+        match self {
+            Self::WallPaper(x) => x.id,
+            Self::NoFile(x) => x.id,
+        }
+    }
+
+    pub fn default(&self) -> bool {
+        match self {
+            Self::WallPaper(x) => x.default,
+            Self::NoFile(x) => x.default,
+        }
+    }
+
+    pub fn dark(&self) -> bool {
+        match self {
+            Self::WallPaper(x) => x.dark,
+            Self::NoFile(x) => x.dark,
+        }
+    }
+
+    pub fn settings(&self) -> &Option<crate::generated::api::enums::WallPaperSettings> {
+        match self {
+            Self::WallPaper(x) => &x.settings,
+            Self::NoFile(x) => &x.settings,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::WallPaper(_) => 0xa437c3ed,

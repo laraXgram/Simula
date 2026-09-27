@@ -19,6 +19,22 @@ impl Default for ChannelDifference {
 }
 
 impl ChannelDifference {
+    pub fn r#final(&self) -> bool {
+        match self {
+            Self::Empty(x) => x.r#final,
+            Self::TooLong(x) => x.r#final,
+            Self::ChannelDifference(x) => x.r#final,
+        }
+    }
+
+    pub fn timeout(&self) -> Option<i32> {
+        match self {
+            Self::Empty(x) => x.timeout,
+            Self::TooLong(x) => x.timeout,
+            Self::ChannelDifference(x) => x.timeout,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Empty(_) => 0x3e11affb,

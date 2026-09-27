@@ -63,6 +63,66 @@ impl Default for MessageEntity {
 }
 
 impl MessageEntity {
+    pub fn offset(&self) -> i32 {
+        match self {
+            Self::Unknown(x) => x.offset,
+            Self::Mention(x) => x.offset,
+            Self::Hashtag(x) => x.offset,
+            Self::BotCommand(x) => x.offset,
+            Self::Url(x) => x.offset,
+            Self::Email(x) => x.offset,
+            Self::Bold(x) => x.offset,
+            Self::Italic(x) => x.offset,
+            Self::Code(x) => x.offset,
+            Self::Pre(x) => x.offset,
+            Self::TextUrl(x) => x.offset,
+            Self::MentionName(x) => x.offset,
+            Self::InputMessageEntityMentionName(x) => x.offset,
+            Self::Phone(x) => x.offset,
+            Self::Cashtag(x) => x.offset,
+            Self::Underline(x) => x.offset,
+            Self::Strike(x) => x.offset,
+            Self::BankCard(x) => x.offset,
+            Self::Spoiler(x) => x.offset,
+            Self::CustomEmoji(x) => x.offset,
+            Self::Blockquote(x) => x.offset,
+            Self::FormattedDate(x) => x.offset,
+            Self::DiffInsert(x) => x.offset,
+            Self::DiffReplace(x) => x.offset,
+            Self::DiffDelete(x) => x.offset,
+        }
+    }
+
+    pub fn length(&self) -> i32 {
+        match self {
+            Self::Unknown(x) => x.length,
+            Self::Mention(x) => x.length,
+            Self::Hashtag(x) => x.length,
+            Self::BotCommand(x) => x.length,
+            Self::Url(x) => x.length,
+            Self::Email(x) => x.length,
+            Self::Bold(x) => x.length,
+            Self::Italic(x) => x.length,
+            Self::Code(x) => x.length,
+            Self::Pre(x) => x.length,
+            Self::TextUrl(x) => x.length,
+            Self::MentionName(x) => x.length,
+            Self::InputMessageEntityMentionName(x) => x.length,
+            Self::Phone(x) => x.length,
+            Self::Cashtag(x) => x.length,
+            Self::Underline(x) => x.length,
+            Self::Strike(x) => x.length,
+            Self::BankCard(x) => x.length,
+            Self::Spoiler(x) => x.length,
+            Self::CustomEmoji(x) => x.length,
+            Self::Blockquote(x) => x.length,
+            Self::FormattedDate(x) => x.length,
+            Self::DiffInsert(x) => x.length,
+            Self::DiffReplace(x) => x.length,
+            Self::DiffDelete(x) => x.length,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Unknown(_) => 0xbb92ba95,

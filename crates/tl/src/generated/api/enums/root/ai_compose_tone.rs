@@ -17,6 +17,13 @@ impl Default for AiComposeTone {
 }
 
 impl AiComposeTone {
+    pub fn title(&self) -> &String {
+        match self {
+            Self::AiComposeTone(x) => &x.title,
+            Self::Default(x) => &x.title,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::AiComposeTone(_) => 0xcff63ea9,

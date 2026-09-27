@@ -17,6 +17,13 @@ impl Default for PromoData {
 }
 
 impl PromoData {
+    pub fn expires(&self) -> i32 {
+        match self {
+            Self::Empty(x) => x.expires,
+            Self::PromoData(x) => x.expires,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Empty(_) => 0x98f6ac75,

@@ -17,6 +17,13 @@ impl Default for PollAnswer {
 }
 
 impl PollAnswer {
+    pub fn text(&self) -> &crate::generated::api::enums::TextWithEntities {
+        match self {
+            Self::PollAnswer(x) => &x.text,
+            Self::InputPollAnswer(x) => &x.text,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::PollAnswer(_) => 0x4b7d786a,

@@ -17,6 +17,34 @@ impl Default for EncryptedMessage {
 }
 
 impl EncryptedMessage {
+    pub fn random_id(&self) -> i64 {
+        match self {
+            Self::EncryptedMessage(x) => x.random_id,
+            Self::Service(x) => x.random_id,
+        }
+    }
+
+    pub fn chat_id(&self) -> i32 {
+        match self {
+            Self::EncryptedMessage(x) => x.chat_id,
+            Self::Service(x) => x.chat_id,
+        }
+    }
+
+    pub fn date(&self) -> i32 {
+        match self {
+            Self::EncryptedMessage(x) => x.date,
+            Self::Service(x) => x.date,
+        }
+    }
+
+    pub fn bytes(&self) -> &Vec<u8> {
+        match self {
+            Self::EncryptedMessage(x) => &x.bytes,
+            Self::Service(x) => &x.bytes,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::EncryptedMessage(_) => 0xed18c118,

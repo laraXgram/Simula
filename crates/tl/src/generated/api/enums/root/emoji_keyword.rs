@@ -17,6 +17,20 @@ impl Default for EmojiKeyword {
 }
 
 impl EmojiKeyword {
+    pub fn keyword(&self) -> &String {
+        match self {
+            Self::EmojiKeyword(x) => &x.keyword,
+            Self::Deleted(x) => &x.keyword,
+        }
+    }
+
+    pub fn emoticons(&self) -> &Vec<String> {
+        match self {
+            Self::EmojiKeyword(x) => &x.emoticons,
+            Self::Deleted(x) => &x.emoticons,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::EmojiKeyword(_) => 0xd5b3b9f9,

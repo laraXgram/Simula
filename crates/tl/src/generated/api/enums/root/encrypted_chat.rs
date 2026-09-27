@@ -23,6 +23,16 @@ impl Default for EncryptedChat {
 }
 
 impl EncryptedChat {
+    pub fn id(&self) -> i32 {
+        match self {
+            Self::Empty(x) => x.id,
+            Self::Waiting(x) => x.id,
+            Self::Requested(x) => x.id,
+            Self::EncryptedChat(x) => x.id,
+            Self::Discarded(x) => x.id,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Empty(_) => 0xab7ec0a0,

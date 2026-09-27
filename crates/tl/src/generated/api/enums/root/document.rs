@@ -17,6 +17,13 @@ impl Default for Document {
 }
 
 impl Document {
+    pub fn id(&self) -> i64 {
+        match self {
+            Self::Empty(x) => x.id,
+            Self::Document(x) => x.id,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Empty(_) => 0x36f8c871,

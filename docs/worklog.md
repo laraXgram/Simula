@@ -5,6 +5,48 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-09-27 — M1 (part 2) · Bot API gateway, Control API, server — M1 done
+
+- **`simula-botapi`** (P3.1, P3.2, P3.7): `/bot<token>/<method>` over GET/POST with query,
+  JSON, urlencoded and multipart bodies; string values coerced by the generated parameter
+  kinds; gzip/deflate/br/zstd request bodies; case-insensitive method names; 401/404 for
+  unknown/malformed tokens; documented-but-unimplemented methods answer 501, unknown
+  ones 404. Methods: `getMe`, `getUpdates`, `sendMessage` (plain text), `deleteWebhook`,
+  `getWebhookInfo`. Converters TL → Bot API for users, chats, messages, entities, updates.
+- **Update delivery**: per-bot queue (random first `update_id`, offsets incl. negative,
+  `allowed_updates` with the documented opt-in kinds, 24 h retention), long polling,
+  and `409 Conflict: terminated by other getUpdates request…` when a newer poll starts.
+  Delivery runs synchronously in the sandbox's publish step (listeners), so when an
+  action returns its updates are already fetchable — no flaky tests.
+- **Errors reproduce the real chain**: MTProto error → tdlib's message (table from
+  `MessagesManager.cpp`) → telegram-bot-api's formatting (`Client::fail_query_with_error`:
+  code normalization, rewrites, prefix, lowercase rule). E.g. a bot writing first gets
+  `403 Forbidden: bot can't initiate conversation with a user`; missing text gets
+  telegram-bot-api's own `Bad Request: message text is empty`, whitespace-only text
+  tdlib's `Bad Request: text must be non-empty`.
+- **Automatic entities** (core): mentions, bot commands (only in chats with a bot),
+  hashtags, cashtags ported from tdlib's matchers with tdlib's own test cases; scheme/
+  `www.` URLs and emails (bare-domain detection with TLD list not ported yet); UTF-16
+  offsets; explicit entities win on overlap.
+- **`simula-control`** (P4.1, P4.3, P4.4, P4.5, P4.7) at `/_simula/v1`: create/list
+  accounts, `POST /accounts/{id}/call` (**any TL function as any account**, JSON-TL in
+  and out), `POST /accounts/{id}/send`, SSE streams (`/events`, `/accounts/{id}/updates`),
+  clock (real / frozen / offset, advance).
+- **`simula` binary** (`crates/server`): one port for both APIs, `--memory` or
+  `--data-dir`, env overrides, graceful shutdown.
+- TL codegen: accessors for fields shared by every constructor of a type
+  (`MessageEntity::offset()`, `Message::id()`, 74 types).
+- **Verification**
+  - Gateway tests over in-process HTTP: `getMe` fields, full conversation (bot box ids
+    1/2, lossless `message`/`from`/`chat` JSON), form and GET encodings, Telegram error
+    texts, long polling wake-up, 409 conflict. Error translation unit-tested against
+    the real descriptions.
+  - **Real library**: an unmodified **Telegraf** bot ran against the `simula` binary —
+    launch, long polling, `bot.start()`/`bot.command()` routing and echo of Persian text
+    with emoji all worked. It first exposed two real gaps, both fixed: gzip-compressed
+    request bodies and missing automatic `bot_command` entities.
+  - 0 warnings, 0 clippy warnings across the workspace.
+
 ## 2026-09-27 — M1 (part 1) · `simula-core`: private chats at the MTProto level
 
 - New crate `simula-core`. One **actor thread per sandbox** owns its SQLite connection

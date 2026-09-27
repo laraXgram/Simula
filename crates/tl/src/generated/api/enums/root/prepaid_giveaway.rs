@@ -17,6 +17,27 @@ impl Default for PrepaidGiveaway {
 }
 
 impl PrepaidGiveaway {
+    pub fn id(&self) -> i64 {
+        match self {
+            Self::PrepaidGiveaway(x) => x.id,
+            Self::PrepaidStarsGiveaway(x) => x.id,
+        }
+    }
+
+    pub fn quantity(&self) -> i32 {
+        match self {
+            Self::PrepaidGiveaway(x) => x.quantity,
+            Self::PrepaidStarsGiveaway(x) => x.quantity,
+        }
+    }
+
+    pub fn date(&self) -> i32 {
+        match self {
+            Self::PrepaidGiveaway(x) => x.date,
+            Self::PrepaidStarsGiveaway(x) => x.date,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::PrepaidGiveaway(_) => 0xb2539d54,

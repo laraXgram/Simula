@@ -17,6 +17,69 @@ impl Default for PaymentReceipt {
 }
 
 impl PaymentReceipt {
+    pub fn date(&self) -> i32 {
+        match self {
+            Self::PaymentReceipt(x) => x.date,
+            Self::Stars(x) => x.date,
+        }
+    }
+
+    pub fn bot_id(&self) -> i64 {
+        match self {
+            Self::PaymentReceipt(x) => x.bot_id,
+            Self::Stars(x) => x.bot_id,
+        }
+    }
+
+    pub fn title(&self) -> &String {
+        match self {
+            Self::PaymentReceipt(x) => &x.title,
+            Self::Stars(x) => &x.title,
+        }
+    }
+
+    pub fn description(&self) -> &String {
+        match self {
+            Self::PaymentReceipt(x) => &x.description,
+            Self::Stars(x) => &x.description,
+        }
+    }
+
+    pub fn photo(&self) -> &Option<crate::generated::api::enums::WebDocument> {
+        match self {
+            Self::PaymentReceipt(x) => &x.photo,
+            Self::Stars(x) => &x.photo,
+        }
+    }
+
+    pub fn invoice(&self) -> &crate::generated::api::enums::Invoice {
+        match self {
+            Self::PaymentReceipt(x) => &x.invoice,
+            Self::Stars(x) => &x.invoice,
+        }
+    }
+
+    pub fn currency(&self) -> &String {
+        match self {
+            Self::PaymentReceipt(x) => &x.currency,
+            Self::Stars(x) => &x.currency,
+        }
+    }
+
+    pub fn total_amount(&self) -> i64 {
+        match self {
+            Self::PaymentReceipt(x) => x.total_amount,
+            Self::Stars(x) => x.total_amount,
+        }
+    }
+
+    pub fn users(&self) -> &Vec<crate::generated::api::enums::User> {
+        match self {
+            Self::PaymentReceipt(x) => &x.users,
+            Self::Stars(x) => &x.users,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::PaymentReceipt(_) => 0x70c4fe03,

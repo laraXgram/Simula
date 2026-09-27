@@ -17,6 +17,13 @@ impl Default for ForumTopic {
 }
 
 impl ForumTopic {
+    pub fn id(&self) -> i32 {
+        match self {
+            Self::Deleted(x) => x.id,
+            Self::ForumTopic(x) => x.id,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Deleted(_) => 0x023f109b,

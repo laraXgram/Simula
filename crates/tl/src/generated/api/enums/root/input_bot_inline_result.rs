@@ -21,6 +21,24 @@ impl Default for InputBotInlineResult {
 }
 
 impl InputBotInlineResult {
+    pub fn id(&self) -> &String {
+        match self {
+            Self::InputBotInlineResult(x) => &x.id,
+            Self::Photo(x) => &x.id,
+            Self::Document(x) => &x.id,
+            Self::Game(x) => &x.id,
+        }
+    }
+
+    pub fn send_message(&self) -> &crate::generated::api::enums::InputBotInlineMessage {
+        match self {
+            Self::InputBotInlineResult(x) => &x.send_message,
+            Self::Photo(x) => &x.send_message,
+            Self::Document(x) => &x.send_message,
+            Self::Game(x) => &x.send_message,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::InputBotInlineResult(_) => 0x88bf9319,

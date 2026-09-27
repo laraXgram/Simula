@@ -17,6 +17,27 @@ impl Default for BadMsgNotification {
 }
 
 impl BadMsgNotification {
+    pub fn bad_msg_id(&self) -> i64 {
+        match self {
+            Self::BadMsgNotification(x) => x.bad_msg_id,
+            Self::BadServerSalt(x) => x.bad_msg_id,
+        }
+    }
+
+    pub fn bad_msg_seqno(&self) -> i32 {
+        match self {
+            Self::BadMsgNotification(x) => x.bad_msg_seqno,
+            Self::BadServerSalt(x) => x.bad_msg_seqno,
+        }
+    }
+
+    pub fn error_code(&self) -> i32 {
+        match self {
+            Self::BadMsgNotification(x) => x.error_code,
+            Self::BadServerSalt(x) => x.error_code,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::BadMsgNotification(_) => 0xa7eff811,

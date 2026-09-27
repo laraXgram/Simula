@@ -19,6 +19,14 @@ impl Default for Dialog {
 }
 
 impl Dialog {
+    pub fn pinned(&self) -> bool {
+        match self {
+            Self::Dialog(x) => x.pinned,
+            Self::Folder(x) => x.pinned,
+            Self::Community(x) => x.pinned,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Dialog(_) => 0xfc89f7f3,

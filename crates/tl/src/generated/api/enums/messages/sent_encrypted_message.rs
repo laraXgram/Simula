@@ -17,6 +17,13 @@ impl Default for SentEncryptedMessage {
 }
 
 impl SentEncryptedMessage {
+    pub fn date(&self) -> i32 {
+        match self {
+            Self::SentEncryptedMessage(x) => x.date,
+            Self::SentEncryptedFile(x) => x.date,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::SentEncryptedMessage(_) => 0x560f8935,

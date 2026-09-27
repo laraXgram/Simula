@@ -17,6 +17,13 @@ impl Default for FeaturedStickers {
 }
 
 impl FeaturedStickers {
+    pub fn count(&self) -> i32 {
+        match self {
+            Self::NotModified(x) => x.count,
+            Self::FeaturedStickers(x) => x.count,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::NotModified(_) => 0xc6dc0c66,

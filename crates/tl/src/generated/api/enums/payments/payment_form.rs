@@ -19,6 +19,22 @@ impl Default for PaymentForm {
 }
 
 impl PaymentForm {
+    pub fn form_id(&self) -> i64 {
+        match self {
+            Self::PaymentForm(x) => x.form_id,
+            Self::Stars(x) => x.form_id,
+            Self::StarGift(x) => x.form_id,
+        }
+    }
+
+    pub fn invoice(&self) -> &crate::generated::api::enums::Invoice {
+        match self {
+            Self::PaymentForm(x) => &x.invoice,
+            Self::Stars(x) => &x.invoice,
+            Self::StarGift(x) => &x.invoice,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::PaymentForm(_) => 0xa0058751,

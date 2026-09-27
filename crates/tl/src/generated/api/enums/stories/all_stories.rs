@@ -17,6 +17,20 @@ impl Default for AllStories {
 }
 
 impl AllStories {
+    pub fn state(&self) -> &String {
+        match self {
+            Self::NotModified(x) => &x.state,
+            Self::AllStories(x) => &x.state,
+        }
+    }
+
+    pub fn stealth_mode(&self) -> &crate::generated::api::enums::StoriesStealthMode {
+        match self {
+            Self::NotModified(x) => &x.stealth_mode,
+            Self::AllStories(x) => &x.stealth_mode,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::NotModified(_) => 0x1158fe3e,

@@ -17,6 +17,20 @@ impl Default for GroupCall {
 }
 
 impl GroupCall {
+    pub fn id(&self) -> i64 {
+        match self {
+            Self::Discarded(x) => x.id,
+            Self::GroupCall(x) => x.id,
+        }
+    }
+
+    pub fn access_hash(&self) -> i64 {
+        match self {
+            Self::Discarded(x) => x.access_hash,
+            Self::GroupCall(x) => x.access_hash,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Discarded(_) => 0x7780bcb4,

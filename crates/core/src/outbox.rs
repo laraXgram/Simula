@@ -15,6 +15,8 @@ use crate::render;
 #[derive(Debug, Clone)]
 pub struct AccountUpdates {
     pub account: UserId,
+    /// Whether the recipient is a bot (the Bot API gateway delivers these).
+    pub is_bot: bool,
     /// The session whose call caused these updates; it already got them as the call's
     /// result, so it should skip them. Other sessions of the account receive them.
     pub origin: Option<SessionId>,
@@ -61,6 +63,7 @@ impl Outbox {
                 let users = render::users(ctx, account, &pending.users)?;
                 Ok(AccountUpdates {
                     account,
+                    is_bot: ctx.account(account)?.is_bot,
                     origin: pending.origin,
                     updates: types::Updates { updates: pending.updates, users, chats: vec![], date, seq: 0 }
                         .into(),

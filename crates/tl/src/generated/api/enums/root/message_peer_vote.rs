@@ -19,6 +19,22 @@ impl Default for MessagePeerVote {
 }
 
 impl MessagePeerVote {
+    pub fn peer(&self) -> &crate::generated::api::enums::Peer {
+        match self {
+            Self::MessagePeerVote(x) => &x.peer,
+            Self::InputOption(x) => &x.peer,
+            Self::Multiple(x) => &x.peer,
+        }
+    }
+
+    pub fn date(&self) -> i32 {
+        match self {
+            Self::MessagePeerVote(x) => x.date,
+            Self::InputOption(x) => x.date,
+            Self::Multiple(x) => x.date,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::MessagePeerVote(_) => 0xb6cc2d5c,

@@ -17,6 +17,13 @@ impl Default for Users {
 }
 
 impl Users {
+    pub fn users(&self) -> &Vec<crate::generated::api::enums::User> {
+        match self {
+            Self::Users(x) => &x.users,
+            Self::Slice(x) => &x.users,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Users(_) => 0x62d706b8,

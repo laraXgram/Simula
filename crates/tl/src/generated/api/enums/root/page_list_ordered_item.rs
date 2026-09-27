@@ -17,6 +17,41 @@ impl Default for PageListOrderedItem {
 }
 
 impl PageListOrderedItem {
+    pub fn checkbox(&self) -> bool {
+        match self {
+            Self::Text(x) => x.checkbox,
+            Self::Blocks(x) => x.checkbox,
+        }
+    }
+
+    pub fn checked(&self) -> bool {
+        match self {
+            Self::Text(x) => x.checked,
+            Self::Blocks(x) => x.checked,
+        }
+    }
+
+    pub fn num(&self) -> &Option<String> {
+        match self {
+            Self::Text(x) => &x.num,
+            Self::Blocks(x) => &x.num,
+        }
+    }
+
+    pub fn value(&self) -> Option<i32> {
+        match self {
+            Self::Text(x) => x.value,
+            Self::Blocks(x) => x.value,
+        }
+    }
+
+    pub fn r#type(&self) -> &Option<String> {
+        match self {
+            Self::Text(x) => &x.r#type,
+            Self::Blocks(x) => &x.r#type,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Text(_) => 0x15031189,

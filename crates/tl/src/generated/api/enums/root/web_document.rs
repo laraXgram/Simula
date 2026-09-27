@@ -17,6 +17,34 @@ impl Default for WebDocument {
 }
 
 impl WebDocument {
+    pub fn url(&self) -> &String {
+        match self {
+            Self::WebDocument(x) => &x.url,
+            Self::NoProxy(x) => &x.url,
+        }
+    }
+
+    pub fn size(&self) -> i32 {
+        match self {
+            Self::WebDocument(x) => x.size,
+            Self::NoProxy(x) => x.size,
+        }
+    }
+
+    pub fn mime_type(&self) -> &String {
+        match self {
+            Self::WebDocument(x) => &x.mime_type,
+            Self::NoProxy(x) => &x.mime_type,
+        }
+    }
+
+    pub fn attributes(&self) -> &Vec<crate::generated::api::enums::DocumentAttribute> {
+        match self {
+            Self::WebDocument(x) => &x.attributes,
+            Self::NoProxy(x) => &x.attributes,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::WebDocument(_) => 0x1c570ed1,

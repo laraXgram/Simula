@@ -17,6 +17,13 @@ impl Default for PeerLocated {
 }
 
 impl PeerLocated {
+    pub fn expires(&self) -> i32 {
+        match self {
+            Self::PeerLocated(x) => x.expires,
+            Self::PeerSelfLocated(x) => x.expires,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::PeerLocated(_) => 0xca461b5d,

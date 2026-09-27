@@ -31,6 +31,34 @@ impl Default for SecureValueError {
 }
 
 impl SecureValueError {
+    pub fn r#type(&self) -> &crate::generated::api::enums::SecureValueType {
+        match self {
+            Self::Data(x) => &x.r#type,
+            Self::FrontSide(x) => &x.r#type,
+            Self::ReverseSide(x) => &x.r#type,
+            Self::Selfie(x) => &x.r#type,
+            Self::File(x) => &x.r#type,
+            Self::Files(x) => &x.r#type,
+            Self::SecureValueError(x) => &x.r#type,
+            Self::TranslationFile(x) => &x.r#type,
+            Self::TranslationFiles(x) => &x.r#type,
+        }
+    }
+
+    pub fn text(&self) -> &String {
+        match self {
+            Self::Data(x) => &x.text,
+            Self::FrontSide(x) => &x.text,
+            Self::ReverseSide(x) => &x.text,
+            Self::Selfie(x) => &x.text,
+            Self::File(x) => &x.text,
+            Self::Files(x) => &x.text,
+            Self::SecureValueError(x) => &x.text,
+            Self::TranslationFile(x) => &x.text,
+            Self::TranslationFiles(x) => &x.text,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Data(_) => 0xe8a40bd9,

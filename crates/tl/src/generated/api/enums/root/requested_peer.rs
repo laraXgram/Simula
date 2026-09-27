@@ -19,6 +19,14 @@ impl Default for RequestedPeer {
 }
 
 impl RequestedPeer {
+    pub fn photo(&self) -> &Option<crate::generated::api::enums::Photo> {
+        match self {
+            Self::User(x) => &x.photo,
+            Self::Chat(x) => &x.photo,
+            Self::Channel(x) => &x.photo,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::User(_) => 0xd62ff46a,

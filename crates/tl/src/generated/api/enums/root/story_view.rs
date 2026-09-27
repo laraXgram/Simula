@@ -19,6 +19,22 @@ impl Default for StoryView {
 }
 
 impl StoryView {
+    pub fn blocked(&self) -> bool {
+        match self {
+            Self::StoryView(x) => x.blocked,
+            Self::PublicForward(x) => x.blocked,
+            Self::PublicRepost(x) => x.blocked,
+        }
+    }
+
+    pub fn blocked_my_stories_from(&self) -> bool {
+        match self {
+            Self::StoryView(x) => x.blocked_my_stories_from,
+            Self::PublicForward(x) => x.blocked_my_stories_from,
+            Self::PublicRepost(x) => x.blocked_my_stories_from,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::StoryView(_) => 0xb0bdeac5,

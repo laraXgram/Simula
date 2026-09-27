@@ -17,6 +17,20 @@ impl Default for Photos {
 }
 
 impl Photos {
+    pub fn photos(&self) -> &Vec<crate::generated::api::enums::Photo> {
+        match self {
+            Self::Photos(x) => &x.photos,
+            Self::Slice(x) => &x.photos,
+        }
+    }
+
+    pub fn users(&self) -> &Vec<crate::generated::api::enums::User> {
+        match self {
+            Self::Photos(x) => &x.users,
+            Self::Slice(x) => &x.users,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Photos(_) => 0x8dca6aa5,

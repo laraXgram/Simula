@@ -17,6 +17,13 @@ impl Default for StarsAmount {
 }
 
 impl StarsAmount {
+    pub fn amount(&self) -> i64 {
+        match self {
+            Self::StarsAmount(x) => x.amount,
+            Self::StarsTonAmount(x) => x.amount,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::StarsAmount(_) => 0xbbb6b4a3,

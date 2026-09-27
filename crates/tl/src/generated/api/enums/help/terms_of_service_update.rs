@@ -17,6 +17,13 @@ impl Default for TermsOfServiceUpdate {
 }
 
 impl TermsOfServiceUpdate {
+    pub fn expires(&self) -> i32 {
+        match self {
+            Self::Empty(x) => x.expires,
+            Self::TermsOfServiceUpdate(x) => x.expires,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Empty(_) => 0xe3309f7f,

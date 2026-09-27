@@ -19,6 +19,22 @@ impl Default for InputRichMessage {
 }
 
 impl InputRichMessage {
+    pub fn rtl(&self) -> bool {
+        match self {
+            Self::InputRichMessage(x) => x.rtl,
+            Self::HTML(x) => x.rtl,
+            Self::Markdown(x) => x.rtl,
+        }
+    }
+
+    pub fn noautolink(&self) -> bool {
+        match self {
+            Self::InputRichMessage(x) => x.noautolink,
+            Self::HTML(x) => x.noautolink,
+            Self::Markdown(x) => x.noautolink,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::InputRichMessage(_) => 0xe4c449fc,

@@ -17,6 +17,20 @@ impl Default for SavedDialog {
 }
 
 impl SavedDialog {
+    pub fn peer(&self) -> &crate::generated::api::enums::Peer {
+        match self {
+            Self::SavedDialog(x) => &x.peer,
+            Self::MonoForumDialog(x) => &x.peer,
+        }
+    }
+
+    pub fn top_message(&self) -> i32 {
+        match self {
+            Self::SavedDialog(x) => x.top_message,
+            Self::MonoForumDialog(x) => x.top_message,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::SavedDialog(_) => 0xbd87cb6c,

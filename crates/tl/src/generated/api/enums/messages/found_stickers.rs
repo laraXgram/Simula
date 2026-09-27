@@ -17,6 +17,13 @@ impl Default for FoundStickers {
 }
 
 impl FoundStickers {
+    pub fn next_offset(&self) -> Option<i32> {
+        match self {
+            Self::NotModified(x) => x.next_offset,
+            Self::FoundStickers(x) => x.next_offset,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::NotModified(_) => 0x6010c534,

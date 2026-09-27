@@ -25,6 +25,17 @@ impl Default for PhoneCall {
 }
 
 impl PhoneCall {
+    pub fn id(&self) -> i64 {
+        match self {
+            Self::Empty(x) => x.id,
+            Self::Waiting(x) => x.id,
+            Self::Requested(x) => x.id,
+            Self::Accepted(x) => x.id,
+            Self::PhoneCall(x) => x.id,
+            Self::Discarded(x) => x.id,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Empty(_) => 0x5366c915,

@@ -17,5 +17,5 @@ pub use ctx::{Caller, Ctx, SessionId};
 pub use error::{RpcError, RpcResult};
 pub use ids::{ChannelId, ChatId, Peer, UserId};
 pub use outbox::AccountUpdates;
-pub use sandbox::{Sandbox, SandboxConfig};
+pub use sandbox::{Sandbox, SandboxConfig, UpdateListener};
 pub use store::accounts::Account;

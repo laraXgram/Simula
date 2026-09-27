@@ -8,7 +8,7 @@ Every finished task is logged in [docs/worklog.md](docs/worklog.md) and committe
 
 **Targets:** Bot API **10.3** · MTProto layer from tdlib `telegram_api.tl`
 
-**Current focus:** M1 — first message end to end
+**Current focus:** P1.9–P1.10 registries, then M2
 
 ---
 
@@ -17,11 +17,11 @@ Every finished task is logged in [docs/worklog.md](docs/worklog.md) and committe
 Phases below are the map; milestones are the order of work. Each milestone is a
 vertical slice through several phases, so the architecture is exercised end to end early.
 
-- [~] **M1 — first message end to end**: a user writes to a bot, the bot gets it via
+- [x] **M1 — first message end to end**: a user writes to a bot, the bot gets it via
   `getUpdates`, replies with `sendMessage`, the user receives the reply.
   Touches P2.1, P2.2, P2.4, P2.5, P2.7, P2.8, P2.9 (partial), P3.1, P3.2, P4.1, P4.4 (partial),
   then P1.9–P1.10 once handler files exist.
-- [ ] **M2 — webhooks, formatting, keyboards, callbacks** (P3.3, P3.4, P3.6, wave 1 complete)
+- [~] **M2 — webhooks, formatting, keyboards, callbacks** (P3.3, P3.4, P3.6, wave 1 complete)
 - [ ] **M3 — client shell** talking TL over WebSocket (P5.1–P5.4)
 - [ ] **M4 — groups and channels** (P2.3, P2.10, P5.5)
 
@@ -64,26 +64,26 @@ vertical slice through several phases, so the architecture is exercised end to e
 
 ## P3 — Bot API gateway
 
-- [ ] P3.1 HTTP layer: all body formats, token auth, method routing, error model, file downloads
-- [ ] P3.2 Update queue, `getUpdates` long polling (offset/limit/timeout/allowed_updates, 409 conflict)
+- [~] P3.1 HTTP layer: all body formats, token auth, method routing, error model, file downloads
+- [x] P3.2 Update queue, `getUpdates` long polling (offset/limit/timeout/allowed_updates, 409 conflict)
 - [ ] P3.3 Webhooks: secret token, max_connections, retries/backoff, webhook info, reply-in-response
-- [ ] P3.4 Text parsers: HTML, Markdown, MarkdownV2 with Telegram's exact errors
+- [~] P3.4 Text parsers: HTML, Markdown, MarkdownV2 with Telegram's exact errors (automatic entities done: tdlib port)
 - [ ] P3.5 InputFile pipeline: multipart, `attach://`, file_id reuse, URLs, local mode paths
 - [ ] P3.6 Send pipeline shared by all `send*` methods; edit pipeline
-- [ ] P3.7 Converters TL ⇄ Bot API (declarative where possible)
+- [~] P3.7 Converters TL ⇄ Bot API (declarative where possible)
 - [ ] P3.8 Method waves mirroring P2.9–P2.12 until 100% of Bot API 10.3 is covered
 - [ ] P3.9 Declarative mappings for simple methods (derived from patterns found in P3.8)
 - [ ] P3.10 Conformance suite: golden tests against recorded real-Telegram responses
 
 ## P4 — Control API
 
-- [ ] P4.1 Server skeleton under `/_simula/v1`, generated OpenAPI
+- [~] P4.1 Server skeleton under `/_simula/v1`, generated OpenAPI
 - [ ] P4.2 Sandboxes: create/destroy/list, in-memory, snapshots, fixtures (YAML seed files)
-- [ ] P4.3 Entity management: users, bots (BotFather-like settings), groups, channels, members
-- [ ] P4.4 Act-as endpoints over TL user sessions (send, press, vote, pay, join, react, …)
-- [ ] P4.5 Inspection: event stream (WS), request logs, update queues, webhook deliveries
+- [~] P4.3 Entity management: users, bots (BotFather-like settings), groups, channels, members
+- [~] P4.4 Act-as endpoints over TL user sessions (send, press, vote, pay, join, react, …)
+- [~] P4.5 Inspection: event stream (WS), request logs, update queues, webhook deliveries
 - [ ] P4.6 Fault injection: errors, 429 + retry_after, latency, dropped updates, webhook failures
-- [ ] P4.7 Clock control: freeze, advance, offset
+- [x] P4.7 Clock control: freeze, advance, offset
 - [ ] P4.8 Rate-limit emulation (optional strict mode: 30 msg/s, 1 msg/s per chat, 20/min per group)
 
 ## P5 — Client (web)
@@ -112,7 +112,7 @@ vertical slice through several phases, so the architecture is exercised end to e
 
 ## P7 — Testing ecosystem
 
-- [ ] P7.1 Headless mode (`simula serve`), Docker image
+- [~] P7.1 Headless mode (`simula serve`), Docker image
 - [ ] P7.2 SDK: TypeScript
 - [ ] P7.3 SDK: PHP (LaraGram)
 - [ ] P7.4 SDK: Python

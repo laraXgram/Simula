@@ -19,6 +19,22 @@ impl Default for ChatFull {
 }
 
 impl ChatFull {
+    pub fn id(&self) -> i64 {
+        match self {
+            Self::ChatFull(x) => x.id,
+            Self::ChannelFull(x) => x.id,
+            Self::CommunityFull(x) => x.id,
+        }
+    }
+
+    pub fn about(&self) -> &String {
+        match self {
+            Self::ChatFull(x) => &x.about,
+            Self::ChannelFull(x) => &x.about,
+            Self::CommunityFull(x) => &x.about,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::ChatFull(_) => 0x2633421b,

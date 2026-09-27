@@ -203,3 +203,122 @@ impl crate::Validate for Update {
         }
     }
 }
+
+impl Update {
+    /// Every update kind, as used in `allowed_updates`.
+    pub const KINDS: &'static [&'static str] = &[
+        "message",
+        "edited_message",
+        "channel_post",
+        "edited_channel_post",
+        "business_connection",
+        "business_message",
+        "edited_business_message",
+        "deleted_business_messages",
+        "guest_message",
+        "message_reaction",
+        "message_reaction_count",
+        "inline_query",
+        "chosen_inline_result",
+        "callback_query",
+        "shipping_query",
+        "pre_checkout_query",
+        "purchased_paid_media",
+        "poll",
+        "poll_answer",
+        "my_chat_member",
+        "chat_member",
+        "chat_join_request",
+        "chat_boost",
+        "removed_chat_boost",
+        "managed_bot",
+        "subscription",
+        "stopped_message_generation",
+    ];
+
+    /// The kind of this update (the name of its payload field).
+    pub fn kind(&self) -> Option<&'static str> {
+        if self.message.is_some() {
+            return Some("message");
+        }
+        if self.edited_message.is_some() {
+            return Some("edited_message");
+        }
+        if self.channel_post.is_some() {
+            return Some("channel_post");
+        }
+        if self.edited_channel_post.is_some() {
+            return Some("edited_channel_post");
+        }
+        if self.business_connection.is_some() {
+            return Some("business_connection");
+        }
+        if self.business_message.is_some() {
+            return Some("business_message");
+        }
+        if self.edited_business_message.is_some() {
+            return Some("edited_business_message");
+        }
+        if self.deleted_business_messages.is_some() {
+            return Some("deleted_business_messages");
+        }
+        if self.guest_message.is_some() {
+            return Some("guest_message");
+        }
+        if self.message_reaction.is_some() {
+            return Some("message_reaction");
+        }
+        if self.message_reaction_count.is_some() {
+            return Some("message_reaction_count");
+        }
+        if self.inline_query.is_some() {
+            return Some("inline_query");
+        }
+        if self.chosen_inline_result.is_some() {
+            return Some("chosen_inline_result");
+        }
+        if self.callback_query.is_some() {
+            return Some("callback_query");
+        }
+        if self.shipping_query.is_some() {
+            return Some("shipping_query");
+        }
+        if self.pre_checkout_query.is_some() {
+            return Some("pre_checkout_query");
+        }
+        if self.purchased_paid_media.is_some() {
+            return Some("purchased_paid_media");
+        }
+        if self.poll.is_some() {
+            return Some("poll");
+        }
+        if self.poll_answer.is_some() {
+            return Some("poll_answer");
+        }
+        if self.my_chat_member.is_some() {
+            return Some("my_chat_member");
+        }
+        if self.chat_member.is_some() {
+            return Some("chat_member");
+        }
+        if self.chat_join_request.is_some() {
+            return Some("chat_join_request");
+        }
+        if self.chat_boost.is_some() {
+            return Some("chat_boost");
+        }
+        if self.removed_chat_boost.is_some() {
+            return Some("removed_chat_boost");
+        }
+        if self.managed_bot.is_some() {
+            return Some("managed_bot");
+        }
+        if self.subscription.is_some() {
+            return Some("subscription");
+        }
+        if self.stopped_message_generation.is_some() {
+            return Some("stopped_message_generation");
+        }
+        None
+    }
+}

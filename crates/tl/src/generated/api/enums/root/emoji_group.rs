@@ -19,6 +19,22 @@ impl Default for EmojiGroup {
 }
 
 impl EmojiGroup {
+    pub fn title(&self) -> &String {
+        match self {
+            Self::EmojiGroup(x) => &x.title,
+            Self::Greeting(x) => &x.title,
+            Self::Premium(x) => &x.title,
+        }
+    }
+
+    pub fn icon_emoji_id(&self) -> i64 {
+        match self {
+            Self::EmojiGroup(x) => x.icon_emoji_id,
+            Self::Greeting(x) => x.icon_emoji_id,
+            Self::Premium(x) => x.icon_emoji_id,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::EmojiGroup(_) => 0x7a9abda9,

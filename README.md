@@ -16,6 +16,23 @@ language, with any bot library, without internet access or Telegram itself.
 - **Client + dev tools**: a Telegram-like client for web and desktop (Windows, macOS,
   Linux) with request logs, update inspectors, webhook console and more.
 
+## Try it (v2, early)
+
+```sh
+cargo run -p simula-server -- --memory          # Bot API + Control API on :8081
+
+# create a bot (keep your bot's real token so its code runs unchanged) and a user
+curl -X POST localhost:8081/_simula/v1/bots  -H 'content-type: application/json' \
+     -d '{"first_name":"Echo","username":"echo_bot","token":"123456789:AAH…"}'
+curl -X POST localhost:8081/_simula/v1/users -H 'content-type: application/json' \
+     -d '{"first_name":"Alice","username":"alice"}'
+
+# point your bot at http://localhost:8081 instead of https://api.telegram.org, then
+# write to it as Alice:
+curl -X POST localhost:8081/_simula/v1/accounts/1000000001/send -H 'content-type: application/json' \
+     -d '{"chat_id":"@echo_bot","text":"/start"}'
+```
+
 ## License
 
 MIT — see [LICENSE.md](LICENSE.md).

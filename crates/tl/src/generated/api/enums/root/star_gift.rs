@@ -17,6 +17,27 @@ impl Default for StarGift {
 }
 
 impl StarGift {
+    pub fn require_premium(&self) -> bool {
+        match self {
+            Self::StarGift(x) => x.require_premium,
+            Self::Unique(x) => x.require_premium,
+        }
+    }
+
+    pub fn id(&self) -> i64 {
+        match self {
+            Self::StarGift(x) => x.id,
+            Self::Unique(x) => x.id,
+        }
+    }
+
+    pub fn released_by(&self) -> &Option<crate::generated::api::enums::Peer> {
+        match self {
+            Self::StarGift(x) => &x.released_by,
+            Self::Unique(x) => &x.released_by,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::StarGift(_) => 0x313a9547,

@@ -17,6 +17,13 @@ impl Default for Chats {
 }
 
 impl Chats {
+    pub fn chats(&self) -> &Vec<crate::generated::api::enums::Chat> {
+        match self {
+            Self::Chats(x) => &x.chats,
+            Self::Slice(x) => &x.chats,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Chats(_) => 0x64ff9fd5,

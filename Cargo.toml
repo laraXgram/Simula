@@ -26,6 +26,7 @@ sha2 = "0.11.0"
 thiserror = "2.0.21"
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "sync", "time", "net", "signal"] }
 tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.7.1", features = ["decompression-gzip", "decompression-deflate", "decompression-br", "decompression-zstd"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 

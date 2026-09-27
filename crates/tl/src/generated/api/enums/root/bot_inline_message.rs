@@ -29,6 +29,19 @@ impl Default for BotInlineMessage {
 }
 
 impl BotInlineMessage {
+    pub fn reply_markup(&self) -> &Option<crate::generated::api::enums::ReplyMarkup> {
+        match self {
+            Self::MediaAuto(x) => &x.reply_markup,
+            Self::Text(x) => &x.reply_markup,
+            Self::MediaGeo(x) => &x.reply_markup,
+            Self::MediaVenue(x) => &x.reply_markup,
+            Self::MediaContact(x) => &x.reply_markup,
+            Self::MediaInvoice(x) => &x.reply_markup,
+            Self::MediaWebPage(x) => &x.reply_markup,
+            Self::RichMessage(x) => &x.reply_markup,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::MediaAuto(_) => 0x764cf810,

@@ -17,6 +17,27 @@ impl Default for MsgDetailedInfo {
 }
 
 impl MsgDetailedInfo {
+    pub fn answer_msg_id(&self) -> i64 {
+        match self {
+            Self::MsgDetailedInfo(x) => x.answer_msg_id,
+            Self::MsgNewDetailedInfo(x) => x.answer_msg_id,
+        }
+    }
+
+    pub fn bytes(&self) -> i32 {
+        match self {
+            Self::MsgDetailedInfo(x) => x.bytes,
+            Self::MsgNewDetailedInfo(x) => x.bytes,
+        }
+    }
+
+    pub fn status(&self) -> i32 {
+        match self {
+            Self::MsgDetailedInfo(x) => x.status,
+            Self::MsgNewDetailedInfo(x) => x.status,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::MsgDetailedInfo(_) => 0x276d3ec6,

@@ -17,6 +17,13 @@ impl Default for User {
 }
 
 impl User {
+    pub fn id(&self) -> i64 {
+        match self {
+            Self::Empty(x) => x.id,
+            Self::User(x) => x.id,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Empty(_) => 0xd3bc4b7a,

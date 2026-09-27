@@ -27,6 +27,18 @@ impl Default for Chat {
 }
 
 impl Chat {
+    pub fn id(&self) -> i64 {
+        match self {
+            Self::Empty(x) => x.id,
+            Self::Chat(x) => x.id,
+            Self::Forbidden(x) => x.id,
+            Self::Channel(x) => x.id,
+            Self::ChannelForbidden(x) => x.id,
+            Self::CommunityForbidden(x) => x.id,
+            Self::Community(x) => x.id,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Empty(_) => 0x29562865,

@@ -31,6 +31,20 @@ impl Default for MediaArea {
 }
 
 impl MediaArea {
+    pub fn coordinates(&self) -> &crate::generated::api::enums::MediaAreaCoordinates {
+        match self {
+            Self::Venue(x) => &x.coordinates,
+            Self::InputMediaAreaVenue(x) => &x.coordinates,
+            Self::GeoPoint(x) => &x.coordinates,
+            Self::SuggestedReaction(x) => &x.coordinates,
+            Self::ChannelPost(x) => &x.coordinates,
+            Self::InputMediaAreaChannelPost(x) => &x.coordinates,
+            Self::Url(x) => &x.coordinates,
+            Self::Weather(x) => &x.coordinates,
+            Self::StarGift(x) => &x.coordinates,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Venue(_) => 0xbe82db9c,

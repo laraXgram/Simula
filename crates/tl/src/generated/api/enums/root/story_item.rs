@@ -19,6 +19,14 @@ impl Default for StoryItem {
 }
 
 impl StoryItem {
+    pub fn id(&self) -> i32 {
+        match self {
+            Self::Deleted(x) => x.id,
+            Self::Skipped(x) => x.id,
+            Self::StoryItem(x) => x.id,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Deleted(_) => 0x51e6ee4f,

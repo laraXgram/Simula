@@ -17,6 +17,13 @@ impl Default for EmailVerified {
 }
 
 impl EmailVerified {
+    pub fn email(&self) -> &String {
+        match self {
+            Self::EmailVerified(x) => &x.email,
+            Self::Login(x) => &x.email,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::EmailVerified(_) => 0x2b96cd1b,

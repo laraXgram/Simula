@@ -19,6 +19,22 @@ impl Default for ChatParticipant {
 }
 
 impl ChatParticipant {
+    pub fn user_id(&self) -> i64 {
+        match self {
+            Self::ChatParticipant(x) => x.user_id,
+            Self::Creator(x) => x.user_id,
+            Self::Admin(x) => x.user_id,
+        }
+    }
+
+    pub fn rank(&self) -> &Option<String> {
+        match self {
+            Self::ChatParticipant(x) => &x.rank,
+            Self::Creator(x) => &x.rank,
+            Self::Admin(x) => &x.rank,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::ChatParticipant(_) => 0x38e79fde,

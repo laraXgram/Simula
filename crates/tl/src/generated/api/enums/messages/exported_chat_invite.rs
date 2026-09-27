@@ -17,6 +17,20 @@ impl Default for ExportedChatInvite {
 }
 
 impl ExportedChatInvite {
+    pub fn invite(&self) -> &crate::generated::api::enums::ExportedChatInvite {
+        match self {
+            Self::ExportedChatInvite(x) => &x.invite,
+            Self::Replaced(x) => &x.invite,
+        }
+    }
+
+    pub fn users(&self) -> &Vec<crate::generated::api::enums::User> {
+        match self {
+            Self::ExportedChatInvite(x) => &x.users,
+            Self::Replaced(x) => &x.users,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::ExportedChatInvite(_) => 0x1871be50,

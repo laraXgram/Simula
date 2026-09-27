@@ -17,6 +17,13 @@ impl Default for DhConfig {
 }
 
 impl DhConfig {
+    pub fn random(&self) -> &Vec<u8> {
+        match self {
+            Self::NotModified(x) => &x.random,
+            Self::DhConfig(x) => &x.random,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::NotModified(_) => 0xc0e24635,

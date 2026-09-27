@@ -6,7 +6,7 @@ use simula_tl::{enums, types};
 use crate::ctx::Ctx;
 use crate::error::{RpcError, RpcResult};
 use crate::ids::{Peer, UserId};
-use crate::services::updates;
+use crate::services::{entities, updates};
 use crate::store::{self, messages::StoredMessage};
 
 /// Documented text limit for one message.
@@ -48,6 +48,10 @@ pub fn send_private(ctx: &mut Ctx<'_>, from: UserId, to: UserId, out: Outgoing) 
         return Err(RpcError::peer_id_invalid());
     }
 
+    // Telegram adds mentions, hashtags, links… itself; bot commands only in chats with a bot.
+    let with_commands = sender.is_bot || recipient.is_bot;
+    let entities = entities::merge(out.entities, entities::detect(&out.text, with_commands));
+
     let date = ctx.now();
     let global_id = store::meta::next(ctx.db, "global_message", 1)?;
     let reply_markup = if sender.is_bot { out.reply_markup } else { None };
@@ -63,7 +67,7 @@ pub fn send_private(ctx: &mut Ctx<'_>, from: UserId, to: UserId, out: Outgoing) 
             peer_id: Peer::User(peer).to_tl(),
             date,
             message: out.text.clone(),
-            entities: (!out.entities.is_empty()).then(|| out.entities.clone()),
+            entities: (!entities.is_empty()).then(|| entities.clone()),
             reply_markup: reply_markup.clone(),
             ..Default::default()
         };

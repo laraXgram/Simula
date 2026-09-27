@@ -21,6 +21,15 @@ impl Default for StickerSetCovered {
 }
 
 impl StickerSetCovered {
+    pub fn set(&self) -> &crate::generated::api::enums::StickerSet {
+        match self {
+            Self::StickerSetCovered(x) => &x.set,
+            Self::StickerSetMultiCovered(x) => &x.set,
+            Self::StickerSetFullCovered(x) => &x.set,
+            Self::StickerSetNoCovered(x) => &x.set,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::StickerSetCovered(_) => 0x6410a5d2,

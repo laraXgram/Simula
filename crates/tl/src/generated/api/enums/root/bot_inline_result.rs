@@ -17,6 +17,41 @@ impl Default for BotInlineResult {
 }
 
 impl BotInlineResult {
+    pub fn id(&self) -> &String {
+        match self {
+            Self::BotInlineResult(x) => &x.id,
+            Self::BotInlineMediaResult(x) => &x.id,
+        }
+    }
+
+    pub fn r#type(&self) -> &String {
+        match self {
+            Self::BotInlineResult(x) => &x.r#type,
+            Self::BotInlineMediaResult(x) => &x.r#type,
+        }
+    }
+
+    pub fn title(&self) -> &Option<String> {
+        match self {
+            Self::BotInlineResult(x) => &x.title,
+            Self::BotInlineMediaResult(x) => &x.title,
+        }
+    }
+
+    pub fn description(&self) -> &Option<String> {
+        match self {
+            Self::BotInlineResult(x) => &x.description,
+            Self::BotInlineMediaResult(x) => &x.description,
+        }
+    }
+
+    pub fn send_message(&self) -> &crate::generated::api::enums::BotInlineMessage {
+        match self {
+            Self::BotInlineResult(x) => &x.send_message,
+            Self::BotInlineMediaResult(x) => &x.send_message,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::BotInlineResult(_) => 0x11965f3a,

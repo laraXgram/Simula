@@ -21,6 +21,10 @@ use crate::store::{self, accounts::Account};
 
 type Job = Box<dyn FnOnce(&mut World) + Send>;
 
+/// Called synchronously with every published batch, before the call that produced it
+/// returns. Gateways use this so an action's effects are visible as soon as it completes.
+pub type UpdateListener = Arc<dyn Fn(&AccountUpdates) + Send + Sync>;
+
 const CHANNEL_CAPACITY: usize = 4096;
 
 pub struct SandboxConfig {
@@ -34,6 +38,7 @@ pub struct Sandbox {
     jobs: mpsc::Sender<Job>,
     updates: broadcast::Sender<Arc<AccountUpdates>>,
     events: broadcast::Sender<Arc<Event>>,
+    listeners: std::sync::Mutex<Vec<UpdateListener>>,
     clock: Arc<Clock>,
     secret: [u8; 32],
 }
@@ -54,6 +59,7 @@ impl Sandbox {
             jobs,
             updates: broadcast::channel(CHANNEL_CAPACITY).0,
             events: broadcast::channel(CHANNEL_CAPACITY).0,
+            listeners: std::sync::Mutex::default(),
             clock,
             secret,
         }))
@@ -148,6 +154,10 @@ impl Sandbox {
         }
     }
 
+    pub fn add_listener(&self, listener: UpdateListener) {
+        self.listeners.lock().expect("listeners lock").push(listener);
+    }
+
     pub fn subscribe_updates(&self) -> broadcast::Receiver<Arc<AccountUpdates>> {
         self.updates.subscribe()
     }
@@ -167,6 +177,10 @@ impl Sandbox {
                 account: batch.account,
                 updates: serde_json::to_value(&batch.updates).unwrap_or_default(),
             });
+            let listeners = self.listeners.lock().expect("listeners lock").clone();
+            for listener in &listeners {
+                listener(&batch);
+            }
             let _ = self.updates.send(Arc::new(batch));
         }
     }

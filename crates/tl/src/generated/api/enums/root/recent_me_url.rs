@@ -23,6 +23,16 @@ impl Default for RecentMeUrl {
 }
 
 impl RecentMeUrl {
+    pub fn url(&self) -> &String {
+        match self {
+            Self::Unknown(x) => &x.url,
+            Self::User(x) => &x.url,
+            Self::Chat(x) => &x.url,
+            Self::ChatInvite(x) => &x.url,
+            Self::StickerSet(x) => &x.url,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Unknown(_) => 0x46e1d13d,

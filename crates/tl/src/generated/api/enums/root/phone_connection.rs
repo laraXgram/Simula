@@ -17,6 +17,34 @@ impl Default for PhoneConnection {
 }
 
 impl PhoneConnection {
+    pub fn id(&self) -> i64 {
+        match self {
+            Self::PhoneConnection(x) => x.id,
+            Self::Webrtc(x) => x.id,
+        }
+    }
+
+    pub fn ip(&self) -> &String {
+        match self {
+            Self::PhoneConnection(x) => &x.ip,
+            Self::Webrtc(x) => &x.ip,
+        }
+    }
+
+    pub fn ipv6(&self) -> &String {
+        match self {
+            Self::PhoneConnection(x) => &x.ipv6,
+            Self::Webrtc(x) => &x.ipv6,
+        }
+    }
+
+    pub fn port(&self) -> i32 {
+        match self {
+            Self::PhoneConnection(x) => x.port,
+            Self::Webrtc(x) => x.port,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::PhoneConnection(_) => 0x9cc123c7,

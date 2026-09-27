@@ -19,6 +19,14 @@ impl Default for LangPackString {
 }
 
 impl LangPackString {
+    pub fn key(&self) -> &String {
+        match self {
+            Self::LangPackString(x) => &x.key,
+            Self::Pluralized(x) => &x.key,
+            Self::Deleted(x) => &x.key,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::LangPackString(_) => 0xcad181f6,

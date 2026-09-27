@@ -1,0 +1,25 @@
+[package]
+name = "simula-server"
+description = "The Simula server: Bot API, Control API and client sessions on one port"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "simula"
+path = "src/main.rs"
+
+[dependencies]
+simula-botapi.workspace = true
+simula-control.workspace = true
+simula-core.workspace = true
+
+axum.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true
