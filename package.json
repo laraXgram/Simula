@@ -1,0 +1,17 @@
+{
+  "name": "simula",
+  "private": true,
+  "type": "module",
+  "workspaces": ["tools/*"],
+  "scripts": {
+    "codegen": "bun tools/codegen/src/cli.ts",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "typecheck": "tsc -p tools/codegen --noEmit"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
+    "@types/bun": "^1.4.2",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "//": "Manual corrections applied on top of the scraped docs. Every key must match the spec; stale entries fail the build.",
+  "all_fields": {
+    "parse_mode": { "constraints": { "enum": ["HTML", "Markdown", "MarkdownV2"] } }
+  },
+  "types": {
+    "Dice": {
+      "fields": { "value": { "constraints": { "range": { "min": 1, "max": 64 } } } }
+    },
+    "BusinessOpeningHoursInterval": {
+      "fields": {
+        "opening_minute": { "constraints": { "range": { "min": 0, "max": 10080 } } },
+        "closing_minute": { "constraints": { "range": { "min": 0, "max": 11520 } } }
+      }
+    }
+  }
+}

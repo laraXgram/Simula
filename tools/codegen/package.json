@@ -1,0 +1,8 @@
+{
+  "name": "@simula/codegen",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "node-html-parser": "^9.0.4"
+  }
+}
