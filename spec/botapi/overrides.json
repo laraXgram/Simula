@@ -14,6 +14,13 @@
   "methods": {
     "answerCallbackQuery": {
       "params": { "text": { "//": "The server answers MESSAGE_TOO_LONG.", "handler_validates": true } }
+    },
+    "setWebhook": {
+      "//": "telegram-bot-api clamps max_connections and checks the secret token itself.",
+      "params": {
+        "max_connections": { "handler_validates": true },
+        "secret_token": { "handler_validates": true }
+      }
     }
   },
   "types": {

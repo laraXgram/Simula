@@ -68,6 +68,20 @@ impl UpdateQueue {
         }
     }
 
+    /// Forget one update (a webhook delivered it, or gave up on it).
+    pub fn remove(&mut self, update_id: i64) {
+        self.items.retain(|(_, u)| u.update_id != update_id);
+    }
+
+    pub fn clear(&mut self) {
+        self.items.clear();
+    }
+
+    /// Every pending update with the time it was queued, oldest first.
+    pub fn pending(&self) -> Vec<(i64, bot::Update)> {
+        self.items.iter().cloned().collect()
+    }
+
     pub fn peek(&self, limit: usize) -> Vec<bot::Update> {
         self.items
             .iter()
@@ -88,6 +102,11 @@ impl UpdateQueue {
         self.allowed = Some(allowed);
     }
 
+    /// The `allowed_updates` in force, if the bot changed the default.
+    pub fn allowed(&self) -> Option<&[String]> {
+        self.allowed.as_deref().filter(|list| !list.is_empty())
+    }
+
     fn accepts(&self, kind: &str) -> bool {
         match &self.allowed {
             Some(list) if !list.is_empty() => list.iter().any(|k| k == kind),
@@ -96,14 +115,15 @@ impl UpdateQueue {
     }
 }
 
-/// Per-bot delivery state shared by the feeder and `getUpdates`.
+/// Per-bot delivery state shared by the feeder, `getUpdates` and the webhook sender.
 #[derive(Default)]
 pub struct BotState {
     pub queue: Mutex<UpdateQueue>,
-    /// Woken when updates arrive or a newer `getUpdates` starts.
+    /// Woken when updates arrive, a newer `getUpdates` starts, or the webhook changes.
     pub notify: Notify,
     /// Increments per `getUpdates`; an older poll that sees a newer value yields (409).
     pub polls: AtomicU64,
+    pub webhook: Mutex<crate::webhook::State>,
 }
 
 #[cfg(test)]

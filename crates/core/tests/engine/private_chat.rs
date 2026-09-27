@@ -1,8 +1,6 @@
 //! A user and a bot talk in a private chat, at the MTProto level.
 
-mod common;
-
-use common::{as_account, send, setup};
+use crate::common::{as_account, send, setup};
 use simula_core::services::accounts::{self, NewBot};
 use simula_core::{AccountUpdates, UserId};
 use simula_tl::{enums, functions, types};

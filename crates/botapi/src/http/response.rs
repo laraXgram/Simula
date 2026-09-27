@@ -7,8 +7,12 @@ use serde_json::{Value, json};
 
 use crate::error::BotError;
 
-pub fn ok(result: Value) -> Response {
-    Json(json!({ "ok": true, "result": result })).into_response()
+pub fn ok(result: Value, description: Option<&str>) -> Response {
+    let mut body = json!({ "ok": true, "result": result });
+    if let Some(description) = description {
+        body["description"] = description.into();
+    }
+    Json(body).into_response()
 }
 
 pub fn error(error: &BotError) -> Response {

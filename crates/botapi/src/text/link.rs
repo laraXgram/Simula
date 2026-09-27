@@ -139,15 +139,18 @@ fn check_impl(link: &str, http_only: bool, https_only: bool) -> Result<String, &
     Ok(out)
 }
 
-struct Url {
-    https: bool,
-    userinfo: String,
-    host: String,
-    port: u16,
-    query: String,
+/// tdlib's `HttpUrl`: the parts of an http(s) URL; `query` is the path and query.
+pub(crate) struct Url {
+    pub https: bool,
+    pub userinfo: String,
+    pub host: String,
+    /// 0 when not given.
+    pub port: u16,
+    pub query: String,
 }
 
-fn parse_url(url: &str) -> Result<Url, &'static str> {
+/// tdlib's `parse_url` (plain `host/path` means `http://`).
+pub(crate) fn parse_url(url: &str) -> Result<Url, &'static str> {
     let scheme_end = url
         .find(|c: char| ":/?#@[]".contains(c))
         .unwrap_or(url.len());

@@ -81,18 +81,5 @@ impl crate::Method for SetWebhook {
 }
 
 impl crate::Validate for SetWebhook {
-    fn validate_into(&self, path: &str, out: &mut Vec<crate::Violation>) {
-        {
-            let p = crate::validate::join(path, "max_connections");
-            if let Some(v) = &self.max_connections {
-                crate::validate::range(&p, *v as f64, Some(1f64), Some(100f64), out);
-            }
-        }
-        {
-            let p = crate::validate::join(path, "secret_token");
-            if let Some(v) = &self.secret_token {
-                crate::validate::chars(&p, v, Some(1), Some(256), out);
-            }
-        }
-    }
+    fn validate_into(&self, _path: &str, _out: &mut Vec<crate::Violation>) {}
 }

@@ -1,10 +1,8 @@
 //! Callback buttons at the MTProto level: the presser's call waits for the bot's answer.
 
-mod common;
-
 use std::time::Duration;
 
-use common::{as_account, send, setup};
+use crate::common::{as_account, send, setup};
 use simula_core::{Account, Sandbox};
 use simula_tl::{enums, functions, types};
 

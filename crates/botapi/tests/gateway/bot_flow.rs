@@ -1,14 +1,12 @@
 //! The Bot API over HTTP, in process: what a bot library would see.
 
-mod support;
-
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::support::{post, send, user_writes, world};
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use serde_json::json;
-use support::{post, send, user_writes, world};
 
 #[tokio::test]
 async fn get_me_describes_the_bot() {

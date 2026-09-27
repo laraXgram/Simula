@@ -61,13 +61,7 @@ pub async fn decode(request: Request, info: Option<&MethodInfo>) -> BotResult<De
             else {
                 return Err(BotError::bad_request("can't parse JSON encoded request"));
             };
-            for (key, value) in object {
-                let value = match value {
-                    Value::String(s) => coerce(info, &key, s),
-                    other => other,
-                };
-                decoded.params.insert(key, value);
-            }
+            decoded.params = json_params(info, object);
         }
         "application/x-www-form-urlencoded" => {
             let body = body_bytes(request).await?;
@@ -119,6 +113,20 @@ pub async fn decode(request: Request, info: Option<&MethodInfo>) -> BotResult<De
         _ => {}
     }
     Ok(decoded)
+}
+
+/// A JSON object's parameters, string values coerced like form values.
+pub fn json_params(info: Option<&MethodInfo>, object: Map<String, Value>) -> Map<String, Value> {
+    object
+        .into_iter()
+        .map(|(key, value)| {
+            let value = match value {
+                Value::String(s) => coerce(info, &key, s),
+                other => other,
+            };
+            (key, value)
+        })
+        .collect()
 }
 
 async fn body_bytes(request: Request) -> BotResult<axum::body::Bytes> {

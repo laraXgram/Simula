@@ -18,6 +18,12 @@ const MAX_TIMEOUT_SECS: i64 = 50;
 
 pub async fn handle(ctx: BotCtx, params: methods::GetUpdates) -> BotResult<Vec<bot::Update>> {
     let state = ctx.state();
+    let webhook_set = || state.webhook.lock().expect("webhook lock").is_set();
+    if webhook_set() {
+        return Err(BotError::conflict(
+            "can't use getUpdates method while webhook is active; use deleteWebhook to delete the webhook first",
+        ));
+    }
     let limit = params.limit.unwrap_or(MAX_LIMIT).clamp(1, MAX_LIMIT) as usize;
     let timeout =
         Duration::from_secs(params.timeout.unwrap_or(0).clamp(0, MAX_TIMEOUT_SECS) as u64);
@@ -41,6 +47,9 @@ pub async fn handle(ctx: BotCtx, params: methods::GetUpdates) -> BotResult<Vec<b
         tokio::pin!(notified);
         notified.as_mut().enable();
 
+        if webhook_set() {
+            return Err(BotError::conflict("terminated by setWebhook request"));
+        }
         if state.polls.load(Ordering::SeqCst) != poll {
             return Err(BotError::conflict(
                 "terminated by other getUpdates request; make sure that only one bot instance is running",

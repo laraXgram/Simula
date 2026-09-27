@@ -5,6 +5,52 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-09-28 — M2 (part 4) · Webhooks (P3.3)
+
+- **`setWebhook` / `deleteWebhook` / `getWebhookInfo`** in telegram-bot-api's order and
+  words (`process_set_webhook_query`, `do_set_webhook`, `JsonWebhookInfo`): one
+  `setWebhook` with a URL per second (429, `retry_after` 1); "Webhook is already set"
+  when nothing changes (only `allowed_updates` are taken); the old webhook is removed
+  before the new URL is checked, so a bad URL leaves none; "invalid webhook URL
+  specified", "secret token is too long", "secret token contains illegal characters";
+  verification resolves the host ("bad webhook: Failed to resolve host: …") or takes
+  `ip_address`; success responses carry telegram-bot-api's `description` ("Webhook was
+  set", "Webhook was deleted", "Webhook is already deleted") — responses can now carry
+  one. `max_connections` is clamped (default 40, 1–100), not rejected.
+- **Delivery** (`webhook/sender.rs`, after `WebhookActor`): updates of one queue (a
+  chat; a user's callback queries) go out in order, queues in parallel up to
+  `max_connections`; `X-Telegram-Bot-Api-Secret-Token`; a failed update is retried at
+  once, then after 2, 4, 8… s capped at a random 60–120 s, `Retry-After` honoured, and
+  dropped when its next attempt would pass its 24-hour lifetime. Errors land in
+  `last_error_date` / `last_error_message` with telegram-bot-api's texts ("Wrong
+  response from the webhook: 500 Internal Server Error", "Connection refused", "Read
+  timeout expired", "Webhook connection closed"). A 2xx answer carrying a method call
+  runs as the bot (except `getX`, `setWebhook`, `deleteWebhook`, `close`, `logOut`),
+  through the same decode and legacy-parameter path as HTTP requests.
+- **Conflicts with polling**: `getUpdates` answers "Conflict: can't use getUpdates
+  method while webhook is active; use deleteWebhook to delete the webhook first", and a
+  pending long poll ends with "Conflict: terminated by setWebhook request".
+- **Deliberate deviations**, documented in `webhook/mod.rs`: URLs follow
+  telegram-bot-api's local mode (plain HTTP, any port and host, localhost included).
+  Simula has no TLS client, so `https://` URLs are delivered over plain HTTP to the
+  same host and port, as if TLS were terminated in front of the bot — this is what
+  makes Telegraf's webhook mode work locally (it registers `https://` but serves plain
+  HTTP). Webhooks live in memory (telegram-bot-api persists them); custom certificates
+  are accepted and ignored.
+- The HTTP client is hyper's own (already in the tree through axum); the only new
+  crates are hyper's `want` and `try-lock`.
+- **Test layout**: each crate's integration tests are now one binary
+  (`crates/botapi/tests/gateway/`, `crates/core/tests/engine/`). Every test binary
+  links the 190 MB TL library; with one binary per file, `target/` had grown to 5.4 GB
+  on a nearly full disk. It is 1.5 GB after a clean build.
+- **Verification**: gateway tests with a real HTTP receiver on a local port (delivery,
+  secret header, method call in the response reaching the user, 500 then retry,
+  "Connection refused", long poll ended by `setWebhook`, the rate limit, set/delete
+  descriptions, `https://` delivered over HTTP). **Real library**: Telegraf 4.16 in
+  webhook mode with a secret token; its in-response `sendMessage` (`webhookReply`)
+  reaches the user. Workspace: 131 tests, clippy clean; regeneration writes 0 files.
+- Coverage: Bot API 11/185, TL 8/813.
+
 ## 2026-09-28 — M2 (part 3) · Callback queries (P2.9, P3.8, P4.4)
 
 - **Waits in the core** (`waits.rs`): some calls are answered later by another account

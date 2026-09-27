@@ -1,9 +1,7 @@
 //! Editing and deleting messages through the Bot API, and users' edits reaching bots.
 
-mod support;
-
+use crate::support::{fails, next_updates, ok, user_copy, user_edits, user_writes, world};
 use serde_json::json;
-use support::{fails, next_updates, ok, user_copy, user_edits, user_writes, world};
 
 fn keyboard(data: &str) -> serde_json::Value {
     json!({ "inline_keyboard": [[{ "text": "Go", "callback_data": data }]] })

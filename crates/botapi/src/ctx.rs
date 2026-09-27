@@ -1,6 +1,6 @@
 //! What a method handler gets: the gateway and the authenticated bot.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use simula_core::{Account, Caller, Peer};
 use simula_tl::{Function, RemoteCall, enums, types};
@@ -13,9 +13,29 @@ use crate::updates::queue::BotState;
 pub struct BotCtx {
     pub gateway: Arc<Gateway>,
     pub bot: Account,
+    /// The `description` of a successful response ("Webhook was set"), if the method
+    /// gives one.
+    description: Arc<Mutex<Option<&'static str>>>,
 }
 
 impl BotCtx {
+    pub fn new(gateway: Arc<Gateway>, bot: Account) -> Self {
+        Self {
+            gateway,
+            bot,
+            description: Arc::default(),
+        }
+    }
+
+    pub fn describe(&self, description: &'static str) {
+        *self.description.lock().expect("description lock") = Some(description);
+    }
+
+    /// A handle to read the description after the handler consumed the context.
+    pub fn description_slot(&self) -> Arc<Mutex<Option<&'static str>>> {
+        self.description.clone()
+    }
+
     pub fn caller(&self) -> Caller {
         Caller {
             account: self.bot.id,

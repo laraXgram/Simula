@@ -14,6 +14,7 @@ pub mod get_me;
 pub mod get_updates;
 pub mod get_webhook_info;
 pub mod send_message;
+pub mod set_webhook;
 
 use serde_json::{Map, Value};
 
@@ -33,6 +34,7 @@ pub const IMPLEMENTED: &[&str] = &[
     "getUpdates",
     "getWebhookInfo",
     "sendMessage",
+    "setWebhook",
 ];
 
 /// Run the handler for a lowercase method name; `None` when there is none.
@@ -62,6 +64,7 @@ pub async fn route(
         "getupdates" => run(ctx, params, get_updates::LIMITS, get_updates::handle).await,
         "getwebhookinfo" => run(ctx, params, Limits::Enforce, get_webhook_info::handle).await,
         "sendmessage" => run(ctx, params, Limits::Enforce, send_message::handle).await,
+        "setwebhook" => run(ctx, params, Limits::Enforce, set_webhook::handle).await,
         _ => return None,
     })
 }

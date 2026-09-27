@@ -13,6 +13,11 @@ simula-core.workspace = true
 simula-tl.workspace = true
 
 axum = { workspace = true, features = ["multipart"] }
+base64.workspace = true
+bytes = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
 rand.workspace = true
 serde.workspace = true
 serde_json.workspace = true

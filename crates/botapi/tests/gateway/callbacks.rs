@@ -1,13 +1,11 @@
 //! Callback buttons end to end: a user presses, the bot gets `callback_query`, answers
 //! with `answerCallbackQuery`, and the user sees the answer.
 
-mod support;
-
 use std::time::Duration;
 
+use crate::support::{fails, next_updates, ok, user_presses, user_writes, world};
 use serde_json::json;
 use simula_tl::enums;
-use support::{fails, next_updates, ok, user_presses, user_writes, world};
 
 #[tokio::test]
 async fn press_and_answer() {

@@ -1,10 +1,8 @@
 //! `sendMessage` through the shared send pipeline: formatting, keyboards, replies,
 //! options, legacy parameters and Telegram's error texts.
 
-mod support;
-
+use crate::support::{fails, next_updates, ok, post_form, user_sends, user_writes, world};
 use serde_json::json;
-use support::{fails, next_updates, ok, post_form, user_sends, user_writes, world};
 
 #[tokio::test]
 async fn formatting_with_any_parse_mode_casing() {

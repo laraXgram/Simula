@@ -18,6 +18,7 @@ mod send;
 mod state;
 mod text;
 mod updates;
+mod webhook;
 
 use std::sync::Arc;
 

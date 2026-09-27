@@ -8,7 +8,7 @@ Every finished task is logged in [docs/worklog.md](docs/worklog.md) and committe
 
 **Targets:** Bot API **10.3** · MTProto layer from tdlib `telegram_api.tl`
 
-**Current focus:** M2 — sends, edits, deletes and callbacks done; next webhooks, commands
+**Current focus:** M2 — sends, edits, deletes, callbacks and webhooks done; next bot commands
 
 ---
 
@@ -22,7 +22,7 @@ vertical slice through several phases, so the architecture is exercised end to e
   Touches P2.1, P2.2, P2.4, P2.5, P2.7, P2.8, P2.9 (partial), P3.1, P3.2, P4.1, P4.4 (partial),
   then P1.9–P1.10 once handler files exist.
 - [~] **M2 — webhooks, formatting, keyboards, callbacks** (P3.3, P3.4, P3.6, wave 1 complete)
-  — formatting, keyboards, replies, edits, deletes and callbacks done; webhooks, commands to go
+  — formatting, keyboards, replies, edits, deletes, callbacks and webhooks done; commands to go
 - [ ] **M3 — client shell** talking TL over WebSocket (P5.1–P5.4)
 - [ ] **M4 — groups and channels** (P2.3, P2.10, P5.5)
 
@@ -67,7 +67,7 @@ vertical slice through several phases, so the architecture is exercised end to e
 
 - [~] P3.1 HTTP layer: all body formats, token auth, method routing, error model, file downloads
 - [x] P3.2 Update queue, `getUpdates` long polling (offset/limit/timeout/allowed_updates, 409 conflict)
-- [ ] P3.3 Webhooks: secret token, max_connections, retries/backoff, webhook info, reply-in-response
+- [x] P3.3 Webhooks: secret token, max_connections, retries/backoff, webhook info, reply-in-response (HTTP delivery; see worklog)
 - [x] P3.4 Text parsers: HTML, Markdown, MarkdownV2 with Telegram's exact errors (tdlib ports, wired into sends and quotes)
 - [ ] P3.5 InputFile pipeline: multipart, `attach://`, file_id reuse, URLs, local mode paths
 - [~] P3.6 Send pipeline shared by all `send*` methods (done: text, keyboards, replies, options); edit pipeline (done: text, keyboards)

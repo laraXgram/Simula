@@ -1,9 +1,7 @@
 //! Editing and deleting private messages at the MTProto level: every copy changes, each
 //! owner gets its own update and pts.
 
-mod common;
-
-use common::{as_account, send, setup};
+use crate::common::{as_account, send, setup};
 use simula_core::{Account, Sandbox, UserId};
 use simula_tl::{enums, functions, types};
 

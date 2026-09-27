@@ -1,6 +1,6 @@
 //! A sandbox with a user (Alice) and a bot (Echo), and TL call helpers.
 
-#![allow(dead_code, reason = "each test file uses a different subset")]
+#![allow(dead_code, reason = "not every helper is used yet")]
 
 use simula_core::services::accounts::{self, NewBot, NewUser};
 use simula_core::{Account, Caller, Sandbox, SandboxConfig, UserId};

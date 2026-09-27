@@ -1,7 +1,7 @@
 //! A sandbox with one user and one bot, and the Bot API over HTTP in process: what a bot
 //! library would see.
 
-#![allow(dead_code, reason = "each test file uses a different subset")]
+#![allow(dead_code, reason = "not every helper is used yet")]
 
 use std::sync::Arc;
 

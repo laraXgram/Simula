@@ -23367,7 +23367,8 @@
               "max": 100
             },
             "default": 40
-          }
+          },
+          "handler_validates": true
         },
         {
           "name": "allowed_updates",
@@ -23404,7 +23405,8 @@
               "max": 256,
               "unit": "chars"
             }
-          }
+          },
+          "handler_validates": true
         }
       ],
       "returns": {
