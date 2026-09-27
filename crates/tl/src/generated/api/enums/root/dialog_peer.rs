@@ -12,6 +12,12 @@ pub enum DialogPeer {
     Community(Box<crate::generated::api::types::DialogPeerCommunity>),
 }
 
+impl Default for DialogPeer {
+    fn default() -> Self {
+        Self::Folder(Box::default())
+    }
+}
+
 impl DialogPeer {
     pub fn constructor_id(&self) -> u32 {
         match self {

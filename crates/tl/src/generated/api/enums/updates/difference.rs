@@ -14,6 +14,12 @@ pub enum Difference {
     TooLong(Box<crate::generated::api::types::updates::DifferenceTooLong>),
 }
 
+impl Default for Difference {
+    fn default() -> Self {
+        Self::Empty(Box::default())
+    }
+}
+
 impl Difference {
     pub fn constructor_id(&self) -> u32 {
         match self {

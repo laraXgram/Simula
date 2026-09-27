@@ -12,6 +12,12 @@ pub enum LangPackString {
     Deleted(Box<crate::generated::api::types::LangPackStringDeleted>),
 }
 
+impl Default for LangPackString {
+    fn default() -> Self {
+        Self::LangPackString(Box::default())
+    }
+}
+
 impl LangPackString {
     pub fn constructor_id(&self) -> u32 {
         match self {

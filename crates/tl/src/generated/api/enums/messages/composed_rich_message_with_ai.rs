@@ -10,6 +10,12 @@ pub enum ComposedRichMessageWithAI {
     ),
 }
 
+impl Default for ComposedRichMessageWithAI {
+    fn default() -> Self {
+        Self::ComposedRichMessageWithAI(Box::default())
+    }
+}
+
 impl ComposedRichMessageWithAI {
     pub fn constructor_id(&self) -> u32 {
         match self {

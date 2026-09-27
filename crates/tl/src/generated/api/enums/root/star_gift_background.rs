@@ -8,6 +8,12 @@ pub enum StarGiftBackground {
     StarGiftBackground(Box<crate::generated::api::types::StarGiftBackground>),
 }
 
+impl Default for StarGiftBackground {
+    fn default() -> Self {
+        Self::StarGiftBackground(Box::default())
+    }
+}
+
 impl StarGiftBackground {
     pub fn constructor_id(&self) -> u32 {
         match self {

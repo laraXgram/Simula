@@ -8,6 +8,12 @@ pub enum PeerBlocked {
     PeerBlocked(Box<crate::generated::api::types::PeerBlocked>),
 }
 
+impl Default for PeerBlocked {
+    fn default() -> Self {
+        Self::PeerBlocked(Box::default())
+    }
+}
+
 impl PeerBlocked {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -10,6 +10,12 @@ pub enum CdnFile {
     CdnFile(Box<crate::generated::api::types::upload::CdnFile>),
 }
 
+impl Default for CdnFile {
+    fn default() -> Self {
+        Self::ReuploadNeeded(Box::default())
+    }
+}
+
 impl CdnFile {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum InputWebDocument {
     InputWebDocument(Box<crate::generated::api::types::InputWebDocument>),
 }
 
+impl Default for InputWebDocument {
+    fn default() -> Self {
+        Self::InputWebDocument(Box::default())
+    }
+}
+
 impl InputWebDocument {
     pub fn constructor_id(&self) -> u32 {
         match self {

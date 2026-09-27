@@ -8,6 +8,12 @@ pub enum WebPage {
     WebPage(Box<crate::generated::api::types::messages::WebPage>),
 }
 
+impl Default for WebPage {
+    fn default() -> Self {
+        Self::WebPage(Box::default())
+    }
+}
+
 impl WebPage {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum SearchResultsPositions {
     SearchResultsPositions(Box<crate::generated::api::types::messages::SearchResultsPositions>),
 }
 
+impl Default for SearchResultsPositions {
+    fn default() -> Self {
+        Self::SearchResultsPositions(Box::default())
+    }
+}
+
 impl SearchResultsPositions {
     pub fn constructor_id(&self) -> u32 {
         match self {

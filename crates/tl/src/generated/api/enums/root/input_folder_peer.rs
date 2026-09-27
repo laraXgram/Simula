@@ -8,6 +8,12 @@ pub enum InputFolderPeer {
     InputFolderPeer(Box<crate::generated::api::types::InputFolderPeer>),
 }
 
+impl Default for InputFolderPeer {
+    fn default() -> Self {
+        Self::InputFolderPeer(Box::default())
+    }
+}
+
 impl InputFolderPeer {
     pub fn constructor_id(&self) -> u32 {
         match self {

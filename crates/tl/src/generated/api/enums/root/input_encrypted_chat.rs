@@ -8,6 +8,12 @@ pub enum InputEncryptedChat {
     InputEncryptedChat(Box<crate::generated::api::types::InputEncryptedChat>),
 }
 
+impl Default for InputEncryptedChat {
+    fn default() -> Self {
+        Self::InputEncryptedChat(Box::default())
+    }
+}
+
 impl InputEncryptedChat {
     pub fn constructor_id(&self) -> u32 {
         match self {

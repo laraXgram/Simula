@@ -8,6 +8,12 @@ pub enum ExportedMessageLink {
     ExportedMessageLink(Box<crate::generated::api::types::ExportedMessageLink>),
 }
 
+impl Default for ExportedMessageLink {
+    fn default() -> Self {
+        Self::ExportedMessageLink(Box::default())
+    }
+}
+
 impl ExportedMessageLink {
     pub fn constructor_id(&self) -> u32 {
         match self {

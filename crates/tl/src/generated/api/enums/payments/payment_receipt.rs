@@ -10,6 +10,12 @@ pub enum PaymentReceipt {
     Stars(Box<crate::generated::api::types::payments::PaymentReceiptStars>),
 }
 
+impl Default for PaymentReceipt {
+    fn default() -> Self {
+        Self::PaymentReceipt(Box::default())
+    }
+}
+
 impl PaymentReceipt {
     pub fn constructor_id(&self) -> u32 {
         match self {

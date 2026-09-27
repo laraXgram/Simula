@@ -22,6 +22,12 @@ pub enum BotInlineMessage {
     RichMessage(Box<crate::generated::api::types::BotInlineMessageRichMessage>),
 }
 
+impl Default for BotInlineMessage {
+    fn default() -> Self {
+        Self::MediaAuto(Box::default())
+    }
+}
+
 impl BotInlineMessage {
     pub fn constructor_id(&self) -> u32 {
         match self {

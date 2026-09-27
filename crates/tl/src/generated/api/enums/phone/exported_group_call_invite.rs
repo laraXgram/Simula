@@ -8,6 +8,12 @@ pub enum ExportedGroupCallInvite {
     ExportedGroupCallInvite(Box<crate::generated::api::types::phone::ExportedGroupCallInvite>),
 }
 
+impl Default for ExportedGroupCallInvite {
+    fn default() -> Self {
+        Self::ExportedGroupCallInvite(Box::default())
+    }
+}
+
 impl ExportedGroupCallInvite {
     pub fn constructor_id(&self) -> u32 {
         match self {

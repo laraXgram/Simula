@@ -8,6 +8,12 @@ pub enum TodoItem {
     TodoItem(Box<crate::generated::api::types::TodoItem>),
 }
 
+impl Default for TodoItem {
+    fn default() -> Self {
+        Self::TodoItem(Box::default())
+    }
+}
+
 impl TodoItem {
     pub fn constructor_id(&self) -> u32 {
         match self {

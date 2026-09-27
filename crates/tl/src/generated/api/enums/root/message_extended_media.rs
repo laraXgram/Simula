@@ -10,6 +10,12 @@ pub enum MessageExtendedMedia {
     MessageExtendedMedia(Box<crate::generated::api::types::MessageExtendedMedia>),
 }
 
+impl Default for MessageExtendedMedia {
+    fn default() -> Self {
+        Self::Preview(Box::default())
+    }
+}
+
 impl MessageExtendedMedia {
     pub fn constructor_id(&self) -> u32 {
         match self {

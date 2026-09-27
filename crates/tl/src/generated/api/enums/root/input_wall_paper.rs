@@ -12,6 +12,12 @@ pub enum InputWallPaper {
     NoFile(Box<crate::generated::api::types::InputWallPaperNoFile>),
 }
 
+impl Default for InputWallPaper {
+    fn default() -> Self {
+        Self::InputWallPaper(Box::default())
+    }
+}
+
 impl InputWallPaper {
     pub fn constructor_id(&self) -> u32 {
         match self {

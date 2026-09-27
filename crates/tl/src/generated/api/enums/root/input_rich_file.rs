@@ -10,6 +10,12 @@ pub enum InputRichFile {
     Document(Box<crate::generated::api::types::InputRichFileDocument>),
 }
 
+impl Default for InputRichFile {
+    fn default() -> Self {
+        Self::Photo(Box::default())
+    }
+}
+
 impl InputRichFile {
     pub fn constructor_id(&self) -> u32 {
         match self {

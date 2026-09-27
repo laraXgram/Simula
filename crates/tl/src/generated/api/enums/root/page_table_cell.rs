@@ -8,6 +8,12 @@ pub enum PageTableCell {
     PageTableCell(Box<crate::generated::api::types::PageTableCell>),
 }
 
+impl Default for PageTableCell {
+    fn default() -> Self {
+        Self::PageTableCell(Box::default())
+    }
+}
+
 impl PageTableCell {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum ConfigSimple {
     ConfigSimple(Box<crate::generated::api::types::help::ConfigSimple>),
 }
 
+impl Default for ConfigSimple {
+    fn default() -> Self {
+        Self::ConfigSimple(Box::default())
+    }
+}
+
 impl ConfigSimple {
     pub fn constructor_id(&self) -> u32 {
         match self {

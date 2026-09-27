@@ -8,6 +8,12 @@ pub enum DiscussionMessage {
     DiscussionMessage(Box<crate::generated::api::types::messages::DiscussionMessage>),
 }
 
+impl Default for DiscussionMessage {
+    fn default() -> Self {
+        Self::DiscussionMessage(Box::default())
+    }
+}
+
 impl DiscussionMessage {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -10,6 +10,12 @@ pub enum ChatTheme {
     UniqueGift(Box<crate::generated::api::types::ChatThemeUniqueGift>),
 }
 
+impl Default for ChatTheme {
+    fn default() -> Self {
+        Self::ChatTheme(Box::default())
+    }
+}
+
 impl ChatTheme {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -10,6 +10,12 @@ pub enum PeerLocated {
     PeerSelfLocated(Box<crate::generated::api::types::PeerSelfLocated>),
 }
 
+impl Default for PeerLocated {
+    fn default() -> Self {
+        Self::PeerSelfLocated(Box::default())
+    }
+}
+
 impl PeerLocated {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -12,6 +12,12 @@ pub enum SetClientDHParamsAnswer {
     DhGenFail(Box<crate::generated::mtproto::types::DhGenFail>),
 }
 
+impl Default for SetClientDHParamsAnswer {
+    fn default() -> Self {
+        Self::DhGenOk(Box::default())
+    }
+}
+
 impl SetClientDHParamsAnswer {
     pub fn constructor_id(&self) -> u32 {
         match self {

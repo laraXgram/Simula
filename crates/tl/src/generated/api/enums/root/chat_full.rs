@@ -12,6 +12,12 @@ pub enum ChatFull {
     CommunityFull(Box<crate::generated::api::types::CommunityFull>),
 }
 
+impl Default for ChatFull {
+    fn default() -> Self {
+        Self::ChatFull(Box::default())
+    }
+}
+
 impl ChatFull {
     pub fn constructor_id(&self) -> u32 {
         match self {

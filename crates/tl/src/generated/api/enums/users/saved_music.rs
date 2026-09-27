@@ -10,6 +10,12 @@ pub enum SavedMusic {
     SavedMusic(Box<crate::generated::api::types::users::SavedMusic>),
 }
 
+impl Default for SavedMusic {
+    fn default() -> Self {
+        Self::NotModified(Box::default())
+    }
+}
+
 impl SavedMusic {
     pub fn constructor_id(&self) -> u32 {
         match self {

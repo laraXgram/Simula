@@ -24,6 +24,12 @@ pub enum SecureValueError {
     TranslationFiles(Box<crate::generated::api::types::SecureValueErrorTranslationFiles>),
 }
 
+impl Default for SecureValueError {
+    fn default() -> Self {
+        Self::Data(Box::default())
+    }
+}
+
 impl SecureValueError {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -12,6 +12,12 @@ pub enum PaymentForm {
     StarGift(Box<crate::generated::api::types::payments::PaymentFormStarGift>),
 }
 
+impl Default for PaymentForm {
+    fn default() -> Self {
+        Self::PaymentForm(Box::default())
+    }
+}
+
 impl PaymentForm {
     pub fn constructor_id(&self) -> u32 {
         match self {

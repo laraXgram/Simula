@@ -8,6 +8,12 @@ pub enum ParticipantJoinedChats {
     ParticipantJoinedChats(Box<crate::generated::api::types::communities::ParticipantJoinedChats>),
 }
 
+impl Default for ParticipantJoinedChats {
+    fn default() -> Self {
+        Self::ParticipantJoinedChats(Box::default())
+    }
+}
+
 impl ParticipantJoinedChats {
     pub fn constructor_id(&self) -> u32 {
         match self {

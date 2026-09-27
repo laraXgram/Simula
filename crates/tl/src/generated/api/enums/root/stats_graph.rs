@@ -12,6 +12,12 @@ pub enum StatsGraph {
     StatsGraph(Box<crate::generated::api::types::StatsGraph>),
 }
 
+impl Default for StatsGraph {
+    fn default() -> Self {
+        Self::Async(Box::default())
+    }
+}
+
 impl StatsGraph {
     pub fn constructor_id(&self) -> u32 {
         match self {

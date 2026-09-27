@@ -8,6 +8,12 @@ pub enum InputChatlist {
     DialogFilter(Box<crate::generated::api::types::InputChatlistDialogFilter>),
 }
 
+impl Default for InputChatlist {
+    fn default() -> Self {
+        Self::DialogFilter(Box::default())
+    }
+}
+
 impl InputChatlist {
     pub fn constructor_id(&self) -> u32 {
         match self {

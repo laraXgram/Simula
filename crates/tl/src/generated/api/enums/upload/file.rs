@@ -10,6 +10,12 @@ pub enum File {
     CdnRedirect(Box<crate::generated::api::types::upload::FileCdnRedirect>),
 }
 
+impl Default for File {
+    fn default() -> Self {
+        Self::CdnRedirect(Box::default())
+    }
+}
+
 impl File {
     pub fn constructor_id(&self) -> u32 {
         match self {

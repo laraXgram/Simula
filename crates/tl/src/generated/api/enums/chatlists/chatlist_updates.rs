@@ -8,6 +8,12 @@ pub enum ChatlistUpdates {
     ChatlistUpdates(Box<crate::generated::api::types::chatlists::ChatlistUpdates>),
 }
 
+impl Default for ChatlistUpdates {
+    fn default() -> Self {
+        Self::ChatlistUpdates(Box::default())
+    }
+}
+
 impl ChatlistUpdates {
     pub fn constructor_id(&self) -> u32 {
         match self {

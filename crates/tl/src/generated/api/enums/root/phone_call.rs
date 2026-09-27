@@ -18,6 +18,12 @@ pub enum PhoneCall {
     Discarded(Box<crate::generated::api::types::PhoneCallDiscarded>),
 }
 
+impl Default for PhoneCall {
+    fn default() -> Self {
+        Self::Empty(Box::default())
+    }
+}
+
 impl PhoneCall {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum NearestDc {
     NearestDc(Box<crate::generated::api::types::NearestDc>),
 }
 
+impl Default for NearestDc {
+    fn default() -> Self {
+        Self::NearestDc(Box::default())
+    }
+}
+
 impl NearestDc {
     pub fn constructor_id(&self) -> u32 {
         match self {

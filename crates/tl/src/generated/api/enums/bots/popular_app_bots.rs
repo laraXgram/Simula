@@ -8,6 +8,12 @@ pub enum PopularAppBots {
     PopularAppBots(Box<crate::generated::api::types::bots::PopularAppBots>),
 }
 
+impl Default for PopularAppBots {
+    fn default() -> Self {
+        Self::PopularAppBots(Box::default())
+    }
+}
+
 impl PopularAppBots {
     pub fn constructor_id(&self) -> u32 {
         match self {

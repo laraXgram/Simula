@@ -12,6 +12,12 @@ pub enum EmailVerification {
     Apple(Box<crate::generated::api::types::EmailVerificationApple>),
 }
 
+impl Default for EmailVerification {
+    fn default() -> Self {
+        Self::Code(Box::default())
+    }
+}
+
 impl EmailVerification {
     pub fn constructor_id(&self) -> u32 {
         match self {

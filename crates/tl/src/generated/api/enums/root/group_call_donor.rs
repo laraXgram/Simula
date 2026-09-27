@@ -8,6 +8,12 @@ pub enum GroupCallDonor {
     GroupCallDonor(Box<crate::generated::api::types::GroupCallDonor>),
 }
 
+impl Default for GroupCallDonor {
+    fn default() -> Self {
+        Self::GroupCallDonor(Box::default())
+    }
+}
+
 impl GroupCallDonor {
     pub fn constructor_id(&self) -> u32 {
         match self {

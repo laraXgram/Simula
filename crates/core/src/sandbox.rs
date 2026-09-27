@@ -1,0 +1,173 @@
+//! A sandbox is one isolated Telegram world. Its state lives on a dedicated thread that
+//! runs jobs one at a time, each in its own transaction: no locks, deterministic order.
+
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::mpsc;
+use std::time::Instant;
+
+use simula_tl::{Function, RemoteCall, enums};
+use tokio::sync::{broadcast, oneshot};
+
+use crate::clock::Clock;
+use crate::ctx::{Caller, Ctx, World};
+use crate::error::{RpcError, RpcResult};
+use crate::events::Event;
+use crate::ids::{Peer, UserId, access_hash};
+use crate::outbox::AccountUpdates;
+use crate::rpc::{self, Reply};
+use crate::services::peers;
+use crate::store::{self, accounts::Account};
+
+type Job = Box<dyn FnOnce(&mut World) + Send>;
+
+const CHANNEL_CAPACITY: usize = 4096;
+
+pub struct SandboxConfig {
+    pub id: String,
+    /// SQLite file; `None` keeps the sandbox in memory.
+    pub path: Option<PathBuf>,
+}
+
+pub struct Sandbox {
+    id: String,
+    jobs: mpsc::Sender<Job>,
+    updates: broadcast::Sender<Arc<AccountUpdates>>,
+    events: broadcast::Sender<Arc<Event>>,
+    clock: Arc<Clock>,
+    secret: [u8; 32],
+}
+
+impl Sandbox {
+    pub fn open(config: SandboxConfig) -> std::io::Result<Arc<Self>> {
+        let clock = Arc::new(Clock::default());
+        let mut world = World::open(config.path.as_deref(), clock.clone()).map_err(std::io::Error::other)?;
+        let secret = world.secret();
+        let (jobs, queue) = mpsc::channel::<Job>();
+        std::thread::Builder::new().name(format!("sandbox-{}", config.id)).spawn(move || {
+            for job in queue {
+                job(&mut world);
+            }
+        })?;
+        Ok(Arc::new(Self {
+            id: config.id,
+            jobs,
+            updates: broadcast::channel(CHANNEL_CAPACITY).0,
+            events: broadcast::channel(CHANNEL_CAPACITY).0,
+            clock,
+            secret,
+        }))
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn clock(&self) -> &Clock {
+        &self.clock
+    }
+
+    /// Run `f` on the sandbox thread.
+    pub async fn run<R: Send + 'static>(&self, f: impl FnOnce(&mut World) -> R + Send + 'static) -> R {
+        let (reply, result) = oneshot::channel();
+        self.jobs
+            .send(Box::new(move |world| {
+                let _ = reply.send(f(world));
+            }))
+            .expect("sandbox thread stopped");
+        result.await.expect("sandbox thread stopped")
+    }
+
+    /// Execute a TL function as `caller`.
+    pub async fn invoke(&self, caller: Caller, call: Function) -> RpcResult<Box<dyn Reply>> {
+        let method = call.name();
+        let request = serde_json::to_value(&call).unwrap_or_default();
+        let started = Instant::now();
+        let outcome = self.run(move |world| world.transact(Some(caller), |ctx| rpc::dispatch(ctx, call))).await;
+
+        let (result, updates) = match outcome {
+            Ok((reply, updates)) => (Ok(reply), updates),
+            Err(error) => (Err(error), Vec::new()),
+        };
+        self.emit(Event::Rpc {
+            at_ms: self.clock.now_ms(),
+            account: caller.account,
+            method,
+            request,
+            result: result.as_ref().map(|reply| reply.to_json()).map_err(Clone::clone),
+            duration_us: started.elapsed().as_micros() as u64,
+        });
+        self.publish(updates);
+        result
+    }
+
+    /// Typed [`Sandbox::invoke`].
+    pub async fn call<F>(&self, caller: Caller, call: F) -> RpcResult<F::Return>
+    where
+        F: RemoteCall + Into<Function>,
+        F::Return: 'static,
+    {
+        let reply = self.invoke(caller, call.into()).await?;
+        reply
+            .into_any()
+            .downcast::<F::Return>()
+            .map(|boxed| *boxed)
+            .map_err(|_| RpcError::internal("reply type does not match the function's return type"))
+    }
+
+    /// Run an operation outside TL (Control API) in a transaction; its updates are delivered.
+    pub async fn admin<R: Send + 'static>(
+        &self,
+        f: impl FnOnce(&mut Ctx<'_>) -> RpcResult<R> + Send + 'static,
+    ) -> RpcResult<R> {
+        let (result, updates) = self.run(move |world| world.transact(None, f)).await?;
+        self.publish(updates);
+        Ok(result)
+    }
+
+    pub async fn account(&self, id: UserId) -> RpcResult<Option<Account>> {
+        self.run(move |world| store::accounts::get(world.connection(), id)).await.map_err(Into::into)
+    }
+
+    pub async fn account_by_token(&self, token: String) -> RpcResult<Option<Account>> {
+        self.run(move |world| store::accounts::by_token(world.connection(), &token)).await.map_err(Into::into)
+    }
+
+    pub async fn accounts(&self) -> RpcResult<Vec<Account>> {
+        self.run(|world| store::accounts::list(world.connection())).await.map_err(Into::into)
+    }
+
+    /// The `InputPeer` that `viewer` uses to address `peer` (access hash included).
+    pub fn input_peer(&self, viewer: UserId, peer: Peer) -> enums::InputPeer {
+        match peer {
+            Peer::User(id) if id == viewer => enums::InputPeer::InputPeerSelf,
+            _ => {
+                let hash = access_hash(&self.secret, viewer, peer);
+                peers::input_peer_with_hash(peer, hash)
+            }
+        }
+    }
+
+    pub fn subscribe_updates(&self) -> broadcast::Receiver<Arc<AccountUpdates>> {
+        self.updates.subscribe()
+    }
+
+    pub fn subscribe_events(&self) -> broadcast::Receiver<Arc<Event>> {
+        self.events.subscribe()
+    }
+
+    pub fn emit(&self, event: Event) {
+        let _ = self.events.send(Arc::new(event));
+    }
+
+    fn publish(&self, updates: Vec<AccountUpdates>) {
+        for batch in updates {
+            self.emit(Event::Updates {
+                at_ms: self.clock.now_ms(),
+                account: batch.account,
+                updates: serde_json::to_value(&batch.updates).unwrap_or_default(),
+            });
+            let _ = self.updates.send(Arc::new(batch));
+        }
+    }
+}

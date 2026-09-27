@@ -8,6 +8,12 @@ pub enum SponsoredMessageReportOption {
     SponsoredMessageReportOption(Box<crate::generated::api::types::SponsoredMessageReportOption>),
 }
 
+impl Default for SponsoredMessageReportOption {
+    fn default() -> Self {
+        Self::SponsoredMessageReportOption(Box::default())
+    }
+}
+
 impl SponsoredMessageReportOption {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum GlobalPrivacySettings {
     GlobalPrivacySettings(Box<crate::generated::api::types::GlobalPrivacySettings>),
 }
 
+impl Default for GlobalPrivacySettings {
+    fn default() -> Self {
+        Self::GlobalPrivacySettings(Box::default())
+    }
+}
+
 impl GlobalPrivacySettings {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -10,6 +10,12 @@ pub enum StarGiftUpgradeAttributes {
     ),
 }
 
+impl Default for StarGiftUpgradeAttributes {
+    fn default() -> Self {
+        Self::StarGiftUpgradeAttributes(Box::default())
+    }
+}
+
 impl StarGiftUpgradeAttributes {
     pub fn constructor_id(&self) -> u32 {
         match self {

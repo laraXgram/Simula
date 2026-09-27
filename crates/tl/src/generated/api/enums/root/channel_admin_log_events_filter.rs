@@ -8,6 +8,12 @@ pub enum ChannelAdminLogEventsFilter {
     ChannelAdminLogEventsFilter(Box<crate::generated::api::types::ChannelAdminLogEventsFilter>),
 }
 
+impl Default for ChannelAdminLogEventsFilter {
+    fn default() -> Self {
+        Self::ChannelAdminLogEventsFilter(Box::default())
+    }
+}
+
 impl ChannelAdminLogEventsFilter {
     pub fn constructor_id(&self) -> u32 {
         match self {

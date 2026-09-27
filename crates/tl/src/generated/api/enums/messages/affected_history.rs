@@ -8,6 +8,12 @@ pub enum AffectedHistory {
     AffectedHistory(Box<crate::generated::api::types::messages::AffectedHistory>),
 }
 
+impl Default for AffectedHistory {
+    fn default() -> Self {
+        Self::AffectedHistory(Box::default())
+    }
+}
+
 impl AffectedHistory {
     pub fn constructor_id(&self) -> u32 {
         match self {

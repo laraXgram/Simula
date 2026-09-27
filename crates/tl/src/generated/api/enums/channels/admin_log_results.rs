@@ -8,6 +8,12 @@ pub enum AdminLogResults {
     AdminLogResults(Box<crate::generated::api::types::channels::AdminLogResults>),
 }
 
+impl Default for AdminLogResults {
+    fn default() -> Self {
+        Self::AdminLogResults(Box::default())
+    }
+}
+
 impl AdminLogResults {
     pub fn constructor_id(&self) -> u32 {
         match self {

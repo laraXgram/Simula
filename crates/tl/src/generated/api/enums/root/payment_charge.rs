@@ -8,6 +8,12 @@ pub enum PaymentCharge {
     PaymentCharge(Box<crate::generated::api::types::PaymentCharge>),
 }
 
+impl Default for PaymentCharge {
+    fn default() -> Self {
+        Self::PaymentCharge(Box::default())
+    }
+}
+
 impl PaymentCharge {
     pub fn constructor_id(&self) -> u32 {
         match self {

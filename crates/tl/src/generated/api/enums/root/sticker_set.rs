@@ -8,6 +8,12 @@ pub enum StickerSet {
     StickerSet(Box<crate::generated::api::types::StickerSet>),
 }
 
+impl Default for StickerSet {
+    fn default() -> Self {
+        Self::StickerSet(Box::default())
+    }
+}
+
 impl StickerSet {
     pub fn constructor_id(&self) -> u32 {
         match self {

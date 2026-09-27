@@ -8,6 +8,12 @@ pub enum PeerStories {
     PeerStories(Box<crate::generated::api::types::PeerStories>),
 }
 
+impl Default for PeerStories {
+    fn default() -> Self {
+        Self::PeerStories(Box::default())
+    }
+}
+
 impl PeerStories {
     pub fn constructor_id(&self) -> u32 {
         match self {

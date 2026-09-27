@@ -8,6 +8,12 @@ pub enum PaymentRequestedInfo {
     PaymentRequestedInfo(Box<crate::generated::api::types::PaymentRequestedInfo>),
 }
 
+impl Default for PaymentRequestedInfo {
+    fn default() -> Self {
+        Self::PaymentRequestedInfo(Box::default())
+    }
+}
+
 impl PaymentRequestedInfo {
     pub fn constructor_id(&self) -> u32 {
         match self {

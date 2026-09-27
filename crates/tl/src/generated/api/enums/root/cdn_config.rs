@@ -8,6 +8,12 @@ pub enum CdnConfig {
     CdnConfig(Box<crate::generated::api::types::CdnConfig>),
 }
 
+impl Default for CdnConfig {
+    fn default() -> Self {
+        Self::CdnConfig(Box::default())
+    }
+}
+
 impl CdnConfig {
     pub fn constructor_id(&self) -> u32 {
         match self {

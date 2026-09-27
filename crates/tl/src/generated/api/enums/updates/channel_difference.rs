@@ -12,6 +12,12 @@ pub enum ChannelDifference {
     ChannelDifference(Box<crate::generated::api::types::updates::ChannelDifference>),
 }
 
+impl Default for ChannelDifference {
+    fn default() -> Self {
+        Self::Empty(Box::default())
+    }
+}
+
 impl ChannelDifference {
     pub fn constructor_id(&self) -> u32 {
         match self {

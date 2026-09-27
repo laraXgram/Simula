@@ -8,6 +8,12 @@ pub enum StatsDateRangeDays {
     StatsDateRangeDays(Box<crate::generated::api::types::StatsDateRangeDays>),
 }
 
+impl Default for StatsDateRangeDays {
+    fn default() -> Self {
+        Self::StatsDateRangeDays(Box::default())
+    }
+}
+
 impl StatsDateRangeDays {
     pub fn constructor_id(&self) -> u32 {
         match self {

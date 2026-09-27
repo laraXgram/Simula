@@ -8,6 +8,12 @@ pub enum MessageReplies {
     MessageReplies(Box<crate::generated::api::types::MessageReplies>),
 }
 
+impl Default for MessageReplies {
+    fn default() -> Self {
+        Self::MessageReplies(Box::default())
+    }
+}
+
 impl MessageReplies {
     pub fn constructor_id(&self) -> u32 {
         match self {

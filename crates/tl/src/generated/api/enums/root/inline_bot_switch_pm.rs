@@ -8,6 +8,12 @@ pub enum InlineBotSwitchPM {
     InlineBotSwitchPM(Box<crate::generated::api::types::InlineBotSwitchPM>),
 }
 
+impl Default for InlineBotSwitchPM {
+    fn default() -> Self {
+        Self::InlineBotSwitchPM(Box::default())
+    }
+}
+
 impl InlineBotSwitchPM {
     pub fn constructor_id(&self) -> u32 {
         match self {

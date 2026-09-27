@@ -8,6 +8,12 @@ pub enum Found {
     Found(Box<crate::generated::api::types::contacts::Found>),
 }
 
+impl Default for Found {
+    fn default() -> Self {
+        Self::Found(Box::default())
+    }
+}
+
 impl Found {
     pub fn constructor_id(&self) -> u32 {
         match self {

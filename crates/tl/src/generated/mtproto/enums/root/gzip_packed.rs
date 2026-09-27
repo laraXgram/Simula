@@ -8,6 +8,12 @@ pub enum GzipPacked {
     GzipPacked(Box<crate::generated::mtproto::types::GzipPacked>),
 }
 
+impl Default for GzipPacked {
+    fn default() -> Self {
+        Self::GzipPacked(Box::default())
+    }
+}
+
 impl GzipPacked {
     pub fn constructor_id(&self) -> u32 {
         match self {

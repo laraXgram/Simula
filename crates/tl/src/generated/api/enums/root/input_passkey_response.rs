@@ -10,6 +10,12 @@ pub enum InputPasskeyResponse {
     Login(Box<crate::generated::api::types::InputPasskeyResponseLogin>),
 }
 
+impl Default for InputPasskeyResponse {
+    fn default() -> Self {
+        Self::Register(Box::default())
+    }
+}
+
 impl InputPasskeyResponse {
     pub fn constructor_id(&self) -> u32 {
         match self {

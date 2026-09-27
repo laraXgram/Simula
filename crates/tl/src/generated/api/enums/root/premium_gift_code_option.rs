@@ -8,6 +8,12 @@ pub enum PremiumGiftCodeOption {
     PremiumGiftCodeOption(Box<crate::generated::api::types::PremiumGiftCodeOption>),
 }
 
+impl Default for PremiumGiftCodeOption {
+    fn default() -> Self {
+        Self::PremiumGiftCodeOption(Box::default())
+    }
+}
+
 impl PremiumGiftCodeOption {
     pub fn constructor_id(&self) -> u32 {
         match self {

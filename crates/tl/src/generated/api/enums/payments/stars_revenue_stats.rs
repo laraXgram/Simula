@@ -8,6 +8,12 @@ pub enum StarsRevenueStats {
     StarsRevenueStats(Box<crate::generated::api::types::payments::StarsRevenueStats>),
 }
 
+impl Default for StarsRevenueStats {
+    fn default() -> Self {
+        Self::StarsRevenueStats(Box::default())
+    }
+}
+
 impl StarsRevenueStats {
     pub fn constructor_id(&self) -> u32 {
         match self {

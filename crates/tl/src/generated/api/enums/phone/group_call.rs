@@ -8,6 +8,12 @@ pub enum GroupCall {
     GroupCall(Box<crate::generated::api::types::phone::GroupCall>),
 }
 
+impl Default for GroupCall {
+    fn default() -> Self {
+        Self::GroupCall(Box::default())
+    }
+}
+
 impl GroupCall {
     pub fn constructor_id(&self) -> u32 {
         match self {

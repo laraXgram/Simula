@@ -8,6 +8,12 @@ pub enum PaidMessagesRevenue {
     PaidMessagesRevenue(Box<crate::generated::api::types::account::PaidMessagesRevenue>),
 }
 
+impl Default for PaidMessagesRevenue {
+    fn default() -> Self {
+        Self::PaidMessagesRevenue(Box::default())
+    }
+}
+
 impl PaidMessagesRevenue {
     pub fn constructor_id(&self) -> u32 {
         match self {

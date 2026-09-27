@@ -10,6 +10,12 @@ pub enum ChatInviteJoinResult {
     WebView(Box<crate::generated::api::types::messages::ChatInviteJoinResultWebView>),
 }
 
+impl Default for ChatInviteJoinResult {
+    fn default() -> Self {
+        Self::WebView(Box::default())
+    }
+}
+
 impl ChatInviteJoinResult {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum CollectibleInfo {
     CollectibleInfo(Box<crate::generated::api::types::fragment::CollectibleInfo>),
 }
 
+impl Default for CollectibleInfo {
+    fn default() -> Self {
+        Self::CollectibleInfo(Box::default())
+    }
+}
+
 impl CollectibleInfo {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum SuggestedStarRefBots {
     SuggestedStarRefBots(Box<crate::generated::api::types::payments::SuggestedStarRefBots>),
 }
 
+impl Default for SuggestedStarRefBots {
+    fn default() -> Self {
+        Self::SuggestedStarRefBots(Box::default())
+    }
+}
+
 impl SuggestedStarRefBots {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -10,6 +10,12 @@ pub enum BadMsgNotification {
     BadServerSalt(Box<crate::generated::mtproto::types::BadServerSalt>),
 }
 
+impl Default for BadMsgNotification {
+    fn default() -> Self {
+        Self::BadMsgNotification(Box::default())
+    }
+}
+
 impl BadMsgNotification {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum RpcError {
     RpcError(Box<crate::generated::mtproto::types::RpcError>),
 }
 
+impl Default for RpcError {
+    fn default() -> Self {
+        Self::RpcError(Box::default())
+    }
+}
+
 impl RpcError {
     pub fn constructor_id(&self) -> u32 {
         match self {

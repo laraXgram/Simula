@@ -8,6 +8,12 @@ pub enum BotBusinessConnection {
     BotBusinessConnection(Box<crate::generated::api::types::BotBusinessConnection>),
 }
 
+impl Default for BotBusinessConnection {
+    fn default() -> Self {
+        Self::BotBusinessConnection(Box::default())
+    }
+}
+
 impl BotBusinessConnection {
     pub fn constructor_id(&self) -> u32 {
         match self {

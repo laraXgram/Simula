@@ -8,6 +8,12 @@ pub enum RecentMeUrls {
     RecentMeUrls(Box<crate::generated::api::types::help::RecentMeUrls>),
 }
 
+impl Default for RecentMeUrls {
+    fn default() -> Self {
+        Self::RecentMeUrls(Box::default())
+    }
+}
+
 impl RecentMeUrls {
     pub fn constructor_id(&self) -> u32 {
         match self {

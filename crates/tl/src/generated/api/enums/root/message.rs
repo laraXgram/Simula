@@ -12,6 +12,12 @@ pub enum Message {
     Service(Box<crate::generated::api::types::MessageService>),
 }
 
+impl Default for Message {
+    fn default() -> Self {
+        Self::Empty(Box::default())
+    }
+}
+
 impl Message {
     pub fn constructor_id(&self) -> u32 {
         match self {

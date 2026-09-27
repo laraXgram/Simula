@@ -8,6 +8,12 @@ pub enum BotCommand {
     BotCommand(Box<crate::generated::api::types::BotCommand>),
 }
 
+impl Default for BotCommand {
+    fn default() -> Self {
+        Self::BotCommand(Box::default())
+    }
+}
+
 impl BotCommand {
     pub fn constructor_id(&self) -> u32 {
         match self {

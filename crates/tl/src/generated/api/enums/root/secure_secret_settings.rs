@@ -8,6 +8,12 @@ pub enum SecureSecretSettings {
     SecureSecretSettings(Box<crate::generated::api::types::SecureSecretSettings>),
 }
 
+impl Default for SecureSecretSettings {
+    fn default() -> Self {
+        Self::SecureSecretSettings(Box::default())
+    }
+}
+
 impl SecureSecretSettings {
     pub fn constructor_id(&self) -> u32 {
         match self {

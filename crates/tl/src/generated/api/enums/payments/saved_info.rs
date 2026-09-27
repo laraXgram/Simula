@@ -8,6 +8,12 @@ pub enum SavedInfo {
     SavedInfo(Box<crate::generated::api::types::payments::SavedInfo>),
 }
 
+impl Default for SavedInfo {
+    fn default() -> Self {
+        Self::SavedInfo(Box::default())
+    }
+}
+
 impl SavedInfo {
     pub fn constructor_id(&self) -> u32 {
         match self {

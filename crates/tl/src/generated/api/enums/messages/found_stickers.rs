@@ -10,6 +10,12 @@ pub enum FoundStickers {
     FoundStickers(Box<crate::generated::api::types::messages::FoundStickers>),
 }
 
+impl Default for FoundStickers {
+    fn default() -> Self {
+        Self::NotModified(Box::default())
+    }
+}
+
 impl FoundStickers {
     pub fn constructor_id(&self) -> u32 {
         match self {

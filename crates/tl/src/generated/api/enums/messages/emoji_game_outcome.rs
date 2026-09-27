@@ -8,6 +8,12 @@ pub enum EmojiGameOutcome {
     EmojiGameOutcome(Box<crate::generated::api::types::messages::EmojiGameOutcome>),
 }
 
+impl Default for EmojiGameOutcome {
+    fn default() -> Self {
+        Self::EmojiGameOutcome(Box::default())
+    }
+}
+
 impl EmojiGameOutcome {
     pub fn constructor_id(&self) -> u32 {
         match self {

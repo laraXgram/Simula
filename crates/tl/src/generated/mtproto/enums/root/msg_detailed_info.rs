@@ -10,6 +10,12 @@ pub enum MsgDetailedInfo {
     MsgNewDetailedInfo(Box<crate::generated::mtproto::types::MsgNewDetailedInfo>),
 }
 
+impl Default for MsgDetailedInfo {
+    fn default() -> Self {
+        Self::MsgDetailedInfo(Box::default())
+    }
+}
+
 impl MsgDetailedInfo {
     pub fn constructor_id(&self) -> u32 {
         match self {

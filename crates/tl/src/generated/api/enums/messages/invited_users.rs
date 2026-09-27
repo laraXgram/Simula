@@ -8,6 +8,12 @@ pub enum InvitedUsers {
     InvitedUsers(Box<crate::generated::api::types::messages::InvitedUsers>),
 }
 
+impl Default for InvitedUsers {
+    fn default() -> Self {
+        Self::InvitedUsers(Box::default())
+    }
+}
+
 impl InvitedUsers {
     pub fn constructor_id(&self) -> u32 {
         match self {

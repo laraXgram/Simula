@@ -8,6 +8,12 @@ pub enum CanSendStoryCount {
     CanSendStoryCount(Box<crate::generated::api::types::stories::CanSendStoryCount>),
 }
 
+impl Default for CanSendStoryCount {
+    fn default() -> Self {
+        Self::CanSendStoryCount(Box::default())
+    }
+}
+
 impl CanSendStoryCount {
     pub fn constructor_id(&self) -> u32 {
         match self {

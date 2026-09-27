@@ -8,6 +8,12 @@ pub enum LoggedOut {
     LoggedOut(Box<crate::generated::api::types::auth::LoggedOut>),
 }
 
+impl Default for LoggedOut {
+    fn default() -> Self {
+        Self::LoggedOut(Box::default())
+    }
+}
+
 impl LoggedOut {
     pub fn constructor_id(&self) -> u32 {
         match self {

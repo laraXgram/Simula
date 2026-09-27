@@ -10,6 +10,12 @@ pub enum InputStarGiftAuction {
     Slug(Box<crate::generated::api::types::InputStarGiftAuctionSlug>),
 }
 
+impl Default for InputStarGiftAuction {
+    fn default() -> Self {
+        Self::InputStarGiftAuction(Box::default())
+    }
+}
+
 impl InputStarGiftAuction {
     pub fn constructor_id(&self) -> u32 {
         match self {

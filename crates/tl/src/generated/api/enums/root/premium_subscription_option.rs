@@ -8,6 +8,12 @@ pub enum PremiumSubscriptionOption {
     PremiumSubscriptionOption(Box<crate::generated::api::types::PremiumSubscriptionOption>),
 }
 
+impl Default for PremiumSubscriptionOption {
+    fn default() -> Self {
+        Self::PremiumSubscriptionOption(Box::default())
+    }
+}
+
 impl PremiumSubscriptionOption {
     pub fn constructor_id(&self) -> u32 {
         match self {

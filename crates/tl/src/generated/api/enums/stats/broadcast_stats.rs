@@ -8,6 +8,12 @@ pub enum BroadcastStats {
     BroadcastStats(Box<crate::generated::api::types::stats::BroadcastStats>),
 }
 
+impl Default for BroadcastStats {
+    fn default() -> Self {
+        Self::BroadcastStats(Box::default())
+    }
+}
+
 impl BroadcastStats {
     pub fn constructor_id(&self) -> u32 {
         match self {

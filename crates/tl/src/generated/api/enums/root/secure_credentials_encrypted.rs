@@ -8,6 +8,12 @@ pub enum SecureCredentialsEncrypted {
     SecureCredentialsEncrypted(Box<crate::generated::api::types::SecureCredentialsEncrypted>),
 }
 
+impl Default for SecureCredentialsEncrypted {
+    fn default() -> Self {
+        Self::SecureCredentialsEncrypted(Box::default())
+    }
+}
+
 impl SecureCredentialsEncrypted {
     pub fn constructor_id(&self) -> u32 {
         match self {

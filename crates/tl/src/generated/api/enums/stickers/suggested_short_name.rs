@@ -8,6 +8,12 @@ pub enum SuggestedShortName {
     SuggestedShortName(Box<crate::generated::api::types::stickers::SuggestedShortName>),
 }
 
+impl Default for SuggestedShortName {
+    fn default() -> Self {
+        Self::SuggestedShortName(Box::default())
+    }
+}
+
 impl SuggestedShortName {
     pub fn constructor_id(&self) -> u32 {
         match self {

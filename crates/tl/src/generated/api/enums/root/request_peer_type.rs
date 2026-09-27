@@ -14,6 +14,12 @@ pub enum RequestPeerType {
     CreateBot(Box<crate::generated::api::types::RequestPeerTypeCreateBot>),
 }
 
+impl Default for RequestPeerType {
+    fn default() -> Self {
+        Self::User(Box::default())
+    }
+}
+
 impl RequestPeerType {
     pub fn constructor_id(&self) -> u32 {
         match self {

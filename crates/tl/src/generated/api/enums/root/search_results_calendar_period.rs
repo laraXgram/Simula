@@ -8,6 +8,12 @@ pub enum SearchResultsCalendarPeriod {
     SearchResultsCalendarPeriod(Box<crate::generated::api::types::SearchResultsCalendarPeriod>),
 }
 
+impl Default for SearchResultsCalendarPeriod {
+    fn default() -> Self {
+        Self::SearchResultsCalendarPeriod(Box::default())
+    }
+}
+
 impl SearchResultsCalendarPeriod {
     pub fn constructor_id(&self) -> u32 {
         match self {

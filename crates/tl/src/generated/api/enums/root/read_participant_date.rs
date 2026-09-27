@@ -8,6 +8,12 @@ pub enum ReadParticipantDate {
     ReadParticipantDate(Box<crate::generated::api::types::ReadParticipantDate>),
 }
 
+impl Default for ReadParticipantDate {
+    fn default() -> Self {
+        Self::ReadParticipantDate(Box::default())
+    }
+}
+
 impl ReadParticipantDate {
     pub fn constructor_id(&self) -> u32 {
         match self {

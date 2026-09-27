@@ -8,6 +8,12 @@ pub enum ImportedContacts {
     ImportedContacts(Box<crate::generated::api::types::contacts::ImportedContacts>),
 }
 
+impl Default for ImportedContacts {
+    fn default() -> Self {
+        Self::ImportedContacts(Box::default())
+    }
+}
+
 impl ImportedContacts {
     pub fn constructor_id(&self) -> u32 {
         match self {

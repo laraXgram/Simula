@@ -8,6 +8,12 @@ pub enum PaymentFormMethod {
     PaymentFormMethod(Box<crate::generated::api::types::PaymentFormMethod>),
 }
 
+impl Default for PaymentFormMethod {
+    fn default() -> Self {
+        Self::PaymentFormMethod(Box::default())
+    }
+}
+
 impl PaymentFormMethod {
     pub fn constructor_id(&self) -> u32 {
         match self {

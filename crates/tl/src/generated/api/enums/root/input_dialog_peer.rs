@@ -12,6 +12,12 @@ pub enum InputDialogPeer {
     Community(Box<crate::generated::api::types::InputDialogPeerCommunity>),
 }
 
+impl Default for InputDialogPeer {
+    fn default() -> Self {
+        Self::Folder(Box::default())
+    }
+}
+
 impl InputDialogPeer {
     pub fn constructor_id(&self) -> u32 {
         match self {

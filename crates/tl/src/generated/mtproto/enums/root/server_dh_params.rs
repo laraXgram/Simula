@@ -8,6 +8,12 @@ pub enum ServerDHParams {
     Ok(Box<crate::generated::mtproto::types::ServerDHParamsOk>),
 }
 
+impl Default for ServerDHParams {
+    fn default() -> Self {
+        Self::Ok(Box::default())
+    }
+}
+
 impl ServerDHParams {
     pub fn constructor_id(&self) -> u32 {
         match self {

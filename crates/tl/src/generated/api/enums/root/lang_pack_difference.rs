@@ -8,6 +8,12 @@ pub enum LangPackDifference {
     LangPackDifference(Box<crate::generated::api::types::LangPackDifference>),
 }
 
+impl Default for LangPackDifference {
+    fn default() -> Self {
+        Self::LangPackDifference(Box::default())
+    }
+}
+
 impl LangPackDifference {
     pub fn constructor_id(&self) -> u32 {
         match self {

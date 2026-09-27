@@ -14,6 +14,12 @@ pub enum WebPage {
     NotModified(Box<crate::generated::api::types::WebPageNotModified>),
 }
 
+impl Default for WebPage {
+    fn default() -> Self {
+        Self::Empty(Box::default())
+    }
+}
+
 impl WebPage {
     pub fn constructor_id(&self) -> u32 {
         match self {

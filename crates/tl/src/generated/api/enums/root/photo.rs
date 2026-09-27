@@ -10,6 +10,12 @@ pub enum Photo {
     Photo(Box<crate::generated::api::types::Photo>),
 }
 
+impl Default for Photo {
+    fn default() -> Self {
+        Self::Empty(Box::default())
+    }
+}
+
 impl Photo {
     pub fn constructor_id(&self) -> u32 {
         match self {

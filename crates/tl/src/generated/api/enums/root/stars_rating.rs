@@ -8,6 +8,12 @@ pub enum StarsRating {
     StarsRating(Box<crate::generated::api::types::StarsRating>),
 }
 
+impl Default for StarsRating {
+    fn default() -> Self {
+        Self::StarsRating(Box::default())
+    }
+}
+
 impl StarsRating {
     pub fn constructor_id(&self) -> u32 {
         match self {

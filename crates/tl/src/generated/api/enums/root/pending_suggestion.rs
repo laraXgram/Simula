@@ -8,6 +8,12 @@ pub enum PendingSuggestion {
     PendingSuggestion(Box<crate::generated::api::types::PendingSuggestion>),
 }
 
+impl Default for PendingSuggestion {
+    fn default() -> Self {
+        Self::PendingSuggestion(Box::default())
+    }
+}
+
 impl PendingSuggestion {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum BusinessWeeklyOpen {
     BusinessWeeklyOpen(Box<crate::generated::api::types::BusinessWeeklyOpen>),
 }
 
+impl Default for BusinessWeeklyOpen {
+    fn default() -> Self {
+        Self::BusinessWeeklyOpen(Box::default())
+    }
+}
+
 impl BusinessWeeklyOpen {
     pub fn constructor_id(&self) -> u32 {
         match self {

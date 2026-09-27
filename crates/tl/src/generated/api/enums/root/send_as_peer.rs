@@ -8,6 +8,12 @@ pub enum SendAsPeer {
     SendAsPeer(Box<crate::generated::api::types::SendAsPeer>),
 }
 
+impl Default for SendAsPeer {
+    fn default() -> Self {
+        Self::SendAsPeer(Box::default())
+    }
+}
+
 impl SendAsPeer {
     pub fn constructor_id(&self) -> u32 {
         match self {

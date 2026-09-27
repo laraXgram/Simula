@@ -8,6 +8,12 @@ pub enum Birthday {
     Birthday(Box<crate::generated::api::types::Birthday>),
 }
 
+impl Default for Birthday {
+    fn default() -> Self {
+        Self::Birthday(Box::default())
+    }
+}
+
 impl Birthday {
     pub fn constructor_id(&self) -> u32 {
         match self {

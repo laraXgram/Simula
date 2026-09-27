@@ -8,6 +8,12 @@ pub enum StarGiftWithdrawalUrl {
     StarGiftWithdrawalUrl(Box<crate::generated::api::types::payments::StarGiftWithdrawalUrl>),
 }
 
+impl Default for StarGiftWithdrawalUrl {
+    fn default() -> Self {
+        Self::StarGiftWithdrawalUrl(Box::default())
+    }
+}
+
 impl StarGiftWithdrawalUrl {
     pub fn constructor_id(&self) -> u32 {
         match self {

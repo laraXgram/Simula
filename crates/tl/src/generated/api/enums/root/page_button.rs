@@ -8,6 +8,12 @@ pub enum PageButton {
     PageButton(Box<crate::generated::api::types::PageButton>),
 }
 
+impl Default for PageButton {
+    fn default() -> Self {
+        Self::PageButton(Box::default())
+    }
+}
+
 impl PageButton {
     pub fn constructor_id(&self) -> u32 {
         match self {

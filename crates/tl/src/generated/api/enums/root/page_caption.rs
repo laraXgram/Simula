@@ -8,6 +8,12 @@ pub enum PageCaption {
     PageCaption(Box<crate::generated::api::types::PageCaption>),
 }
 
+impl Default for PageCaption {
+    fn default() -> Self {
+        Self::PageCaption(Box::default())
+    }
+}
+
 impl PageCaption {
     pub fn constructor_id(&self) -> u32 {
         match self {

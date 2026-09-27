@@ -8,6 +8,12 @@ pub enum Username {
     Username(Box<crate::generated::api::types::Username>),
 }
 
+impl Default for Username {
+    fn default() -> Self {
+        Self::Username(Box::default())
+    }
+}
+
 impl Username {
     pub fn constructor_id(&self) -> u32 {
         match self {

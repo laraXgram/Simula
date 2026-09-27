@@ -10,6 +10,12 @@ pub enum PostInteractionCounters {
     Story(Box<crate::generated::api::types::PostInteractionCountersStory>),
 }
 
+impl Default for PostInteractionCounters {
+    fn default() -> Self {
+        Self::Message(Box::default())
+    }
+}
+
 impl PostInteractionCounters {
     pub fn constructor_id(&self) -> u32 {
         match self {

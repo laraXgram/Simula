@@ -8,6 +8,12 @@ pub enum ExportedAuthorization {
     ExportedAuthorization(Box<crate::generated::api::types::auth::ExportedAuthorization>),
 }
 
+impl Default for ExportedAuthorization {
+    fn default() -> Self {
+        Self::ExportedAuthorization(Box::default())
+    }
+}
+
 impl ExportedAuthorization {
     pub fn constructor_id(&self) -> u32 {
         match self {

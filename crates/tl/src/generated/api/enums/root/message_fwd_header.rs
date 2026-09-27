@@ -8,6 +8,12 @@ pub enum MessageFwdHeader {
     MessageFwdHeader(Box<crate::generated::api::types::MessageFwdHeader>),
 }
 
+impl Default for MessageFwdHeader {
+    fn default() -> Self {
+        Self::MessageFwdHeader(Box::default())
+    }
+}
+
 impl MessageFwdHeader {
     pub fn constructor_id(&self) -> u32 {
         match self {

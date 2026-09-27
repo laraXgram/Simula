@@ -8,6 +8,12 @@ pub enum StarGiftAttributeCounter {
     StarGiftAttributeCounter(Box<crate::generated::api::types::StarGiftAttributeCounter>),
 }
 
+impl Default for StarGiftAttributeCounter {
+    fn default() -> Self {
+        Self::StarGiftAttributeCounter(Box::default())
+    }
+}
+
 impl StarGiftAttributeCounter {
     pub fn constructor_id(&self) -> u32 {
         match self {

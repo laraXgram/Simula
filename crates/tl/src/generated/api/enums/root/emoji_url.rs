@@ -8,6 +8,12 @@ pub enum EmojiURL {
     EmojiURL(Box<crate::generated::api::types::EmojiURL>),
 }
 
+impl Default for EmojiURL {
+    fn default() -> Self {
+        Self::EmojiURL(Box::default())
+    }
+}
+
 impl EmojiURL {
     pub fn constructor_id(&self) -> u32 {
         match self {

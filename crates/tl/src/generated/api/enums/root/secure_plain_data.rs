@@ -10,6 +10,12 @@ pub enum SecurePlainData {
     SecurePlainEmail(Box<crate::generated::api::types::SecurePlainEmail>),
 }
 
+impl Default for SecurePlainData {
+    fn default() -> Self {
+        Self::SecurePlainPhone(Box::default())
+    }
+}
+
 impl SecurePlainData {
     pub fn constructor_id(&self) -> u32 {
         match self {

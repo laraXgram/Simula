@@ -12,6 +12,12 @@ pub enum InputGroupCall {
     InviteMessage(Box<crate::generated::api::types::InputGroupCallInviteMessage>),
 }
 
+impl Default for InputGroupCall {
+    fn default() -> Self {
+        Self::InputGroupCall(Box::default())
+    }
+}
+
 impl InputGroupCall {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum DefaultHistoryTTL {
     DefaultHistoryTTL(Box<crate::generated::api::types::DefaultHistoryTTL>),
 }
 
+impl Default for DefaultHistoryTTL {
+    fn default() -> Self {
+        Self::DefaultHistoryTTL(Box::default())
+    }
+}
+
 impl DefaultHistoryTTL {
     pub fn constructor_id(&self) -> u32 {
         match self {

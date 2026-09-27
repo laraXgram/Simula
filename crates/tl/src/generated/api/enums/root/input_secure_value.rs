@@ -8,6 +8,12 @@ pub enum InputSecureValue {
     InputSecureValue(Box<crate::generated::api::types::InputSecureValue>),
 }
 
+impl Default for InputSecureValue {
+    fn default() -> Self {
+        Self::InputSecureValue(Box::default())
+    }
+}
+
 impl InputSecureValue {
     pub fn constructor_id(&self) -> u32 {
         match self {

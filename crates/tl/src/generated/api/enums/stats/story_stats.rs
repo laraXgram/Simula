@@ -8,6 +8,12 @@ pub enum StoryStats {
     StoryStats(Box<crate::generated::api::types::stats::StoryStats>),
 }
 
+impl Default for StoryStats {
+    fn default() -> Self {
+        Self::StoryStats(Box::default())
+    }
+}
+
 impl StoryStats {
     pub fn constructor_id(&self) -> u32 {
         match self {

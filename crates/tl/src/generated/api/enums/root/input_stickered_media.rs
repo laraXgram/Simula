@@ -10,6 +10,12 @@ pub enum InputStickeredMedia {
     Document(Box<crate::generated::api::types::InputStickeredMediaDocument>),
 }
 
+impl Default for InputStickeredMedia {
+    fn default() -> Self {
+        Self::Photo(Box::default())
+    }
+}
+
 impl InputStickeredMedia {
     pub fn constructor_id(&self) -> u32 {
         match self {

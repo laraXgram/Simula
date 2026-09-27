@@ -8,6 +8,12 @@ pub enum MessageRange {
     MessageRange(Box<crate::generated::api::types::MessageRange>),
 }
 
+impl Default for MessageRange {
+    fn default() -> Self {
+        Self::MessageRange(Box::default())
+    }
+}
+
 impl MessageRange {
     pub fn constructor_id(&self) -> u32 {
         match self {

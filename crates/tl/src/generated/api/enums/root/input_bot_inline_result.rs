@@ -14,6 +14,12 @@ pub enum InputBotInlineResult {
     Game(Box<crate::generated::api::types::InputBotInlineResultGame>),
 }
 
+impl Default for InputBotInlineResult {
+    fn default() -> Self {
+        Self::InputBotInlineResult(Box::default())
+    }
+}
+
 impl InputBotInlineResult {
     pub fn constructor_id(&self) -> u32 {
         match self {

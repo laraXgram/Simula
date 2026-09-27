@@ -8,6 +8,12 @@ pub enum NewSession {
     Created(Box<crate::generated::mtproto::types::NewSessionCreated>),
 }
 
+impl Default for NewSession {
+    fn default() -> Self {
+        Self::Created(Box::default())
+    }
+}
+
 impl NewSession {
     pub fn constructor_id(&self) -> u32 {
         match self {

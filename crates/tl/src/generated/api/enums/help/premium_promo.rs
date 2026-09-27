@@ -8,6 +8,12 @@ pub enum PremiumPromo {
     PremiumPromo(Box<crate::generated::api::types::help::PremiumPromo>),
 }
 
+impl Default for PremiumPromo {
+    fn default() -> Self {
+        Self::PremiumPromo(Box::default())
+    }
+}
+
 impl PremiumPromo {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum MsgsStateReq {
     MsgsStateReq(Box<crate::generated::mtproto::types::MsgsStateReq>),
 }
 
+impl Default for MsgsStateReq {
+    fn default() -> Self {
+        Self::MsgsStateReq(Box::default())
+    }
+}
+
 impl MsgsStateReq {
     pub fn constructor_id(&self) -> u32 {
         match self {

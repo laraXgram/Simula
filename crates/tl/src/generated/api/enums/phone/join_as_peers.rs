@@ -8,6 +8,12 @@ pub enum JoinAsPeers {
     JoinAsPeers(Box<crate::generated::api::types::phone::JoinAsPeers>),
 }
 
+impl Default for JoinAsPeers {
+    fn default() -> Self {
+        Self::JoinAsPeers(Box::default())
+    }
+}
+
 impl JoinAsPeers {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum WallPaperSettings {
     WallPaperSettings(Box<crate::generated::api::types::WallPaperSettings>),
 }
 
+impl Default for WallPaperSettings {
+    fn default() -> Self {
+        Self::WallPaperSettings(Box::default())
+    }
+}
+
 impl WallPaperSettings {
     pub fn constructor_id(&self) -> u32 {
         match self {

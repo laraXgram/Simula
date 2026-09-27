@@ -8,6 +8,12 @@ pub enum FileHash {
     FileHash(Box<crate::generated::api::types::FileHash>),
 }
 
+impl Default for FileHash {
+    fn default() -> Self {
+        Self::FileHash(Box::default())
+    }
+}
+
 impl FileHash {
     pub fn constructor_id(&self) -> u32 {
         match self {

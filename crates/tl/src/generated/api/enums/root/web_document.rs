@@ -10,6 +10,12 @@ pub enum WebDocument {
     NoProxy(Box<crate::generated::api::types::WebDocumentNoProxy>),
 }
 
+impl Default for WebDocument {
+    fn default() -> Self {
+        Self::WebDocument(Box::default())
+    }
+}
+
 impl WebDocument {
     pub fn constructor_id(&self) -> u32 {
         match self {

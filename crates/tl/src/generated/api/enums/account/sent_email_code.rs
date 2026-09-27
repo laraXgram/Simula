@@ -8,6 +8,12 @@ pub enum SentEmailCode {
     SentEmailCode(Box<crate::generated::api::types::account::SentEmailCode>),
 }
 
+impl Default for SentEmailCode {
+    fn default() -> Self {
+        Self::SentEmailCode(Box::default())
+    }
+}
+
 impl SentEmailCode {
     pub fn constructor_id(&self) -> u32 {
         match self {

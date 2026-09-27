@@ -8,6 +8,12 @@ pub enum CheckedHistoryImportPeer {
     CheckedHistoryImportPeer(Box<crate::generated::api::types::messages::CheckedHistoryImportPeer>),
 }
 
+impl Default for CheckedHistoryImportPeer {
+    fn default() -> Self {
+        Self::CheckedHistoryImportPeer(Box::default())
+    }
+}
+
 impl CheckedHistoryImportPeer {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum BotInfo {
     BotInfo(Box<crate::generated::api::types::BotInfo>),
 }
 
+impl Default for BotInfo {
+    fn default() -> Self {
+        Self::BotInfo(Box::default())
+    }
+}
+
 impl BotInfo {
     pub fn constructor_id(&self) -> u32 {
         match self {

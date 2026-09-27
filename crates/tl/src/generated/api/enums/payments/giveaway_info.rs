@@ -10,6 +10,12 @@ pub enum GiveawayInfo {
     Results(Box<crate::generated::api::types::payments::GiveawayInfoResults>),
 }
 
+impl Default for GiveawayInfo {
+    fn default() -> Self {
+        Self::GiveawayInfo(Box::default())
+    }
+}
+
 impl GiveawayInfo {
     pub fn constructor_id(&self) -> u32 {
         match self {

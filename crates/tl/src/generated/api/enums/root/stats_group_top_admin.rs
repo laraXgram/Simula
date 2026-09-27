@@ -8,6 +8,12 @@ pub enum StatsGroupTopAdmin {
     StatsGroupTopAdmin(Box<crate::generated::api::types::StatsGroupTopAdmin>),
 }
 
+impl Default for StatsGroupTopAdmin {
+    fn default() -> Self {
+        Self::StatsGroupTopAdmin(Box::default())
+    }
+}
+
 impl StatsGroupTopAdmin {
     pub fn constructor_id(&self) -> u32 {
         match self {

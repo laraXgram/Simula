@@ -8,6 +8,12 @@ pub enum ClientDHInnerData {
     ClientDHInnerData(Box<crate::generated::mtproto::types::ClientDHInnerData>),
 }
 
+impl Default for ClientDHInnerData {
+    fn default() -> Self {
+        Self::ClientDHInnerData(Box::default())
+    }
+}
+
 impl ClientDHInnerData {
     pub fn constructor_id(&self) -> u32 {
         match self {

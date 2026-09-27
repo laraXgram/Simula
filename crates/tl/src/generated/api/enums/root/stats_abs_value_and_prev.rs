@@ -8,6 +8,12 @@ pub enum StatsAbsValueAndPrev {
     StatsAbsValueAndPrev(Box<crate::generated::api::types::StatsAbsValueAndPrev>),
 }
 
+impl Default for StatsAbsValueAndPrev {
+    fn default() -> Self {
+        Self::StatsAbsValueAndPrev(Box::default())
+    }
+}
+
 impl StatsAbsValueAndPrev {
     pub fn constructor_id(&self) -> u32 {
         match self {

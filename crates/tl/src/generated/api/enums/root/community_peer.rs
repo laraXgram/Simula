@@ -8,6 +8,12 @@ pub enum CommunityPeer {
     CommunityPeer(Box<crate::generated::api::types::CommunityPeer>),
 }
 
+impl Default for CommunityPeer {
+    fn default() -> Self {
+        Self::CommunityPeer(Box::default())
+    }
+}
+
 impl CommunityPeer {
     pub fn constructor_id(&self) -> u32 {
         match self {

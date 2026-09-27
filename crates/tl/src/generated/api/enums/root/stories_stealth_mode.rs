@@ -8,6 +8,12 @@ pub enum StoriesStealthMode {
     StoriesStealthMode(Box<crate::generated::api::types::StoriesStealthMode>),
 }
 
+impl Default for StoriesStealthMode {
+    fn default() -> Self {
+        Self::StoriesStealthMode(Box::default())
+    }
+}
+
 impl StoriesStealthMode {
     pub fn constructor_id(&self) -> u32 {
         match self {

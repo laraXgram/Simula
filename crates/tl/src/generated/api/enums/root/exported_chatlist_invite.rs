@@ -8,6 +8,12 @@ pub enum ExportedChatlistInvite {
     ExportedChatlistInvite(Box<crate::generated::api::types::ExportedChatlistInvite>),
 }
 
+impl Default for ExportedChatlistInvite {
+    fn default() -> Self {
+        Self::ExportedChatlistInvite(Box::default())
+    }
+}
+
 impl ExportedChatlistInvite {
     pub fn constructor_id(&self) -> u32 {
         match self {

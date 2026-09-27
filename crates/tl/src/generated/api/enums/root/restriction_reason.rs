@@ -8,6 +8,12 @@ pub enum RestrictionReason {
     RestrictionReason(Box<crate::generated::api::types::RestrictionReason>),
 }
 
+impl Default for RestrictionReason {
+    fn default() -> Self {
+        Self::RestrictionReason(Box::default())
+    }
+}
+
 impl RestrictionReason {
     pub fn constructor_id(&self) -> u32 {
         match self {

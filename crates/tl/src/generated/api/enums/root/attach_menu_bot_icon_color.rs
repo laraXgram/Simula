@@ -8,6 +8,12 @@ pub enum AttachMenuBotIconColor {
     AttachMenuBotIconColor(Box<crate::generated::api::types::AttachMenuBotIconColor>),
 }
 
+impl Default for AttachMenuBotIconColor {
+    fn default() -> Self {
+        Self::AttachMenuBotIconColor(Box::default())
+    }
+}
+
 impl AttachMenuBotIconColor {
     pub fn constructor_id(&self) -> u32 {
         match self {

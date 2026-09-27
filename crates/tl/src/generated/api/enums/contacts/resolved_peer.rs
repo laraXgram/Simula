@@ -8,6 +8,12 @@ pub enum ResolvedPeer {
     ResolvedPeer(Box<crate::generated::api::types::contacts::ResolvedPeer>),
 }
 
+impl Default for ResolvedPeer {
+    fn default() -> Self {
+        Self::ResolvedPeer(Box::default())
+    }
+}
+
 impl ResolvedPeer {
     pub fn constructor_id(&self) -> u32 {
         match self {

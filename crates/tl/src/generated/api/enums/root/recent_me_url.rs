@@ -16,6 +16,12 @@ pub enum RecentMeUrl {
     StickerSet(Box<crate::generated::api::types::RecentMeUrlStickerSet>),
 }
 
+impl Default for RecentMeUrl {
+    fn default() -> Self {
+        Self::Unknown(Box::default())
+    }
+}
+
 impl RecentMeUrl {
     pub fn constructor_id(&self) -> u32 {
         match self {

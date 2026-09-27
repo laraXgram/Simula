@@ -8,6 +8,12 @@ pub enum AiComposeToneExample {
     AiComposeToneExample(Box<crate::generated::api::types::AiComposeToneExample>),
 }
 
+impl Default for AiComposeToneExample {
+    fn default() -> Self {
+        Self::AiComposeToneExample(Box::default())
+    }
+}
+
 impl AiComposeToneExample {
     pub fn constructor_id(&self) -> u32 {
         match self {

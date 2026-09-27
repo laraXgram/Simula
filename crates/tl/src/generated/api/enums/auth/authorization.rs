@@ -10,6 +10,12 @@ pub enum Authorization {
     SignUpRequired(Box<crate::generated::api::types::auth::AuthorizationSignUpRequired>),
 }
 
+impl Default for Authorization {
+    fn default() -> Self {
+        Self::SignUpRequired(Box::default())
+    }
+}
+
 impl Authorization {
     pub fn constructor_id(&self) -> u32 {
         match self {

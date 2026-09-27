@@ -8,6 +8,12 @@ pub enum FutureSalt {
     FutureSalt(Box<crate::generated::mtproto::types::FutureSalt>),
 }
 
+impl Default for FutureSalt {
+    fn default() -> Self {
+        Self::FutureSalt(Box::default())
+    }
+}
+
 impl FutureSalt {
     pub fn constructor_id(&self) -> u32 {
         match self {

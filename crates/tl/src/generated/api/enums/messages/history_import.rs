@@ -8,6 +8,12 @@ pub enum HistoryImport {
     HistoryImport(Box<crate::generated::api::types::messages::HistoryImport>),
 }
 
+impl Default for HistoryImport {
+    fn default() -> Self {
+        Self::HistoryImport(Box::default())
+    }
+}
+
 impl HistoryImport {
     pub fn constructor_id(&self) -> u32 {
         match self {

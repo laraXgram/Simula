@@ -8,6 +8,12 @@ pub enum LangPackLanguage {
     LangPackLanguage(Box<crate::generated::api::types::LangPackLanguage>),
 }
 
+impl Default for LangPackLanguage {
+    fn default() -> Self {
+        Self::LangPackLanguage(Box::default())
+    }
+}
+
 impl LangPackLanguage {
     pub fn constructor_id(&self) -> u32 {
         match self {

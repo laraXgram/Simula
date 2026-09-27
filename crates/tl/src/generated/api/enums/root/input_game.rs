@@ -10,6 +10,12 @@ pub enum InputGame {
     ShortName(Box<crate::generated::api::types::InputGameShortName>),
 }
 
+impl Default for InputGame {
+    fn default() -> Self {
+        Self::ID(Box::default())
+    }
+}
+
 impl InputGame {
     pub fn constructor_id(&self) -> u32 {
         match self {

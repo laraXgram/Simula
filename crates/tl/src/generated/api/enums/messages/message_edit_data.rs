@@ -8,6 +8,12 @@ pub enum MessageEditData {
     MessageEditData(Box<crate::generated::api::types::messages::MessageEditData>),
 }
 
+impl Default for MessageEditData {
+    fn default() -> Self {
+        Self::MessageEditData(Box::default())
+    }
+}
+
 impl MessageEditData {
     pub fn constructor_id(&self) -> u32 {
         match self {

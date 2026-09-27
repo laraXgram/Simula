@@ -8,6 +8,12 @@ pub enum GroupCallStreamRtmpUrl {
     GroupCallStreamRtmpUrl(Box<crate::generated::api::types::phone::GroupCallStreamRtmpUrl>),
 }
 
+impl Default for GroupCallStreamRtmpUrl {
+    fn default() -> Self {
+        Self::GroupCallStreamRtmpUrl(Box::default())
+    }
+}
+
 impl GroupCallStreamRtmpUrl {
     pub fn constructor_id(&self) -> u32 {
         match self {

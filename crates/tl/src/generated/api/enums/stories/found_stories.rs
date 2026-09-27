@@ -8,6 +8,12 @@ pub enum FoundStories {
     FoundStories(Box<crate::generated::api::types::stories::FoundStories>),
 }
 
+impl Default for FoundStories {
+    fn default() -> Self {
+        Self::FoundStories(Box::default())
+    }
+}
+
 impl FoundStories {
     pub fn constructor_id(&self) -> u32 {
         match self {

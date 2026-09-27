@@ -8,6 +8,12 @@ pub enum ResPQ {
     ResPQ(Box<crate::generated::mtproto::types::ResPQ>),
 }
 
+impl Default for ResPQ {
+    fn default() -> Self {
+        Self::ResPQ(Box::default())
+    }
+}
+
 impl ResPQ {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum StickerKeyword {
     StickerKeyword(Box<crate::generated::api::types::StickerKeyword>),
 }
 
+impl Default for StickerKeyword {
+    fn default() -> Self {
+        Self::StickerKeyword(Box::default())
+    }
+}
+
 impl StickerKeyword {
     pub fn constructor_id(&self) -> u32 {
         match self {

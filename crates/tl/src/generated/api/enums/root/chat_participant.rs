@@ -12,6 +12,12 @@ pub enum ChatParticipant {
     Admin(Box<crate::generated::api::types::ChatParticipantAdmin>),
 }
 
+impl Default for ChatParticipant {
+    fn default() -> Self {
+        Self::ChatParticipant(Box::default())
+    }
+}
+
 impl ChatParticipant {
     pub fn constructor_id(&self) -> u32 {
         match self {

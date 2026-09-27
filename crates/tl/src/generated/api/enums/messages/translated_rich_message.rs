@@ -8,6 +8,12 @@ pub enum TranslatedRichMessage {
     TranslatedRichMessage(Box<crate::generated::api::types::messages::TranslatedRichMessage>),
 }
 
+impl Default for TranslatedRichMessage {
+    fn default() -> Self {
+        Self::TranslatedRichMessage(Box::default())
+    }
+}
+
 impl TranslatedRichMessage {
     pub fn constructor_id(&self) -> u32 {
         match self {

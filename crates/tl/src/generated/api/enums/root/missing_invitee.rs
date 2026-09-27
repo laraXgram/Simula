@@ -8,6 +8,12 @@ pub enum MissingInvitee {
     MissingInvitee(Box<crate::generated::api::types::MissingInvitee>),
 }
 
+impl Default for MissingInvitee {
+    fn default() -> Self {
+        Self::MissingInvitee(Box::default())
+    }
+}
+
 impl MissingInvitee {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum BankCardData {
     BankCardData(Box<crate::generated::api::types::payments::BankCardData>),
 }
 
+impl Default for BankCardData {
+    fn default() -> Self {
+        Self::BankCardData(Box::default())
+    }
+}
+
 impl BankCardData {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum InactiveChats {
     InactiveChats(Box<crate::generated::api::types::messages::InactiveChats>),
 }
 
+impl Default for InactiveChats {
+    fn default() -> Self {
+        Self::InactiveChats(Box::default())
+    }
+}
+
 impl InactiveChats {
     pub fn constructor_id(&self) -> u32 {
         match self {

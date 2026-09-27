@@ -8,6 +8,12 @@ pub enum Timezone {
     Timezone(Box<crate::generated::api::types::Timezone>),
 }
 
+impl Default for Timezone {
+    fn default() -> Self {
+        Self::Timezone(Box::default())
+    }
+}
+
 impl Timezone {
     pub fn constructor_id(&self) -> u32 {
         match self {

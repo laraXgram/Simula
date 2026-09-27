@@ -8,6 +8,12 @@ pub enum GroupCallStars {
     GroupCallStars(Box<crate::generated::api::types::phone::GroupCallStars>),
 }
 
+impl Default for GroupCallStars {
+    fn default() -> Self {
+        Self::GroupCallStars(Box::default())
+    }
+}
+
 impl GroupCallStars {
     pub fn constructor_id(&self) -> u32 {
         match self {

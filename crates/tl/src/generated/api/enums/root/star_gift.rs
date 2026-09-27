@@ -10,6 +10,12 @@ pub enum StarGift {
     Unique(Box<crate::generated::api::types::StarGiftUnique>),
 }
 
+impl Default for StarGift {
+    fn default() -> Self {
+        Self::Unique(Box::default())
+    }
+}
+
 impl StarGift {
     pub fn constructor_id(&self) -> u32 {
         match self {

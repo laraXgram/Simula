@@ -8,6 +8,12 @@ pub enum StatsGroupTopPoster {
     StatsGroupTopPoster(Box<crate::generated::api::types::StatsGroupTopPoster>),
 }
 
+impl Default for StatsGroupTopPoster {
+    fn default() -> Self {
+        Self::StatsGroupTopPoster(Box::default())
+    }
+}
+
 impl StatsGroupTopPoster {
     pub fn constructor_id(&self) -> u32 {
         match self {

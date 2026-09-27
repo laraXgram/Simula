@@ -10,12 +10,24 @@ license = "MIT"
 repository = "https://github.com/laraXgram/Simula"
 
 [workspace.dependencies]
+simula-botapi = { path = "crates/botapi" }
 simula-botapi-types = { path = "crates/botapi-types" }
+simula-control = { path = "crates/control" }
+simula-core = { path = "crates/core" }
 simula-tl = { path = "crates/tl" }
 
+axum = "0.8.9"
 base64 = "0.23"
+rand = "0.10.3"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+sha2 = "0.11.0"
+thiserror = "2.0.21"
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "sync", "time", "net", "signal"] }
+tower = { version = "0.5", features = ["util"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

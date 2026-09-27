@@ -10,6 +10,12 @@ pub enum EncryptedMessage {
     Service(Box<crate::generated::api::types::EncryptedMessageService>),
 }
 
+impl Default for EncryptedMessage {
+    fn default() -> Self {
+        Self::Service(Box::default())
+    }
+}
+
 impl EncryptedMessage {
     pub fn constructor_id(&self) -> u32 {
         match self {

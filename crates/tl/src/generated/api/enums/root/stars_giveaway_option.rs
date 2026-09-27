@@ -8,6 +8,12 @@ pub enum StarsGiveawayOption {
     StarsGiveawayOption(Box<crate::generated::api::types::StarsGiveawayOption>),
 }
 
+impl Default for StarsGiveawayOption {
+    fn default() -> Self {
+        Self::StarsGiveawayOption(Box::default())
+    }
+}
+
 impl StarsGiveawayOption {
     pub fn constructor_id(&self) -> u32 {
         match self {

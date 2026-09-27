@@ -12,6 +12,12 @@ pub enum MessagePeerVote {
     Multiple(Box<crate::generated::api::types::MessagePeerVoteMultiple>),
 }
 
+impl Default for MessagePeerVote {
+    fn default() -> Self {
+        Self::MessagePeerVote(Box::default())
+    }
+}
+
 impl MessagePeerVote {
     pub fn constructor_id(&self) -> u32 {
         match self {

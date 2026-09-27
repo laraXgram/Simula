@@ -8,6 +8,12 @@ pub enum Theme {
     Theme(Box<crate::generated::api::types::Theme>),
 }
 
+impl Default for Theme {
+    fn default() -> Self {
+        Self::Theme(Box::default())
+    }
+}
+
 impl Theme {
     pub fn constructor_id(&self) -> u32 {
         match self {

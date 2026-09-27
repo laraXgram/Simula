@@ -10,6 +10,12 @@ pub enum PageListItem {
     Blocks(Box<crate::generated::api::types::PageListItemBlocks>),
 }
 
+impl Default for PageListItem {
+    fn default() -> Self {
+        Self::Blocks(Box::default())
+    }
+}
+
 impl PageListItem {
     pub fn constructor_id(&self) -> u32 {
         match self {

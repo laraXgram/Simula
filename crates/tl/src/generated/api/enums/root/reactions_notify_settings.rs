@@ -8,6 +8,12 @@ pub enum ReactionsNotifySettings {
     ReactionsNotifySettings(Box<crate::generated::api::types::ReactionsNotifySettings>),
 }
 
+impl Default for ReactionsNotifySettings {
+    fn default() -> Self {
+        Self::ReactionsNotifySettings(Box::default())
+    }
+}
+
 impl ReactionsNotifySettings {
     pub fn constructor_id(&self) -> u32 {
         match self {

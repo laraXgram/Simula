@@ -8,6 +8,12 @@ pub enum InputPeerNotifySettings {
     InputPeerNotifySettings(Box<crate::generated::api::types::InputPeerNotifySettings>),
 }
 
+impl Default for InputPeerNotifySettings {
+    fn default() -> Self {
+        Self::InputPeerNotifySettings(Box::default())
+    }
+}
+
 impl InputPeerNotifySettings {
     pub fn constructor_id(&self) -> u32 {
         match self {

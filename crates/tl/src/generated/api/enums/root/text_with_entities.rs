@@ -8,6 +8,12 @@ pub enum TextWithEntities {
     TextWithEntities(Box<crate::generated::api::types::TextWithEntities>),
 }
 
+impl Default for TextWithEntities {
+    fn default() -> Self {
+        Self::TextWithEntities(Box::default())
+    }
+}
+
 impl TextWithEntities {
     pub fn constructor_id(&self) -> u32 {
         match self {

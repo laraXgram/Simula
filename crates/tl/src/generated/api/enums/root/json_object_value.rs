@@ -8,6 +8,12 @@ pub enum JSONObjectValue {
     JsonObjectValue(Box<crate::generated::api::types::JsonObjectValue>),
 }
 
+impl Default for JSONObjectValue {
+    fn default() -> Self {
+        Self::JsonObjectValue(Box::default())
+    }
+}
+
 impl JSONObjectValue {
     pub fn constructor_id(&self) -> u32 {
         match self {

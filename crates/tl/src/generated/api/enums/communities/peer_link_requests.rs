@@ -8,6 +8,12 @@ pub enum PeerLinkRequests {
     PeerLinkRequests(Box<crate::generated::api::types::communities::PeerLinkRequests>),
 }
 
+impl Default for PeerLinkRequests {
+    fn default() -> Self {
+        Self::PeerLinkRequests(Box::default())
+    }
+}
+
 impl PeerLinkRequests {
     pub fn constructor_id(&self) -> u32 {
         match self {

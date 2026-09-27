@@ -8,6 +8,12 @@ pub enum Folder {
     Folder(Box<crate::generated::api::types::Folder>),
 }
 
+impl Default for Folder {
+    fn default() -> Self {
+        Self::Folder(Box::default())
+    }
+}
+
 impl Folder {
     pub fn constructor_id(&self) -> u32 {
         match self {

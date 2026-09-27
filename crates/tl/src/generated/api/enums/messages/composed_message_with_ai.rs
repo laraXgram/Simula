@@ -8,6 +8,12 @@ pub enum ComposedMessageWithAI {
     ComposedMessageWithAI(Box<crate::generated::api::types::messages::ComposedMessageWithAI>),
 }
 
+impl Default for ComposedMessageWithAI {
+    fn default() -> Self {
+        Self::ComposedMessageWithAI(Box::default())
+    }
+}
+
 impl ComposedMessageWithAI {
     pub fn constructor_id(&self) -> u32 {
         match self {

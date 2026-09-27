@@ -8,6 +8,12 @@ pub enum ChatAdminRights {
     ChatAdminRights(Box<crate::generated::api::types::ChatAdminRights>),
 }
 
+impl Default for ChatAdminRights {
+    fn default() -> Self {
+        Self::ChatAdminRights(Box::default())
+    }
+}
+
 impl ChatAdminRights {
     pub fn constructor_id(&self) -> u32 {
         match self {

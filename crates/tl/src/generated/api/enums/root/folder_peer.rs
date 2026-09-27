@@ -8,6 +8,12 @@ pub enum FolderPeer {
     FolderPeer(Box<crate::generated::api::types::FolderPeer>),
 }
 
+impl Default for FolderPeer {
+    fn default() -> Self {
+        Self::FolderPeer(Box::default())
+    }
+}
+
 impl FolderPeer {
     pub fn constructor_id(&self) -> u32 {
         match self {

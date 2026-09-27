@@ -8,6 +8,12 @@ pub enum PasskeyLoginOptions {
     PasskeyLoginOptions(Box<crate::generated::api::types::auth::PasskeyLoginOptions>),
 }
 
+impl Default for PasskeyLoginOptions {
+    fn default() -> Self {
+        Self::PasskeyLoginOptions(Box::default())
+    }
+}
+
 impl PasskeyLoginOptions {
     pub fn constructor_id(&self) -> u32 {
         match self {

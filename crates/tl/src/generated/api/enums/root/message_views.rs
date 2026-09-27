@@ -8,6 +8,12 @@ pub enum MessageViews {
     MessageViews(Box<crate::generated::api::types::MessageViews>),
 }
 
+impl Default for MessageViews {
+    fn default() -> Self {
+        Self::MessageViews(Box::default())
+    }
+}
+
 impl MessageViews {
     pub fn constructor_id(&self) -> u32 {
         match self {

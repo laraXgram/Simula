@@ -8,6 +8,12 @@ pub enum Takeout {
     Takeout(Box<crate::generated::api::types::account::Takeout>),
 }
 
+impl Default for Takeout {
+    fn default() -> Self {
+        Self::Takeout(Box::default())
+    }
+}
+
 impl Takeout {
     pub fn constructor_id(&self) -> u32 {
         match self {

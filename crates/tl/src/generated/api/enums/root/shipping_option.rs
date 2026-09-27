@@ -8,6 +8,12 @@ pub enum ShippingOption {
     ShippingOption(Box<crate::generated::api::types::ShippingOption>),
 }
 
+impl Default for ShippingOption {
+    fn default() -> Self {
+        Self::ShippingOption(Box::default())
+    }
+}
+
 impl ShippingOption {
     pub fn constructor_id(&self) -> u32 {
         match self {

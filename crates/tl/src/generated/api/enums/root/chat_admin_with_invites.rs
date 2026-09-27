@@ -8,6 +8,12 @@ pub enum ChatAdminWithInvites {
     ChatAdminWithInvites(Box<crate::generated::api::types::ChatAdminWithInvites>),
 }
 
+impl Default for ChatAdminWithInvites {
+    fn default() -> Self {
+        Self::ChatAdminWithInvites(Box::default())
+    }
+}
+
 impl ChatAdminWithInvites {
     pub fn constructor_id(&self) -> u32 {
         match self {

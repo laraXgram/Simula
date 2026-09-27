@@ -8,6 +8,12 @@ pub enum PageTableRow {
     PageTableRow(Box<crate::generated::api::types::PageTableRow>),
 }
 
+impl Default for PageTableRow {
+    fn default() -> Self {
+        Self::PageTableRow(Box::default())
+    }
+}
+
 impl PageTableRow {
     pub fn constructor_id(&self) -> u32 {
         match self {

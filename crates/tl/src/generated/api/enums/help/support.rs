@@ -8,6 +8,12 @@ pub enum Support {
     Support(Box<crate::generated::api::types::help::Support>),
 }
 
+impl Default for Support {
+    fn default() -> Self {
+        Self::Support(Box::default())
+    }
+}
+
 impl Support {
     pub fn constructor_id(&self) -> u32 {
         match self {

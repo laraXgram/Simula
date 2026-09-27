@@ -8,6 +8,12 @@ pub enum InputPhoneCall {
     InputPhoneCall(Box<crate::generated::api::types::InputPhoneCall>),
 }
 
+impl Default for InputPhoneCall {
+    fn default() -> Self {
+        Self::InputPhoneCall(Box::default())
+    }
+}
+
 impl InputPhoneCall {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -10,6 +10,12 @@ pub enum PrepaidGiveaway {
     PrepaidStarsGiveaway(Box<crate::generated::api::types::PrepaidStarsGiveaway>),
 }
 
+impl Default for PrepaidGiveaway {
+    fn default() -> Self {
+        Self::PrepaidGiveaway(Box::default())
+    }
+}
+
 impl PrepaidGiveaway {
     pub fn constructor_id(&self) -> u32 {
         match self {

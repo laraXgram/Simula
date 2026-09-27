@@ -8,6 +8,12 @@ pub enum AuthorizationForm {
     AuthorizationForm(Box<crate::generated::api::types::account::AuthorizationForm>),
 }
 
+impl Default for AuthorizationForm {
+    fn default() -> Self {
+        Self::AuthorizationForm(Box::default())
+    }
+}
+
 impl AuthorizationForm {
     pub fn constructor_id(&self) -> u32 {
         match self {

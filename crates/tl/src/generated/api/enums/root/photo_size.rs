@@ -18,6 +18,12 @@ pub enum PhotoSize {
     PhotoPathSize(Box<crate::generated::api::types::PhotoPathSize>),
 }
 
+impl Default for PhotoSize {
+    fn default() -> Self {
+        Self::Empty(Box::default())
+    }
+}
+
 impl PhotoSize {
     pub fn constructor_id(&self) -> u32 {
         match self {

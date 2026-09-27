@@ -10,6 +10,12 @@ pub enum StarsRevenueWithdrawalUrl {
     ),
 }
 
+impl Default for StarsRevenueWithdrawalUrl {
+    fn default() -> Self {
+        Self::StarsRevenueWithdrawalUrl(Box::default())
+    }
+}
+
 impl StarsRevenueWithdrawalUrl {
     pub fn constructor_id(&self) -> u32 {
         match self {

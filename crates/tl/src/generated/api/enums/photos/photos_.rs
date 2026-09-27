@@ -10,6 +10,12 @@ pub enum Photos {
     Slice(Box<crate::generated::api::types::photos::PhotosSlice>),
 }
 
+impl Default for Photos {
+    fn default() -> Self {
+        Self::Photos(Box::default())
+    }
+}
+
 impl Photos {
     pub fn constructor_id(&self) -> u32 {
         match self {

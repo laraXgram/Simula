@@ -10,6 +10,12 @@ pub enum MessageReplyHeader {
     MessageReplyStoryHeader(Box<crate::generated::api::types::MessageReplyStoryHeader>),
 }
 
+impl Default for MessageReplyHeader {
+    fn default() -> Self {
+        Self::MessageReplyHeader(Box::default())
+    }
+}
+
 impl MessageReplyHeader {
     pub fn constructor_id(&self) -> u32 {
         match self {

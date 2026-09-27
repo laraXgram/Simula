@@ -8,6 +8,12 @@ pub enum CodeSettings {
     CodeSettings(Box<crate::generated::api::types::CodeSettings>),
 }
 
+impl Default for CodeSettings {
+    fn default() -> Self {
+        Self::CodeSettings(Box::default())
+    }
+}
+
 impl CodeSettings {
     pub fn constructor_id(&self) -> u32 {
         match self {

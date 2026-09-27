@@ -8,6 +8,12 @@ pub enum CountryCode {
     CountryCode(Box<crate::generated::api::types::help::CountryCode>),
 }
 
+impl Default for CountryCode {
+    fn default() -> Self {
+        Self::CountryCode(Box::default())
+    }
+}
+
 impl CountryCode {
     pub fn constructor_id(&self) -> u32 {
         match self {

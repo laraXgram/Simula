@@ -8,6 +8,12 @@ pub enum CommunityPeerRequest {
     CommunityPeerRequest(Box<crate::generated::api::types::CommunityPeerRequest>),
 }
 
+impl Default for CommunityPeerRequest {
+    fn default() -> Self {
+        Self::CommunityPeerRequest(Box::default())
+    }
+}
+
 impl CommunityPeerRequest {
     pub fn constructor_id(&self) -> u32 {
         match self {

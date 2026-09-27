@@ -8,6 +8,12 @@ pub enum MegagroupStats {
     MegagroupStats(Box<crate::generated::api::types::stats::MegagroupStats>),
 }
 
+impl Default for MegagroupStats {
+    fn default() -> Self {
+        Self::MegagroupStats(Box::default())
+    }
+}
+
 impl MegagroupStats {
     pub fn constructor_id(&self) -> u32 {
         match self {

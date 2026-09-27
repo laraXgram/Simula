@@ -8,6 +8,12 @@ pub enum StoryReactionsList {
     StoryReactionsList(Box<crate::generated::api::types::stories::StoryReactionsList>),
 }
 
+impl Default for StoryReactionsList {
+    fn default() -> Self {
+        Self::StoryReactionsList(Box::default())
+    }
+}
+
 impl StoryReactionsList {
     pub fn constructor_id(&self) -> u32 {
         match self {

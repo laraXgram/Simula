@@ -10,6 +10,12 @@ pub enum IpPort {
     Secret(Box<crate::generated::api::types::IpPortSecret>),
 }
 
+impl Default for IpPort {
+    fn default() -> Self {
+        Self::IpPort(Box::default())
+    }
+}
+
 impl IpPort {
     pub fn constructor_id(&self) -> u32 {
         match self {

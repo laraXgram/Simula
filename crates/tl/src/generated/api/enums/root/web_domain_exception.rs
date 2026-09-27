@@ -8,6 +8,12 @@ pub enum WebDomainException {
     WebDomainException(Box<crate::generated::api::types::WebDomainException>),
 }
 
+impl Default for WebDomainException {
+    fn default() -> Self {
+        Self::WebDomainException(Box::default())
+    }
+}
+
 impl WebDomainException {
     pub fn constructor_id(&self) -> u32 {
         match self {

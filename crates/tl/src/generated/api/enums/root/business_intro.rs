@@ -8,6 +8,12 @@ pub enum BusinessIntro {
     BusinessIntro(Box<crate::generated::api::types::BusinessIntro>),
 }
 
+impl Default for BusinessIntro {
+    fn default() -> Self {
+        Self::BusinessIntro(Box::default())
+    }
+}
+
 impl BusinessIntro {
     pub fn constructor_id(&self) -> u32 {
         match self {

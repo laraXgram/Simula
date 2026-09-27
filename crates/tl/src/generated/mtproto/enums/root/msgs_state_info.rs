@@ -8,6 +8,12 @@ pub enum MsgsStateInfo {
     MsgsStateInfo(Box<crate::generated::mtproto::types::MsgsStateInfo>),
 }
 
+impl Default for MsgsStateInfo {
+    fn default() -> Self {
+        Self::MsgsStateInfo(Box::default())
+    }
+}
+
 impl MsgsStateInfo {
     pub fn constructor_id(&self) -> u32 {
         match self {

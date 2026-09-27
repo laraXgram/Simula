@@ -8,6 +8,12 @@ pub enum AttachMenuBotsBot {
     AttachMenuBotsBot(Box<crate::generated::api::types::AttachMenuBotsBot>),
 }
 
+impl Default for AttachMenuBotsBot {
+    fn default() -> Self {
+        Self::AttachMenuBotsBot(Box::default())
+    }
+}
+
 impl AttachMenuBotsBot {
     pub fn constructor_id(&self) -> u32 {
         match self {

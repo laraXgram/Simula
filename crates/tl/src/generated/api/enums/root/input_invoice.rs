@@ -40,6 +40,12 @@ pub enum InputInvoice {
     StarGiftAuctionBid(Box<crate::generated::api::types::InputInvoiceStarGiftAuctionBid>),
 }
 
+impl Default for InputInvoice {
+    fn default() -> Self {
+        Self::Slug(Box::default())
+    }
+}
+
 impl InputInvoice {
     pub fn constructor_id(&self) -> u32 {
         match self {

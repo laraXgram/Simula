@@ -8,6 +8,12 @@ pub enum SmsJob {
     SmsJob(Box<crate::generated::api::types::SmsJob>),
 }
 
+impl Default for SmsJob {
+    fn default() -> Self {
+        Self::SmsJob(Box::default())
+    }
+}
+
 impl SmsJob {
     pub fn constructor_id(&self) -> u32 {
         match self {

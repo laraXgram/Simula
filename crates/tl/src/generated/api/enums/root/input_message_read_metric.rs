@@ -8,6 +8,12 @@ pub enum InputMessageReadMetric {
     InputMessageReadMetric(Box<crate::generated::api::types::InputMessageReadMetric>),
 }
 
+impl Default for InputMessageReadMetric {
+    fn default() -> Self {
+        Self::InputMessageReadMetric(Box::default())
+    }
+}
+
 impl InputMessageReadMetric {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum VotesList {
     VotesList(Box<crate::generated::api::types::messages::VotesList>),
 }
 
+impl Default for VotesList {
+    fn default() -> Self {
+        Self::VotesList(Box::default())
+    }
+}
+
 impl VotesList {
     pub fn constructor_id(&self) -> u32 {
         match self {

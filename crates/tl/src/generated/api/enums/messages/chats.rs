@@ -10,6 +10,12 @@ pub enum Chats {
     Slice(Box<crate::generated::api::types::messages::ChatsSlice>),
 }
 
+impl Default for Chats {
+    fn default() -> Self {
+        Self::Chats(Box::default())
+    }
+}
+
 impl Chats {
     pub fn constructor_id(&self) -> u32 {
         match self {

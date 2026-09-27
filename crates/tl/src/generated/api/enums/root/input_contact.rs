@@ -8,6 +8,12 @@ pub enum InputContact {
     InputPhoneContact(Box<crate::generated::api::types::InputPhoneContact>),
 }
 
+impl Default for InputContact {
+    fn default() -> Self {
+        Self::InputPhoneContact(Box::default())
+    }
+}
+
 impl InputContact {
     pub fn constructor_id(&self) -> u32 {
         match self {

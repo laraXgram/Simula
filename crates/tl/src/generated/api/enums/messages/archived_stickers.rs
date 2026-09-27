@@ -8,6 +8,12 @@ pub enum ArchivedStickers {
     ArchivedStickers(Box<crate::generated::api::types::messages::ArchivedStickers>),
 }
 
+impl Default for ArchivedStickers {
+    fn default() -> Self {
+        Self::ArchivedStickers(Box::default())
+    }
+}
+
 impl ArchivedStickers {
     pub fn constructor_id(&self) -> u32 {
         match self {

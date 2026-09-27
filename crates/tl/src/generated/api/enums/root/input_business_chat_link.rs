@@ -8,6 +8,12 @@ pub enum InputBusinessChatLink {
     InputBusinessChatLink(Box<crate::generated::api::types::InputBusinessChatLink>),
 }
 
+impl Default for InputBusinessChatLink {
+    fn default() -> Self {
+        Self::InputBusinessChatLink(Box::default())
+    }
+}
+
 impl InputBusinessChatLink {
     pub fn constructor_id(&self) -> u32 {
         match self {

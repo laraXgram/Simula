@@ -12,6 +12,12 @@ pub enum RequestedPeer {
     Channel(Box<crate::generated::api::types::RequestedPeerChannel>),
 }
 
+impl Default for RequestedPeer {
+    fn default() -> Self {
+        Self::User(Box::default())
+    }
+}
+
 impl RequestedPeer {
     pub fn constructor_id(&self) -> u32 {
         match self {

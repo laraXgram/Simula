@@ -8,6 +8,12 @@ pub enum AttachMenuBotIcon {
     AttachMenuBotIcon(Box<crate::generated::api::types::AttachMenuBotIcon>),
 }
 
+impl Default for AttachMenuBotIcon {
+    fn default() -> Self {
+        Self::AttachMenuBotIcon(Box::default())
+    }
+}
+
 impl AttachMenuBotIcon {
     pub fn constructor_id(&self) -> u32 {
         match self {

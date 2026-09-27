@@ -8,6 +8,12 @@ pub enum PublicForwards {
     PublicForwards(Box<crate::generated::api::types::stats::PublicForwards>),
 }
 
+impl Default for PublicForwards {
+    fn default() -> Self {
+        Self::PublicForwards(Box::default())
+    }
+}
+
 impl PublicForwards {
     pub fn constructor_id(&self) -> u32 {
         match self {

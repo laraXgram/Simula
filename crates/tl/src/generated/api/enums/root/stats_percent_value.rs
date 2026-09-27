@@ -8,6 +8,12 @@ pub enum StatsPercentValue {
     StatsPercentValue(Box<crate::generated::api::types::StatsPercentValue>),
 }
 
+impl Default for StatsPercentValue {
+    fn default() -> Self {
+        Self::StatsPercentValue(Box::default())
+    }
+}
+
 impl StatsPercentValue {
     pub fn constructor_id(&self) -> u32 {
         match self {

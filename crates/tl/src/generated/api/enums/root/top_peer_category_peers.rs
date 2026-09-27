@@ -8,6 +8,12 @@ pub enum TopPeerCategoryPeers {
     TopPeerCategoryPeers(Box<crate::generated::api::types::TopPeerCategoryPeers>),
 }
 
+impl Default for TopPeerCategoryPeers {
+    fn default() -> Self {
+        Self::TopPeerCategoryPeers(Box::default())
+    }
+}
+
 impl TopPeerCategoryPeers {
     pub fn constructor_id(&self) -> u32 {
         match self {

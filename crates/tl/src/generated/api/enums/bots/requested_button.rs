@@ -8,6 +8,12 @@ pub enum RequestedButton {
     RequestedButton(Box<crate::generated::api::types::bots::RequestedButton>),
 }
 
+impl Default for RequestedButton {
+    fn default() -> Self {
+        Self::RequestedButton(Box::default())
+    }
+}
+
 impl RequestedButton {
     pub fn constructor_id(&self) -> u32 {
         match self {

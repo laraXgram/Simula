@@ -8,6 +8,12 @@ pub enum ExportedInvoice {
     ExportedInvoice(Box<crate::generated::api::types::payments::ExportedInvoice>),
 }
 
+impl Default for ExportedInvoice {
+    fn default() -> Self {
+        Self::ExportedInvoice(Box::default())
+    }
+}
+
 impl ExportedInvoice {
     pub fn constructor_id(&self) -> u32 {
         match self {

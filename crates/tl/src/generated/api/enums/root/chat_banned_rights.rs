@@ -8,6 +8,12 @@ pub enum ChatBannedRights {
     ChatBannedRights(Box<crate::generated::api::types::ChatBannedRights>),
 }
 
+impl Default for ChatBannedRights {
+    fn default() -> Self {
+        Self::ChatBannedRights(Box::default())
+    }
+}
+
 impl ChatBannedRights {
     pub fn constructor_id(&self) -> u32 {
         match self {

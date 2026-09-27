@@ -8,6 +8,12 @@ pub enum InputBusinessBotRecipients {
     InputBusinessBotRecipients(Box<crate::generated::api::types::InputBusinessBotRecipients>),
 }
 
+impl Default for InputBusinessBotRecipients {
+    fn default() -> Self {
+        Self::InputBusinessBotRecipients(Box::default())
+    }
+}
+
 impl InputBusinessBotRecipients {
     pub fn constructor_id(&self) -> u32 {
         match self {

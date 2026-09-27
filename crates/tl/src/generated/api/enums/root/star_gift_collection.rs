@@ -8,6 +8,12 @@ pub enum StarGiftCollection {
     StarGiftCollection(Box<crate::generated::api::types::StarGiftCollection>),
 }
 
+impl Default for StarGiftCollection {
+    fn default() -> Self {
+        Self::StarGiftCollection(Box::default())
+    }
+}
+
 impl StarGiftCollection {
     pub fn constructor_id(&self) -> u32 {
         match self {

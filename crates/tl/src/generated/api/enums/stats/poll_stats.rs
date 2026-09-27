@@ -8,6 +8,12 @@ pub enum PollStats {
     PollStats(Box<crate::generated::api::types::stats::PollStats>),
 }
 
+impl Default for PollStats {
+    fn default() -> Self {
+        Self::PollStats(Box::default())
+    }
+}
+
 impl PollStats {
     pub fn constructor_id(&self) -> u32 {
         match self {

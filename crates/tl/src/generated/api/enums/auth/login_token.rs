@@ -12,6 +12,12 @@ pub enum LoginToken {
     Success(Box<crate::generated::api::types::auth::LoginTokenSuccess>),
 }
 
+impl Default for LoginToken {
+    fn default() -> Self {
+        Self::LoginToken(Box::default())
+    }
+}
+
 impl LoginToken {
     pub fn constructor_id(&self) -> u32 {
         match self {

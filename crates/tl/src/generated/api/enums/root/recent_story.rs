@@ -8,6 +8,12 @@ pub enum RecentStory {
     RecentStory(Box<crate::generated::api::types::RecentStory>),
 }
 
+impl Default for RecentStory {
+    fn default() -> Self {
+        Self::RecentStory(Box::default())
+    }
+}
+
 impl RecentStory {
     pub fn constructor_id(&self) -> u32 {
         match self {

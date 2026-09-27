@@ -8,6 +8,12 @@ pub enum BindAuthKeyInner {
     BindAuthKeyInner(Box<crate::generated::mtproto::types::BindAuthKeyInner>),
 }
 
+impl Default for BindAuthKeyInner {
+    fn default() -> Self {
+        Self::BindAuthKeyInner(Box::default())
+    }
+}
+
 impl BindAuthKeyInner {
     pub fn constructor_id(&self) -> u32 {
         match self {

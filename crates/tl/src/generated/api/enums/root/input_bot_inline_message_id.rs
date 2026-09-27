@@ -10,6 +10,12 @@ pub enum InputBotInlineMessageID {
     InputBotInlineMessageID64(Box<crate::generated::api::types::InputBotInlineMessageID64>),
 }
 
+impl Default for InputBotInlineMessageID {
+    fn default() -> Self {
+        Self::InputBotInlineMessageID(Box::default())
+    }
+}
+
 impl InputBotInlineMessageID {
     pub fn constructor_id(&self) -> u32 {
         match self {

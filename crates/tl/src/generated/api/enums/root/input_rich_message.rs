@@ -12,6 +12,12 @@ pub enum InputRichMessage {
     Markdown(Box<crate::generated::api::types::InputRichMessageMarkdown>),
 }
 
+impl Default for InputRichMessage {
+    fn default() -> Self {
+        Self::InputRichMessage(Box::default())
+    }
+}
+
 impl InputRichMessage {
     pub fn constructor_id(&self) -> u32 {
         match self {

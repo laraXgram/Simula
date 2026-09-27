@@ -16,6 +16,12 @@ pub enum EncryptedChat {
     Discarded(Box<crate::generated::api::types::EncryptedChatDiscarded>),
 }
 
+impl Default for EncryptedChat {
+    fn default() -> Self {
+        Self::Empty(Box::default())
+    }
+}
+
 impl EncryptedChat {
     pub fn constructor_id(&self) -> u32 {
         match self {

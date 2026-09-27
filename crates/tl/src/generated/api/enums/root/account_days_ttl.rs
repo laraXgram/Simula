@@ -8,6 +8,12 @@ pub enum AccountDaysTTL {
     AccountDaysTTL(Box<crate::generated::api::types::AccountDaysTTL>),
 }
 
+impl Default for AccountDaysTTL {
+    fn default() -> Self {
+        Self::AccountDaysTTL(Box::default())
+    }
+}
+
 impl AccountDaysTTL {
     pub fn constructor_id(&self) -> u32 {
         match self {

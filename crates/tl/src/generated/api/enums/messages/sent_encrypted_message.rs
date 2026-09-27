@@ -10,6 +10,12 @@ pub enum SentEncryptedMessage {
     SentEncryptedFile(Box<crate::generated::api::types::messages::SentEncryptedFile>),
 }
 
+impl Default for SentEncryptedMessage {
+    fn default() -> Self {
+        Self::SentEncryptedMessage(Box::default())
+    }
+}
+
 impl SentEncryptedMessage {
     pub fn constructor_id(&self) -> u32 {
         match self {

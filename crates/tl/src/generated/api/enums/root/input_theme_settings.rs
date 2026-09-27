@@ -8,6 +8,12 @@ pub enum InputThemeSettings {
     InputThemeSettings(Box<crate::generated::api::types::InputThemeSettings>),
 }
 
+impl Default for InputThemeSettings {
+    fn default() -> Self {
+        Self::InputThemeSettings(Box::default())
+    }
+}
+
 impl InputThemeSettings {
     pub fn constructor_id(&self) -> u32 {
         match self {

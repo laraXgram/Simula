@@ -5,6 +5,38 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-09-27 — M1 (part 1) · `simula-core`: private chats at the MTProto level
+
+- New crate `simula-core`. One **actor thread per sandbox** owns its SQLite connection
+  and runs each job in one transaction (no locks, deterministic order). Async API:
+  `Sandbox::invoke(caller, Function)`, typed `Sandbox::call(caller, F) -> F::Return`,
+  `admin(...)` for Control-API operations, broadcast channels for updates and events.
+- Storage (P2.1): migrations via `user_version`, in-memory or file (WAL), tables for
+  accounts, per-account state (pts/qts/seq, next message id), message boxes and the
+  pts update log. Uncommon attributes go in JSON `extra` columns.
+- Accounts (P2.2): users (ids from 1 000 000 001) and bots (from 7 000 000 001) with
+  realistic tokens; a supplied token fixes the bot id (frameworks read it from the
+  token). Username rules and `USERNAME_OCCUPIED`. **Access hashes are per
+  (viewer, target)** and derived from a per-sandbox secret, so nothing is stored and a
+  hash one account learned is useless to another — as in Telegram.
+- Message boxes (P2.4, private chats): each side stores its own copy with its own id and
+  perspective (`out`, `peer_id`), linked by `global_id`. Updates (P2.5): per-account pts,
+  logged; the outbox renders recipients' users with *their* access hashes inside the
+  transaction and publishes after commit; the calling session is tagged as origin.
+- TL handlers (P2.9, first three): `messages.sendMessage` (private), `users.getUsers`,
+  `updates.getState`; `invokeWithLayer`/`initConnection`/`invokeWithoutUpdates` unwrap.
+  Everything else answers `501 NOT_IMPLEMENTED_IN_SIMULA: <function>`.
+- Errors are authentic MTProto errors. Found in tdlib's `MessagesManager.cpp`: the server
+  answers a bot writing first with `400 PEER_ID_INVALID`, which tdlib turns into `403
+  Bot can't initiate conversation with a user`; the Bot API gateway will replicate that
+  translation chain from tdlib instead of inventing texts.
+- TL codegen: structs/enums now derive `Default` where possible (2460 structs, 618 enums;
+  unit defaults via `#[default]`), so handlers write `types::User { id, .., ..Default::default() }`.
+- **Verification**: integration test of a user↔bot exchange (bot can't write first,
+  per-box ids 1/2, per-account pts, bot sees the user's `lang_code` and its *own* access
+  hash), forged access hash rejected, unimplemented functions reported, token-derived bot
+  ids. 0 warnings, 0 clippy warnings.
+
 ## 2026-09-27 — P1.8 · TypeScript types (`@simula/schema`)
 
 - `bun run codegen ts` generates `packages/schema/src/generated/{tl,botapi}.ts`:

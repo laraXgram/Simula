@@ -10,6 +10,12 @@ pub enum AllStories {
     AllStories(Box<crate::generated::api::types::stories::AllStories>),
 }
 
+impl Default for AllStories {
+    fn default() -> Self {
+        Self::NotModified(Box::default())
+    }
+}
+
 impl AllStories {
     pub fn constructor_id(&self) -> u32 {
         match self {

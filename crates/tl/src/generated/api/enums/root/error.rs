@@ -8,6 +8,12 @@ pub enum Error {
     Error(Box<crate::generated::api::types::Error>),
 }
 
+impl Default for Error {
+    fn default() -> Self {
+        Self::Error(Box::default())
+    }
+}
+
 impl Error {
     pub fn constructor_id(&self) -> u32 {
         match self {

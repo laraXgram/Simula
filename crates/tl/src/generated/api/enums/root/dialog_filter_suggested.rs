@@ -8,6 +8,12 @@ pub enum DialogFilterSuggested {
     DialogFilterSuggested(Box<crate::generated::api::types::DialogFilterSuggested>),
 }
 
+impl Default for DialogFilterSuggested {
+    fn default() -> Self {
+        Self::DialogFilterSuggested(Box::default())
+    }
+}
+
 impl DialogFilterSuggested {
     pub fn constructor_id(&self) -> u32 {
         match self {

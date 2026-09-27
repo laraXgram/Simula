@@ -8,6 +8,12 @@ pub enum DataJSON {
     DataJSON(Box<crate::generated::api::types::DataJSON>),
 }
 
+impl Default for DataJSON {
+    fn default() -> Self {
+        Self::DataJSON(Box::default())
+    }
+}
+
 impl DataJSON {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -30,6 +30,12 @@ pub enum InputStorePaymentPurpose {
     InputStorePaymentAuthCode(Box<crate::generated::api::types::InputStorePaymentAuthCode>),
 }
 
+impl Default for InputStorePaymentPurpose {
+    fn default() -> Self {
+        Self::InputStorePaymentPremiumSubscription(Box::default())
+    }
+}
+
 impl InputStorePaymentPurpose {
     pub fn constructor_id(&self) -> u32 {
         match self {

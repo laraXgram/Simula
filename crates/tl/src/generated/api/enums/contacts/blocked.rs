@@ -10,6 +10,12 @@ pub enum Blocked {
     Slice(Box<crate::generated::api::types::contacts::BlockedSlice>),
 }
 
+impl Default for Blocked {
+    fn default() -> Self {
+        Self::Blocked(Box::default())
+    }
+}
+
 impl Blocked {
     pub fn constructor_id(&self) -> u32 {
         match self {

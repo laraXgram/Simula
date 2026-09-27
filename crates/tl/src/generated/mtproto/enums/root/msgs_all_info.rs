@@ -8,6 +8,12 @@ pub enum MsgsAllInfo {
     MsgsAllInfo(Box<crate::generated::mtproto::types::MsgsAllInfo>),
 }
 
+impl Default for MsgsAllInfo {
+    fn default() -> Self {
+        Self::MsgsAllInfo(Box::default())
+    }
+}
+
 impl MsgsAllInfo {
     pub fn constructor_id(&self) -> u32 {
         match self {

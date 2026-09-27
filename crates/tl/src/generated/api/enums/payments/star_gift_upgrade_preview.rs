@@ -8,6 +8,12 @@ pub enum StarGiftUpgradePreview {
     StarGiftUpgradePreview(Box<crate::generated::api::types::payments::StarGiftUpgradePreview>),
 }
 
+impl Default for StarGiftUpgradePreview {
+    fn default() -> Self {
+        Self::StarGiftUpgradePreview(Box::default())
+    }
+}
+
 impl StarGiftUpgradePreview {
     pub fn constructor_id(&self) -> u32 {
         match self {

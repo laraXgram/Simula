@@ -8,6 +8,12 @@ pub enum ChatInviteImporter {
     ChatInviteImporter(Box<crate::generated::api::types::ChatInviteImporter>),
 }
 
+impl Default for ChatInviteImporter {
+    fn default() -> Self {
+        Self::ChatInviteImporter(Box::default())
+    }
+}
+
 impl ChatInviteImporter {
     pub fn constructor_id(&self) -> u32 {
         match self {

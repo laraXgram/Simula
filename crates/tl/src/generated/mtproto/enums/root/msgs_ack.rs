@@ -8,6 +8,12 @@ pub enum MsgsAck {
     MsgsAck(Box<crate::generated::mtproto::types::MsgsAck>),
 }
 
+impl Default for MsgsAck {
+    fn default() -> Self {
+        Self::MsgsAck(Box::default())
+    }
+}
+
 impl MsgsAck {
     pub fn constructor_id(&self) -> u32 {
         match self {

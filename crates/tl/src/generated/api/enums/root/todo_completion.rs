@@ -8,6 +8,12 @@ pub enum TodoCompletion {
     TodoCompletion(Box<crate::generated::api::types::TodoCompletion>),
 }
 
+impl Default for TodoCompletion {
+    fn default() -> Self {
+        Self::TodoCompletion(Box::default())
+    }
+}
+
 impl TodoCompletion {
     pub fn constructor_id(&self) -> u32 {
         match self {

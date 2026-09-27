@@ -8,6 +8,12 @@ pub enum MsgResendReq {
     MsgResendReq(Box<crate::generated::mtproto::types::MsgResendReq>),
 }
 
+impl Default for MsgResendReq {
+    fn default() -> Self {
+        Self::MsgResendReq(Box::default())
+    }
+}
+
 impl MsgResendReq {
     pub fn constructor_id(&self) -> u32 {
         match self {

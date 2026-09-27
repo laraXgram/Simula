@@ -8,6 +8,12 @@ pub enum BotResults {
     BotResults(Box<crate::generated::api::types::messages::BotResults>),
 }
 
+impl Default for BotResults {
+    fn default() -> Self {
+        Self::BotResults(Box::default())
+    }
+}
+
 impl BotResults {
     pub fn constructor_id(&self) -> u32 {
         match self {

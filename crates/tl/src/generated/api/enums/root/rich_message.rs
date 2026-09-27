@@ -8,6 +8,12 @@ pub enum RichMessage {
     RichMessage(Box<crate::generated::api::types::RichMessage>),
 }
 
+impl Default for RichMessage {
+    fn default() -> Self {
+        Self::RichMessage(Box::default())
+    }
+}
+
 impl RichMessage {
     pub fn constructor_id(&self) -> u32 {
         match self {

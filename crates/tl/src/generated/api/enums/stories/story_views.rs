@@ -8,6 +8,12 @@ pub enum StoryViews {
     StoryViews(Box<crate::generated::api::types::stories::StoryViews>),
 }
 
+impl Default for StoryViews {
+    fn default() -> Self {
+        Self::StoryViews(Box::default())
+    }
+}
+
 impl StoryViews {
     pub fn constructor_id(&self) -> u32 {
         match self {

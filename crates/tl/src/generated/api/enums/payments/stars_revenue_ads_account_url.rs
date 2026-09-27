@@ -10,6 +10,12 @@ pub enum StarsRevenueAdsAccountUrl {
     ),
 }
 
+impl Default for StarsRevenueAdsAccountUrl {
+    fn default() -> Self {
+        Self::StarsRevenueAdsAccountUrl(Box::default())
+    }
+}
+
 impl StarsRevenueAdsAccountUrl {
     pub fn constructor_id(&self) -> u32 {
         match self {

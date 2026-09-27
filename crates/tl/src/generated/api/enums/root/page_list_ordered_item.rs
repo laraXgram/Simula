@@ -10,6 +10,12 @@ pub enum PageListOrderedItem {
     Blocks(Box<crate::generated::api::types::PageListOrderedItemBlocks>),
 }
 
+impl Default for PageListOrderedItem {
+    fn default() -> Self {
+        Self::Blocks(Box::default())
+    }
+}
+
 impl PageListOrderedItem {
     pub fn constructor_id(&self) -> u32 {
         match self {

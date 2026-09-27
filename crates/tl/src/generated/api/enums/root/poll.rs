@@ -8,6 +8,12 @@ pub enum Poll {
     Poll(Box<crate::generated::api::types::Poll>),
 }
 
+impl Default for Poll {
+    fn default() -> Self {
+        Self::Poll(Box::default())
+    }
+}
+
 impl Poll {
     pub fn constructor_id(&self) -> u32 {
         match self {

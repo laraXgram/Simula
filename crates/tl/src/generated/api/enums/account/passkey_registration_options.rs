@@ -10,6 +10,12 @@ pub enum PasskeyRegistrationOptions {
     ),
 }
 
+impl Default for PasskeyRegistrationOptions {
+    fn default() -> Self {
+        Self::PasskeyRegistrationOptions(Box::default())
+    }
+}
+
 impl PasskeyRegistrationOptions {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum StickerPack {
     StickerPack(Box<crate::generated::api::types::StickerPack>),
 }
 
+impl Default for StickerPack {
+    fn default() -> Self {
+        Self::StickerPack(Box::default())
+    }
+}
+
 impl StickerPack {
     pub fn constructor_id(&self) -> u32 {
         match self {

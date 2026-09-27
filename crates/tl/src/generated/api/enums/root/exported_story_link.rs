@@ -8,6 +8,12 @@ pub enum ExportedStoryLink {
     ExportedStoryLink(Box<crate::generated::api::types::ExportedStoryLink>),
 }
 
+impl Default for ExportedStoryLink {
+    fn default() -> Self {
+        Self::ExportedStoryLink(Box::default())
+    }
+}
+
 impl ExportedStoryLink {
     pub fn constructor_id(&self) -> u32 {
         match self {

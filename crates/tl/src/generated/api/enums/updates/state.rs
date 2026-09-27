@@ -8,6 +8,12 @@ pub enum State {
     State(Box<crate::generated::api::types::updates::State>),
 }
 
+impl Default for State {
+    fn default() -> Self {
+        Self::State(Box::default())
+    }
+}
+
 impl State {
     pub fn constructor_id(&self) -> u32 {
         match self {

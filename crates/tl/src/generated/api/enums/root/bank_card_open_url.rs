@@ -8,6 +8,12 @@ pub enum BankCardOpenUrl {
     BankCardOpenUrl(Box<crate::generated::api::types::BankCardOpenUrl>),
 }
 
+impl Default for BankCardOpenUrl {
+    fn default() -> Self {
+        Self::BankCardOpenUrl(Box::default())
+    }
+}
+
 impl BankCardOpenUrl {
     pub fn constructor_id(&self) -> u32 {
         match self {

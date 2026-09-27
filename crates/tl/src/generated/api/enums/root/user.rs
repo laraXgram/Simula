@@ -10,6 +10,12 @@ pub enum User {
     User(Box<crate::generated::api::types::User>),
 }
 
+impl Default for User {
+    fn default() -> Self {
+        Self::Empty(Box::default())
+    }
+}
+
 impl User {
     pub fn constructor_id(&self) -> u32 {
         match self {

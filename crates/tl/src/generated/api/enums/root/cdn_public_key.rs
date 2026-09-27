@@ -8,6 +8,12 @@ pub enum CdnPublicKey {
     CdnPublicKey(Box<crate::generated::api::types::CdnPublicKey>),
 }
 
+impl Default for CdnPublicKey {
+    fn default() -> Self {
+        Self::CdnPublicKey(Box::default())
+    }
+}
+
 impl CdnPublicKey {
     pub fn constructor_id(&self) -> u32 {
         match self {

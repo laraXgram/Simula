@@ -8,6 +8,12 @@ pub enum FirebasePnvIntent {
     FirebasePnvIntent(Box<crate::generated::api::types::auth::FirebasePnvIntent>),
 }
 
+impl Default for FirebasePnvIntent {
+    fn default() -> Self {
+        Self::FirebasePnvIntent(Box::default())
+    }
+}
+
 impl FirebasePnvIntent {
     pub fn constructor_id(&self) -> u32 {
         match self {

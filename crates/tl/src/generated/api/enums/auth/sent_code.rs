@@ -12,6 +12,12 @@ pub enum SentCode {
     PaymentRequired(Box<crate::generated::api::types::auth::SentCodePaymentRequired>),
 }
 
+impl Default for SentCode {
+    fn default() -> Self {
+        Self::PaymentRequired(Box::default())
+    }
+}
+
 impl SentCode {
     pub fn constructor_id(&self) -> u32 {
         match self {

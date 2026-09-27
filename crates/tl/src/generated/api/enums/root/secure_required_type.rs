@@ -10,6 +10,12 @@ pub enum SecureRequiredType {
     OneOf(Box<crate::generated::api::types::SecureRequiredTypeOneOf>),
 }
 
+impl Default for SecureRequiredType {
+    fn default() -> Self {
+        Self::OneOf(Box::default())
+    }
+}
+
 impl SecureRequiredType {
     pub fn constructor_id(&self) -> u32 {
         match self {

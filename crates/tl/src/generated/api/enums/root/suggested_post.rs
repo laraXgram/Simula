@@ -8,6 +8,12 @@ pub enum SuggestedPost {
     SuggestedPost(Box<crate::generated::api::types::SuggestedPost>),
 }
 
+impl Default for SuggestedPost {
+    fn default() -> Self {
+        Self::SuggestedPost(Box::default())
+    }
+}
+
 impl SuggestedPost {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum RSAPublicKey {
     RsaPublicKey(Box<crate::generated::mtproto::types::RsaPublicKey>),
 }
 
+impl Default for RSAPublicKey {
+    fn default() -> Self {
+        Self::RsaPublicKey(Box::default())
+    }
+}
+
 impl RSAPublicKey {
     pub fn constructor_id(&self) -> u32 {
         match self {

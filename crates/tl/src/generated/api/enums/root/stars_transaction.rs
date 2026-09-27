@@ -8,6 +8,12 @@ pub enum StarsTransaction {
     StarsTransaction(Box<crate::generated::api::types::StarsTransaction>),
 }
 
+impl Default for StarsTransaction {
+    fn default() -> Self {
+        Self::StarsTransaction(Box::default())
+    }
+}
+
 impl StarsTransaction {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum PrivacyRules {
     PrivacyRules(Box<crate::generated::api::types::account::PrivacyRules>),
 }
 
+impl Default for PrivacyRules {
+    fn default() -> Self {
+        Self::PrivacyRules(Box::default())
+    }
+}
+
 impl PrivacyRules {
     pub fn constructor_id(&self) -> u32 {
         match self {

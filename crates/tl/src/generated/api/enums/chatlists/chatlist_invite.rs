@@ -10,6 +10,12 @@ pub enum ChatlistInvite {
     ChatlistInvite(Box<crate::generated::api::types::chatlists::ChatlistInvite>),
 }
 
+impl Default for ChatlistInvite {
+    fn default() -> Self {
+        Self::Already(Box::default())
+    }
+}
+
 impl ChatlistInvite {
     pub fn constructor_id(&self) -> u32 {
         match self {

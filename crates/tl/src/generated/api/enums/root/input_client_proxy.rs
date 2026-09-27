@@ -8,6 +8,12 @@ pub enum InputClientProxy {
     InputClientProxy(Box<crate::generated::api::types::InputClientProxy>),
 }
 
+impl Default for InputClientProxy {
+    fn default() -> Self {
+        Self::InputClientProxy(Box::default())
+    }
+}
+
 impl InputClientProxy {
     pub fn constructor_id(&self) -> u32 {
         match self {

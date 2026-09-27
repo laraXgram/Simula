@@ -8,6 +8,12 @@ pub enum AffectedFoundMessages {
     AffectedFoundMessages(Box<crate::generated::api::types::messages::AffectedFoundMessages>),
 }
 
+impl Default for AffectedFoundMessages {
+    fn default() -> Self {
+        Self::AffectedFoundMessages(Box::default())
+    }
+}
+
 impl AffectedFoundMessages {
     pub fn constructor_id(&self) -> u32 {
         match self {

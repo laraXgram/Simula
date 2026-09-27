@@ -8,6 +8,12 @@ pub enum PeerSettings {
     PeerSettings(Box<crate::generated::api::types::messages::PeerSettings>),
 }
 
+impl Default for PeerSettings {
+    fn default() -> Self {
+        Self::PeerSettings(Box::default())
+    }
+}
+
 impl PeerSettings {
     pub fn constructor_id(&self) -> u32 {
         match self {

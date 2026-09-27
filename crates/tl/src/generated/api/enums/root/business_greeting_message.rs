@@ -8,6 +8,12 @@ pub enum BusinessGreetingMessage {
     BusinessGreetingMessage(Box<crate::generated::api::types::BusinessGreetingMessage>),
 }
 
+impl Default for BusinessGreetingMessage {
+    fn default() -> Self {
+        Self::BusinessGreetingMessage(Box::default())
+    }
+}
+
 impl BusinessGreetingMessage {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum CheckedGiftCode {
     CheckedGiftCode(Box<crate::generated::api::types::payments::CheckedGiftCode>),
 }
 
+impl Default for CheckedGiftCode {
+    fn default() -> Self {
+        Self::CheckedGiftCode(Box::default())
+    }
+}
+
 impl CheckedGiftCode {
     pub fn constructor_id(&self) -> u32 {
         match self {

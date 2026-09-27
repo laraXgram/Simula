@@ -8,7 +8,22 @@ Every finished task is logged in [docs/worklog.md](docs/worklog.md) and committe
 
 **Targets:** Bot API **10.3** · MTProto layer from tdlib `telegram_api.tl`
 
-**Current focus:** P1 — specs & code generation (next: P1.9 registries and stubs)
+**Current focus:** M1 — first message end to end
+
+---
+
+## Milestones
+
+Phases below are the map; milestones are the order of work. Each milestone is a
+vertical slice through several phases, so the architecture is exercised end to end early.
+
+- [~] **M1 — first message end to end**: a user writes to a bot, the bot gets it via
+  `getUpdates`, replies with `sendMessage`, the user receives the reply.
+  Touches P2.1, P2.2, P2.4, P2.5, P2.7, P2.8, P2.9 (partial), P3.1, P3.2, P4.1, P4.4 (partial),
+  then P1.9–P1.10 once handler files exist.
+- [ ] **M2 — webhooks, formatting, keyboards, callbacks** (P3.3, P3.4, P3.6, wave 1 complete)
+- [ ] **M3 — client shell** talking TL over WebSocket (P5.1–P5.4)
+- [ ] **M4 — groups and channels** (P2.3, P2.10, P5.5)
 
 ---
 
@@ -34,15 +49,15 @@ Every finished task is logged in [docs/worklog.md](docs/worklog.md) and committe
 
 ## P2 — Core engine (MTProto semantics)
 
-- [ ] P2.1 Storage: SQLite per sandbox, migrations, in-memory mode
-- [ ] P2.2 Accounts (users, bots, tokens), peers, access hashes
+- [x] P2.1 Storage: SQLite per sandbox, migrations, in-memory mode
+- [x] P2.2 Accounts (users, bots, tokens), peers, access hashes
 - [ ] P2.3 Chats: private, basic group, supergroup, channel, forum; members, rights, bans
-- [ ] P2.4 Message boxes (per-account vs per-channel IDs), canonical TL storage, presenters
-- [ ] P2.5 Update engine: pts/qts/seq, channel pts, `Updates` shapes, difference log
+- [~] P2.4 Message boxes (per-account vs per-channel IDs), canonical TL storage, presenters
+- [~] P2.5 Update engine: pts/qts/seq, channel pts, `Updates` shapes, difference log
 - [ ] P2.6 Files: storage, file references, thumbnails metadata
-- [ ] P2.7 Virtual clock and scheduler (timers for polls, live locations, bans, scheduled posts)
-- [ ] P2.8 Event bus (RPC calls, updates, deliveries, logs)
-- [ ] P2.9 TL handlers, wave 1: users/bots, messages send/edit/delete/forward, callbacks
+- [~] P2.7 Virtual clock and scheduler (timers for polls, live locations, bans, scheduled posts)
+- [~] P2.8 Event bus (RPC calls, updates, deliveries, logs)
+- [~] P2.9 TL handlers, wave 1: users/bots, messages send/edit/delete/forward, callbacks
 - [ ] P2.10 TL handlers, wave 2: chats/channels admin, invites, join requests, forums
 - [ ] P2.11 TL handlers, wave 3: inline, payments/stars, stickers, games, polls, reactions
 - [ ] P2.12 TL handlers, wave 4: business, stories, gifts, checklists, suggested posts, boosts, verification

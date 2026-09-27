@@ -8,6 +8,12 @@ pub enum EmojiKeywordsDifference {
     EmojiKeywordsDifference(Box<crate::generated::api::types::EmojiKeywordsDifference>),
 }
 
+impl Default for EmojiKeywordsDifference {
+    fn default() -> Self {
+        Self::EmojiKeywordsDifference(Box::default())
+    }
+}
+
 impl EmojiKeywordsDifference {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -12,6 +12,12 @@ pub enum PeerColor {
     InputPeerColorCollectible(Box<crate::generated::api::types::InputPeerColorCollectible>),
 }
 
+impl Default for PeerColor {
+    fn default() -> Self {
+        Self::PeerColor(Box::default())
+    }
+}
+
 impl PeerColor {
     pub fn constructor_id(&self) -> u32 {
         match self {

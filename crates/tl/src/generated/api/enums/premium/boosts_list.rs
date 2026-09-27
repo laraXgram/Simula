@@ -8,6 +8,12 @@ pub enum BoostsList {
     BoostsList(Box<crate::generated::api::types::premium::BoostsList>),
 }
 
+impl Default for BoostsList {
+    fn default() -> Self {
+        Self::BoostsList(Box::default())
+    }
+}
+
 impl BoostsList {
     pub fn constructor_id(&self) -> u32 {
         match self {

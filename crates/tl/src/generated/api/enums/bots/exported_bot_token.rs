@@ -8,6 +8,12 @@ pub enum ExportedBotToken {
     ExportedBotToken(Box<crate::generated::api::types::bots::ExportedBotToken>),
 }
 
+impl Default for ExportedBotToken {
+    fn default() -> Self {
+        Self::ExportedBotToken(Box::default())
+    }
+}
+
 impl ExportedBotToken {
     pub fn constructor_id(&self) -> u32 {
         match self {

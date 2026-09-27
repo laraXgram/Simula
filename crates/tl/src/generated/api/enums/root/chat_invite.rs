@@ -12,6 +12,12 @@ pub enum ChatInvite {
     Peek(Box<crate::generated::api::types::ChatInvitePeek>),
 }
 
+impl Default for ChatInvite {
+    fn default() -> Self {
+        Self::Already(Box::default())
+    }
+}
+
 impl ChatInvite {
     pub fn constructor_id(&self) -> u32 {
         match self {

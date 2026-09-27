@@ -28,6 +28,12 @@ pub enum SentCodeType {
     SmsPhrase(Box<crate::generated::api::types::auth::SentCodeTypeSmsPhrase>),
 }
 
+impl Default for SentCodeType {
+    fn default() -> Self {
+        Self::App(Box::default())
+    }
+}
+
 impl SentCodeType {
     pub fn constructor_id(&self) -> u32 {
         match self {

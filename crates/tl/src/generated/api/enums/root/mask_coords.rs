@@ -8,6 +8,12 @@ pub enum MaskCoords {
     MaskCoords(Box<crate::generated::api::types::MaskCoords>),
 }
 
+impl Default for MaskCoords {
+    fn default() -> Self {
+        Self::MaskCoords(Box::default())
+    }
+}
+
 impl MaskCoords {
     pub fn constructor_id(&self) -> u32 {
         match self {

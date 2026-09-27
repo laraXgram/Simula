@@ -8,6 +8,12 @@ pub enum InviteText {
     InviteText(Box<crate::generated::api::types::help::InviteText>),
 }
 
+impl Default for InviteText {
+    fn default() -> Self {
+        Self::InviteText(Box::default())
+    }
+}
+
 impl InviteText {
     pub fn constructor_id(&self) -> u32 {
         match self {

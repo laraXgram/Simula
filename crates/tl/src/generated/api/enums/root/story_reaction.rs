@@ -12,6 +12,12 @@ pub enum StoryReaction {
     PublicRepost(Box<crate::generated::api::types::StoryReactionPublicRepost>),
 }
 
+impl Default for StoryReaction {
+    fn default() -> Self {
+        Self::StoryReaction(Box::default())
+    }
+}
+
 impl StoryReaction {
     pub fn constructor_id(&self) -> u32 {
         match self {

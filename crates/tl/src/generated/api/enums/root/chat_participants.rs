@@ -10,6 +10,12 @@ pub enum ChatParticipants {
     ChatParticipants(Box<crate::generated::api::types::ChatParticipants>),
 }
 
+impl Default for ChatParticipants {
+    fn default() -> Self {
+        Self::Forbidden(Box::default())
+    }
+}
+
 impl ChatParticipants {
     pub fn constructor_id(&self) -> u32 {
         match self {

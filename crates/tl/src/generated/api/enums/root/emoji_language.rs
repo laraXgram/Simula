@@ -8,6 +8,12 @@ pub enum EmojiLanguage {
     EmojiLanguage(Box<crate::generated::api::types::EmojiLanguage>),
 }
 
+impl Default for EmojiLanguage {
+    fn default() -> Self {
+        Self::EmojiLanguage(Box::default())
+    }
+}
+
 impl EmojiLanguage {
     pub fn constructor_id(&self) -> u32 {
         match self {

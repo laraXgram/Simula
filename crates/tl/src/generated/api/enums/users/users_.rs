@@ -10,6 +10,12 @@ pub enum Users {
     Slice(Box<crate::generated::api::types::users::UsersSlice>),
 }
 
+impl Default for Users {
+    fn default() -> Self {
+        Self::Users(Box::default())
+    }
+}
+
 impl Users {
     pub fn constructor_id(&self) -> u32 {
         match self {

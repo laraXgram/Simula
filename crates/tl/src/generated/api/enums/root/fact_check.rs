@@ -8,6 +8,12 @@ pub enum FactCheck {
     FactCheck(Box<crate::generated::api::types::FactCheck>),
 }
 
+impl Default for FactCheck {
+    fn default() -> Self {
+        Self::FactCheck(Box::default())
+    }
+}
+
 impl FactCheck {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -10,6 +10,12 @@ pub enum PQInnerData {
     TempDc(Box<crate::generated::mtproto::types::PQInnerDataTempDc>),
 }
 
+impl Default for PQInnerData {
+    fn default() -> Self {
+        Self::Dc(Box::default())
+    }
+}
+
 impl PQInnerData {
     pub fn constructor_id(&self) -> u32 {
         match self {

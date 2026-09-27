@@ -8,6 +8,12 @@ pub enum DisallowedGiftsSettings {
     DisallowedGiftsSettings(Box<crate::generated::api::types::DisallowedGiftsSettings>),
 }
 
+impl Default for DisallowedGiftsSettings {
+    fn default() -> Self {
+        Self::DisallowedGiftsSettings(Box::default())
+    }
+}
+
 impl DisallowedGiftsSettings {
     pub fn constructor_id(&self) -> u32 {
         match self {

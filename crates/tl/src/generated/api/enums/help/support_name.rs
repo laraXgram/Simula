@@ -8,6 +8,12 @@ pub enum SupportName {
     SupportName(Box<crate::generated::api::types::help::SupportName>),
 }
 
+impl Default for SupportName {
+    fn default() -> Self {
+        Self::SupportName(Box::default())
+    }
+}
+
 impl SupportName {
     pub fn constructor_id(&self) -> u32 {
         match self {

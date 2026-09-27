@@ -8,6 +8,12 @@ pub enum AccessPointRule {
     AccessPointRule(Box<crate::generated::api::types::AccessPointRule>),
 }
 
+impl Default for AccessPointRule {
+    fn default() -> Self {
+        Self::AccessPointRule(Box::default())
+    }
+}
+
 impl AccessPointRule {
     pub fn constructor_id(&self) -> u32 {
         match self {

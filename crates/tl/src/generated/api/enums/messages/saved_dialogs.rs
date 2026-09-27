@@ -12,6 +12,12 @@ pub enum SavedDialogs {
     NotModified(Box<crate::generated::api::types::messages::SavedDialogsNotModified>),
 }
 
+impl Default for SavedDialogs {
+    fn default() -> Self {
+        Self::SavedDialogs(Box::default())
+    }
+}
+
 impl SavedDialogs {
     pub fn constructor_id(&self) -> u32 {
         match self {

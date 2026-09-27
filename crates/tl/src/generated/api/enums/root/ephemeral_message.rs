@@ -8,6 +8,12 @@ pub enum EphemeralMessage {
     EphemeralMessage(Box<crate::generated::api::types::EphemeralMessage>),
 }
 
+impl Default for EphemeralMessage {
+    fn default() -> Self {
+        Self::EphemeralMessage(Box::default())
+    }
+}
+
 impl EphemeralMessage {
     pub fn constructor_id(&self) -> u32 {
         match self {

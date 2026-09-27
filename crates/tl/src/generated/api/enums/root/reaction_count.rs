@@ -8,6 +8,12 @@ pub enum ReactionCount {
     ReactionCount(Box<crate::generated::api::types::ReactionCount>),
 }
 
+impl Default for ReactionCount {
+    fn default() -> Self {
+        Self::ReactionCount(Box::default())
+    }
+}
+
 impl ReactionCount {
     pub fn constructor_id(&self) -> u32 {
         match self {

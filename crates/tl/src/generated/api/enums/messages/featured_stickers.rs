@@ -10,6 +10,12 @@ pub enum FeaturedStickers {
     FeaturedStickers(Box<crate::generated::api::types::messages::FeaturedStickers>),
 }
 
+impl Default for FeaturedStickers {
+    fn default() -> Self {
+        Self::NotModified(Box::default())
+    }
+}
+
 impl FeaturedStickers {
     pub fn constructor_id(&self) -> u32 {
         match self {

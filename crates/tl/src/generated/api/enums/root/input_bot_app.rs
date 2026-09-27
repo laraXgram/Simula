@@ -10,6 +10,12 @@ pub enum InputBotApp {
     ShortName(Box<crate::generated::api::types::InputBotAppShortName>),
 }
 
+impl Default for InputBotApp {
+    fn default() -> Self {
+        Self::ID(Box::default())
+    }
+}
+
 impl InputBotApp {
     pub fn constructor_id(&self) -> u32 {
         match self {

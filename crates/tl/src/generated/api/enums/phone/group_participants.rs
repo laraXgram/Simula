@@ -8,6 +8,12 @@ pub enum GroupParticipants {
     GroupParticipants(Box<crate::generated::api::types::phone::GroupParticipants>),
 }
 
+impl Default for GroupParticipants {
+    fn default() -> Self {
+        Self::GroupParticipants(Box::default())
+    }
+}
+
 impl GroupParticipants {
     pub fn constructor_id(&self) -> u32 {
         match self {

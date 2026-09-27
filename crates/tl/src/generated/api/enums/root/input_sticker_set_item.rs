@@ -8,6 +8,12 @@ pub enum InputStickerSetItem {
     InputStickerSetItem(Box<crate::generated::api::types::InputStickerSetItem>),
 }
 
+impl Default for InputStickerSetItem {
+    fn default() -> Self {
+        Self::InputStickerSetItem(Box::default())
+    }
+}
+
 impl InputStickerSetItem {
     pub fn constructor_id(&self) -> u32 {
         match self {

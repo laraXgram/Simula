@@ -8,6 +8,12 @@ pub enum InputAppEvent {
     InputAppEvent(Box<crate::generated::api::types::InputAppEvent>),
 }
 
+impl Default for InputAppEvent {
+    fn default() -> Self {
+        Self::InputAppEvent(Box::default())
+    }
+}
+
 impl InputAppEvent {
     pub fn constructor_id(&self) -> u32 {
         match self {

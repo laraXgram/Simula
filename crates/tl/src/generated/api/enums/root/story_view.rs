@@ -12,6 +12,12 @@ pub enum StoryView {
     PublicRepost(Box<crate::generated::api::types::StoryViewPublicRepost>),
 }
 
+impl Default for StoryView {
+    fn default() -> Self {
+        Self::StoryView(Box::default())
+    }
+}
+
 impl StoryView {
     pub fn constructor_id(&self) -> u32 {
         match self {

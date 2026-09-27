@@ -8,6 +8,12 @@ pub enum MediaAreaCoordinates {
     MediaAreaCoordinates(Box<crate::generated::api::types::MediaAreaCoordinates>),
 }
 
+impl Default for MediaAreaCoordinates {
+    fn default() -> Self {
+        Self::MediaAreaCoordinates(Box::default())
+    }
+}
+
 impl MediaAreaCoordinates {
     pub fn constructor_id(&self) -> u32 {
         match self {

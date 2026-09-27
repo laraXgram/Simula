@@ -8,6 +8,12 @@ pub enum WebPagePreview {
     WebPagePreview(Box<crate::generated::api::types::messages::WebPagePreview>),
 }
 
+impl Default for WebPagePreview {
+    fn default() -> Self {
+        Self::WebPagePreview(Box::default())
+    }
+}
+
 impl WebPagePreview {
     pub fn constructor_id(&self) -> u32 {
         match self {

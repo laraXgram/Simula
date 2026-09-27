@@ -8,6 +8,12 @@ pub enum BotApp {
     BotApp(Box<crate::generated::api::types::messages::BotApp>),
 }
 
+impl Default for BotApp {
+    fn default() -> Self {
+        Self::BotApp(Box::default())
+    }
+}
+
 impl BotApp {
     pub fn constructor_id(&self) -> u32 {
         match self {

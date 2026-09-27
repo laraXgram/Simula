@@ -10,6 +10,12 @@ pub enum SavedDialog {
     MonoForumDialog(Box<crate::generated::api::types::MonoForumDialog>),
 }
 
+impl Default for SavedDialog {
+    fn default() -> Self {
+        Self::SavedDialog(Box::default())
+    }
+}
+
 impl SavedDialog {
     pub fn constructor_id(&self) -> u32 {
         match self {

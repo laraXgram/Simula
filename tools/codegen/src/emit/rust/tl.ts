@@ -76,6 +76,49 @@ export class TlContext {
   ) {
     this.constructorsByName = new Map(schema.constructors.map((c) => [c.name, c]));
     this.boxedTypes = new Set(schema.constructors.map(resultName));
+    this.computeDefaults();
+  }
+
+  /** Combinators whose struct can derive `Default` (every required field has one). */
+  readonly defaultable = new Set<string>();
+  /** Boxed type → constructor its `Default` builds: first unit variant, else first defaultable. */
+  readonly enumDefault = new Map<string, TlCombinator>();
+
+  private computeDefaults() {
+    const all = [...this.schema.constructors, ...this.schema.functions];
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const c of all) {
+        if (this.defaultable.has(c.name)) continue;
+        const ok = c.params.every((p) => p.type.kind === "flags" || !!p.flag || this.typeDefaultable(p.type));
+        if (ok) {
+          this.defaultable.add(c.name);
+          changed = true;
+        }
+      }
+      for (const type of this.boxedTypes) {
+        if (this.enumDefault.has(type)) continue;
+        const constructors = this.schema.constructors.filter((c) => resultName(c) === type);
+        const pick = constructors.find((c) => c.params.length === 0) ?? constructors.find((c) => this.defaultable.has(c.name));
+        if (pick) {
+          this.enumDefault.set(type, pick);
+          changed = true;
+        }
+      }
+    }
+  }
+
+  private typeDefaultable(type: TlType): boolean {
+    switch (type.kind) {
+      case "named":
+        if (type.name in PRIMITIVES || (type.name === "string" && this.options.binaryStrings)) return true;
+        return type.bare ? this.defaultable.has(type.name) : this.enumDefault.has(type.name);
+      case "vector":
+        return true;
+      default:
+        return false;
+    }
   }
 
   structPath(name: string): string {
@@ -315,7 +358,8 @@ function structItem(ctx: TlContext, c: TlCombinator): string {
   const body = fields(ctx, c)
     .map((f) => `${serdeAttrs(f)}pub ${f.name}: ${f.rust},`)
     .join("\n");
-  return `/// \`${formatCombinator(c)}\`\n${DERIVE}\npub struct ${pascal(splitName(c.name).local)} {\n${body}\n}\n`;
+  const derive = ctx.defaultable.has(c.name) ? DERIVE.replace("PartialEq, ", "PartialEq, Default, ") : DERIVE;
+  return `/// \`${formatCombinator(c)}\`\n${derive}\npub struct ${pascal(splitName(c.name).local)} {\n${body}\n}\n`;
 }
 
 function identifiable(c: TlCombinator): string {
@@ -366,10 +410,9 @@ function emitEnum(ctx: TlContext, typeName: string, items: TlCombinator[]): stri
   const vs = variants(typeName, items);
   const payload = (v: Variant) => ctx.structPath(v.c.name);
 
+    const isDefault = (v: Variant) => v.unit && ctx.enumDefault.get(typeName) === v.c;
   const decl = vs
-    .map(
-      (v) => `#[serde(rename = "${v.c.name}")]\n${v.name}${v.unit ? "" : `(Box<${payload(v)}>)`},`,
-    )
+    .map((v) => `#[serde(rename = "${v.c.name}")]\n${isDefault(v) ? "#[default]\n" : ""}${v.name}${v.unit ? "" : `(Box<${payload(v)}>)`},`)
     .join("\n");
   const pat = (v: Variant, bind = "_") => `Self::${v.name}${v.unit ? "" : `(${bind})`}`;
 
@@ -392,12 +435,22 @@ function emitEnum(ctx: TlContext, typeName: string, items: TlCombinator[]): stri
     )
     .join("\n");
 
+  const fallback = ctx.enumDefault.get(typeName);
+  const fallbackVariant = fallback ? vs.find((v) => v.c === fallback) : undefined;
+  // A unit default is derived (`#[default]`); a boxed payload needs a manual impl.
+  const derivedDefault = fallbackVariant?.unit === true;
+  const defaultImpl = fallbackVariant && !derivedDefault
+    ? `impl Default for ${name} {\n    fn default() -> Self {\n        ${fallbackVariant.unit ? `Self::${fallbackVariant.name}` : `Self::${fallbackVariant.name}(Box::default())`}\n    }\n}\n`
+    : "";
+
   return `/// TL type \`${typeName}\`.
-${DERIVE}
+${derivedDefault ? DERIVE.replace("PartialEq, ", "PartialEq, Default, ") : DERIVE}
 #[serde(tag = "_")]
 pub enum ${name} {
 ${decl}
 }
+
+${defaultImpl}
 
 impl ${name} {
     pub fn constructor_id(&self) -> u32 {

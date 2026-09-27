@@ -12,6 +12,12 @@ pub enum StarGiftAttributeId {
     Backdrop(Box<crate::generated::api::types::StarGiftAttributeIdBackdrop>),
 }
 
+impl Default for StarGiftAttributeId {
+    fn default() -> Self {
+        Self::Model(Box::default())
+    }
+}
+
 impl StarGiftAttributeId {
     pub fn constructor_id(&self) -> u32 {
         match self {

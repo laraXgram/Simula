@@ -8,6 +8,12 @@ pub enum AvailableEffect {
     AvailableEffect(Box<crate::generated::api::types::AvailableEffect>),
 }
 
+impl Default for AvailableEffect {
+    fn default() -> Self {
+        Self::AvailableEffect(Box::default())
+    }
+}
+
 impl AvailableEffect {
     pub fn constructor_id(&self) -> u32 {
         match self {

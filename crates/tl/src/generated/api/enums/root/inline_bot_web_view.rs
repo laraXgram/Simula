@@ -8,6 +8,12 @@ pub enum InlineBotWebView {
     InlineBotWebView(Box<crate::generated::api::types::InlineBotWebView>),
 }
 
+impl Default for InlineBotWebView {
+    fn default() -> Self {
+        Self::InlineBotWebView(Box::default())
+    }
+}
+
 impl InlineBotWebView {
     pub fn constructor_id(&self) -> u32 {
         match self {

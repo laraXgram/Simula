@@ -8,6 +8,12 @@ pub enum Pong {
     Pong(Box<crate::generated::mtproto::types::Pong>),
 }
 
+impl Default for Pong {
+    fn default() -> Self {
+        Self::Pong(Box::default())
+    }
+}
+
 impl Pong {
     pub fn constructor_id(&self) -> u32 {
         match self {

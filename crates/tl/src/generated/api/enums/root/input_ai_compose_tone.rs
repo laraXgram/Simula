@@ -14,6 +14,12 @@ pub enum InputAiComposeTone {
     SingleUse(Box<crate::generated::api::types::InputAiComposeToneSingleUse>),
 }
 
+impl Default for InputAiComposeTone {
+    fn default() -> Self {
+        Self::Default(Box::default())
+    }
+}
+
 impl InputAiComposeTone {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -10,6 +10,12 @@ pub enum ResolvedBusinessChatLinks {
     ),
 }
 
+impl Default for ResolvedBusinessChatLinks {
+    fn default() -> Self {
+        Self::ResolvedBusinessChatLinks(Box::default())
+    }
+}
+
 impl ResolvedBusinessChatLinks {
     pub fn constructor_id(&self) -> u32 {
         match self {

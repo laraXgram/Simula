@@ -10,6 +10,12 @@ pub enum PublicForward {
     Story(Box<crate::generated::api::types::PublicForwardStory>),
 }
 
+impl Default for PublicForward {
+    fn default() -> Self {
+        Self::Message(Box::default())
+    }
+}
+
 impl PublicForward {
     pub fn constructor_id(&self) -> u32 {
         match self {

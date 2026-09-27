@@ -8,6 +8,12 @@ pub enum MyStickers {
     MyStickers(Box<crate::generated::api::types::messages::MyStickers>),
 }
 
+impl Default for MyStickers {
+    fn default() -> Self {
+        Self::MyStickers(Box::default())
+    }
+}
+
 impl MyStickers {
     pub fn constructor_id(&self) -> u32 {
         match self {

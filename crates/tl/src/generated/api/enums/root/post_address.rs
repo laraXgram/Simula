@@ -8,6 +8,12 @@ pub enum PostAddress {
     PostAddress(Box<crate::generated::api::types::PostAddress>),
 }
 
+impl Default for PostAddress {
+    fn default() -> Self {
+        Self::PostAddress(Box::default())
+    }
+}
+
 impl PostAddress {
     pub fn constructor_id(&self) -> u32 {
         match self {

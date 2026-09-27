@@ -8,6 +8,12 @@ pub enum InputSingleMedia {
     InputSingleMedia(Box<crate::generated::api::types::InputSingleMedia>),
 }
 
+impl Default for InputSingleMedia {
+    fn default() -> Self {
+        Self::InputSingleMedia(Box::default())
+    }
+}
+
 impl InputSingleMedia {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum HighScores {
     HighScores(Box<crate::generated::api::types::messages::HighScores>),
 }
 
+impl Default for HighScores {
+    fn default() -> Self {
+        Self::HighScores(Box::default())
+    }
+}
+
 impl HighScores {
     pub fn constructor_id(&self) -> u32 {
         match self {

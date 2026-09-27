@@ -10,6 +10,12 @@ pub enum BotInlineResult {
     BotInlineMediaResult(Box<crate::generated::api::types::BotInlineMediaResult>),
 }
 
+impl Default for BotInlineResult {
+    fn default() -> Self {
+        Self::BotInlineResult(Box::default())
+    }
+}
+
 impl BotInlineResult {
     pub fn constructor_id(&self) -> u32 {
         match self {

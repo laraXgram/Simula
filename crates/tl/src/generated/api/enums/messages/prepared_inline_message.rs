@@ -8,6 +8,12 @@ pub enum PreparedInlineMessage {
     PreparedInlineMessage(Box<crate::generated::api::types::messages::PreparedInlineMessage>),
 }
 
+impl Default for PreparedInlineMessage {
+    fn default() -> Self {
+        Self::PreparedInlineMessage(Box::default())
+    }
+}
+
 impl PreparedInlineMessage {
     pub fn constructor_id(&self) -> u32 {
         match self {

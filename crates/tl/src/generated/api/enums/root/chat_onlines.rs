@@ -8,6 +8,12 @@ pub enum ChatOnlines {
     ChatOnlines(Box<crate::generated::api::types::ChatOnlines>),
 }
 
+impl Default for ChatOnlines {
+    fn default() -> Self {
+        Self::ChatOnlines(Box::default())
+    }
+}
+
 impl ChatOnlines {
     pub fn constructor_id(&self) -> u32 {
         match self {

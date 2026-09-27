@@ -8,6 +8,12 @@ pub enum PopularContact {
     PopularContact(Box<crate::generated::api::types::PopularContact>),
 }
 
+impl Default for PopularContact {
+    fn default() -> Self {
+        Self::PopularContact(Box::default())
+    }
+}
+
 impl PopularContact {
     pub fn constructor_id(&self) -> u32 {
         match self {

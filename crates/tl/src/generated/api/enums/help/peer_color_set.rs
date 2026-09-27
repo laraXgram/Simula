@@ -10,6 +10,12 @@ pub enum PeerColorSet {
     PeerColorProfileSet(Box<crate::generated::api::types::help::PeerColorProfileSet>),
 }
 
+impl Default for PeerColorSet {
+    fn default() -> Self {
+        Self::PeerColorSet(Box::default())
+    }
+}
+
 impl PeerColorSet {
     pub fn constructor_id(&self) -> u32 {
         match self {

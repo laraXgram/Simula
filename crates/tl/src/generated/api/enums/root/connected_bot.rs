@@ -8,6 +8,12 @@ pub enum ConnectedBot {
     ConnectedBot(Box<crate::generated::api::types::ConnectedBot>),
 }
 
+impl Default for ConnectedBot {
+    fn default() -> Self {
+        Self::ConnectedBot(Box::default())
+    }
+}
+
 impl ConnectedBot {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -14,6 +14,12 @@ pub enum InputPaymentCredentials {
     GooglePay(Box<crate::generated::api::types::InputPaymentCredentialsGooglePay>),
 }
 
+impl Default for InputPaymentCredentials {
+    fn default() -> Self {
+        Self::Saved(Box::default())
+    }
+}
+
 impl InputPaymentCredentials {
     pub fn constructor_id(&self) -> u32 {
         match self {

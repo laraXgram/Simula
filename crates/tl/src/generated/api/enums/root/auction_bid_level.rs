@@ -8,6 +8,12 @@ pub enum AuctionBidLevel {
     AuctionBidLevel(Box<crate::generated::api::types::AuctionBidLevel>),
 }
 
+impl Default for AuctionBidLevel {
+    fn default() -> Self {
+        Self::AuctionBidLevel(Box::default())
+    }
+}
+
 impl AuctionBidLevel {
     pub fn constructor_id(&self) -> u32 {
         match self {

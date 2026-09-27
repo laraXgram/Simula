@@ -12,6 +12,12 @@ pub enum VideoSize {
     StickerMarkup(Box<crate::generated::api::types::VideoSizeStickerMarkup>),
 }
 
+impl Default for VideoSize {
+    fn default() -> Self {
+        Self::VideoSize(Box::default())
+    }
+}
+
 impl VideoSize {
     pub fn constructor_id(&self) -> u32 {
         match self {

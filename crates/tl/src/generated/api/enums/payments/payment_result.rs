@@ -12,6 +12,12 @@ pub enum PaymentResult {
     ),
 }
 
+impl Default for PaymentResult {
+    fn default() -> Self {
+        Self::PaymentVerificationNeeded(Box::default())
+    }
+}
+
 impl PaymentResult {
     pub fn constructor_id(&self) -> u32 {
         match self {

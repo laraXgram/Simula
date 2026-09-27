@@ -14,6 +14,12 @@ pub enum Messages {
     NotModified(Box<crate::generated::api::types::messages::MessagesNotModified>),
 }
 
+impl Default for Messages {
+    fn default() -> Self {
+        Self::Messages(Box::default())
+    }
+}
+
 impl Messages {
     pub fn constructor_id(&self) -> u32 {
         match self {

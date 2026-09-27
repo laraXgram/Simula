@@ -10,6 +10,12 @@ pub enum StarsAmount {
     StarsTonAmount(Box<crate::generated::api::types::StarsTonAmount>),
 }
 
+impl Default for StarsAmount {
+    fn default() -> Self {
+        Self::StarsAmount(Box::default())
+    }
+}
+
 impl StarsAmount {
     pub fn constructor_id(&self) -> u32 {
         match self {

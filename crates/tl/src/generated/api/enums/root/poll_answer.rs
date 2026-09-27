@@ -10,6 +10,12 @@ pub enum PollAnswer {
     InputPollAnswer(Box<crate::generated::api::types::InputPollAnswer>),
 }
 
+impl Default for PollAnswer {
+    fn default() -> Self {
+        Self::PollAnswer(Box::default())
+    }
+}
+
 impl PollAnswer {
     pub fn constructor_id(&self) -> u32 {
         match self {

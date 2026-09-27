@@ -10,6 +10,12 @@ pub enum GroupCallParticipantVideoSourceGroup {
     ),
 }
 
+impl Default for GroupCallParticipantVideoSourceGroup {
+    fn default() -> Self {
+        Self::GroupCallParticipantVideoSourceGroup(Box::default())
+    }
+}
+
 impl GroupCallParticipantVideoSourceGroup {
     pub fn constructor_id(&self) -> u32 {
         match self {

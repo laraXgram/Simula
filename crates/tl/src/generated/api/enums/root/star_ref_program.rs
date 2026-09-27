@@ -8,6 +8,12 @@ pub enum StarRefProgram {
     StarRefProgram(Box<crate::generated::api::types::StarRefProgram>),
 }
 
+impl Default for StarRefProgram {
+    fn default() -> Self {
+        Self::StarRefProgram(Box::default())
+    }
+}
+
 impl StarRefProgram {
     pub fn constructor_id(&self) -> u32 {
         match self {

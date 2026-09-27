@@ -8,6 +8,12 @@ pub enum WebAuthorization {
     WebAuthorization(Box<crate::generated::api::types::WebAuthorization>),
 }
 
+impl Default for WebAuthorization {
+    fn default() -> Self {
+        Self::WebAuthorization(Box::default())
+    }
+}
+
 impl WebAuthorization {
     pub fn constructor_id(&self) -> u32 {
         match self {

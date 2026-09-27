@@ -12,6 +12,12 @@ pub enum Dialog {
     Community(Box<crate::generated::api::types::DialogCommunity>),
 }
 
+impl Default for Dialog {
+    fn default() -> Self {
+        Self::Dialog(Box::default())
+    }
+}
+
 impl Dialog {
     pub fn constructor_id(&self) -> u32 {
         match self {

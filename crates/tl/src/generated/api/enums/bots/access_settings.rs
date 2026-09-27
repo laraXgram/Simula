@@ -8,6 +8,12 @@ pub enum AccessSettings {
     AccessSettings(Box<crate::generated::api::types::bots::AccessSettings>),
 }
 
+impl Default for AccessSettings {
+    fn default() -> Self {
+        Self::AccessSettings(Box::default())
+    }
+}
+
 impl AccessSettings {
     pub fn constructor_id(&self) -> u32 {
         match self {

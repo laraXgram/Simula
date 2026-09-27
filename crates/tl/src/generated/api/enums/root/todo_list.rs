@@ -8,6 +8,12 @@ pub enum TodoList {
     TodoList(Box<crate::generated::api::types::TodoList>),
 }
 
+impl Default for TodoList {
+    fn default() -> Self {
+        Self::TodoList(Box::default())
+    }
+}
+
 impl TodoList {
     pub fn constructor_id(&self) -> u32 {
         match self {

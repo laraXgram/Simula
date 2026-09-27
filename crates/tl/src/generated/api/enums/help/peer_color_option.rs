@@ -8,6 +8,12 @@ pub enum PeerColorOption {
     PeerColorOption(Box<crate::generated::api::types::help::PeerColorOption>),
 }
 
+impl Default for PeerColorOption {
+    fn default() -> Self {
+        Self::PeerColorOption(Box::default())
+    }
+}
+
 impl PeerColorOption {
     pub fn constructor_id(&self) -> u32 {
         match self {

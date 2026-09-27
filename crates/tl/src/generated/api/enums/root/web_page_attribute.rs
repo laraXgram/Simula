@@ -20,6 +20,12 @@ pub enum WebPageAttribute {
     AiComposeTone(Box<crate::generated::api::types::WebPageAttributeAiComposeTone>),
 }
 
+impl Default for WebPageAttribute {
+    fn default() -> Self {
+        Self::Theme(Box::default())
+    }
+}
+
 impl WebPageAttribute {
     pub fn constructor_id(&self) -> u32 {
         match self {

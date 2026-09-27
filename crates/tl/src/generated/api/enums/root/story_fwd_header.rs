@@ -8,6 +8,12 @@ pub enum StoryFwdHeader {
     StoryFwdHeader(Box<crate::generated::api::types::StoryFwdHeader>),
 }
 
+impl Default for StoryFwdHeader {
+    fn default() -> Self {
+        Self::StoryFwdHeader(Box::default())
+    }
+}
+
 impl StoryFwdHeader {
     pub fn constructor_id(&self) -> u32 {
         match self {

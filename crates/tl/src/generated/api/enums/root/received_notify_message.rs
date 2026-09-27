@@ -8,6 +8,12 @@ pub enum ReceivedNotifyMessage {
     ReceivedNotifyMessage(Box<crate::generated::api::types::ReceivedNotifyMessage>),
 }
 
+impl Default for ReceivedNotifyMessage {
+    fn default() -> Self {
+        Self::ReceivedNotifyMessage(Box::default())
+    }
+}
+
 impl ReceivedNotifyMessage {
     pub fn constructor_id(&self) -> u32 {
         match self {

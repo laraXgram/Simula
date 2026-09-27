@@ -8,6 +8,12 @@ pub enum ContentSettings {
     ContentSettings(Box<crate::generated::api::types::account::ContentSettings>),
 }
 
+impl Default for ContentSettings {
+    fn default() -> Self {
+        Self::ContentSettings(Box::default())
+    }
+}
+
 impl ContentSettings {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum SavedStarGift {
     SavedStarGift(Box<crate::generated::api::types::SavedStarGift>),
 }
 
+impl Default for SavedStarGift {
+    fn default() -> Self {
+        Self::SavedStarGift(Box::default())
+    }
+}
+
 impl SavedStarGift {
     pub fn constructor_id(&self) -> u32 {
         match self {

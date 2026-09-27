@@ -8,6 +8,12 @@ pub enum StarGiftActiveAuctionState {
     StarGiftActiveAuctionState(Box<crate::generated::api::types::StarGiftActiveAuctionState>),
 }
 
+impl Default for StarGiftActiveAuctionState {
+    fn default() -> Self {
+        Self::StarGiftActiveAuctionState(Box::default())
+    }
+}
+
 impl StarGiftActiveAuctionState {
     pub fn constructor_id(&self) -> u32 {
         match self {

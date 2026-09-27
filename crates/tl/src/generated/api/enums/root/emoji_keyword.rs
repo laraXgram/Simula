@@ -10,6 +10,12 @@ pub enum EmojiKeyword {
     Deleted(Box<crate::generated::api::types::EmojiKeywordDeleted>),
 }
 
+impl Default for EmojiKeyword {
+    fn default() -> Self {
+        Self::EmojiKeyword(Box::default())
+    }
+}
+
 impl EmojiKeyword {
     pub fn constructor_id(&self) -> u32 {
         match self {

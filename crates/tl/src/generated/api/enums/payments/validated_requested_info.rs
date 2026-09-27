@@ -8,6 +8,12 @@ pub enum ValidatedRequestedInfo {
     ValidatedRequestedInfo(Box<crate::generated::api::types::payments::ValidatedRequestedInfo>),
 }
 
+impl Default for ValidatedRequestedInfo {
+    fn default() -> Self {
+        Self::ValidatedRequestedInfo(Box::default())
+    }
+}
+
 impl ValidatedRequestedInfo {
     pub fn constructor_id(&self) -> u32 {
         match self {

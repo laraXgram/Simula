@@ -8,6 +8,12 @@ pub enum EligibilityToJoin {
     EligibleToJoin(Box<crate::generated::api::types::smsjobs::EligibleToJoin>),
 }
 
+impl Default for EligibilityToJoin {
+    fn default() -> Self {
+        Self::EligibleToJoin(Box::default())
+    }
+}
+
 impl EligibilityToJoin {
     pub fn constructor_id(&self) -> u32 {
         match self {

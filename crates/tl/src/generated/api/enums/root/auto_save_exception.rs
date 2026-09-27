@@ -8,6 +8,12 @@ pub enum AutoSaveException {
     AutoSaveException(Box<crate::generated::api::types::AutoSaveException>),
 }
 
+impl Default for AutoSaveException {
+    fn default() -> Self {
+        Self::AutoSaveException(Box::default())
+    }
+}
+
 impl AutoSaveException {
     pub fn constructor_id(&self) -> u32 {
         match self {

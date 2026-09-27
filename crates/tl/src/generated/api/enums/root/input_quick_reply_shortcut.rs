@@ -10,6 +10,12 @@ pub enum InputQuickReplyShortcut {
     Id(Box<crate::generated::api::types::InputQuickReplyShortcutId>),
 }
 
+impl Default for InputQuickReplyShortcut {
+    fn default() -> Self {
+        Self::InputQuickReplyShortcut(Box::default())
+    }
+}
+
 impl InputQuickReplyShortcut {
     pub fn constructor_id(&self) -> u32 {
         match self {

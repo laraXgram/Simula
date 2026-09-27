@@ -8,6 +8,12 @@ pub enum DcOption {
     DcOption(Box<crate::generated::api::types::DcOption>),
 }
 
+impl Default for DcOption {
+    fn default() -> Self {
+        Self::DcOption(Box::default())
+    }
+}
+
 impl DcOption {
     pub fn constructor_id(&self) -> u32 {
         match self {

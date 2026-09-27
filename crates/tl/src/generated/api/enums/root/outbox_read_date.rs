@@ -8,6 +8,12 @@ pub enum OutboxReadDate {
     OutboxReadDate(Box<crate::generated::api::types::OutboxReadDate>),
 }
 
+impl Default for OutboxReadDate {
+    fn default() -> Self {
+        Self::OutboxReadDate(Box::default())
+    }
+}
+
 impl OutboxReadDate {
     pub fn constructor_id(&self) -> u32 {
         match self {

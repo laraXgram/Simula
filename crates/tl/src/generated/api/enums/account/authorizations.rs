@@ -8,6 +8,12 @@ pub enum Authorizations {
     Authorizations(Box<crate::generated::api::types::account::Authorizations>),
 }
 
+impl Default for Authorizations {
+    fn default() -> Self {
+        Self::Authorizations(Box::default())
+    }
+}
+
 impl Authorizations {
     pub fn constructor_id(&self) -> u32 {
         match self {

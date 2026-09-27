@@ -8,6 +8,12 @@ pub enum StatsGroupTopInviter {
     StatsGroupTopInviter(Box<crate::generated::api::types::StatsGroupTopInviter>),
 }
 
+impl Default for StatsGroupTopInviter {
+    fn default() -> Self {
+        Self::StatsGroupTopInviter(Box::default())
+    }
+}
+
 impl StatsGroupTopInviter {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum SavedReactionTag {
     SavedReactionTag(Box<crate::generated::api::types::SavedReactionTag>),
 }
 
+impl Default for SavedReactionTag {
+    fn default() -> Self {
+        Self::SavedReactionTag(Box::default())
+    }
+}
+
 impl SavedReactionTag {
     pub fn constructor_id(&self) -> u32 {
         match self {

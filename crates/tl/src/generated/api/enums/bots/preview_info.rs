@@ -8,6 +8,12 @@ pub enum PreviewInfo {
     PreviewInfo(Box<crate::generated::api::types::bots::PreviewInfo>),
 }
 
+impl Default for PreviewInfo {
+    fn default() -> Self {
+        Self::PreviewInfo(Box::default())
+    }
+}
+
 impl PreviewInfo {
     pub fn constructor_id(&self) -> u32 {
         match self {

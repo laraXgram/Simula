@@ -8,6 +8,12 @@ pub enum AutoDownloadSettings {
     AutoDownloadSettings(Box<crate::generated::api::types::account::AutoDownloadSettings>),
 }
 
+impl Default for AutoDownloadSettings {
+    fn default() -> Self {
+        Self::AutoDownloadSettings(Box::default())
+    }
+}
+
 impl AutoDownloadSettings {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum SearchCounter {
     SearchCounter(Box<crate::generated::api::types::messages::SearchCounter>),
 }
 
+impl Default for SearchCounter {
+    fn default() -> Self {
+        Self::SearchCounter(Box::default())
+    }
+}
+
 impl SearchCounter {
     pub fn constructor_id(&self) -> u32 {
         match self {

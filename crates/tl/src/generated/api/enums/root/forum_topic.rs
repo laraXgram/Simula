@@ -10,6 +10,12 @@ pub enum ForumTopic {
     ForumTopic(Box<crate::generated::api::types::ForumTopic>),
 }
 
+impl Default for ForumTopic {
+    fn default() -> Self {
+        Self::Deleted(Box::default())
+    }
+}
+
 impl ForumTopic {
     pub fn constructor_id(&self) -> u32 {
         match self {

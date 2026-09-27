@@ -8,6 +8,12 @@ pub enum DialogFilters {
     DialogFilters(Box<crate::generated::api::types::messages::DialogFilters>),
 }
 
+impl Default for DialogFilters {
+    fn default() -> Self {
+        Self::DialogFilters(Box::default())
+    }
+}
+
 impl DialogFilters {
     pub fn constructor_id(&self) -> u32 {
         match self {

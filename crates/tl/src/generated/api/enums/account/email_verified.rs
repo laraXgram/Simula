@@ -10,6 +10,12 @@ pub enum EmailVerified {
     Login(Box<crate::generated::api::types::account::EmailVerifiedLogin>),
 }
 
+impl Default for EmailVerified {
+    fn default() -> Self {
+        Self::EmailVerified(Box::default())
+    }
+}
+
 impl EmailVerified {
     pub fn constructor_id(&self) -> u32 {
         match self {

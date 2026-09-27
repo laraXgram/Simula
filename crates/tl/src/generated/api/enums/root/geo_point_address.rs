@@ -8,6 +8,12 @@ pub enum GeoPointAddress {
     GeoPointAddress(Box<crate::generated::api::types::GeoPointAddress>),
 }
 
+impl Default for GeoPointAddress {
+    fn default() -> Self {
+        Self::GeoPointAddress(Box::default())
+    }
+}
+
 impl GeoPointAddress {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum AvailableReaction {
     AvailableReaction(Box<crate::generated::api::types::AvailableReaction>),
 }
 
+impl Default for AvailableReaction {
+    fn default() -> Self {
+        Self::AvailableReaction(Box::default())
+    }
+}
+
 impl AvailableReaction {
     pub fn constructor_id(&self) -> u32 {
         match self {

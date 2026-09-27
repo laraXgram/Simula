@@ -8,6 +8,12 @@ pub enum MessagePeerReaction {
     MessagePeerReaction(Box<crate::generated::api::types::MessagePeerReaction>),
 }
 
+impl Default for MessagePeerReaction {
+    fn default() -> Self {
+        Self::MessagePeerReaction(Box::default())
+    }
+}
+
 impl MessagePeerReaction {
     pub fn constructor_id(&self) -> u32 {
         match self {

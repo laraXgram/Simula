@@ -8,6 +8,12 @@ pub enum PaymentSavedCredentials {
     Card(Box<crate::generated::api::types::PaymentSavedCredentialsCard>),
 }
 
+impl Default for PaymentSavedCredentials {
+    fn default() -> Self {
+        Self::Card(Box::default())
+    }
+}
+
 impl PaymentSavedCredentials {
     pub fn constructor_id(&self) -> u32 {
         match self {

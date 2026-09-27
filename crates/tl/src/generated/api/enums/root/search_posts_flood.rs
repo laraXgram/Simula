@@ -8,6 +8,12 @@ pub enum SearchPostsFlood {
     SearchPostsFlood(Box<crate::generated::api::types::SearchPostsFlood>),
 }
 
+impl Default for SearchPostsFlood {
+    fn default() -> Self {
+        Self::SearchPostsFlood(Box::default())
+    }
+}
+
 impl SearchPostsFlood {
     pub fn constructor_id(&self) -> u32 {
         match self {

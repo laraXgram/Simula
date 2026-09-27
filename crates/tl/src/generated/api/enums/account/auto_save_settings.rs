@@ -8,6 +8,12 @@ pub enum AutoSaveSettings {
     AutoSaveSettings(Box<crate::generated::api::types::account::AutoSaveSettings>),
 }
 
+impl Default for AutoSaveSettings {
+    fn default() -> Self {
+        Self::AutoSaveSettings(Box::default())
+    }
+}
+
 impl AutoSaveSettings {
     pub fn constructor_id(&self) -> u32 {
         match self {

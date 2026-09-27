@@ -10,6 +10,12 @@ pub enum ExportedChatInvite {
     Replaced(Box<crate::generated::api::types::messages::ExportedChatInviteReplaced>),
 }
 
+impl Default for ExportedChatInvite {
+    fn default() -> Self {
+        Self::ExportedChatInvite(Box::default())
+    }
+}
+
 impl ExportedChatInvite {
     pub fn constructor_id(&self) -> u32 {
         match self {

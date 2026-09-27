@@ -8,6 +8,12 @@ pub enum MessageReactor {
     MessageReactor(Box<crate::generated::api::types::MessageReactor>),
 }
 
+impl Default for MessageReactor {
+    fn default() -> Self {
+        Self::MessageReactor(Box::default())
+    }
+}
+
 impl MessageReactor {
     pub fn constructor_id(&self) -> u32 {
         match self {

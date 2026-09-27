@@ -10,6 +10,12 @@ pub enum StarGiftAuctionRound {
     Extendable(Box<crate::generated::api::types::StarGiftAuctionRoundExtendable>),
 }
 
+impl Default for StarGiftAuctionRound {
+    fn default() -> Self {
+        Self::StarGiftAuctionRound(Box::default())
+    }
+}
+
 impl StarGiftAuctionRound {
     pub fn constructor_id(&self) -> u32 {
         match self {

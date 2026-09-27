@@ -14,6 +14,12 @@ pub enum ReplyMarkup {
     ReplyInlineMarkup(Box<crate::generated::api::types::ReplyInlineMarkup>),
 }
 
+impl Default for ReplyMarkup {
+    fn default() -> Self {
+        Self::ReplyKeyboardHide(Box::default())
+    }
+}
+
 impl ReplyMarkup {
     pub fn constructor_id(&self) -> u32 {
         match self {

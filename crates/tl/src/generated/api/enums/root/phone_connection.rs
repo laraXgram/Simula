@@ -10,6 +10,12 @@ pub enum PhoneConnection {
     Webrtc(Box<crate::generated::api::types::PhoneConnectionWebrtc>),
 }
 
+impl Default for PhoneConnection {
+    fn default() -> Self {
+        Self::PhoneConnection(Box::default())
+    }
+}
+
 impl PhoneConnection {
     pub fn constructor_id(&self) -> u32 {
         match self {

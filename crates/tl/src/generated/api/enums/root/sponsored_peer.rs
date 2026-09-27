@@ -8,6 +8,12 @@ pub enum SponsoredPeer {
     SponsoredPeer(Box<crate::generated::api::types::SponsoredPeer>),
 }
 
+impl Default for SponsoredPeer {
+    fn default() -> Self {
+        Self::SponsoredPeer(Box::default())
+    }
+}
+
 impl SponsoredPeer {
     pub fn constructor_id(&self) -> u32 {
         match self {

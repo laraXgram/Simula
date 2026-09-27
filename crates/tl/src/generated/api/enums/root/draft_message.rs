@@ -10,6 +10,12 @@ pub enum DraftMessage {
     DraftMessage(Box<crate::generated::api::types::DraftMessage>),
 }
 
+impl Default for DraftMessage {
+    fn default() -> Self {
+        Self::Empty(Box::default())
+    }
+}
+
 impl DraftMessage {
     pub fn constructor_id(&self) -> u32 {
         match self {

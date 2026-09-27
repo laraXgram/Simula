@@ -10,6 +10,12 @@ pub enum InputCollectible {
     Phone(Box<crate::generated::api::types::InputCollectiblePhone>),
 }
 
+impl Default for InputCollectible {
+    fn default() -> Self {
+        Self::Username(Box::default())
+    }
+}
+
 impl InputCollectible {
     pub fn constructor_id(&self) -> u32 {
         match self {

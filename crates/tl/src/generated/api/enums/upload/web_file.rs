@@ -8,6 +8,12 @@ pub enum WebFile {
     WebFile(Box<crate::generated::api::types::upload::WebFile>),
 }
 
+impl Default for WebFile {
+    fn default() -> Self {
+        Self::WebFile(Box::default())
+    }
+}
+
 impl WebFile {
     pub fn constructor_id(&self) -> u32 {
         match self {

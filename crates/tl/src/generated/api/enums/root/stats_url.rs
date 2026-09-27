@@ -8,6 +8,12 @@ pub enum StatsURL {
     StatsURL(Box<crate::generated::api::types::StatsURL>),
 }
 
+impl Default for StatsURL {
+    fn default() -> Self {
+        Self::StatsURL(Box::default())
+    }
+}
+
 impl StatsURL {
     pub fn constructor_id(&self) -> u32 {
         match self {

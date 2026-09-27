@@ -8,6 +8,12 @@ pub enum GroupCallParticipantVideo {
     GroupCallParticipantVideo(Box<crate::generated::api::types::GroupCallParticipantVideo>),
 }
 
+impl Default for GroupCallParticipantVideo {
+    fn default() -> Self {
+        Self::GroupCallParticipantVideo(Box::default())
+    }
+}
+
 impl GroupCallParticipantVideo {
     pub fn constructor_id(&self) -> u32 {
         match self {

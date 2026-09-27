@@ -8,6 +8,12 @@ pub enum UniqueStarGift {
     UniqueStarGift(Box<crate::generated::api::types::payments::UniqueStarGift>),
 }
 
+impl Default for UniqueStarGift {
+    fn default() -> Self {
+        Self::UniqueStarGift(Box::default())
+    }
+}
+
 impl UniqueStarGift {
     pub fn constructor_id(&self) -> u32 {
         match self {

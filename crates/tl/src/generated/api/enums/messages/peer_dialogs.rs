@@ -8,6 +8,12 @@ pub enum PeerDialogs {
     PeerDialogs(Box<crate::generated::api::types::messages::PeerDialogs>),
 }
 
+impl Default for PeerDialogs {
+    fn default() -> Self {
+        Self::PeerDialogs(Box::default())
+    }
+}
+
 impl PeerDialogs {
     pub fn constructor_id(&self) -> u32 {
         match self {

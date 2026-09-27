@@ -8,6 +8,12 @@ pub enum StoryAlbum {
     StoryAlbum(Box<crate::generated::api::types::StoryAlbum>),
 }
 
+impl Default for StoryAlbum {
+    fn default() -> Self {
+        Self::StoryAlbum(Box::default())
+    }
+}
+
 impl StoryAlbum {
     pub fn constructor_id(&self) -> u32 {
         match self {

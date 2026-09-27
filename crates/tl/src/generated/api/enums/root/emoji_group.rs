@@ -12,6 +12,12 @@ pub enum EmojiGroup {
     Premium(Box<crate::generated::api::types::EmojiGroupPremium>),
 }
 
+impl Default for EmojiGroup {
+    fn default() -> Self {
+        Self::EmojiGroup(Box::default())
+    }
+}
+
 impl EmojiGroup {
     pub fn constructor_id(&self) -> u32 {
         match self {

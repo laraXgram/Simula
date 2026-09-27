@@ -10,6 +10,12 @@ pub enum InputSecureFile {
     InputSecureFile(Box<crate::generated::api::types::InputSecureFile>),
 }
 
+impl Default for InputSecureFile {
+    fn default() -> Self {
+        Self::Uploaded(Box::default())
+    }
+}
+
 impl InputSecureFile {
     pub fn constructor_id(&self) -> u32 {
         match self {

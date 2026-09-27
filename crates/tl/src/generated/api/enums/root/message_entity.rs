@@ -56,6 +56,12 @@ pub enum MessageEntity {
     DiffDelete(Box<crate::generated::api::types::MessageEntityDiffDelete>),
 }
 
+impl Default for MessageEntity {
+    fn default() -> Self {
+        Self::Unknown(Box::default())
+    }
+}
+
 impl MessageEntity {
     pub fn constructor_id(&self) -> u32 {
         match self {

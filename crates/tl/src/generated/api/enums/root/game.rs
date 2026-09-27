@@ -8,6 +8,12 @@ pub enum Game {
     Game(Box<crate::generated::api::types::Game>),
 }
 
+impl Default for Game {
+    fn default() -> Self {
+        Self::Game(Box::default())
+    }
+}
+
 impl Game {
     pub fn constructor_id(&self) -> u32 {
         match self {

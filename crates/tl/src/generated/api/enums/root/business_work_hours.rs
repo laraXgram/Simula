@@ -8,6 +8,12 @@ pub enum BusinessWorkHours {
     BusinessWorkHours(Box<crate::generated::api::types::BusinessWorkHours>),
 }
 
+impl Default for BusinessWorkHours {
+    fn default() -> Self {
+        Self::BusinessWorkHours(Box::default())
+    }
+}
+
 impl BusinessWorkHours {
     pub fn constructor_id(&self) -> u32 {
         match self {

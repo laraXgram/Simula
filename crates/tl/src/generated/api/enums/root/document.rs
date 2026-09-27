@@ -10,6 +10,12 @@ pub enum Document {
     Document(Box<crate::generated::api::types::Document>),
 }
 
+impl Default for Document {
+    fn default() -> Self {
+        Self::Empty(Box::default())
+    }
+}
+
 impl Document {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum TermsOfService {
     TermsOfService(Box<crate::generated::api::types::help::TermsOfService>),
 }
 
+impl Default for TermsOfService {
+    fn default() -> Self {
+        Self::TermsOfService(Box::default())
+    }
+}
+
 impl TermsOfService {
     pub fn constructor_id(&self) -> u32 {
         match self {

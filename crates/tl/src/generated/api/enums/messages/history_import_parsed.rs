@@ -8,6 +8,12 @@ pub enum HistoryImportParsed {
     HistoryImportParsed(Box<crate::generated::api::types::messages::HistoryImportParsed>),
 }
 
+impl Default for HistoryImportParsed {
+    fn default() -> Self {
+        Self::HistoryImportParsed(Box::default())
+    }
+}
+
 impl HistoryImportParsed {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum TranslatedText {
     TranslateResult(Box<crate::generated::api::types::messages::TranslateResult>),
 }
 
+impl Default for TranslatedText {
+    fn default() -> Self {
+        Self::TranslateResult(Box::default())
+    }
+}
+
 impl TranslatedText {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum QuickReply {
     QuickReply(Box<crate::generated::api::types::QuickReply>),
 }
 
+impl Default for QuickReply {
+    fn default() -> Self {
+        Self::QuickReply(Box::default())
+    }
+}
+
 impl QuickReply {
     pub fn constructor_id(&self) -> u32 {
         match self {

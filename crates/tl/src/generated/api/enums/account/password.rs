@@ -8,6 +8,12 @@ pub enum Password {
     Password(Box<crate::generated::api::types::account::Password>),
 }
 
+impl Default for Password {
+    fn default() -> Self {
+        Self::Password(Box::default())
+    }
+}
+
 impl Password {
     pub fn constructor_id(&self) -> u32 {
         match self {

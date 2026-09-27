@@ -24,6 +24,12 @@ pub enum MediaArea {
     StarGift(Box<crate::generated::api::types::MediaAreaStarGift>),
 }
 
+impl Default for MediaArea {
+    fn default() -> Self {
+        Self::Venue(Box::default())
+    }
+}
+
 impl MediaArea {
     pub fn constructor_id(&self) -> u32 {
         match self {

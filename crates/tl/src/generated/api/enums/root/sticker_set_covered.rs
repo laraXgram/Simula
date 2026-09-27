@@ -14,6 +14,12 @@ pub enum StickerSetCovered {
     StickerSetNoCovered(Box<crate::generated::api::types::StickerSetNoCovered>),
 }
 
+impl Default for StickerSetCovered {
+    fn default() -> Self {
+        Self::StickerSetCovered(Box::default())
+    }
+}
+
 impl StickerSetCovered {
     pub fn constructor_id(&self) -> u32 {
         match self {

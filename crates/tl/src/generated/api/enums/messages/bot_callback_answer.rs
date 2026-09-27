@@ -8,6 +8,12 @@ pub enum BotCallbackAnswer {
     BotCallbackAnswer(Box<crate::generated::api::types::messages::BotCallbackAnswer>),
 }
 
+impl Default for BotCallbackAnswer {
+    fn default() -> Self {
+        Self::BotCallbackAnswer(Box::default())
+    }
+}
+
 impl BotCallbackAnswer {
     pub fn constructor_id(&self) -> u32 {
         match self {

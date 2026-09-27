@@ -14,6 +14,12 @@ pub enum InputReplyTo {
     EphemeralMessage(Box<crate::generated::api::types::InputReplyToEphemeralMessage>),
 }
 
+impl Default for InputReplyTo {
+    fn default() -> Self {
+        Self::Message(Box::default())
+    }
+}
+
 impl InputReplyTo {
     pub fn constructor_id(&self) -> u32 {
         match self {

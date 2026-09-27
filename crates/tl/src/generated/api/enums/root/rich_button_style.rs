@@ -8,6 +8,12 @@ pub enum RichButtonStyle {
     RichButtonStyle(Box<crate::generated::api::types::RichButtonStyle>),
 }
 
+impl Default for RichButtonStyle {
+    fn default() -> Self {
+        Self::RichButtonStyle(Box::default())
+    }
+}
+
 impl RichButtonStyle {
     pub fn constructor_id(&self) -> u32 {
         match self {

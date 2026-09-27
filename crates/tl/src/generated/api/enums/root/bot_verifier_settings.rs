@@ -8,6 +8,12 @@ pub enum BotVerifierSettings {
     BotVerifierSettings(Box<crate::generated::api::types::BotVerifierSettings>),
 }
 
+impl Default for BotVerifierSettings {
+    fn default() -> Self {
+        Self::BotVerifierSettings(Box::default())
+    }
+}
+
 impl BotVerifierSettings {
     pub fn constructor_id(&self) -> u32 {
         match self {

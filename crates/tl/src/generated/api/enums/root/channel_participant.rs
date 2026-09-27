@@ -18,6 +18,12 @@ pub enum ChannelParticipant {
     Left(Box<crate::generated::api::types::ChannelParticipantLeft>),
 }
 
+impl Default for ChannelParticipant {
+    fn default() -> Self {
+        Self::ChannelParticipant(Box::default())
+    }
+}
+
 impl ChannelParticipant {
     pub fn constructor_id(&self) -> u32 {
         match self {

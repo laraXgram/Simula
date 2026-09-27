@@ -12,6 +12,12 @@ pub enum InputFile {
     StoryDocument(Box<crate::generated::api::types::InputFileStoryDocument>),
 }
 
+impl Default for InputFile {
+    fn default() -> Self {
+        Self::InputFile(Box::default())
+    }
+}
+
 impl InputFile {
     pub fn constructor_id(&self) -> u32 {
         match self {

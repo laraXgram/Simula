@@ -8,6 +8,12 @@ pub enum PageRelatedArticle {
     PageRelatedArticle(Box<crate::generated::api::types::PageRelatedArticle>),
 }
 
+impl Default for PageRelatedArticle {
+    fn default() -> Self {
+        Self::PageRelatedArticle(Box::default())
+    }
+}
+
 impl PageRelatedArticle {
     pub fn constructor_id(&self) -> u32 {
         match self {

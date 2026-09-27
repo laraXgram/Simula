@@ -8,6 +8,12 @@ pub enum MessageReportOption {
     MessageReportOption(Box<crate::generated::api::types::MessageReportOption>),
 }
 
+impl Default for MessageReportOption {
+    fn default() -> Self {
+        Self::MessageReportOption(Box::default())
+    }
+}
+
 impl MessageReportOption {
     pub fn constructor_id(&self) -> u32 {
         match self {

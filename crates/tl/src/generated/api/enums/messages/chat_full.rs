@@ -8,6 +8,12 @@ pub enum ChatFull {
     ChatFull(Box<crate::generated::api::types::messages::ChatFull>),
 }
 
+impl Default for ChatFull {
+    fn default() -> Self {
+        Self::ChatFull(Box::default())
+    }
+}
+
 impl ChatFull {
     pub fn constructor_id(&self) -> u32 {
         match self {

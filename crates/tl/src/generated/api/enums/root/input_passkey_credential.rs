@@ -10,6 +10,12 @@ pub enum InputPasskeyCredential {
     FirebasePNV(Box<crate::generated::api::types::InputPasskeyCredentialFirebasePNV>),
 }
 
+impl Default for InputPasskeyCredential {
+    fn default() -> Self {
+        Self::FirebasePNV(Box::default())
+    }
+}
+
 impl InputPasskeyCredential {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -10,6 +10,12 @@ pub enum WallPaper {
     NoFile(Box<crate::generated::api::types::WallPaperNoFile>),
 }
 
+impl Default for WallPaper {
+    fn default() -> Self {
+        Self::NoFile(Box::default())
+    }
+}
+
 impl WallPaper {
     pub fn constructor_id(&self) -> u32 {
         match self {

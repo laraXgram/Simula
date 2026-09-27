@@ -8,6 +8,12 @@ pub enum WebViewMessageSent {
     WebViewMessageSent(Box<crate::generated::api::types::WebViewMessageSent>),
 }
 
+impl Default for WebViewMessageSent {
+    fn default() -> Self {
+        Self::WebViewMessageSent(Box::default())
+    }
+}
+
 impl WebViewMessageSent {
     pub fn constructor_id(&self) -> u32 {
         match self {

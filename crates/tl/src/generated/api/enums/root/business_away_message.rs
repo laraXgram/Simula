@@ -8,6 +8,12 @@ pub enum BusinessAwayMessage {
     BusinessAwayMessage(Box<crate::generated::api::types::BusinessAwayMessage>),
 }
 
+impl Default for BusinessAwayMessage {
+    fn default() -> Self {
+        Self::BusinessAwayMessage(Box::default())
+    }
+}
+
 impl BusinessAwayMessage {
     pub fn constructor_id(&self) -> u32 {
         match self {

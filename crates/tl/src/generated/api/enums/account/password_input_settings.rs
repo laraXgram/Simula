@@ -8,6 +8,12 @@ pub enum PasswordInputSettings {
     PasswordInputSettings(Box<crate::generated::api::types::account::PasswordInputSettings>),
 }
 
+impl Default for PasswordInputSettings {
+    fn default() -> Self {
+        Self::PasswordInputSettings(Box::default())
+    }
+}
+
 impl PasswordInputSettings {
     pub fn constructor_id(&self) -> u32 {
         match self {

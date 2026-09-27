@@ -8,6 +8,12 @@ pub enum UserFull {
     UserFull(Box<crate::generated::api::types::UserFull>),
 }
 
+impl Default for UserFull {
+    fn default() -> Self {
+        Self::UserFull(Box::default())
+    }
+}
+
 impl UserFull {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum KeyboardButtonRow {
     KeyboardButtonRow(Box<crate::generated::api::types::KeyboardButtonRow>),
 }
 
+impl Default for KeyboardButtonRow {
+    fn default() -> Self {
+        Self::KeyboardButtonRow(Box::default())
+    }
+}
+
 impl KeyboardButtonRow {
     pub fn constructor_id(&self) -> u32 {
         match self {

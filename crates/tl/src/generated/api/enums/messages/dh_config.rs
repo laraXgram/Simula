@@ -10,6 +10,12 @@ pub enum DhConfig {
     DhConfig(Box<crate::generated::api::types::messages::DhConfig>),
 }
 
+impl Default for DhConfig {
+    fn default() -> Self {
+        Self::NotModified(Box::default())
+    }
+}
+
 impl DhConfig {
     pub fn constructor_id(&self) -> u32 {
         match self {

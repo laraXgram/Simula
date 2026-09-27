@@ -10,6 +10,12 @@ pub enum PromoData {
     PromoData(Box<crate::generated::api::types::help::PromoData>),
 }
 
+impl Default for PromoData {
+    fn default() -> Self {
+        Self::Empty(Box::default())
+    }
+}
+
 impl PromoData {
     pub fn constructor_id(&self) -> u32 {
         match self {

@@ -8,6 +8,12 @@ pub enum WebViewResult {
     Url(Box<crate::generated::api::types::WebViewResultUrl>),
 }
 
+impl Default for WebViewResult {
+    fn default() -> Self {
+        Self::Url(Box::default())
+    }
+}
+
 impl WebViewResult {
     pub fn constructor_id(&self) -> u32 {
         match self {

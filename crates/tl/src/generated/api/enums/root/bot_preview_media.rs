@@ -8,6 +8,12 @@ pub enum BotPreviewMedia {
     BotPreviewMedia(Box<crate::generated::api::types::BotPreviewMedia>),
 }
 
+impl Default for BotPreviewMedia {
+    fn default() -> Self {
+        Self::BotPreviewMedia(Box::default())
+    }
+}
+
 impl BotPreviewMedia {
     pub fn constructor_id(&self) -> u32 {
         match self {

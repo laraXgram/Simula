@@ -8,6 +8,12 @@ pub enum GroupCallStreamChannels {
     GroupCallStreamChannels(Box<crate::generated::api::types::phone::GroupCallStreamChannels>),
 }
 
+impl Default for GroupCallStreamChannels {
+    fn default() -> Self {
+        Self::GroupCallStreamChannels(Box::default())
+    }
+}
+
 impl GroupCallStreamChannels {
     pub fn constructor_id(&self) -> u32 {
         match self {

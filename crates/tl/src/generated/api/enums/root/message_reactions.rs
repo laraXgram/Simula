@@ -8,6 +8,12 @@ pub enum MessageReactions {
     MessageReactions(Box<crate::generated::api::types::MessageReactions>),
 }
 
+impl Default for MessageReactions {
+    fn default() -> Self {
+        Self::MessageReactions(Box::default())
+    }
+}
+
 impl MessageReactions {
     pub fn constructor_id(&self) -> u32 {
         match self {

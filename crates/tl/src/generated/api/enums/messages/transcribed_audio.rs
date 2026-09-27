@@ -8,6 +8,12 @@ pub enum TranscribedAudio {
     TranscribedAudio(Box<crate::generated::api::types::messages::TranscribedAudio>),
 }
 
+impl Default for TranscribedAudio {
+    fn default() -> Self {
+        Self::TranscribedAudio(Box::default())
+    }
+}
+
 impl TranscribedAudio {
     pub fn constructor_id(&self) -> u32 {
         match self {

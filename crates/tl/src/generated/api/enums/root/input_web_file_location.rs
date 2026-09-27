@@ -14,6 +14,12 @@ pub enum InputWebFileLocation {
     ),
 }
 
+impl Default for InputWebFileLocation {
+    fn default() -> Self {
+        Self::InputWebFileLocation(Box::default())
+    }
+}
+
 impl InputWebFileLocation {
     pub fn constructor_id(&self) -> u32 {
         match self {

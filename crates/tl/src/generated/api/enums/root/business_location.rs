@@ -8,6 +8,12 @@ pub enum BusinessLocation {
     BusinessLocation(Box<crate::generated::api::types::BusinessLocation>),
 }
 
+impl Default for BusinessLocation {
+    fn default() -> Self {
+        Self::BusinessLocation(Box::default())
+    }
+}
+
 impl BusinessLocation {
     pub fn constructor_id(&self) -> u32 {
         match self {

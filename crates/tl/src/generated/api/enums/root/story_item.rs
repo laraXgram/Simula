@@ -12,6 +12,12 @@ pub enum StoryItem {
     StoryItem(Box<crate::generated::api::types::StoryItem>),
 }
 
+impl Default for StoryItem {
+    fn default() -> Self {
+        Self::Deleted(Box::default())
+    }
+}
+
 impl StoryItem {
     pub fn constructor_id(&self) -> u32 {
         match self {

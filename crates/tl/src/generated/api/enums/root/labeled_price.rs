@@ -8,6 +8,12 @@ pub enum LabeledPrice {
     LabeledPrice(Box<crate::generated::api::types::LabeledPrice>),
 }
 
+impl Default for LabeledPrice {
+    fn default() -> Self {
+        Self::LabeledPrice(Box::default())
+    }
+}
+
 impl LabeledPrice {
     pub fn constructor_id(&self) -> u32 {
         match self {
