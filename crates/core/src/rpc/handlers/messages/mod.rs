@@ -3,6 +3,9 @@
 pub mod delete_messages;
 pub mod edit_message;
 pub mod get_bot_callback_answer;
+pub mod get_dialogs;
+pub mod get_history;
 pub mod get_messages;
+pub mod read_history;
 pub mod send_message;
 pub mod set_bot_callback_answer;

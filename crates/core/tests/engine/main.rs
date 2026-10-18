@@ -4,5 +4,6 @@
 mod common;
 
 mod callbacks;
+mod dialogs;
 mod edit_delete;
 mod private_chat;

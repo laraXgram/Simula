@@ -3,6 +3,7 @@
 
 pub mod accounts;
 pub mod bot_commands;
+pub mod dialogs;
 pub mod messages;
 pub mod meta;
 pub mod updates;
@@ -14,6 +15,7 @@ use rusqlite::Connection;
 const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0001_init.sql"),
     include_str!("migrations/0002_bot_commands.sql"),
+    include_str!("migrations/0003_dialogs.sql"),
 ];
 
 /// Open (or create) a sandbox database. `None` keeps it in memory, for tests.

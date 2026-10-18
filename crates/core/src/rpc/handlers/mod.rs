@@ -5,6 +5,7 @@
 //! (`bun run codegen registries`); add one with `bun run codegen new:tl <function>`.
 
 pub mod bots;
+pub mod contacts;
 pub mod messages;
 pub mod updates;
 pub mod users;
@@ -20,13 +21,18 @@ pub const IMPLEMENTED: &[&str] = &[
     "bots.getBotCommands",
     "bots.resetBotCommands",
     "bots.setBotCommands",
+    "contacts.resolveUsername",
     "messages.deleteMessages",
     "messages.editMessage",
     "messages.getBotCallbackAnswer",
+    "messages.getDialogs",
+    "messages.getHistory",
     "messages.getMessages",
+    "messages.readHistory",
     "messages.sendMessage",
     "messages.setBotCallbackAnswer",
     "updates.getState",
+    "users.getFullUser",
     "users.getUsers",
 ];
 
@@ -39,6 +45,8 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::BotsSetBotCommands(call) => bots::set_bot_commands::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::ContactsResolveUsername(call) => contacts::resolve_username::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesDeleteMessages(call) => messages::delete_messages::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesEditMessage(call) => messages::edit_message::handle(ctx, *call)
@@ -47,7 +55,15 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
             messages::get_bot_callback_answer::handle(ctx, *call)
                 .map(|reply| Box::new(reply) as Box<dyn Reply>)
         }
+        Function::MessagesGetDialogs(call) => {
+            messages::get_dialogs::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
+        Function::MessagesGetHistory(call) => {
+            messages::get_history::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
         Function::MessagesGetMessages(call) => messages::get_messages::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::MessagesReadHistory(call) => messages::read_history::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesSendMessage(call) => messages::send_message::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
@@ -57,6 +73,9 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
         }
         Function::UpdatesGetState(call) => {
             updates::get_state::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
+        Function::UsersGetFullUser(call) => {
+            users::get_full_user::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
         }
         Function::UsersGetUsers(call) => {
             users::get_users::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)

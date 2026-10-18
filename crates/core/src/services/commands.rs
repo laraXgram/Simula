@@ -104,3 +104,24 @@ fn check_lang_code(code: &str) -> RpcResult<()> {
         Err(RpcError::bad_request("LANG_CODE_INVALID"))
     }
 }
+
+/// The commands `user` sees in their private chat with `bot`, in Telegram's documented
+/// order: the chat, all private chats, the default scope — each first in the user's
+/// language, then for all languages.
+pub fn for_private_chat(
+    ctx: &Ctx<'_>,
+    bot: UserId,
+    user: UserId,
+) -> RpcResult<Vec<enums::BotCommand>> {
+    let lang = ctx.account(user)?.lang_code.unwrap_or_default();
+    let chat = format!("peer:{}", Peer::User(user).bot_api_id());
+    for scope in [chat.as_str(), "users", "default"] {
+        for lang_code in [lang.as_str(), ""] {
+            let list = store::bot_commands::get(ctx.db, bot, scope, lang_code)?;
+            if !list.is_empty() {
+                return Ok(list);
+            }
+        }
+    }
+    Ok(Vec::new())
+}
