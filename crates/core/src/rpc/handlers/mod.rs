@@ -5,6 +5,7 @@
 //! (`bun run codegen registries`); add one with `bun run codegen new:tl <function>`.
 
 pub mod bots;
+pub mod channels;
 pub mod contacts;
 pub mod messages;
 pub mod updates;
@@ -21,11 +22,29 @@ pub const IMPLEMENTED: &[&str] = &[
     "bots.getBotCommands",
     "bots.resetBotCommands",
     "bots.setBotCommands",
+    "channels.checkUsername",
+    "channels.createChannel",
+    "channels.deleteMessages",
+    "channels.editAdmin",
+    "channels.editBanned",
+    "channels.editTitle",
+    "channels.getChannels",
+    "channels.getFullChannel",
+    "channels.getMessages",
+    "channels.getParticipant",
+    "channels.getParticipants",
+    "channels.inviteToChannel",
+    "channels.joinChannel",
+    "channels.leaveChannel",
+    "channels.readHistory",
+    "channels.updateUsername",
     "contacts.resolveUsername",
     "messages.addChatUser",
     "messages.createChat",
     "messages.deleteChatUser",
     "messages.deleteMessages",
+    "messages.editChatAbout",
+    "messages.editChatDefaultBannedRights",
     "messages.editChatTitle",
     "messages.editMessage",
     "messages.getBotCallbackAnswer",
@@ -52,6 +71,41 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::BotsSetBotCommands(call) => bots::set_bot_commands::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::ChannelsCheckUsername(call) => channels::check_username::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::ChannelsCreateChannel(call) => channels::create_channel::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::ChannelsDeleteMessages(call) => channels::delete_messages::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::ChannelsEditAdmin(call) => {
+            channels::edit_admin::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
+        Function::ChannelsEditBanned(call) => {
+            channels::edit_banned::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
+        Function::ChannelsEditTitle(call) => {
+            channels::edit_title::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
+        Function::ChannelsGetChannels(call) => channels::get_channels::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::ChannelsGetFullChannel(call) => channels::get_full_channel::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::ChannelsGetMessages(call) => channels::get_messages::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::ChannelsGetParticipant(call) => channels::get_participant::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::ChannelsGetParticipants(call) => channels::get_participants::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::ChannelsInviteToChannel(call) => channels::invite_to_channel::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::ChannelsJoinChannel(call) => channels::join_channel::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::ChannelsLeaveChannel(call) => channels::leave_channel::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::ChannelsReadHistory(call) => channels::read_history::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::ChannelsUpdateUsername(call) => channels::update_username::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::ContactsResolveUsername(call) => contacts::resolve_username::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesAddChatUser(call) => messages::add_chat_user::handle(ctx, *call)
@@ -63,6 +117,12 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesDeleteMessages(call) => messages::delete_messages::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::MessagesEditChatAbout(call) => messages::edit_chat_about::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::MessagesEditChatDefaultBannedRights(call) => {
+            messages::edit_chat_default_banned_rights::handle(ctx, *call)
+                .map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
         Function::MessagesEditChatTitle(call) => messages::edit_chat_title::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesEditMessage(call) => messages::edit_message::handle(ctx, *call)

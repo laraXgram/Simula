@@ -21,26 +21,56 @@ pub fn press(
     msg_id: i32,
     data: &[u8],
 ) -> RpcResult<()> {
-    let Some((global_id, message)) = store::messages::get_in(ctx.db, presser, peer, msg_id)? else {
-        return Err(RpcError::bad_request("MESSAGE_ID_INVALID"));
+    // The message, its author, and the id the bot knows it by.
+    let (message, author, bot_msg_id) = match peer {
+        Peer::Channel(channel) => {
+            let found = crate::services::channels::get(ctx, channel)?;
+            crate::services::channels::require_reader(ctx, &found, presser)?;
+            let stored = store::channels::message(ctx.db, channel, msg_id)?;
+            match stored {
+                Some(store::channels::Stored {
+                    author,
+                    message: enums::Message::Message(m),
+                }) => (*m, Some(author), msg_id),
+                _ => return Err(RpcError::bad_request("MESSAGE_ID_INVALID")),
+            }
+        }
+        _ => {
+            let Some((global_id, message)) =
+                store::messages::get_in(ctx.db, presser, peer, msg_id)?
+            else {
+                return Err(RpcError::bad_request("MESSAGE_ID_INVALID"));
+            };
+            let author = match message.from_id.as_ref().map(Peer::from_tl) {
+                Some(Peer::User(author)) => Some(author),
+                _ => None,
+            };
+            let bot_msg_id = match author {
+                Some(author) => store::messages::copy_id(ctx.db, author, global_id)?,
+                None => None,
+            };
+            (message, author, bot_msg_id.unwrap_or(0))
+        }
     };
     if !has_callback_button(message.reply_markup.as_ref(), data) {
         return Err(RpcError::bad_request("DATA_INVALID"));
     }
-    let bot = match message.from_id.as_ref().map(Peer::from_tl) {
-        Some(Peer::User(bot)) if ctx.account(bot)?.is_bot => bot,
+    let bot = match author {
+        Some(bot) if ctx.account(bot)?.is_bot => bot,
         _ => return Err(RpcError::bad_request("BOT_RESPONSE_TIMEOUT")),
     };
+    if bot_msg_id == 0 {
+        return Err(RpcError::bad_request("MESSAGE_ID_INVALID"));
+    }
     // The bot sees the query on its own copy: in its chat with the presser, or the group.
     let bot_chat = match peer {
         Peer::User(_) => Peer::User(presser),
-        Peer::Chat(_) => peer,
-        Peer::Channel(_) => return Err(RpcError::not_implemented("callback buttons in channels")),
+        _ => peer,
     };
-    let bot_msg_id = store::messages::copy_id(ctx.db, bot, global_id)?
-        .ok_or_else(|| RpcError::bad_request("MESSAGE_ID_INVALID"))?;
-    if let Peer::Chat(chat) = bot_chat {
-        ctx.out.mention_chat(bot, chat);
+    match bot_chat {
+        Peer::Chat(chat) => ctx.out.mention_chat(bot, chat),
+        Peer::Channel(channel) => ctx.out.mention_channel(bot, channel),
+        Peer::User(_) => {}
     }
 
     let query_id = loop {

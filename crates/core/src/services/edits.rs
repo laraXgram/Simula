@@ -48,11 +48,7 @@ pub fn edit(
                 .map(|m| ctx.account(m.user).map(|a| a.is_bot))
                 .collect::<RpcResult<Vec<_>>>()?
                 .contains(&true),
-            Peer::Channel(_) => {
-                return Err(RpcError::not_implemented(
-                    "editing in channels and supergroups",
-                ));
-            }
+            Peer::Channel(_) => return Err(RpcError::peer_id_invalid()),
         };
     let Some((global_id, old)) = store::messages::get_in(ctx.db, editor, peer, id)? else {
         return Err(RpcError::bad_request("MESSAGE_ID_INVALID"));
@@ -60,64 +56,15 @@ pub fn edit(
     if !old.out {
         return Err(RpcError::forbidden("MESSAGE_AUTHOR_REQUIRED"));
     }
-    if !account.is_bot && ctx.now() - old.date >= EDIT_TIME_LIMIT {
-        return Err(RpcError::bad_request("MESSAGE_EDIT_TIME_EXPIRED"));
-    }
-    if edit
-        .reply_markup
-        .as_ref()
-        .is_some_and(|m| !matches!(m, enums::ReplyMarkup::ReplyInlineMarkup(_)))
-    {
-        return Err(RpcError::bad_request("REPLY_MARKUP_INVALID"));
-    }
+    check_time(ctx, account.is_bot, &old)?;
+    let content = Content::new(ctx, editor, with_commands, &old, edit)?;
 
-    let (text, entities) = match edit.text.clone() {
-        Some(text) => {
-            if text.trim().is_empty() {
-                return Err(RpcError::message_empty());
-            }
-            if entities::utf16_len(&text) as usize > messages::MAX_TEXT_LENGTH {
-                return Err(RpcError::message_too_long());
-            }
-            let entities =
-                messages::text_entities(ctx, editor, with_commands, &text, edit.entities)?;
-            (text, (!entities.is_empty()).then_some(entities))
-        }
-        None => (old.message.clone(), old.entities.clone()),
-    };
-    // Preview placement goes with the text; a keyboard-only edit keeps it.
-    let invert_media = if edit.text.is_some() {
-        edit.invert_media
-    } else {
-        old.invert_media
-    };
-    // The preview follows the text; a keyboard-only edit keeps it.
-    let media = match &edit.text {
-        Some(_) if edit.no_webpage => None,
-        Some(_) => previews::for_text(&text, entities.as_deref().unwrap_or_default()),
-        None => old.media.clone(),
-    };
-    let invert_media = invert_media && media.is_some();
-    let reply_markup = markup::normalize(ctx, editor, edit.reply_markup)?;
-    let text_changed = text != old.message || entities != old.entities;
-    if !text_changed && reply_markup == old.reply_markup && invert_media == old.invert_media {
-        return Err(RpcError::bad_request("MESSAGE_NOT_MODIFIED"));
-    }
-
-    let date = ctx.now();
     let mut edited = None;
     for (owner, copy_id) in store::messages::copies(ctx.db, global_id)? {
         let Some(mut copy) = store::messages::get(ctx.db, owner, copy_id)? else {
             continue;
         };
-        copy.message = text.clone();
-        copy.entities = entities.clone();
-        copy.reply_markup = reply_markup.clone();
-        copy.invert_media = invert_media;
-        copy.media = media.clone();
-        copy.edit_date = Some(date);
-        // A keyboard-only change doesn't mark the message as edited.
-        copy.edit_hide = !text_changed;
+        content.apply(&mut copy);
         store::messages::update(ctx.db, owner, &copy)?;
         let update = updates::push_pts(ctx, owner, messages::users(&copy), |pts, pts_count| {
             types::UpdateEditMessage {
@@ -135,4 +82,94 @@ pub fn edit(
         }
     }
     edited.ok_or_else(|| RpcError::internal("editor copy missing"))
+}
+
+/// Users edit within 48 hours; bots edit their messages any time.
+pub(crate) fn check_time(ctx: &Ctx<'_>, is_bot: bool, old: &types::Message) -> RpcResult<()> {
+    if !is_bot && ctx.now() - old.date >= EDIT_TIME_LIMIT {
+        return Err(RpcError::bad_request("MESSAGE_EDIT_TIME_EXPIRED"));
+    }
+    Ok(())
+}
+
+/// A message's content after an edit, checked once and applied to every copy.
+pub(crate) struct Content {
+    text: String,
+    entities: Option<Vec<enums::MessageEntity>>,
+    reply_markup: Option<enums::ReplyMarkup>,
+    invert_media: bool,
+    media: Option<enums::MessageMedia>,
+    text_changed: bool,
+    date: i32,
+}
+
+impl Content {
+    /// What `edit` makes of `old`, or `MESSAGE_NOT_MODIFIED`.
+    pub(crate) fn new(
+        ctx: &Ctx<'_>,
+        editor: UserId,
+        with_commands: bool,
+        old: &types::Message,
+        edit: Edit,
+    ) -> RpcResult<Self> {
+        if edit
+            .reply_markup
+            .as_ref()
+            .is_some_and(|m| !matches!(m, enums::ReplyMarkup::ReplyInlineMarkup(_)))
+        {
+            return Err(RpcError::bad_request("REPLY_MARKUP_INVALID"));
+        }
+        let (text, entities) = match edit.text.clone() {
+            Some(text) => {
+                if text.trim().is_empty() {
+                    return Err(RpcError::message_empty());
+                }
+                if entities::utf16_len(&text) as usize > messages::MAX_TEXT_LENGTH {
+                    return Err(RpcError::message_too_long());
+                }
+                let entities =
+                    messages::text_entities(ctx, editor, with_commands, &text, edit.entities)?;
+                (text, (!entities.is_empty()).then_some(entities))
+            }
+            None => (old.message.clone(), old.entities.clone()),
+        };
+        // Preview placement goes with the text; a keyboard-only edit keeps it.
+        let invert_media = if edit.text.is_some() {
+            edit.invert_media
+        } else {
+            old.invert_media
+        };
+        // The preview follows the text; a keyboard-only edit keeps it.
+        let media = match &edit.text {
+            Some(_) if edit.no_webpage => None,
+            Some(_) => previews::for_text(&text, entities.as_deref().unwrap_or_default()),
+            None => old.media.clone(),
+        };
+        let invert_media = invert_media && media.is_some();
+        let reply_markup = markup::normalize(ctx, editor, edit.reply_markup)?;
+        let text_changed = text != old.message || entities != old.entities;
+        if !text_changed && reply_markup == old.reply_markup && invert_media == old.invert_media {
+            return Err(RpcError::bad_request("MESSAGE_NOT_MODIFIED"));
+        }
+        Ok(Self {
+            text,
+            entities,
+            reply_markup,
+            invert_media,
+            media,
+            text_changed,
+            date: ctx.now(),
+        })
+    }
+
+    pub(crate) fn apply(&self, copy: &mut types::Message) {
+        copy.message = self.text.clone();
+        copy.entities = self.entities.clone();
+        copy.reply_markup = self.reply_markup.clone();
+        copy.invert_media = self.invert_media;
+        copy.media = self.media.clone();
+        copy.edit_date = Some(self.date);
+        // A keyboard-only change doesn't mark the message as edited.
+        copy.edit_hide = !self.text_changed;
+    }
 }

@@ -96,7 +96,7 @@ pub fn create_bot(ctx: &mut Ctx<'_>, new: NewBot) -> RpcResult<Account> {
     Ok(account)
 }
 
-fn check_username(ctx: &Ctx<'_>, username: &str) -> RpcResult<()> {
+pub(crate) fn check_username(ctx: &Ctx<'_>, username: &str) -> RpcResult<()> {
     let name = username.trim_start_matches('@');
     let valid = (5..=32).contains(&name.len())
         && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
@@ -104,7 +104,9 @@ fn check_username(ctx: &Ctx<'_>, username: &str) -> RpcResult<()> {
     if !valid {
         return Err(RpcError::bad_request("USERNAME_INVALID"));
     }
-    if store::accounts::by_username(ctx.db, name)?.is_some() {
+    if store::accounts::by_username(ctx.db, name)?.is_some()
+        || store::channels::by_username(ctx.db, name)?.is_some()
+    {
         return Err(RpcError::bad_request("USERNAME_OCCUPIED"));
     }
     Ok(())

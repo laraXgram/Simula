@@ -20,6 +20,14 @@ pub fn handle(
     if !valid {
         return Err(RpcError::bad_request("USERNAME_INVALID"));
     }
+    if let Some(channel) = store::channels::by_username(ctx.db, name)? {
+        return Ok(types::contacts::ResolvedPeer {
+            peer: Peer::Channel(channel.id).to_tl(),
+            chats: vec![render::channel(ctx, viewer, &channel)?],
+            users: vec![],
+        }
+        .into());
+    }
     let account = store::accounts::by_username(ctx.db, name)?
         .ok_or_else(|| RpcError::bad_request("USERNAME_NOT_OCCUPIED"))?;
     let viewer_account = ctx.account(viewer)?;

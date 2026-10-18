@@ -150,6 +150,78 @@ pub fn rename(ctx: &mut Ctx<'_>, actor: UserId, chat: ChatId, title: &str) -> Rp
     post(ctx, actor, chat, action.into(), &member_ids(ctx, chat)?)
 }
 
+/// The group's description: admins, or members when the defaults let them change info.
+pub fn set_about(ctx: &mut Ctx<'_>, actor: UserId, chat: ChatId, about: &str) -> RpcResult<()> {
+    let found = get(ctx, chat)?;
+    let member = require_member(ctx, chat, actor)?;
+    if member.role == Role::Member && default_banned(&found).change_info {
+        return Err(RpcError::bad_request("CHAT_ADMIN_REQUIRED"));
+    }
+    if about.chars().count() > 255 {
+        return Err(RpcError::bad_request("CHAT_ABOUT_TOO_LONG"));
+    }
+    if found
+        .extra
+        .get("about")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        == about
+    {
+        return Err(RpcError::bad_request("CHAT_ABOUT_NOT_MODIFIED"));
+    }
+    let mut extra = found.extra;
+    extra["about"] = about.into();
+    store::chats::set_extra(ctx.db, chat, &extra)?;
+    Ok(())
+}
+
+/// What members may do by default, as the rights they lack (basic groups start with
+/// nothing taken away).
+pub fn default_banned(chat: &store::chats::Chat) -> types::ChatBannedRights {
+    chat.extra
+        .get("default_banned_rights")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or(types::ChatBannedRights {
+            until_date: i32::MAX,
+            ..Default::default()
+        })
+}
+
+pub fn set_default_banned(
+    ctx: &mut Ctx<'_>,
+    actor: UserId,
+    chat: ChatId,
+    mut banned: types::ChatBannedRights,
+) -> RpcResult<()> {
+    let found = get(ctx, chat)?;
+    if require_member(ctx, chat, actor)?.role == Role::Member {
+        return Err(RpcError::bad_request("CHAT_ADMIN_REQUIRED"));
+    }
+    banned.until_date = i32::MAX;
+    if banned == default_banned(&found) {
+        return Err(RpcError::bad_request("CHAT_NOT_MODIFIED"));
+    }
+    let mut extra = found.extra;
+    extra["default_banned_rights"] = serde_json::to_value(&banned).map_err(RpcError::internal)?;
+    store::chats::set_extra(ctx.db, chat, &extra)?;
+    let version = store::chats::bump_version(ctx.db, chat)?;
+    for user in member_ids(ctx, chat)? {
+        ctx.out.mention_chat(user, chat);
+        crate::services::updates::push_plain(
+            ctx,
+            user,
+            types::UpdateChatDefaultBannedRights {
+                peer: Peer::Chat(chat).to_tl(),
+                default_banned_rights: banned.clone().into(),
+                version,
+            }
+            .into(),
+            [],
+        );
+    }
+    Ok(())
+}
+
 pub fn require_member(ctx: &Ctx<'_>, chat: ChatId, user: UserId) -> RpcResult<Member> {
     store::chats::member(ctx.db, chat, user)?
         .ok_or_else(|| RpcError::forbidden("CHAT_WRITE_FORBIDDEN"))
@@ -196,7 +268,7 @@ fn check_title(title: &str) -> RpcResult<String> {
 }
 
 /// Bots can be kept out of groups by their owner (BotFather's "Allow Groups?").
-fn check_can_join(ctx: &Ctx<'_>, user: UserId) -> RpcResult<()> {
+pub(crate) fn check_can_join(ctx: &Ctx<'_>, user: UserId) -> RpcResult<()> {
     let account = ctx.account(user)?;
     let blocked = account.is_bot
         && account

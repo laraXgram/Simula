@@ -2,6 +2,8 @@
 
 pub mod accounts;
 pub mod callbacks;
+pub mod channel_messages;
+pub mod channels;
 pub mod chats;
 pub mod commands;
 pub mod deletes;
@@ -14,4 +16,5 @@ pub mod messages;
 pub mod peers;
 pub mod previews;
 pub mod replies;
+pub mod rights;
 pub mod updates;

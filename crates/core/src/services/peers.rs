@@ -31,6 +31,27 @@ pub fn resolve_input_peer(
     }
 }
 
+/// A channel named by `viewer`, checking the access hash they were given.
+pub fn resolve_input_channel(
+    ctx: &Ctx<'_>,
+    viewer: UserId,
+    input: &enums::InputChannel,
+) -> RpcResult<ChannelId> {
+    match input {
+        enums::InputChannel::InputChannel(c) => {
+            let id = ChannelId(c.channel_id);
+            if c.access_hash != ctx.access_hash(viewer, Peer::Channel(id)) {
+                return Err(RpcError::bad_request("CHANNEL_INVALID"));
+            }
+            Ok(id)
+        }
+        enums::InputChannel::FromMessage(_) => Err(RpcError::not_implemented(
+            "channels named by a message they appeared in",
+        )),
+        enums::InputChannel::Empty => Err(RpcError::bad_request("CHANNEL_INVALID")),
+    }
+}
+
 pub fn resolve_input_user(
     ctx: &Ctx<'_>,
     viewer: UserId,
@@ -62,15 +83,18 @@ fn resolve_user(
     Ok(id)
 }
 
-/// Whether `viewer` has met `user`: they share a dialog, or `user` wrote (or did
-/// something) in a chat `viewer` was in, so `viewer` saw them.
+/// Whether `viewer` has met `user`: they share a dialog, `user` wrote (or did
+/// something) in a chat `viewer` was in, or they are in the same supergroup or channel.
 fn knows(ctx: &Ctx<'_>, viewer: UserId, user: UserId) -> RpcResult<bool> {
     if viewer == user || messages::has_dialog(ctx, viewer, Peer::User(user))? {
         return Ok(true);
     }
     Ok(ctx.db.query_row(
-        "SELECT EXISTS (SELECT 1 FROM messages WHERE owner_id = ?1 AND from_id = ?2)",
-        rusqlite::params![viewer.0, Peer::User(user).bot_api_id()],
+        "SELECT EXISTS (SELECT 1 FROM messages WHERE owner_id = ?1 AND from_id = ?2)
+             OR EXISTS (SELECT 1 FROM channel_members a JOIN channel_members b
+                        ON a.channel_id = b.channel_id
+                        WHERE a.user_id = ?1 AND b.user_id = ?3)",
+        rusqlite::params![viewer.0, Peer::User(user).bot_api_id(), user.0],
         |row| row.get(0),
     )?)
 }

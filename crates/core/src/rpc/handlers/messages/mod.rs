@@ -4,6 +4,8 @@ pub mod add_chat_user;
 pub mod create_chat;
 pub mod delete_chat_user;
 pub mod delete_messages;
+pub mod edit_chat_about;
+pub mod edit_chat_default_banned_rights;
 pub mod edit_chat_title;
 pub mod edit_message;
 pub mod get_bot_callback_answer;

@@ -1,5 +1,6 @@
 //! Replies within a chat. The sender names the replied message by its id in their own
-//! box; every participant's copy of the reply points at their own copy of it.
+//! box; every participant's copy of the reply points at their own copy of it. In
+//! supergroups and channels there is one box, so the id is the same for everyone.
 
 use simula_tl::{enums, types};
 
@@ -11,7 +12,9 @@ use crate::store;
 /// A checked reply target, independent of whose box it is rendered for.
 #[derive(Debug, Clone)]
 pub struct Target {
+    /// The copies' `global_id`, or the message id in a channel's box.
     global_id: i64,
+    in_channel: bool,
     quote: Option<Quote>,
     author: Option<UserId>,
 }
@@ -56,9 +59,15 @@ pub fn resolve(
             "replies to checklist tasks and poll options",
         ));
     }
-    let Some((global_id, replied)) =
-        store::messages::get_in(ctx.db, sender, peer, reply.reply_to_msg_id)?
-    else {
+    let found = match peer {
+        Peer::Channel(channel) => store::channels::message(ctx.db, channel, reply.reply_to_msg_id)?
+            .and_then(|stored| match stored.message {
+                enums::Message::Message(m) => Some((i64::from(m.id), *m)),
+                _ => None,
+            }),
+        _ => store::messages::get_in(ctx.db, sender, peer, reply.reply_to_msg_id)?,
+    };
+    let Some((global_id, replied)) = found else {
         return Err(RpcError::bad_request("REPLY_MESSAGE_ID_INVALID"));
     };
     let quote = match &reply.quote_text {
@@ -73,12 +82,18 @@ pub fn resolve(
         }
         _ => None,
     };
-    let author = match replied.from_id.as_ref().map(Peer::from_tl) {
-        Some(Peer::User(user)) => Some(user),
-        _ => None,
+    let author = match peer {
+        Peer::Channel(channel) => {
+            store::channels::message(ctx.db, channel, replied.id)?.map(|stored| stored.author)
+        }
+        _ => match replied.from_id.as_ref().map(Peer::from_tl) {
+            Some(Peer::User(user)) => Some(user),
+            _ => None,
+        },
     };
     Ok(Some(Target {
         global_id,
+        in_channel: matches!(peer, Peer::Channel(_)),
         quote,
         author,
     }))
@@ -93,7 +108,11 @@ pub fn header(
 ) -> RpcResult<enums::MessageReplyHeader> {
     let quote = target.quote.as_ref();
     Ok(types::MessageReplyHeader {
-        reply_to_msg_id: store::messages::copy_id(ctx.db, owner, target.global_id)?,
+        reply_to_msg_id: if target.in_channel {
+            Some(target.global_id as i32)
+        } else {
+            store::messages::copy_id(ctx.db, owner, target.global_id)?
+        },
         quote: quote.is_some(),
         quote_text: quote.map(|q| q.text.clone()),
         quote_entities: quote.and_then(|q| (!q.entities.is_empty()).then(|| q.entities.clone())),

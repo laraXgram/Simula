@@ -3,10 +3,10 @@
 use simula_tl::{enums, functions, types};
 
 use crate::ctx::Ctx;
-use crate::error::{RpcError, RpcResult};
+use crate::error::RpcResult;
 use crate::ids::Peer;
 use crate::render;
-use crate::services::{dialogs, peers};
+use crate::services::{channel_messages, channels, dialogs, peers};
 
 pub fn handle(
     ctx: &mut Ctx<'_>,
@@ -14,11 +14,6 @@ pub fn handle(
 ) -> RpcResult<enums::messages::Messages> {
     let owner = ctx.caller()?.account;
     let peer = peers::resolve_input_peer(ctx, owner, &req.peer)?;
-    if matches!(peer, Peer::Channel(_)) {
-        return Err(RpcError::not_implemented(
-            "history of channels and supergroups",
-        ));
-    }
     let limit = req.limit.clamp(1, 100) as usize;
     let window = dialogs::Window {
         offset_id: req.offset_id,
@@ -27,6 +22,19 @@ pub fn handle(
         min_id: req.min_id,
         max_id: req.max_id,
     };
+    if let Peer::Channel(channel) = peer {
+        let history = channel_messages::history(ctx, owner, channel, window)?;
+        let found = channels::get(ctx, channel)?;
+        return Ok(types::messages::ChannelMessages {
+            pts: history.pts,
+            count: history.count as i32,
+            messages: history.messages,
+            chats: vec![render::channel(ctx, owner, &found)?],
+            users: render::users(ctx, owner, &history.users)?,
+            ..Default::default()
+        }
+        .into());
+    }
     let history = dialogs::history(ctx, owner, peer, window)?;
     let users = render::users(ctx, owner, &history.users)?;
     let chats = match peer {

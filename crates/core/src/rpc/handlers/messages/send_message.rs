@@ -3,10 +3,10 @@
 use simula_tl::{enums, functions, types};
 
 use crate::ctx::Ctx;
-use crate::error::{RpcError, RpcResult};
+use crate::error::RpcResult;
 use crate::ids::Peer;
 use crate::render;
-use crate::services::{group_messages, messages, peers};
+use crate::services::{channel_messages, group_messages, messages, peers};
 
 pub fn handle(
     ctx: &mut Ctx<'_>,
@@ -29,11 +29,7 @@ pub fn handle(
     let sent = match peer {
         Peer::User(to) => messages::send_private(ctx, caller.account, to, out)?,
         Peer::Chat(chat) => group_messages::send(ctx, caller.account, chat, out)?,
-        Peer::Channel(_) => {
-            return Err(RpcError::not_implemented(
-                "sending to channels and supergroups",
-            ));
-        }
+        Peer::Channel(channel) => channel_messages::send(ctx, caller.account, channel, out)?,
     };
 
     // The caller learns the new id through updateMessageID, then gets its own copy.
@@ -48,7 +44,12 @@ pub fn handle(
             sent.update,
         ],
         users: render::users(ctx, caller.account, &mentioned)?,
-        chats: render::chats(ctx, caller.account, &ctx.out.chats_for(caller.account))?,
+        chats: render::all_chats(
+            ctx,
+            caller.account,
+            &ctx.out.chats_for(caller.account),
+            &ctx.out.channels_for(caller.account),
+        )?,
         date: ctx.now(),
         seq: 0,
     }

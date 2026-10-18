@@ -84,10 +84,10 @@ pub(crate) fn check_text(text: &str) -> RpcResult<()> {
 
 /// What every copy of a new message shares, checked and resolved once.
 pub(crate) struct Prepared {
-    out: Outgoing,
+    pub out: Outgoing,
     pub entities: Vec<enums::MessageEntity>,
-    preview: Option<enums::MessageMedia>,
-    reply_markup: Option<enums::ReplyMarkup>,
+    pub preview: Option<enums::MessageMedia>,
+    pub reply_markup: Option<enums::ReplyMarkup>,
     pub reply_to: Option<replies::Target>,
 }
 
@@ -190,7 +190,7 @@ pub(crate) fn deliver(
 }
 
 /// Whether a message mentions `user`: by @username, by id, or by replying to them.
-fn mentions(ctx: &Ctx<'_>, prepared: &Prepared, user: UserId) -> RpcResult<bool> {
+pub(crate) fn mentions(ctx: &Ctx<'_>, prepared: &Prepared, user: UserId) -> RpcResult<bool> {
     let username = ctx.account(user)?.username.map(|u| u.to_ascii_lowercase());
     let text: Vec<u16> = prepared.out.text.encode_utf16().collect();
     let named = prepared.entities.iter().any(|entity| match entity {

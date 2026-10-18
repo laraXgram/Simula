@@ -4,7 +4,7 @@ use simula_tl::enums;
 
 use crate::ctx::Ctx;
 use crate::error::RpcResult;
-use crate::ids::UserId;
+use crate::ids::{ChannelId, UserId};
 use crate::store;
 
 /// Record one pts-carrying update for `account`. `build` receives `(pts, pts_count)`.
@@ -67,4 +67,49 @@ pub fn push_qts(
     let update = build(qts);
     ctx.out.push(account, update.clone(), mentions, None);
     Ok(update)
+}
+
+/// Record one pts-carrying update of `channel` (its pts advances by `count`, once for
+/// everyone) and queue it for each of `recipients`, built as that recipient sees it.
+/// Returns the new pts.
+pub fn push_channel(
+    ctx: &mut Ctx<'_>,
+    channel: ChannelId,
+    count: i32,
+    recipients: &[UserId],
+    mentions: &[UserId],
+    build: impl Fn(Option<UserId>, i32, i32) -> enums::Update,
+) -> RpcResult<i32> {
+    let pts = store::channels::advance_pts(ctx.db, channel, count)?;
+    store::channels::log_update(
+        ctx.db,
+        channel,
+        pts,
+        count,
+        ctx.now(),
+        &build(None, pts, count),
+    )?;
+    for &recipient in recipients {
+        let origin = ctx.origin_for(recipient);
+        ctx.out.mention_channel(recipient, channel);
+        ctx.out.push(
+            recipient,
+            build(Some(recipient), pts, count),
+            mentions.iter().copied(),
+            origin,
+        );
+    }
+    Ok(pts)
+}
+
+/// Queue an update that carries no pts (`updateChannel`, read receipts) for every
+/// session of `account` but the caller's own, when the caller is `account`.
+pub fn push_plain(
+    ctx: &mut Ctx<'_>,
+    account: UserId,
+    update: enums::Update,
+    mentions: impl IntoIterator<Item = UserId>,
+) {
+    let origin = ctx.origin_for(account);
+    ctx.out.push(account, update, mentions, origin);
 }

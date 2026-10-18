@@ -8,7 +8,7 @@ use simula_tl::{enums, types};
 
 use crate::ctx::{Ctx, SessionId};
 use crate::error::RpcResult;
-use crate::ids::{ChatId, UserId};
+use crate::ids::{ChannelId, ChatId, UserId};
 use crate::render;
 
 /// Updates for one account, ready to deliver.
@@ -34,6 +34,7 @@ struct Pending {
     updates: Vec<(enums::Update, Option<SessionId>)>,
     users: BTreeSet<UserId>,
     chats: BTreeSet<ChatId>,
+    channels: BTreeSet<ChannelId>,
 }
 
 impl Outbox {
@@ -53,6 +54,23 @@ impl Outbox {
     /// Note that `account`'s updates mention basic group `chat` (it gets the chat object).
     pub fn mention_chat(&mut self, account: UserId, chat: ChatId) {
         self.pending.entry(account).or_default().chats.insert(chat);
+    }
+
+    /// Note that `account`'s updates mention `channel` (it gets the channel object).
+    pub fn mention_channel(&mut self, account: UserId, channel: ChannelId) {
+        self.pending
+            .entry(account)
+            .or_default()
+            .channels
+            .insert(channel);
+    }
+
+    /// Supergroups and channels mentioned so far in `account`'s updates.
+    pub fn channels_for(&self, account: UserId) -> BTreeSet<ChannelId> {
+        self.pending
+            .get(&account)
+            .map(|p| p.channels.clone())
+            .unwrap_or_default()
     }
 
     /// Basic groups mentioned so far in `account`'s updates.
@@ -86,7 +104,8 @@ impl Outbox {
         let mut batches = Vec::new();
         for (account, pending) in self.pending {
             let users = render::users(ctx, account, &pending.users)?;
-            let chats = render::chats(ctx, account, &pending.chats)?;
+            let mut chats = render::chats(ctx, account, &pending.chats)?;
+            chats.extend(render::channels(ctx, account, &pending.channels)?);
             let is_bot = ctx.account(account)?.is_bot;
             let mut groups: Vec<(Option<SessionId>, Vec<enums::Update>)> = Vec::new();
             for (update, origin) in pending.updates {

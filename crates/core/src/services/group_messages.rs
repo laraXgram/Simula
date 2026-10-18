@@ -46,8 +46,7 @@ pub fn send(ctx: &mut Ctx<'_>, from: UserId, chat: ChatId, out: Outgoing) -> Rpc
         .filter(|(account, role)| {
             account.id == from
                 || !account.is_bot
-                || gets_everything(account, *role)
-                || is_meant_for(&prepared, account, last_bot)
+                || bot_gets(account, *role != Role::Member, &prepared, last_bot)
         })
         .map(|(account, _)| (account.id, Peer::Chat(chat)))
         .collect();
@@ -61,13 +60,20 @@ pub fn send(ctx: &mut Ctx<'_>, from: UserId, chat: ChatId, out: Outgoing) -> Rpc
     Ok(sent)
 }
 
-fn gets_everything(bot: &Account, role: Role) -> bool {
+/// Whether a bot in a group gets a message: all of them with privacy mode off or as an
+/// admin, otherwise only those meant for it.
+pub(crate) fn bot_gets(
+    bot: &Account,
+    admin: bool,
+    prepared: &Prepared,
+    last_bot: Option<UserId>,
+) -> bool {
     let privacy = bot
         .extra
         .pointer("/bot/privacy_mode")
         .and_then(|v| v.as_bool())
         != Some(false);
-    !privacy || role != Role::Member
+    !privacy || admin || is_meant_for(prepared, bot, last_bot)
 }
 
 /// Whether a message is "meant for" a bot in privacy mode.

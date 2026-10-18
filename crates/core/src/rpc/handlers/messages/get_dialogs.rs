@@ -19,7 +19,7 @@ pub fn handle(
     let limit = req.limit.clamp(1, 100) as usize;
     let list = dialogs::list(ctx, owner, req.offset_date, req.offset_id, limit)?;
     let users = render::users(ctx, owner, &list.users)?;
-    let chats = render::chats(ctx, owner, &list.chats)?;
+    let chats = render::all_chats(ctx, owner, &list.chats, &list.channels)?;
     Ok(if list.dialogs.len() < list.total {
         types::messages::DialogsSlice {
             count: list.total as i32,
