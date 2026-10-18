@@ -1,9 +1,10 @@
-//! A basic group as the bot can see it (`messages.getFullChat`), for the chat and member
+//! Groups and channels as the bot can see them (`messages.getFullChat`,
+//! `channels.getFullChannel`, `channels.getParticipant(s)`), for the chat and member
 //! methods.
 
 use simula_botapi_types::types as bot;
-use simula_core::ChatId;
-use simula_tl::{enums, functions};
+use simula_core::{ChatId, Peer};
+use simula_tl::{enums, functions, types};
 
 use crate::convert::{Entities, member, user::user};
 use crate::ctx::BotCtx;
@@ -80,5 +81,149 @@ pub fn user_id_of(participant: &enums::ChatParticipant) -> i64 {
         enums::ChatParticipant::ChatParticipant(p) => p.user_id,
         enums::ChatParticipant::Creator(p) => p.user_id,
         enums::ChatParticipant::Admin(p) => p.user_id,
+    }
+}
+
+/// A supergroup or channel as the bot can see it (`channels.getFullChannel`).
+pub struct Channel {
+    pub info: types::Channel,
+    pub full: types::ChannelFull,
+}
+
+pub async fn channel(ctx: &BotCtx, peer: Peer) -> BotResult<Channel> {
+    let full = ctx
+        .call(
+            functions::channels::GetFullChannel {
+                channel: ctx.input_channel(peer),
+            },
+            ErrorContext::Plain,
+        )
+        .await?;
+    let enums::messages::ChatFull::ChatFull(full) = full;
+    let enums::ChatFull::ChannelFull(info) = full.full_chat else {
+        return Err(BotError::internal("not a channel"));
+    };
+    let channel = full
+        .chats
+        .iter()
+        .find_map(|c| match c {
+            enums::Chat::Channel(c) => Some((**c).clone()),
+            _ => None,
+        })
+        .ok_or_else(|| BotError::internal("getFullChannel returned no channel"))?;
+    Ok(Channel {
+        info: channel,
+        full: *info,
+    })
+}
+
+/// One member's status in a supergroup or channel (`channels.getParticipant`); users
+/// without one have "left".
+pub async fn channel_member(
+    ctx: &BotCtx,
+    peer: Peer,
+    broadcast: bool,
+    user_id: i64,
+) -> BotResult<bot::ChatMember> {
+    let found = ctx
+        .call(
+            functions::channels::GetParticipant {
+                channel: ctx.input_channel(peer),
+                participant: ctx.input_peer(Peer::User(simula_core::UserId(user_id))),
+            },
+            ErrorContext::Plain,
+        )
+        .await;
+    let left = || {
+        bot::ChatMember::from(bot::ChatMemberLeft {
+            user: bot::User {
+                id: user_id,
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+    };
+    let found = match found {
+        Ok(enums::channels::ChannelParticipant::ChannelParticipant(found)) => found,
+        Err(e) if e.description.ends_with("USER_NOT_PARTICIPANT") => return Ok(left()),
+        Err(e) => return Err(e),
+    };
+    let entities = Entities {
+        users: &found.users,
+        chats: &found.chats,
+        messages: &[],
+    };
+    let person = entities
+        .user(user_id)
+        .map(|u| user(u, false))
+        .unwrap_or(bot::User {
+            id: user_id,
+            ..Default::default()
+        });
+    Ok(member::channel_status(
+        Some(&found.participant),
+        person,
+        broadcast,
+    ))
+}
+
+/// The admins of a supergroup or channel.
+pub async fn channel_admins(
+    ctx: &BotCtx,
+    peer: Peer,
+    broadcast: bool,
+) -> BotResult<Vec<bot::ChatMember>> {
+    let found = ctx
+        .call(
+            functions::channels::GetParticipants {
+                channel: ctx.input_channel(peer),
+                filter: enums::ChannelParticipantsFilter::ChannelParticipantsAdmins,
+                offset: 0,
+                limit: 200,
+                hash: 0,
+            },
+            ErrorContext::Plain,
+        )
+        .await?;
+    let enums::channels::ChannelParticipants::ChannelParticipants(found) = found else {
+        return Ok(Vec::new());
+    };
+    let entities = Entities {
+        users: &found.users,
+        chats: &found.chats,
+        messages: &[],
+    };
+    Ok(found
+        .participants
+        .iter()
+        .map(|p| {
+            let id = channel_user_id(p);
+            let person = entities
+                .user(id)
+                .map(|u| user(u, false))
+                .unwrap_or(bot::User {
+                    id,
+                    ..Default::default()
+                });
+            member::channel_status(Some(p), person, broadcast)
+        })
+        .collect())
+}
+
+pub fn channel_user_id(participant: &enums::ChannelParticipant) -> i64 {
+    use enums::ChannelParticipant as P;
+    match participant {
+        P::ChannelParticipant(p) => p.user_id,
+        P::ChannelParticipantSelf(p) => p.user_id,
+        P::Creator(p) => p.user_id,
+        P::Admin(p) => p.user_id,
+        P::Banned(p) => match &p.peer {
+            enums::Peer::User(u) => u.user_id,
+            _ => 0,
+        },
+        P::Left(p) => match &p.peer {
+            enums::Peer::User(u) => u.user_id,
+            _ => 0,
+        },
     }
 }

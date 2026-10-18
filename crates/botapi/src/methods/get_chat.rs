@@ -4,8 +4,9 @@ use simula_botapi_types::{methods, types as bot};
 use simula_core::Peer;
 use simula_tl::{enums, functions};
 
+use crate::convert::permissions;
 use crate::ctx::BotCtx;
-use crate::error::{BotError, BotResult, ErrorContext};
+use crate::error::{BotResult, ErrorContext};
 use crate::members;
 use crate::resolve;
 
@@ -53,18 +54,54 @@ pub async fn handle(ctx: BotCtx, params: methods::GetChat) -> BotResult<bot::Cha
         }
         Peer::Chat(chat) => {
             let group = members::group(&ctx, chat).await?;
+            let defaults = group.chats.iter().find_map(|c| match c {
+                enums::Chat::Chat(c) => c.default_banned_rights.clone(),
+                _ => None,
+            });
             Ok(bot::ChatFullInfo {
                 id: peer.bot_api_id(),
                 r#type: "group".into(),
                 title: Some(group.title.clone()),
                 description: (!group.about.is_empty()).then(|| group.about.clone()),
-                permissions: Some(Box::new(everything_allowed())),
+                permissions: Some(Box::new(match defaults {
+                    Some(enums::ChatBannedRights::ChatBannedRights(r)) => {
+                        permissions::from_banned(&r)
+                    }
+                    None => everything_allowed(),
+                })),
                 accent_color_id: accent,
                 max_reaction_count: MAX_REACTIONS,
                 ..Default::default()
             })
         }
-        Peer::Channel(_) => Err(BotError::not_implemented("channels and supergroups")),
+        Peer::Channel(_) => {
+            let channel = members::channel(&ctx, peer).await?;
+            let info = &channel.info;
+            Ok(bot::ChatFullInfo {
+                id: peer.bot_api_id(),
+                r#type: if info.broadcast {
+                    "channel"
+                } else {
+                    "supergroup"
+                }
+                .into(),
+                title: Some(info.title.clone()),
+                username: info.username.clone(),
+                description: (!channel.full.about.is_empty()).then(|| channel.full.about.clone()),
+                permissions: match &info.default_banned_rights {
+                    Some(enums::ChatBannedRights::ChatBannedRights(r)) if !info.broadcast => {
+                        Some(Box::new(permissions::from_banned(r)))
+                    }
+                    _ => None,
+                },
+                has_protected_content: info.noforwards,
+                join_to_send_messages: info.join_to_send,
+                join_by_request: info.join_request,
+                accent_color_id: accent,
+                max_reaction_count: MAX_REACTIONS,
+                ..Default::default()
+            })
+        }
     }
 }
 

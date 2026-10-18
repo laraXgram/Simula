@@ -22,6 +22,16 @@ pub async fn handle(ctx: BotCtx, params: methods::SetChatTitle) -> BotResult<boo
             .await?;
             Ok(true)
         }
-        Peer::Channel(_) => Err(BotError::not_implemented("channels and supergroups")),
+        peer @ Peer::Channel(_) => {
+            ctx.call(
+                functions::channels::EditTitle {
+                    channel: ctx.input_channel(peer),
+                    title: params.title,
+                },
+                ErrorContext::Plain,
+            )
+            .await?;
+            Ok(true)
+        }
     }
 }

@@ -1,6 +1,8 @@
 //! What `deleteMessage` and `deleteMessages` share: tdlib's checks before it deletes for
-//! everyone (bots always do), then `messages.deleteMessages` with `revoke`.
+//! everyone (bots always do), then `messages.deleteMessages` with `revoke`, or
+//! `channels.deleteMessages` in supergroups and channels.
 
+use simula_core::Peer;
 use simula_tl::{functions, types};
 
 use crate::ctx::BotCtx;
@@ -22,13 +24,25 @@ pub async fn delete(ctx: &BotCtx, messages: &[types::Message]) -> BotResult<bool
     if messages.is_empty() {
         return Ok(true);
     }
-    ctx.call(
-        functions::messages::DeleteMessages {
-            revoke: true,
-            id: messages.iter().map(|m| m.id).collect(),
-        },
-        ErrorContext::Plain,
-    )
-    .await?;
+    let id = messages.iter().map(|m| m.id).collect();
+    match Peer::from_tl(&messages[0].peer_id) {
+        chat @ Peer::Channel(_) => {
+            ctx.call(
+                functions::channels::DeleteMessages {
+                    channel: ctx.input_channel(chat),
+                    id,
+                },
+                ErrorContext::Plain,
+            )
+            .await?;
+        }
+        _ => {
+            ctx.call(
+                functions::messages::DeleteMessages { revoke: true, id },
+                ErrorContext::Plain,
+            )
+            .await?;
+        }
+    }
     Ok(true)
 }

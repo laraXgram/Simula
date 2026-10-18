@@ -35,20 +35,30 @@ pub async fn messages(ctx: &BotCtx, chat: Peer, ids: &[i32]) -> BotResult<Vec<ty
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let found = ctx
-        .call(
-            functions::messages::GetMessages {
-                id: ids
-                    .iter()
-                    .map(|&id| types::InputMessageID { id }.into())
-                    .collect(),
-            },
-            ErrorContext::default(),
-        )
-        .await?;
-    let enums::messages::Messages::Messages(found) = found else {
-        return Ok(Vec::new());
+    let id: Vec<enums::InputMessage> = ids
+        .iter()
+        .map(|&id| types::InputMessageID { id }.into())
+        .collect();
+    let found = match chat {
+        Peer::Channel(_) => {
+            ctx.call(
+                functions::channels::GetMessages {
+                    channel: ctx.input_channel(chat),
+                    id,
+                },
+                ErrorContext::default(),
+            )
+            .await?
+        }
+        _ => {
+            ctx.call(
+                functions::messages::GetMessages { id },
+                ErrorContext::default(),
+            )
+            .await?
+        }
     };
+    let found = crate::present::into_messages(found);
     Ok(found
         .messages
         .into_iter()

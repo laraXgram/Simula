@@ -1,4 +1,4 @@
-//! TL peer (+ its user or chat object) → Bot API `Chat`.
+//! TL peer (+ its user, chat or channel object) → Bot API `Chat`.
 
 use simula_botapi_types::types as bot;
 use simula_core::Peer;
@@ -24,11 +24,20 @@ pub fn chat(peer: Peer, entities: &Entities<'_>) -> bot::Chat {
             title: entities.chat_title(id.0).map(str::to_owned),
             ..Default::default()
         },
-        // Supergroups and channels come with the next M4 slice.
-        Peer::Channel(_) => bot::Chat {
-            id: peer.bot_api_id(),
-            r#type: "supergroup".into(),
-            ..Default::default()
-        },
+        Peer::Channel(id) => {
+            let info = entities.channel(id.0);
+            bot::Chat {
+                id: peer.bot_api_id(),
+                r#type: if info.is_some_and(|c| c.broadcast) {
+                    "channel"
+                } else {
+                    "supergroup"
+                }
+                .into(),
+                title: info.map(|c| c.title.to_owned()),
+                username: info.and_then(|c| c.username.map(str::to_owned)),
+                ..Default::default()
+            }
+        }
     }
 }

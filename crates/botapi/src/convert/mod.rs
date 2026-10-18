@@ -7,10 +7,20 @@ pub mod link_preview;
 pub mod markup;
 pub mod member;
 pub mod message;
+pub mod permissions;
 pub mod update;
 pub mod user;
 
+use simula_core::Peer;
 use simula_tl::{enums, types};
+
+/// What the bot knows of a supergroup or channel from the objects that came along.
+#[derive(Debug, Clone, Copy)]
+pub struct ChannelInfo<'a> {
+    pub broadcast: bool,
+    pub title: &'a str,
+    pub username: Option<&'a str>,
+}
 
 /// What came with the TL objects being converted: users, and the messages they reply to
 /// (fetched beforehand, as telegram-bot-api has tdlib fetch replied messages).
@@ -38,10 +48,29 @@ impl<'a> Entities<'a> {
         })
     }
 
-    /// A message from the bot's box, by id.
-    pub fn message(&self, id: i32) -> Option<&'a types::Message> {
+    /// A supergroup or channel, if it came along.
+    pub fn channel(&self, id: i64) -> Option<ChannelInfo<'a>> {
+        self.chats.iter().find_map(|c| match c {
+            enums::Chat::Channel(c) if c.id == id => Some(ChannelInfo {
+                broadcast: c.broadcast,
+                title: &c.title,
+                username: c.username.as_deref(),
+            }),
+            enums::Chat::ChannelForbidden(c) if c.id == id => Some(ChannelInfo {
+                broadcast: c.broadcast,
+                title: &c.title,
+                username: None,
+            }),
+            _ => None,
+        })
+    }
+
+    /// A fetched message of chat `peer`, by id.
+    pub fn message(&self, peer: Peer, id: i32) -> Option<&'a types::Message> {
         self.messages.iter().find_map(|m| match m {
-            enums::Message::Message(m) if m.id == id => Some(&**m),
+            enums::Message::Message(m) if m.id == id && Peer::from_tl(&m.peer_id) == peer => {
+                Some(&**m)
+            }
             _ => None,
         })
     }

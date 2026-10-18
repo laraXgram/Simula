@@ -2,6 +2,7 @@
 //! (the queue assigns it).
 
 use simula_botapi_types::types as bot;
+use simula_core::Peer;
 use simula_tl::{enums, types};
 
 use super::{Entities, callback, member, message};
@@ -32,6 +33,52 @@ pub fn updates(updates: &enums::Updates, context: &Entities<'_>, me: i64) -> Vec
                     chat_member: Some(Box::new(member::updated(u, context))),
                     ..Default::default()
                 },
+                // Channel posts are `channel_post`; supergroup messages are `message`.
+                enums::Update::NewChannelMessage(u) => {
+                    let (message, post) = match &u.message {
+                        enums::Message::Service(s) if !s.out => {
+                            (message::service(s, context)?, s.post)
+                        }
+                        other => {
+                            let m = incoming(other)?;
+                            (message::message(m, context), m.post)
+                        }
+                    };
+                    if post {
+                        bot::Update {
+                            channel_post: Some(Box::new(message)),
+                            ..Default::default()
+                        }
+                    } else {
+                        bot::Update {
+                            message: Some(Box::new(message)),
+                            ..Default::default()
+                        }
+                    }
+                }
+                enums::Update::EditChannelMessage(u) => {
+                    let m = incoming(&u.message)?;
+                    let message = Some(Box::new(message::message(m, context)));
+                    if m.post {
+                        bot::Update {
+                            edited_channel_post: message,
+                            ..Default::default()
+                        }
+                    } else {
+                        bot::Update {
+                            edited_message: message,
+                            ..Default::default()
+                        }
+                    }
+                }
+                enums::Update::ChannelParticipant(u) if u.user_id == me => bot::Update {
+                    my_chat_member: Some(Box::new(member::updated_channel(u, context))),
+                    ..Default::default()
+                },
+                enums::Update::ChannelParticipant(u) => bot::Update {
+                    chat_member: Some(Box::new(member::updated_channel(u, context))),
+                    ..Default::default()
+                },
                 enums::Update::EditMessage(u) => bot::Update {
                     edited_message: Some(Box::new(message::message(
                         incoming(&u.message)?,
@@ -49,9 +96,9 @@ pub fn updates(updates: &enums::Updates, context: &Entities<'_>, me: i64) -> Vec
         .collect()
 }
 
-/// Messages [`updates`] needs from the bot's box: what incoming messages reply to, and
+/// Messages [`updates`] needs fetched, by chat: what incoming messages reply to, and
 /// the messages of callback queries.
-pub fn wanted(updates: &enums::Updates) -> Vec<i32> {
+pub fn wanted(updates: &enums::Updates) -> Vec<(Peer, i32)> {
     let enums::Updates::Updates(batch) = updates else {
         return Vec::new();
     };
@@ -59,9 +106,15 @@ pub fn wanted(updates: &enums::Updates) -> Vec<i32> {
         .updates
         .iter()
         .filter_map(|update| match update {
-            enums::Update::NewMessage(u) => incoming(&u.message).and_then(message::reply_id),
-            enums::Update::EditMessage(u) => incoming(&u.message).and_then(message::reply_id),
-            enums::Update::BotCallbackQuery(q) => Some(q.msg_id),
+            enums::Update::NewMessage(u) => incoming(&u.message).and_then(message::reply_ref),
+            enums::Update::EditMessage(u) => incoming(&u.message).and_then(message::reply_ref),
+            enums::Update::NewChannelMessage(u) => {
+                incoming(&u.message).and_then(message::reply_ref)
+            }
+            enums::Update::EditChannelMessage(u) => {
+                incoming(&u.message).and_then(message::reply_ref)
+            }
+            enums::Update::BotCallbackQuery(q) => Some((Peer::from_tl(&q.peer), q.msg_id)),
             _ => None,
         })
         .collect()

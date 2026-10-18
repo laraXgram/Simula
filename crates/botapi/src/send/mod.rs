@@ -89,6 +89,9 @@ pub async fn send(ctx: &BotCtx, options: Options, content: Content) -> BotResult
     }
 
     let peer = resolve::chat_for(ctx, &options.chat_id, resolve::Access::Write).await?;
+    if let Peer::Channel(_) = peer {
+        can_send_text(&resolve::channel(ctx, peer, resolve::Access::Write).await?)?;
+    }
     let reply_to = reply::check(ctx, peer, reply).await?;
     let private_chat = matches!(peer, Peer::User(_));
 
@@ -124,6 +127,29 @@ pub async fn send(ctx: &BotCtx, options: Options, content: Content) -> BotResult
     Ok(present::message(&ctx.gateway, ctx.bot.id, message, users, chats).await)
 }
 
+/// tdlib's `can_send_message` for text, from the rights in the bot's channel object:
+/// posting in channels takes `post_messages`, supergroups may restrict text.
+fn can_send_text(channel: &simula_tl::types::Channel) -> BotResult<()> {
+    let admin = channel.creator || channel.admin_rights.is_some();
+    if channel.broadcast {
+        let may_post = channel.creator
+            || matches!(&channel.admin_rights, Some(enums::ChatAdminRights::ChatAdminRights(r)) if r.post_messages);
+        if !may_post {
+            return Err(BotError::bad_request(
+                "need administrator rights in the channel chat",
+            ));
+        }
+        return Ok(());
+    }
+    let banned = |rights: &Option<enums::ChatBannedRights>| matches!(rights, Some(enums::ChatBannedRights::ChatBannedRights(r)) if r.send_messages || r.send_plain);
+    if !admin && (banned(&channel.banned_rights) || banned(&channel.default_banned_rights)) {
+        return Err(BotError::bad_request(
+            "not enough rights to send text messages to the chat",
+        ));
+    }
+    Ok(())
+}
+
 /// The bot's copy of the message it just sent, from the call's `Updates`.
 fn sent_message(
     updates: &enums::Updates,
@@ -131,13 +157,17 @@ fn sent_message(
     let enums::Updates::Updates(batch) = updates else {
         return None;
     };
-    batch.updates.iter().find_map(|update| match update {
-        enums::Update::NewMessage(u) => match &u.message {
+    batch.updates.iter().find_map(|update| {
+        let message = match update {
+            enums::Update::NewMessage(u) => &u.message,
+            enums::Update::NewChannelMessage(u) => &u.message,
+            _ => return None,
+        };
+        match message {
             enums::Message::Message(m) => {
                 Some((&**m, batch.users.as_slice(), batch.chats.as_slice()))
             }
             _ => None,
-        },
-        _ => None,
+        }
     })
 }

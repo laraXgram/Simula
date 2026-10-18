@@ -60,7 +60,9 @@ pub async fn edit(
         .reply_markup
         .as_ref()
         .is_some_and(|m| !matches!(m, enums::ReplyMarkup::ReplyInlineMarkup(_)));
-    if !message.out || has_reply_keyboard {
+    // Channel posts can also be edited by admins with `edit_messages`; the server checks.
+    let channel_post = message.post && matches!(chat, Peer::Channel(_));
+    if (!message.out && !channel_post) || has_reply_keyboard {
         return Err(BotError::bad_request("message can't be edited"));
     }
     if matches!(change, Change::Text { .. }) && !convert::message::is_text(&message) {
@@ -89,18 +91,28 @@ pub async fn edit(
         call.entities = Some(ctx.tl_entities(&text.entities)).filter(|e| !e.is_empty());
         call.message = Some(text.text);
     }
-    let updates = ctx.call(call, ErrorContext::Plain).await?;
+    let updates = ctx.call(call, ErrorContext::Plain).await.map_err(|e| {
+        if e.description.ends_with("MESSAGE_AUTHOR_REQUIRED") {
+            BotError::bad_request("message can't be edited")
+        } else {
+            e
+        }
+    })?;
     let enums::Updates::Updates(batch) = &updates else {
         return Err(BotError::internal(
             "messages.editMessage returned no updates",
         ));
     };
-    let edited = batch.updates.iter().find_map(|u| match u {
-        enums::Update::EditMessage(u) => match &u.message {
+    let edited = batch.updates.iter().find_map(|u| {
+        let message = match u {
+            enums::Update::EditMessage(u) => &u.message,
+            enums::Update::EditChannelMessage(u) => &u.message,
+            _ => return None,
+        };
+        match message {
             enums::Message::Message(m) => Some(&**m),
             _ => None,
-        },
-        _ => None,
+        }
     });
     let edited =
         edited.ok_or_else(|| BotError::internal("messages.editMessage returned no message"))?;

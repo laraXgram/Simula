@@ -21,6 +21,12 @@ fn convert(m: &types::Message, context: &Entities<'_>, with_reply: bool) -> bot:
             Peer::User(id) => context.user(id.0).map(|u| Box::new(user(u, false))),
             _ => None,
         });
+    // Channel posts (and messages sent on behalf of a chat) carry the chat as sender.
+    let sender_chat = match m.from_id.as_ref().map(Peer::from_tl) {
+        None if m.post => Some(Peer::from_tl(&m.peer_id)),
+        Some(peer @ (Peer::Channel(_) | Peer::Chat(_))) => Some(peer),
+        _ => None,
+    };
     let header = match &m.reply_to {
         Some(enums::MessageReplyHeader::MessageReplyHeader(header)) => Some(&**header),
         _ => None,
@@ -29,6 +35,8 @@ fn convert(m: &types::Message, context: &Entities<'_>, with_reply: bool) -> bot:
     bot::Message {
         message_id: m.id.into(),
         from,
+        sender_chat: sender_chat.map(|peer| Box::new(chat(peer, context))),
+        author_signature: m.post_author.clone(),
         date: m.date.into(),
         chat: chat(Peer::from_tl(&m.peer_id), context),
         reply_to_message: header
@@ -55,6 +63,11 @@ pub fn is_text(m: &types::Message) -> bool {
     matches!(m.media, None | Some(enums::MessageMedia::WebPage(_)))
 }
 
+/// The chat and id of the message `m` replies to in the same chat, if any.
+pub fn reply_ref(m: &types::Message) -> Option<(Peer, i32)> {
+    reply_id(m).map(|id| (Peer::from_tl(&m.peer_id), id))
+}
+
 /// The id of the message `m` replies to in the same chat, if any.
 pub fn reply_id(m: &types::Message) -> Option<i32> {
     match &m.reply_to {
@@ -74,9 +87,7 @@ fn replied<'a>(
     if header.reply_to_peer_id.is_some() {
         return None;
     }
-    context
-        .message(header.reply_to_msg_id?)
-        .filter(|replied| replied.peer_id == m.peer_id)
+    context.message(Peer::from_tl(&m.peer_id), header.reply_to_msg_id?)
 }
 
 fn quote(header: &types::MessageReplyHeader, context: &Entities<'_>) -> Option<bot::TextQuote> {
@@ -104,9 +115,12 @@ pub fn service(m: &types::MessageService, context: &Entities<'_>) -> Option<bot:
         Some(Peer::User(id)) => Some(Box::new(person(id.0))),
         _ => None,
     };
+    let sender_chat =
+        (m.from_id.is_none() && m.post).then(|| Box::new(chat(Peer::from_tl(&m.peer_id), context)));
     let base = bot::Message {
         message_id: m.id.into(),
         from,
+        sender_chat,
         date: m.date.into(),
         chat: chat(Peer::from_tl(&m.peer_id), context),
         ..Default::default()
@@ -126,6 +140,14 @@ pub fn service(m: &types::MessageService, context: &Entities<'_>) -> Option<bot:
         },
         enums::MessageAction::ChatEditTitle(a) => bot::Message {
             new_chat_title: Some(a.title.clone()),
+            ..base
+        },
+        enums::MessageAction::ChannelCreate(_) if m.post => bot::Message {
+            channel_chat_created: true,
+            ..base
+        },
+        enums::MessageAction::ChannelCreate(_) => bot::Message {
+            supergroup_chat_created: true,
             ..base
         },
         _ => return None,

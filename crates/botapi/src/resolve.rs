@@ -20,14 +20,55 @@ pub async fn chat(ctx: &BotCtx, chat_id: &ChatId) -> BotResult<Peer> {
     chat_for(ctx, chat_id, Access::Read).await
 }
 
-/// The chat, after telegram-bot-api's `check_chat_access` for basic groups: a group the
-/// bot left reads fine but can't be written to, nor one it was removed from.
+/// The chat, after telegram-bot-api's `check_chat_access`: a group the bot left reads
+/// fine but can't be written to, nor one it was removed from; supergroups and channels
+/// the bot isn't in are readable only when public, and banned bots get nothing.
 pub async fn chat_for(ctx: &BotCtx, chat_id: &ChatId, access: Access) -> BotResult<Peer> {
     let peer = peer(ctx, chat_id).await?;
-    if let Peer::Chat(chat) = peer {
-        check_group(ctx, chat, access).await?;
+    match peer {
+        Peer::Chat(chat) => check_group(ctx, chat, access).await?,
+        Peer::Channel(_) => {
+            channel(ctx, peer, access).await?;
+        }
+        Peer::User(_) => {}
     }
     Ok(peer)
+}
+
+/// The supergroup or channel as the bot sees it, after the access checks.
+pub async fn channel(ctx: &BotCtx, peer: Peer, access: Access) -> BotResult<types::Channel> {
+    let not_found = || BotError::bad_request("chat not found");
+    let found = ctx
+        .call(
+            functions::channels::GetChannels {
+                id: vec![ctx.input_channel(peer)],
+            },
+            ErrorContext::Plain,
+        )
+        .await
+        .map_err(|_| not_found())?;
+    let enums::messages::Chats::Chats(found) = found else {
+        return Err(not_found());
+    };
+    let kind = |broadcast: bool| if broadcast { "channel" } else { "supergroup" };
+    match found.chats.into_iter().next() {
+        Some(enums::Chat::ChannelForbidden(c)) => Err(BotError::forbidden(format!(
+            "bot was kicked from the {} chat",
+            kind(c.broadcast)
+        ))),
+        Some(enums::Chat::Channel(c)) => {
+            let public = c.username.is_some();
+            let needs_membership = !public || access == Access::Write;
+            if c.left && needs_membership {
+                return Err(BotError::forbidden(format!(
+                    "bot is not a member of the {} chat",
+                    kind(c.broadcast)
+                )));
+            }
+            Ok(*c)
+        }
+        _ => Err(not_found()),
+    }
 }
 
 async fn check_group(ctx: &BotCtx, chat: simula_core::ChatId, access: Access) -> BotResult<()> {
@@ -96,15 +137,25 @@ async fn peer(ctx: &BotCtx, chat_id: &ChatId) -> BotResult<Peer> {
             }
             Ok(peer)
         }
+        // Public usernames name channels and supergroups (and users, which telegram-bot-api
+        // would only find among chats the bot knows).
         ChatId::Username(name) => {
-            let name = name.clone();
-            let account = ctx
+            let name = name.trim_start_matches('@').to_owned();
+            let found = ctx
                 .gateway
                 .sandbox
-                .run(move |world| store::accounts::by_username(world.connection(), &name))
+                .run(move |world| {
+                    let db = world.connection();
+                    match store::channels::by_username(db, &name) {
+                        Ok(Some(channel)) => Ok(Some(Peer::Channel(channel.id))),
+                        Ok(None) => store::accounts::by_username(db, &name)
+                            .map(|found| found.map(|a| Peer::User(a.id))),
+                        Err(error) => Err(error),
+                    }
+                })
                 .await
                 .map_err(BotError::internal)?;
-            account.map(|a| Peer::User(a.id)).ok_or_else(not_found)
+            found.ok_or_else(not_found)
         }
     }
 }

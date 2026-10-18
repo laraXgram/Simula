@@ -60,6 +60,18 @@ impl BotCtx {
         self.gateway.sandbox.input_peer(self.bot.id, peer)
     }
 
+    /// The `InputChannel` for a supergroup or channel (empty for other peers).
+    pub fn input_channel(&self, peer: Peer) -> enums::InputChannel {
+        match self.input_peer(peer) {
+            enums::InputPeer::Channel(c) => types::InputChannel {
+                channel_id: c.channel_id,
+                access_hash: c.access_hash,
+            }
+            .into(),
+            _ => enums::InputChannel::Empty,
+        }
+    }
+
     /// A user as tdlib addresses users it has no access hash for: by id with hash 0,
     /// which the server accepts from a bot for users it has met.
     pub fn input_user(&self, user_id: i64) -> enums::InputUser {

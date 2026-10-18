@@ -319,7 +319,11 @@ pub fn edit_admin(
             promoted_by: Some(actor),
             admin_rights: Some(wanted),
             banned_rights: None,
-            rank: rank.filter(|r| !r.is_empty()),
+            // No rank keeps the current one; an empty one removes it.
+            rank: match rank {
+                Some(r) => Some(r).filter(|r| !r.is_empty()),
+                None => base.rank.clone(),
+            },
             ..base
         }
     };

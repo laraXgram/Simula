@@ -319,3 +319,128 @@ pub async fn user_removes(w: &World, group: i64, user: UserId) {
         .await
         .unwrap();
 }
+
+/// Run a TL call as `account`.
+pub async fn as_user<F>(
+    w: &World,
+    account: UserId,
+    call: F,
+) -> Result<F::Return, simula_core::RpcError>
+where
+    F: simula_tl::RemoteCall + Into<simula_tl::Function>,
+    F::Return: 'static,
+{
+    w.sandbox
+        .call(
+            Caller {
+                account,
+                session: None,
+            },
+            call,
+        )
+        .await
+}
+
+/// `viewer`'s `InputChannel` for `channel`.
+pub fn input_channel(
+    w: &World,
+    viewer: UserId,
+    channel: simula_core::ChannelId,
+) -> enums::InputChannel {
+    let enums::InputPeer::Channel(peer) = w.sandbox.input_peer(viewer, Peer::Channel(channel))
+    else {
+        unreachable!()
+    };
+    types::InputChannel {
+        channel_id: peer.channel_id,
+        access_hash: peer.access_hash,
+    }
+    .into()
+}
+
+/// `viewer`'s `InputUser` for `user`.
+pub fn input_user(w: &World, viewer: UserId, user: UserId) -> enums::InputUser {
+    let enums::InputPeer::User(peer) = w.sandbox.input_peer(viewer, Peer::User(user)) else {
+        unreachable!()
+    };
+    types::InputUser {
+        user_id: peer.user_id,
+        access_hash: peer.access_hash,
+    }
+    .into()
+}
+
+/// The user creates a supergroup (or a channel); returns its id.
+pub async fn create_channel(w: &World, broadcast: bool, title: &str) -> simula_core::ChannelId {
+    let updates = as_user(
+        w,
+        w.user.id,
+        functions::channels::CreateChannel {
+            broadcast,
+            megagroup: !broadcast,
+            title: title.into(),
+            about: String::new(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let enums::Updates::Updates(updates) = updates else {
+        panic!("updates expected");
+    };
+    updates
+        .chats
+        .iter()
+        .find_map(|c| match c {
+            enums::Chat::Channel(c) => Some(simula_core::ChannelId(c.id)),
+            _ => None,
+        })
+        .unwrap()
+}
+
+/// `account` writes into a supergroup or channel; returns the message id.
+pub async fn says_in_channel(
+    w: &World,
+    account: UserId,
+    channel: simula_core::ChannelId,
+    text: &str,
+) -> Result<i32, simula_core::RpcError> {
+    let updates = as_user(
+        w,
+        account,
+        functions::messages::SendMessage {
+            peer: w.sandbox.input_peer(account, Peer::Channel(channel)),
+            message: text.into(),
+            random_id: rand::random(),
+            ..Default::default()
+        },
+    )
+    .await?;
+    let enums::Updates::Updates(batch) = updates else {
+        panic!("updates expected");
+    };
+    Ok(batch
+        .updates
+        .iter()
+        .find_map(|u| match u {
+            enums::Update::MessageID(u) => Some(u.id),
+            _ => None,
+        })
+        .unwrap())
+}
+
+/// Another user, Bob.
+pub async fn bob(w: &World) -> Account {
+    w.sandbox
+        .admin(|ctx| {
+            accounts::create_user(
+                ctx,
+                NewUser {
+                    first_name: "Bob".into(),
+                    ..Default::default()
+                },
+            )
+        })
+        .await
+        .unwrap()
+}

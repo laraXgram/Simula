@@ -1,7 +1,8 @@
 //! Simula's Telegram Bot API gateway. Like telegram-bot-api on top of TDLib, it
 //! translates Bot API requests into TL calls on the core, converts the results and
-//! updates back, and delivers updates by long polling (and, later, webhooks).
+//! updates back, and delivers updates by long polling and webhooks.
 
+mod admin;
 mod commands;
 mod convert;
 mod ctx;

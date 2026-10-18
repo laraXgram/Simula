@@ -23,6 +23,15 @@ pub async fn handle(ctx: BotCtx, params: methods::LeaveChat) -> BotResult<bool> 
             .await?;
             Ok(true)
         }
-        Peer::Channel(_) => Err(BotError::not_implemented("channels and supergroups")),
+        peer @ Peer::Channel(_) => {
+            ctx.call(
+                functions::channels::LeaveChannel {
+                    channel: ctx.input_channel(peer),
+                },
+                ErrorContext::Plain,
+            )
+            .await?;
+            Ok(true)
+        }
     }
 }

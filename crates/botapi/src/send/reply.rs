@@ -4,10 +4,10 @@
 
 use simula_botapi_types::{ChatId, types as bot};
 use simula_core::Peer;
-use simula_tl::{enums, functions, types};
+use simula_tl::{enums, types};
 
 use crate::ctx::BotCtx;
-use crate::error::{BotError, BotResult, ErrorContext};
+use crate::error::{BotError, BotResult};
 use crate::resolve;
 use crate::text::{self, Formatted};
 
@@ -71,26 +71,9 @@ pub async fn check(
         ));
     }
 
-    let found = ctx
-        .call(
-            functions::messages::GetMessages {
-                id: vec![
-                    types::InputMessageID {
-                        id: request.message_id,
-                    }
-                    .into(),
-                ],
-            },
-            ErrorContext::default(),
-        )
-        .await?;
-    let exists = match &found {
-        enums::messages::Messages::Messages(found) => found
-            .messages
-            .iter()
-            .any(|m| matches!(m, enums::Message::Message(m) if Peer::from_tl(&m.peer_id) == chat)),
-        _ => false,
-    };
+    let exists = !crate::lookup::messages(ctx, chat, &[request.message_id])
+        .await?
+        .is_empty();
     if !exists {
         if request.allow_sending_without_reply {
             return Ok(None);

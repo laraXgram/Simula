@@ -9,9 +9,7 @@ use super::{Entities, chat::chat, message::message, user::user};
 
 pub fn query(q: &types::UpdateBotCallbackQuery, context: &Entities<'_>) -> bot::CallbackQuery {
     let chat_peer = Peer::from_tl(&q.peer);
-    let found = context
-        .message(q.msg_id)
-        .filter(|m| Peer::from_tl(&m.peer_id) == chat_peer);
+    let found = context.message(chat_peer, q.msg_id);
     let message = match found {
         Some(m) => bot::MaybeInaccessibleMessage::Message(Box::new(message(m, context))),
         None => {

@@ -39,8 +39,9 @@ pub async fn handle(ctx: BotCtx, params: methods::GetChatMember) -> BotResult<bo
                 },
             )
         }
-        Peer::Channel(_) => Err(crate::error::BotError::not_implemented(
-            "channels and supergroups",
-        )),
+        peer @ Peer::Channel(_) => {
+            let channel = resolve::channel(&ctx, peer, Access::Read).await?;
+            members::channel_member(&ctx, peer, channel.broadcast, params.user_id).await
+        }
     }
 }

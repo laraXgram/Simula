@@ -26,6 +26,9 @@ pub async fn handle(
                 .map(|p| group.member(user_id_of(p)))
                 .collect())
         }
-        Peer::Channel(_) => Err(BotError::not_implemented("channels and supergroups")),
+        peer @ Peer::Channel(_) => {
+            let channel = resolve::channel(&ctx, peer, Access::Write).await?;
+            members::channel_admins(&ctx, peer, channel.broadcast).await
+        }
     }
 }

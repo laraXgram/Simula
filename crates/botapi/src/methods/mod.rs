@@ -5,6 +5,7 @@
 //! (`bun run codegen new:botapi <method>`).
 
 pub mod answer_callback_query;
+pub mod ban_chat_member;
 pub mod delete_message;
 pub mod delete_messages;
 pub mod delete_my_commands;
@@ -20,10 +21,16 @@ pub mod get_my_commands;
 pub mod get_updates;
 pub mod get_webhook_info;
 pub mod leave_chat;
+pub mod promote_chat_member;
+pub mod restrict_chat_member;
 pub mod send_message;
+pub mod set_chat_administrator_custom_title;
+pub mod set_chat_description;
+pub mod set_chat_permissions;
 pub mod set_chat_title;
 pub mod set_my_commands;
 pub mod set_webhook;
+pub mod unban_chat_member;
 
 use serde_json::{Map, Value};
 
@@ -34,6 +41,7 @@ use crate::error::BotResult;
 /// Bot API methods with a handler (stubs included).
 pub const IMPLEMENTED: &[&str] = &[
     "answerCallbackQuery",
+    "banChatMember",
     "deleteMessage",
     "deleteMessages",
     "deleteMyCommands",
@@ -49,10 +57,16 @@ pub const IMPLEMENTED: &[&str] = &[
     "getUpdates",
     "getWebhookInfo",
     "leaveChat",
+    "promoteChatMember",
+    "restrictChatMember",
     "sendMessage",
+    "setChatAdministratorCustomTitle",
+    "setChatDescription",
+    "setChatPermissions",
     "setChatTitle",
     "setMyCommands",
     "setWebhook",
+    "unbanChatMember",
 ];
 
 /// Run the handler for a lowercase method name; `None` when there is none.
@@ -65,6 +79,7 @@ pub async fn route(
         "answercallbackquery" => {
             run(ctx, params, Limits::Enforce, answer_callback_query::handle).await
         }
+        "banchatmember" => run(ctx, params, Limits::Enforce, ban_chat_member::handle).await,
         "deletemessage" => run(ctx, params, Limits::Enforce, delete_message::handle).await,
         "deletemessages" => run(ctx, params, Limits::Enforce, delete_messages::handle).await,
         "deletemycommands" => run(ctx, params, Limits::Enforce, delete_my_commands::handle).await,
@@ -98,10 +113,30 @@ pub async fn route(
         "getupdates" => run(ctx, params, get_updates::LIMITS, get_updates::handle).await,
         "getwebhookinfo" => run(ctx, params, Limits::Enforce, get_webhook_info::handle).await,
         "leavechat" => run(ctx, params, Limits::Enforce, leave_chat::handle).await,
+        "promotechatmember" => run(ctx, params, Limits::Enforce, promote_chat_member::handle).await,
+        "restrictchatmember" => {
+            run(ctx, params, Limits::Enforce, restrict_chat_member::handle).await
+        }
         "sendmessage" => run(ctx, params, Limits::Enforce, send_message::handle).await,
+        "setchatadministratorcustomtitle" => {
+            run(
+                ctx,
+                params,
+                Limits::Enforce,
+                set_chat_administrator_custom_title::handle,
+            )
+            .await
+        }
+        "setchatdescription" => {
+            run(ctx, params, Limits::Enforce, set_chat_description::handle).await
+        }
+        "setchatpermissions" => {
+            run(ctx, params, Limits::Enforce, set_chat_permissions::handle).await
+        }
         "setchattitle" => run(ctx, params, Limits::Enforce, set_chat_title::handle).await,
         "setmycommands" => run(ctx, params, Limits::Enforce, set_my_commands::handle).await,
         "setwebhook" => run(ctx, params, Limits::Enforce, set_webhook::handle).await,
+        "unbanchatmember" => run(ctx, params, Limits::Enforce, unban_chat_member::handle).await,
         _ => return None,
     })
 }

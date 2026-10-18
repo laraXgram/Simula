@@ -5,6 +5,7 @@ mod support;
 
 mod bot_flow;
 mod callbacks;
+mod channels;
 mod commands;
 mod edit_delete;
 mod groups;

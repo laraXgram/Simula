@@ -1,9 +1,10 @@
 //! TL messages → Bot API messages, with what they refer to. telegram-bot-api has tdlib
 //! fetch messages before it emits an update (the replied message, a callback query's
-//! message); the gateway does the same, calling `messages.getMessages` as the bot.
+//! message); the gateway does the same, calling `messages.getMessages` (or
+//! `channels.getMessages`) as the bot.
 
 use simula_botapi_types::types as bot;
-use simula_core::{Caller, UserId};
+use simula_core::{Caller, Peer, UserId};
 use simula_tl::{enums, functions, types};
 
 use crate::convert::{self, Entities};
@@ -41,12 +42,12 @@ impl Context {
     }
 }
 
-/// Fetch messages `ids` from `bot`'s box, and the messages those reply to. `users` and
-/// `chats` came with the update being presented.
+/// Fetch messages `ids` (by chat) as `bot` sees them, and the messages those reply to.
+/// `users` and `chats` came with the update being presented.
 pub async fn context(
     gateway: &Gateway,
     bot: UserId,
-    ids: Vec<i32>,
+    ids: Vec<(Peer, i32)>,
     users: &[enums::User],
     chats: &[enums::Chat],
 ) -> Context {
@@ -61,45 +62,94 @@ pub async fn context(
     for _ in 0..2 {
         wanted.sort_unstable();
         wanted.dedup();
-        wanted.retain(|&id| context.entities().message(id).is_none());
+        wanted.retain(|&(peer, id)| context.entities().message(peer, id).is_none());
         if wanted.is_empty() {
             break;
         }
-        let Some(found) = fetch(gateway, bot, &wanted).await else {
-            break;
-        };
-        wanted = found
-            .messages
-            .iter()
-            .filter_map(|m| match m {
-                enums::Message::Message(m) => convert::message::reply_id(m),
+        let mut next = Vec::new();
+        let mut chats: Vec<Peer> = wanted.iter().map(|&(peer, _)| peer).collect();
+        chats.dedup();
+        for chat in chats {
+            let ids: Vec<i32> = wanted
+                .iter()
+                .filter(|&&(peer, _)| peer == chat)
+                .map(|&(_, id)| id)
+                .collect();
+            let Some(found) = fetch(gateway, bot, chat, &ids).await else {
+                continue;
+            };
+            next.extend(found.messages.iter().filter_map(|m| match m {
+                enums::Message::Message(m) => convert::message::reply_ref(m),
                 _ => None,
-            })
-            .collect();
-        context.add(found);
+            }));
+            context.add(found);
+        }
+        wanted = next;
     }
     context
 }
 
-async fn fetch(gateway: &Gateway, bot: UserId, ids: &[i32]) -> Option<types::messages::Messages> {
+/// Messages of one chat: from the bot's own box, or the channel's.
+async fn fetch(
+    gateway: &Gateway,
+    bot: UserId,
+    chat: Peer,
+    ids: &[i32],
+) -> Option<types::messages::Messages> {
     let caller = Caller {
         account: bot,
         session: Some(gateway.session),
     };
-    let call = functions::messages::GetMessages {
-        id: ids
-            .iter()
-            .map(|&id| types::InputMessageID { id }.into())
-            .collect(),
+    let id = ids
+        .iter()
+        .map(|&id| types::InputMessageID { id }.into())
+        .collect();
+    let result = match gateway.sandbox.input_peer(bot, chat) {
+        enums::InputPeer::Channel(channel) => {
+            let call = functions::channels::GetMessages {
+                channel: types::InputChannel {
+                    channel_id: channel.channel_id,
+                    access_hash: channel.access_hash,
+                }
+                .into(),
+                id,
+            };
+            gateway.sandbox.call(caller, call).await
+        }
+        _ => {
+            gateway
+                .sandbox
+                .call(caller, functions::messages::GetMessages { id })
+                .await
+        }
     };
-    match gateway.sandbox.call(caller, call).await {
-        Ok(enums::messages::Messages::Messages(found)) => Some(*found),
-        Ok(_) => None,
+    match result {
+        Ok(found) => Some(into_messages(found)),
         // The update is still delivered, just without the fetched parts.
         Err(error) => {
             tracing::warn!(%error, "fetching messages for an update failed");
             None
         }
+    }
+}
+
+/// The messages, chats and users of any `messages.Messages` shape.
+pub fn into_messages(found: enums::messages::Messages) -> types::messages::Messages {
+    match found {
+        enums::messages::Messages::Messages(m) => *m,
+        enums::messages::Messages::Slice(m) => types::messages::Messages {
+            messages: m.messages,
+            topics: m.topics,
+            chats: m.chats,
+            users: m.users,
+        },
+        enums::messages::Messages::ChannelMessages(m) => types::messages::Messages {
+            messages: m.messages,
+            topics: m.topics,
+            chats: m.chats,
+            users: m.users,
+        },
+        enums::messages::Messages::NotModified(_) => types::messages::Messages::default(),
     }
 }
 
@@ -111,7 +161,7 @@ pub async fn message(
     users: &[enums::User],
     chats: &[enums::Chat],
 ) -> bot::Message {
-    let ids = convert::message::reply_id(m).into_iter().collect();
+    let ids = convert::message::reply_ref(m).into_iter().collect();
     let context = context(gateway, bot, ids, users, chats).await;
     convert::message::message(m, &context.entities())
 }
