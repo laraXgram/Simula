@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "workspaces": [
+    "apps/*",
     "tools/*",
     "packages/*"
   ],
@@ -10,7 +11,8 @@
     "codegen": "bun tools/codegen/src/cli.ts",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "typecheck": "tsc -p tools/codegen --noEmit && tsc -p packages/schema --noEmit"
+    "typecheck": "tsc -p tools/codegen --noEmit && tsc -p packages/schema --noEmit && tsc -p apps/web --noEmit",
+    "web": "bun --cwd apps/web run dev"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
