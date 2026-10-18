@@ -90,7 +90,9 @@ vertical slice through several phases, so the architecture is exercised end to e
 ## P5 — Client (web)
 
 - [ ] P5.1 App shell: routing, state, TL session client, theming (light/dark), RTL support
-- [ ] P5.2 Chat list + chat view (virtualized), Telegram-like rendering of all message types
+- [ ] P5.2 Chat list + chat view (virtualized), Telegram-like rendering of all message types;
+  messages whose link would get a preview on Telegram show that they have one (Simula is
+  offline and builds no previews)
 - [ ] P5.3 Composer: text + formatting, media, commands menu, reply keyboards, deep links
 - [ ] P5.4 Inline keyboards, callback answers (toasts/alerts), inline mode results UI
 - [ ] P5.5 Groups, channels, forums, admin tools, join requests, invite links
@@ -133,6 +135,27 @@ vertical slice through several phases, so the architecture is exercised end to e
 ## P9 — Beyond bots
 
 - [ ] P9.1 Broaden TL coverage towards a full client simulation
+
+## Explicit gaps (answer `501 Not implemented in Simula` today)
+
+Every one of these must end up fully supported; each is listed under the task that
+removes it. A 501 is a placeholder, never a final answer.
+
+| Gap | Where it answers 501 | Removed by |
+|---|---|---|
+| Inline messages (`inline_message_id` in edits), inline mode | edit pipeline | P2.11 + P3.8 (inline wave) |
+| Business connections (`business_connection_id`) | send / edit pipelines | P2.12 + P3.8 |
+| Topics: forum `message_thread_id`, private-chat topics, `direct_messages_topic_id` | send pipeline | P2.10 (forums) + P3.8 |
+| Ephemeral messages (`ephemeral_message_parameters`, replies to them) | send pipeline, replies | P2.12 + P3.8 |
+| Suggested posts (`suggested_post_parameters`) | send pipeline | P2.12 + P3.8 |
+| Replies to messages in other chats (`reply_parameters.chat_id`) | send pipeline, core replies | M4 (channels and groups) |
+| Replies to checklist tasks and poll options | core replies | P2.11 / P2.12 |
+| `login_url` buttons naming another bot | keyboard parsing | P3.8 |
+| Game and password callback buttons | `messages.getBotCallbackAnswer` | P2.11 |
+| Editing message media, scheduled and quick-reply messages | `messages.editMessage` | P2.11, P3.5 |
+| Groups and channels for sends, edits, callbacks | core services | M4 |
+| HTTPS webhook delivery (today: plain HTTP to the same host and port) | webhook sender | P3.3 follow-up (TLS client) |
+| Message effects checked against Telegram's catalog | core sends | P2.11 |
 
 ---
 
