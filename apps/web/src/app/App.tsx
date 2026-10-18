@@ -93,6 +93,11 @@ function Shell({
     async (username: string) => setSelected(await client.resolve(username)),
     [client, setSelected],
   );
+  const createGroup = useCallback(
+    async (title: string, usernames: string[]) =>
+      setSelected(await client.createGroup(title, usernames)),
+    [client, setSelected],
+  );
   const openDeepLink = useCallback(
     (link: DeepLink) =>
       client
@@ -115,6 +120,7 @@ function Shell({
         selected={selected}
         onSelect={setSelected}
         onFind={find}
+        onCreateGroup={createGroup}
         onSwitchAccount={onSwitchAccount}
         onToggleTheme={onToggleTheme}
         onToggleDirection={onToggleDirection}

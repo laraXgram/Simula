@@ -4,10 +4,11 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Client } from "../state/client";
 import type { DeepLink } from "../state/links";
 import { displayName } from "../state/peers";
-import type { Snapshot } from "../state/store";
+import type { AnyMessage, Snapshot } from "../state/store";
 import { Composer, type Draft } from "./Composer";
 import { Message, type MessageActions } from "./Message";
 import { activeMarkup, ReplyKeyboard } from "./ReplyKeyboard";
+import { ServiceMessage } from "./ServiceMessage";
 
 export type Notify = (text: string, options?: { alert?: boolean }) => void;
 
@@ -36,9 +37,13 @@ export function ChatView({
   onBack,
 }: Props) {
   const user = client.userFor(chatKey);
+  const group = chatKey.startsWith("c") ? snapshot.chats.get(chatKey.slice(1)) : undefined;
+  const members = group ? snapshot.members.get(group.id) : undefined;
+  const isMember = group?._ === "chat" && !group.left && !group.deactivated;
   const dialog = snapshot.dialogs.find((d) => d.key === chatKey);
   const byId = snapshot.messages.get(chatKey);
-  const messages = useMemo(() => [...(byId?.values() ?? [])].sort((a, b) => a.id - b.id), [byId]);
+  const all = useMemo(() => [...(byId?.values() ?? [])].sort((a, b) => a.id - b.id), [byId]);
+  const messages = useMemo(() => all.filter(isRegular), [all]);
   const [draft, setDraft] = useState<Draft>({});
   const [dismissed, setDismissed] = useState<Set<number>>(new Set());
   const [keyboardShown, setKeyboardShown] = useState(true);
@@ -60,7 +65,7 @@ export function ChatView({
   }, [client, chatKey, notify]);
 
   // Older messages appear above without moving what the reader is looking at.
-  const oldest = messages[0]?.id;
+  const oldest = all[0]?.id;
   useLayoutEffect(() => {
     const element = list.current;
     if (oldest === undefined || !element || !anchor.current) return;
@@ -98,7 +103,7 @@ export function ChatView({
 
   // Follow the conversation: scroll down when a newer message arrives, and once the
   // opened chat's history is in (it loads above the message the chat list showed).
-  const newest = messages.at(-1)?.id;
+  const newest = all.at(-1)?.id;
   useEffect(() => {
     if (loaded && newest !== undefined) list.current?.scrollTo({ top: list.current.scrollHeight });
   }, [loaded, newest]);
@@ -113,8 +118,9 @@ export function ChatView({
   }, [markupMessage]);
   // A forced reply answers the message that asked for it.
   const forced = markup?.kind === "force_reply" ? markup : undefined;
+  const forcedMessage = forced && !draft.editing ? byId?.get(forced.message) : undefined;
   const replyTo =
-    draft.replyTo ?? (forced && !draft.editing ? byId?.get(forced.message) : undefined);
+    draft.replyTo ?? (forcedMessage && isRegular(forcedMessage) ? forcedMessage : undefined);
   const placeholder = keyboard?.markup.placeholder ?? forced?.markup.placeholder;
 
   const send = async (text: string, fromKeyboard = false) => {
@@ -133,8 +139,10 @@ export function ChatView({
     onReply: () => setDraft({ replyTo: message }),
     onEdit: message.out ? () => setDraft({ editing: message }) : undefined,
     onDelete: () => {
-      if (!window.confirm("Delete this message for everyone?")) return;
-      client.deleteMessage(message.id, true).catch((error: Error) => notify(error.message));
+      const forEveryone = window.confirm(
+        "Delete this message for everyone? (Cancel deletes it only for you.)",
+      );
+      client.deleteMessage(message.id, forEveryone).catch((error: Error) => notify(error.message));
     },
     onCommand: (command) => void send(command),
     onMention: (username) =>
@@ -163,10 +171,38 @@ export function ChatView({
     onNotice: (text) => notify(text),
   });
 
-  const commands = user?.bot ? (snapshot.commands.get(user.id) ?? []) : [];
+  const commands = user?.bot
+    ? (snapshot.commands.get(user.id) ?? [])
+    : group
+      ? groupCommands(members, snapshot)
+      : [];
   // Telegram offers START for a bot chat with no messages yet, or after a deep link.
-  const needsStart =
-    user?.bot === true && loaded && (startParam !== undefined || messages.length === 0);
+  const needsStart = user?.bot === true && loaded && (startParam !== undefined || all.length === 0);
+
+  const run = (action: Promise<unknown>) => action.catch((error: Error) => notify(error.message));
+  const addMember = () => {
+    const username = window.prompt("Add a member by @username")?.trim();
+    if (username) void run(client.addMember(chatKey, username));
+  };
+  const rename = () => {
+    const title = window.prompt("Group name", group?.title)?.trim();
+    if (title && title !== group?.title) void run(client.rename(chatKey, title));
+  };
+  const leave = () => {
+    if (window.confirm(`Leave «${group?.title}»?`)) void run(client.leave(chatKey));
+  };
+  const title = group ? group.title : displayName(user);
+  const subtitle = group
+    ? group._ === "chatForbidden"
+      ? "you were removed"
+      : group.left
+        ? "you left"
+        : `${members?.length ?? group.participants_count} members`
+    : user?.bot
+      ? "bot"
+      : user?.username
+        ? `@${user.username}`
+        : "";
 
   return (
     <section className="chat">
@@ -174,30 +210,53 @@ export function ChatView({
         <button type="button" className="icon-button back" onClick={onBack} title="Back">
           ←
         </button>
-        <div className="avatar">{initials(user)}</div>
+        <div className={group ? "avatar group" : "avatar"}>{initialsOf(title)}</div>
         <div className="chat-title">
-          <span dir="auto">{displayName(user)}</span>
-          <span className="chat-subtitle">
-            {user?.bot ? "bot" : user?.username ? `@${user.username}` : ""}
-          </span>
+          <span dir="auto">{title}</span>
+          <span className="chat-subtitle">{subtitle}</span>
         </div>
+        {isMember && (
+          <div className="chat-actions">
+            <button type="button" className="icon-button" onClick={addMember} title="Add member">
+              ＋
+            </button>
+            <button type="button" className="icon-button" onClick={rename} title="Rename">
+              ✎
+            </button>
+            <button type="button" className="icon-button" onClick={leave} title="Leave group">
+              ⎋
+            </button>
+          </div>
+        )}
       </header>
       <div className="messages" ref={list} onScroll={onScroll}>
-        {reachedStart && messages.length > 0 && (
-          <p className="history-start">Beginning of the chat</p>
+        {reachedStart && all.length > 0 && <p className="history-start">Beginning of the chat</p>}
+        {all.map((message) =>
+          isRegular(message) ? (
+            <Message
+              key={message.id}
+              message={message}
+              replied={repliedTo(message, byId)}
+              users={snapshot.users}
+              readOutbox={dialog?.readOutbox ?? 0}
+              showSender={group !== undefined}
+              actions={actionsFor(message)}
+            />
+          ) : (
+            <ServiceMessage
+              key={message.id}
+              message={message}
+              users={snapshot.users}
+              me={snapshot.me?.id}
+            />
+          ),
         )}
-        {messages.map((message) => (
-          <Message
-            key={message.id}
-            message={message}
-            replied={repliedTo(message, byId)}
-            users={snapshot.users}
-            readOutbox={dialog?.readOutbox ?? 0}
-            actions={actionsFor(message)}
-          />
-        ))}
       </div>
-      {needsStart ? (
+      {group && !isMember ? (
+        <div className="start-bar">
+          <span>{subtitle === "you left" ? "You left this group" : "You are not a member"}</span>
+        </div>
+      ) : needsStart ? (
         <div className="start-bar">
           <button
             type="button"
@@ -234,13 +293,38 @@ export function ChatView({
   );
 }
 
-function repliedTo(message: tl.message, byId: ReadonlyMap<number, tl.message> | undefined) {
+export function isRegular(message: AnyMessage): message is tl.message {
+  return message._ === "message";
+}
+
+function repliedTo(message: tl.message, byId: ReadonlyMap<number, AnyMessage> | undefined) {
   const header = message.reply_to?._ === "messageReplyHeader" ? message.reply_to : undefined;
-  return header?.reply_to_msg_id !== undefined ? byId?.get(header.reply_to_msg_id) : undefined;
+  const replied =
+    header?.reply_to_msg_id !== undefined ? byId?.get(header.reply_to_msg_id) : undefined;
+  return replied && isRegular(replied) ? replied : undefined;
+}
+
+/** The commands of every bot in the group, as `/command@bot` like Telegram shows them. */
+function groupCommands(
+  members: readonly tl.ChatParticipant[] | undefined,
+  snapshot: Snapshot,
+): tl.botCommand[] {
+  return (members ?? []).flatMap((member) => {
+    const bot = snapshot.users.get(member.user_id);
+    if (!bot?.bot) return [];
+    return (snapshot.commands.get(bot.id) ?? []).map((c) => ({
+      ...c,
+      command: `${c.command}@${bot.username}`,
+    }));
+  });
 }
 
 export function initials(user: tl.user | undefined): string {
-  const words = displayName(user).split(/\s+/).filter(Boolean);
+  return initialsOf(displayName(user));
+}
+
+export function initialsOf(name: string): string {
+  const words = name.split(/\s+/).filter(Boolean);
   return (
     words
       .slice(0, 2)

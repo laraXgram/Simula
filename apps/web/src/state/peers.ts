@@ -36,3 +36,19 @@ export function displayName(user: tl.user | undefined): string {
     "Deleted account"
   );
 }
+
+/** How this account addresses a dialog by its key, if it knows it. */
+export function inputPeerFor(
+  key: string,
+  users: ReadonlyMap<string, tl.user>,
+  me: string,
+): tl.InputPeer | undefined {
+  if (/^c\d/.test(key)) return { _: "inputPeerChat", chat_id: key.slice(1) };
+  const user = key.startsWith("u") ? users.get(key.slice(1)) : undefined;
+  return user ? inputPeer(user, me) : undefined;
+}
+
+/** The sender of a message, if a user. */
+export function senderId(message: { from_id?: tl.Peer }): string | undefined {
+  return message.from_id?._ === "peerUser" ? message.from_id.user_id : undefined;
+}

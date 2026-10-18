@@ -113,9 +113,42 @@ pub fn for_private_chat(
     bot: UserId,
     user: UserId,
 ) -> RpcResult<Vec<enums::BotCommand>> {
-    let lang = ctx.account(user)?.lang_code.unwrap_or_default();
     let chat = format!("peer:{}", Peer::User(user).bot_api_id());
-    for scope in [chat.as_str(), "users", "default"] {
+    first_set(ctx, bot, user, &[chat, "users".into(), "default".into()])
+}
+
+/// The commands `user` sees for `bot` in the group `chat`, in Telegram's documented
+/// order: the member, the chat's admins (if `admin`), the chat, all chat admins (if
+/// `admin`), all group chats, the default scope.
+pub fn for_group_chat(
+    ctx: &Ctx<'_>,
+    bot: UserId,
+    chat: Peer,
+    user: UserId,
+    admin: bool,
+) -> RpcResult<Vec<enums::BotCommand>> {
+    let chat = chat.bot_api_id();
+    let mut scopes = vec![format!("peer_user:{chat}:{}", user.0)];
+    if admin {
+        scopes.push(format!("peer_admins:{chat}"));
+    }
+    scopes.push(format!("peer:{chat}"));
+    if admin {
+        scopes.push("chat_admins".into());
+    }
+    scopes.extend(["chats".into(), "default".into()]);
+    first_set(ctx, bot, user, &scopes)
+}
+
+/// The first non-empty list among `scopes`, each first in `user`'s language.
+fn first_set(
+    ctx: &Ctx<'_>,
+    bot: UserId,
+    user: UserId,
+    scopes: &[String],
+) -> RpcResult<Vec<enums::BotCommand>> {
+    let lang = ctx.account(user)?.lang_code.unwrap_or_default();
+    for scope in scopes {
         for lang_code in [lang.as_str(), ""] {
             let list = store::bot_commands::get(ctx.db, bot, scope, lang_code)?;
             if !list.is_empty() {

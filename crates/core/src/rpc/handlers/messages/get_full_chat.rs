@@ -6,12 +6,13 @@ use simula_tl::{enums, functions, types};
 
 use crate::ctx::Ctx;
 use crate::error::{RpcError, RpcResult};
-use crate::ids::ChatId;
+use crate::ids::{ChatId, Peer};
 use crate::render;
-use crate::services::chats;
+use crate::services::{chats, commands};
 use crate::store;
 
-/// A basic group with its members (only for members, as on Telegram).
+/// A basic group with its members and its bots' commands for the caller (only for
+/// members, as on Telegram).
 pub fn handle(
     ctx: &mut Ctx<'_>,
     req: functions::messages::GetFullChat,
@@ -23,6 +24,24 @@ pub fn handle(
         return Err(RpcError::bad_request("CHAT_ID_INVALID"));
     }
     let users: BTreeSet<_> = members.iter().map(|m| m.user).collect();
+    let admin = members
+        .iter()
+        .any(|m| m.user == caller && m.role != store::chats::Role::Member);
+    let mut bot_info = Vec::new();
+    for member in &members {
+        if ctx.account(member.user)?.is_bot {
+            let commands =
+                commands::for_group_chat(ctx, member.user, Peer::Chat(chat.id), caller, admin)?;
+            bot_info.push(
+                types::BotInfo {
+                    user_id: Some(member.user.0),
+                    commands: Some(commands),
+                    ..Default::default()
+                }
+                .into(),
+            );
+        }
+    }
     let full = types::ChatFull {
         id: chat.id.0,
         about: chat
@@ -38,6 +57,7 @@ pub fn handle(
         }
         .into(),
         notify_settings: types::PeerNotifySettings::default().into(),
+        bot_info: Some(bot_info),
         ..Default::default()
     };
     Ok(types::messages::ChatFull {

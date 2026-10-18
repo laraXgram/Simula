@@ -22,10 +22,12 @@ interface Props {
   users: ReadonlyMap<string, tl.user>;
   /** Outgoing messages up to this id were read by the other side. */
   readOutbox: number;
+  /** In groups, incoming messages are signed with their sender's name. */
+  showSender?: boolean;
   actions: MessageActions;
 }
 
-export function Message({ message, replied, users, readOutbox, actions }: Props) {
+export function Message({ message, replied, users, readOutbox, showSender, actions }: Props) {
   const header = message.reply_to?._ === "messageReplyHeader" ? message.reply_to : undefined;
   const preview = message.media?._ === "messageMediaWebPage" ? message.media : undefined;
   const keyboard =
@@ -37,6 +39,16 @@ export function Message({ message, replied, users, readOutbox, actions }: Props)
   return (
     <div className={message.out ? "message out" : "message in"} data-id={message.id}>
       <div className="bubble">
+        {showSender && !message.out && (
+          <button
+            type="button"
+            className="sender"
+            dir="auto"
+            onClick={() => sender && actions.onUser(sender.id)}
+          >
+            {displayName(sender)}
+          </button>
+        )}
         {header && (
           <div className="reply-header">
             <span className="reply-author">
@@ -73,7 +85,9 @@ export function Message({ message, replied, users, readOutbox, actions }: Props)
         </div>
       </div>
       {keyboard && <InlineKeyboard markup={keyboard} actions={actions} />}
-      {sender && !message.out && <span className="sr-only">{displayName(sender)}</span>}
+      {sender && !message.out && !showSender && (
+        <span className="sr-only">{displayName(sender)}</span>
+      )}
     </div>
   );
 }

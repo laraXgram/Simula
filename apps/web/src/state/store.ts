@@ -1,12 +1,15 @@
 /**
- * What the client knows: users, the chat list and the messages loaded per chat. It is
- * filled from call results and kept current by the updates the session pushes, the
- * way a Telegram client applies `updateNewMessage`, `updateEditMessage`,
- * `updateDeleteMessages` and the read-history updates.
+ * What the client knows: users, groups, the chat list and the messages loaded per chat
+ * (service messages included). It is filled from call results and kept current by the
+ * updates the session pushes, the way a Telegram client applies `updateNewMessage`,
+ * `updateEditMessage`, `updateDeleteMessages` and the read-history updates.
  */
 import type { tl } from "@simula/schema";
 
 import { peerKey } from "./peers";
+
+/** A message as stored: regular, or a service message (a member joined, …). */
+export type AnyMessage = tl.message | tl.messageService;
 
 export interface Dialog {
   key: string;
@@ -21,9 +24,13 @@ export interface Dialog {
 export interface Snapshot {
   me?: tl.user;
   users: ReadonlyMap<string, tl.user>;
+  /** Basic groups by id. */
+  chats: ReadonlyMap<string, tl.chat | tl.chatForbidden>;
+  /** Members of the basic groups whose details were loaded, by chat id. */
+  members: ReadonlyMap<string, readonly tl.ChatParticipant[]>;
   dialogs: readonly Dialog[];
   /** Per dialog key, messages by id. */
-  messages: ReadonlyMap<string, ReadonlyMap<number, tl.message>>;
+  messages: ReadonlyMap<string, ReadonlyMap<number, AnyMessage>>;
   /** Bot commands per bot user id, for the commands menu. */
   commands: ReadonlyMap<string, readonly tl.botCommand[]>;
 }
@@ -31,6 +38,8 @@ export interface Snapshot {
 export class Store {
   private state: Snapshot = {
     users: new Map(),
+    chats: new Map(),
+    members: new Map(),
     dialogs: [],
     messages: new Map(),
     commands: new Map(),
@@ -56,6 +65,19 @@ export class Store {
     this.commit({ users: next });
   }
 
+  addChats(chats: readonly tl.Chat[]) {
+    const next = new Map(this.state.chats);
+    for (const chat of chats)
+      if (chat._ === "chat" || chat._ === "chatForbidden") next.set(chat.id, chat);
+    this.commit({ chats: next });
+  }
+
+  setMembers(chat: string, members: readonly tl.ChatParticipant[]) {
+    const next = new Map(this.state.members);
+    next.set(chat, members);
+    this.commit({ members: next });
+  }
+
   setCommands(bot: string, commands: readonly tl.botCommand[]) {
     const next = new Map(this.state.commands);
     next.set(bot, commands);
@@ -66,6 +88,7 @@ export class Store {
   setDialogs(result: tl.messages.Dialogs) {
     if (result._ === "messages.dialogsNotModified") return;
     this.addUsers(result.users);
+    this.addChats(result.chats);
     this.addMessages(result.messages);
     const dialogs: Dialog[] = [];
     for (const dialog of result.dialogs) {
@@ -89,6 +112,7 @@ export class Store {
   addHistory(result: tl.messages.Messages) {
     if (result._ === "messages.messagesNotModified") return;
     this.addUsers(result.users);
+    this.addChats(result.chats);
     this.addMessages(result.messages);
   }
 
@@ -96,6 +120,7 @@ export class Store {
   applyUpdates(updates: tl.Updates) {
     if (updates._ !== "updates" && updates._ !== "updatesCombined") return;
     this.addUsers(updates.users);
+    this.addChats(updates.chats);
     for (const update of updates.updates) this.applyUpdate(update);
   }
 
@@ -107,8 +132,8 @@ export class Store {
     switch (update._) {
       case "updateNewMessage":
       case "updateEditMessage": {
-        if (update.message._ !== "message") return;
         const message = update.message;
+        if (message._ === "messageEmpty") return;
         const isNew = update._ === "updateNewMessage" && !this.has(message);
         this.addMessages([message]);
         this.touchDialog(message, isNew && !message.out);
@@ -128,7 +153,7 @@ export class Store {
         return;
       }
       case "updateReadHistoryInbox":
-        this.updateDialog(peerKey(update.peer), (d) => ({
+        this.upsertDialog(update.peer, (d) => ({
           ...d,
           readInbox: update.max_id,
           unread: update.still_unread_count,
@@ -146,14 +171,14 @@ export class Store {
     }
   }
 
-  private has(message: tl.message) {
+  private has(message: AnyMessage) {
     return this.state.messages.get(peerKey(message.peer_id))?.has(message.id) ?? false;
   }
 
   private addMessages(messages: readonly tl.Message[]) {
     const next = new Map(this.state.messages);
     for (const message of messages) {
-      if (message._ !== "message") continue;
+      if (message._ === "messageEmpty") continue;
       const key = peerKey(message.peer_id);
       const list = new Map(next.get(key));
       list.set(message.id, message);
@@ -163,18 +188,10 @@ export class Store {
   }
 
   /** A new or edited message moves its dialog to the top (or creates it). */
-  private touchDialog(message: tl.message, unread: boolean) {
+  private touchDialog(message: AnyMessage, unread: boolean) {
     const key = peerKey(message.peer_id);
     const existing = this.state.dialogs.find((d) => d.key === key);
-    const base: Dialog = existing ?? {
-      key,
-      peer: message.peer_id,
-      top: 0,
-      date: 0,
-      unread: 0,
-      readInbox: 0,
-      readOutbox: 0,
-    };
+    const base: Dialog = existing ?? emptyDialog(key, message.peer_id);
     const newer = message.id >= base.top;
     const dialog: Dialog = {
       ...base,
@@ -197,8 +214,7 @@ export class Store {
   private upsertDialog(peer: tl.Peer, change: (dialog: Dialog) => Dialog) {
     const key = peerKey(peer);
     if (!this.state.dialogs.some((d) => d.key === key)) {
-      const empty: Dialog = { key, peer, top: 0, date: 0, unread: 0, readInbox: 0, readOutbox: 0 };
-      this.commit({ dialogs: [...this.state.dialogs, empty] });
+      this.commit({ dialogs: [...this.state.dialogs, emptyDialog(key, peer)] });
     }
     this.updateDialog(key, change);
   }
@@ -211,6 +227,10 @@ export class Store {
     this.state = { ...this.state, ...change };
     for (const listener of this.listeners) listener();
   }
+}
+
+function emptyDialog(key: string, peer: tl.Peer): Dialog {
+  return { key, peer, top: 0, date: 0, unread: 0, readInbox: 0, readOutbox: 0 };
 }
 
 function sortDialogs(dialogs: Dialog[]): Dialog[] {

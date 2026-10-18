@@ -911,3 +911,63 @@ a,
   padding: 3px 10px;
   border-radius: 999px;
 }
+
+/* Groups */
+.avatar.group {
+  background: linear-gradient(135deg, #5fbf7f, #2f9e8f);
+}
+
+.service {
+  align-self: center;
+  margin: 6px auto;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.22);
+  color: #fff;
+  font-size: 13px;
+  max-width: 80%;
+  text-align: center;
+}
+
+.sender {
+  display: block;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin-bottom: 2px;
+  font: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--accent);
+  cursor: pointer;
+  text-align: start;
+}
+
+.chat-actions {
+  display: flex;
+  gap: 4px;
+  margin-inline-start: auto;
+}
+
+.new-group {
+  display: grid;
+  gap: 6px;
+  padding: 0 12px 10px;
+}
+
+.new-group input,
+.new-group button {
+  font: inherit;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: inherit;
+}
+
+.new-group button {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}

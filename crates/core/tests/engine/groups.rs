@@ -267,3 +267,74 @@ async fn reading_and_permissions() {
         .unwrap_err();
     assert_eq!(err.message, "MESSAGE_DELETE_FORBIDDEN");
 }
+
+#[tokio::test]
+async fn bot_commands_for_the_group() {
+    let g = group().await;
+    let command = |name: &str| -> enums::BotCommand {
+        types::BotCommand {
+            command: name.into(),
+            description: format!("{name} it"),
+            ..Default::default()
+        }
+        .into()
+    };
+    let set = |scope: enums::BotCommandScope, name: &'static str| {
+        let sandbox = g.sandbox.clone();
+        let bot = g.bot.id;
+        let commands = vec![command(name)];
+        async move {
+            sandbox
+                .call(
+                    as_account(bot),
+                    functions::bots::SetBotCommands {
+                        scope,
+                        lang_code: String::new(),
+                        commands,
+                    },
+                )
+                .await
+                .unwrap();
+        }
+    };
+    set(enums::BotCommandScope::Default, "everywhere").await;
+    set(enums::BotCommandScope::Chats, "groups").await;
+    set(enums::BotCommandScope::ChatAdmins, "admins").await;
+    let commands = |viewer: UserId| {
+        let sandbox = g.sandbox.clone();
+        let chat = g.chat;
+        let bot = g.bot.id;
+        async move {
+            let enums::messages::ChatFull::ChatFull(full) = sandbox
+                .call(
+                    as_account(viewer),
+                    functions::messages::GetFullChat { chat_id: chat },
+                )
+                .await
+                .unwrap();
+            let enums::ChatFull::ChatFull(full) = full.full_chat else {
+                panic!("basic group expected");
+            };
+            let info = full.bot_info.unwrap_or_default();
+            assert_eq!(info.len(), 1, "one bot in the group");
+            let enums::BotInfo::BotInfo(info) = &info[0];
+            assert_eq!(info.user_id, Some(bot.0));
+            info.commands
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|enums::BotCommand::BotCommand(c)| c.command)
+                .collect::<Vec<_>>()
+        }
+    };
+    // The creator is an admin: all chat admins come before all group chats.
+    assert_eq!(commands(g.alice.id).await, ["admins"]);
+    assert_eq!(commands(g.bob.id).await, ["groups"]);
+    // A list for this chat beats the general ones.
+    set(
+        types::BotCommandScopePeer { peer: peer(g.chat) }.into(),
+        "here",
+    )
+    .await;
+    assert_eq!(commands(g.bob.id).await, ["here"]);
+}
