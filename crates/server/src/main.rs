@@ -1,5 +1,6 @@
-//! `simula`: one process serving the Bot API (`/bot<token>/<method>`) and the Control API
-//! (`/_simula/v1/...`) for a sandbox.
+//! `simula`: one process serving the Bot API (`/bot<token>/<method>`), the Control API
+//! (`/_simula/v1/...`) and client sessions (`/session`, JSON-TL over WebSocket) for a
+//! sandbox.
 
 mod config;
 
@@ -47,13 +48,14 @@ async fn run(config: Config) -> std::io::Result<()> {
 
     let app = Router::new()
         .nest("/_simula/v1", simula_control::router(sandbox.clone()))
+        .merge(simula_session::router(sandbox.clone()))
         .merge(simula_botapi::router(gateway));
 
     let listener = tokio::net::TcpListener::bind((config.host, config.port)).await?;
     let address = listener.local_addr()?;
     tracing::info!(
         storage = %path.map_or_else(|| "memory".into(), |p| p.display().to_string()),
-        "Simula listening on http://{address}  (Bot API: /bot<token>/<method>, Control API: /_simula/v1)"
+        "Simula listening on http://{address}  (Bot API: /bot<token>/<method>, Control API: /_simula/v1, sessions: /session)"
     );
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown())

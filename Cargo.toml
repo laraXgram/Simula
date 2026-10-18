@@ -13,6 +13,7 @@ repository = "https://github.com/laraXgram/Simula"
 simula-botapi = { path = "crates/botapi" }
 simula-botapi-types = { path = "crates/botapi-types" }
 simula-control = { path = "crates/control" }
+simula-session = { path = "crates/session" }
 simula-core = { path = "crates/core" }
 simula-tl = { path = "crates/tl" }
 

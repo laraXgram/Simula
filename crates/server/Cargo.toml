@@ -15,6 +15,7 @@ path = "src/main.rs"
 simula-botapi.workspace = true
 simula-control.workspace = true
 simula-core.workspace = true
+simula-session.workspace = true
 
 axum.workspace = true
 tokio.workspace = true
