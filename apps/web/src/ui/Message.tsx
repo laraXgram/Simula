@@ -1,6 +1,8 @@
 /** One message bubble: reply header, text, link preview, time and ticks, keyboard. */
 import type { tl } from "@simula/schema";
 
+import type { DeepLink } from "../state/links";
+
 import { displayName } from "../state/peers";
 import { type ButtonActions, InlineKeyboard } from "./InlineKeyboard";
 import { LinkPreview } from "./LinkPreview";
@@ -8,6 +10,7 @@ import { RichText, type TextActions } from "./RichText";
 
 export interface MessageActions extends TextActions, ButtonActions {
   onUser: (userId: string) => void;
+  onDeepLink: (link: DeepLink) => void;
   onReply: () => void;
   onEdit?: () => void;
   onDelete: () => void;

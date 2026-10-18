@@ -5,6 +5,7 @@
 import type { tl } from "@simula/schema";
 
 import { type Params, Session } from "../api/session";
+import { parseFormatting } from "./markdown";
 import { inputPeer, inputUser, peerKey, userPeer } from "./peers";
 import { Store } from "./store";
 
@@ -75,6 +76,38 @@ export class Client {
     await this.read(key);
   }
 
+  /** Messages older than `before`; resolves with how many came (0 = the beginning). */
+  async loadOlder(key: string, before: number): Promise<number> {
+    const user = this.userFor(key);
+    if (!user) return 0;
+    const history = await this.session.call("messages.getHistory", {
+      peer: inputPeer(user, this.me),
+      offset_id: before,
+      offset_date: 0,
+      add_offset: 0,
+      limit: 50,
+      max_id: 0,
+      min_id: 0,
+      hash: "0",
+    });
+    this.store.addHistory(history);
+    return "messages" in history ? history.messages.length : 0;
+  }
+
+  /** Start a bot, as a deep link's START button does: the user sends `/start <param>`. */
+  async startBot(key: string, param = "") {
+    const user = this.userFor(key);
+    if (!user) return;
+    this.store.applyUpdates(
+      await this.session.call("messages.startBot", {
+        bot: inputUser(user, this.me),
+        peer: inputPeer(user, this.me),
+        random_id: randomId(),
+        start_param: param,
+      }),
+    );
+  }
+
   async read(key: string) {
     const dialog = this.store.snapshot().dialogs.find((d) => d.key === key);
     const user = this.userFor(key);
@@ -89,11 +122,13 @@ export class Client {
   async send(key: string, outgoing: Outgoing) {
     const user = this.userFor(key);
     if (!user) return;
+    const { text, entities } = parseFormatting(outgoing.text);
     const params: Params<"messages.sendMessage"> = {
       peer: inputPeer(user, this.me),
-      message: outgoing.text,
+      message: text,
       random_id: randomId(),
     };
+    if (entities.length > 0) params.entities = entities;
     if (outgoing.replyTo)
       params.reply_to = { _: "inputReplyToMessage", reply_to_msg_id: outgoing.replyTo };
     this.store.applyUpdates(await this.session.call("messages.sendMessage", params));
@@ -127,14 +162,16 @@ export class Client {
     });
   }
 
-  async editMessage(key: string, id: number, text: string) {
+  async editMessage(key: string, id: number, input: string) {
     const user = this.userFor(key);
     if (!user) return;
+    const { text, entities } = parseFormatting(input);
     this.store.applyUpdates(
       await this.session.call("messages.editMessage", {
         peer: inputPeer(user, this.me),
         id,
         message: text,
+        entities: entities.length > 0 ? entities : undefined,
       }),
     );
   }

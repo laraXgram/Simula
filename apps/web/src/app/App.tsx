@@ -3,11 +3,13 @@ import { type ReactNode, useCallback, useEffect, useState, useSyncExternalStore 
 
 import type { Account } from "../api/control";
 import { Client } from "../state/client";
+import type { DeepLink } from "../state/links";
 import { AccountPicker } from "../ui/AccountPicker";
 import { ChatView } from "../ui/ChatView";
 import { useNotices } from "../ui/Notices";
 import { Sidebar } from "../ui/Sidebar";
 import { usePreference } from "./preferences";
+import { useRoute } from "./route";
 
 export function App() {
   const [account, setAccount] = usePreference<Account | null>("account", null);
@@ -85,10 +87,24 @@ function Shell({
   notices,
 }: ShellProps) {
   const snapshot = useSyncExternalStore(client.store.subscribe, client.store.snapshot);
-  const [selected, setSelected] = useState<string | undefined>();
+  const [selected, setSelected] = useRoute();
+  const [starts, setStarts] = useState<Record<string, string>>({});
   const find = useCallback(
     async (username: string) => setSelected(await client.resolve(username)),
-    [client],
+    [client, setSelected],
+  );
+  const openDeepLink = useCallback(
+    (link: DeepLink) =>
+      client
+        .resolve(link.username)
+        .then((key) => {
+          if (link.start !== undefined) setStarts((all) => ({ ...all, [key]: link.start ?? "" }));
+          setSelected(key);
+        })
+        .catch((e: Error) =>
+          notify(e.message === "USERNAME_NOT_OCCUPIED" ? "No one has that username" : e.message),
+        ),
+    [client, notify, setSelected],
   );
 
   return (
@@ -110,6 +126,14 @@ function Shell({
           chatKey={selected}
           notify={notify}
           onOpenChat={setSelected}
+          onDeepLink={openDeepLink}
+          startParam={starts[selected]}
+          onStarted={() =>
+            setStarts((all) => {
+              const { [selected]: _, ...rest } = all;
+              return rest;
+            })
+          }
           onBack={() => setSelected(undefined)}
         />
       ) : (

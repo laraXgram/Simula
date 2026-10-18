@@ -4,7 +4,9 @@
  * Telegram's entities nest without partial overlaps.
  */
 import type { tl } from "@simula/schema";
-import { type ReactNode, useState } from "react";
+import { type MouseEvent, type ReactNode, useState } from "react";
+
+import { type DeepLink, parseDeepLink } from "../state/links";
 
 export interface TextActions {
   /** A `/command` was clicked (in chats with bots). */
@@ -13,6 +15,19 @@ export interface TextActions {
   onMention?: (username: string) => void;
   /** A mention by id was clicked. */
   onUser?: (userId: string) => void;
+  /** A `t.me` / `tg://resolve` link was clicked. */
+  onDeepLink?: (link: DeepLink) => void;
+}
+
+/** Open Telegram links inside the client; other links in a new tab. */
+function openLink(href: string, actions: TextActions) {
+  return (event: MouseEvent) => {
+    const link = parseDeepLink(href);
+    if (link && actions.onDeepLink) {
+      event.preventDefault();
+      actions.onDeepLink(link);
+    }
+  };
 }
 
 interface Props extends TextActions {
@@ -102,16 +117,23 @@ function Entity({
       return <Quote collapsed={entity.collapsed === true}>{children}</Quote>;
     case "messageEntityTextUrl":
       return (
-        <a href={entity.url} target="_blank" rel="noreferrer" title={entity.url}>
+        <a
+          href={entity.url}
+          target="_blank"
+          rel="noreferrer"
+          title={entity.url}
+          onClick={openLink(entity.url, actions)}
+        >
           {children}
         </a>
       );
     case "messageEntityUrl":
       return (
         <a
-          href={/^[a-z][a-z0-9+.-]*:/i.test(text) ? text : `http://${text}`}
+          href={absolute(text)}
           target="_blank"
           rel="noreferrer"
+          onClick={openLink(absolute(text), actions)}
         >
           {children}
         </a>
@@ -173,6 +195,10 @@ function Quote({ collapsed, children }: { collapsed: boolean; children: ReactNod
       )}
     </blockquote>
   );
+}
+
+function absolute(url: string): string {
+  return /^[a-z][a-z0-9+.-]*:/i.test(url) ? url : `http://${url}`;
 }
 
 /** A `date_time` entity shows the time in the reader's locale, as its flags ask. */

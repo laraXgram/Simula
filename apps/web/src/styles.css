@@ -885,3 +885,29 @@ a,
     padding-inline: 8px;
   }
 }
+
+.start-bar {
+  background: var(--bg);
+  border-block-start: 1px solid var(--border);
+  padding: 10px;
+}
+
+.start-bar button {
+  inline-size: 100%;
+  border: 0;
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.history-start {
+  align-self: center;
+  color: var(--text-muted);
+  font-size: 0.85em;
+  background: var(--bg);
+  padding: 3px 10px;
+  border-radius: 999px;
+}

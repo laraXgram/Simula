@@ -9,3 +9,4 @@ pub mod get_messages;
 pub mod read_history;
 pub mod send_message;
 pub mod set_bot_callback_answer;
+pub mod start_bot;

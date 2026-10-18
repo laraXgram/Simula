@@ -2,6 +2,8 @@
 import type { tl } from "@simula/schema";
 import { useEffect, useRef, useState } from "react";
 
+import { toFormatting } from "../state/markdown";
+
 export interface Draft {
   replyTo?: tl.message;
   editing?: tl.message;
@@ -36,7 +38,7 @@ export function Composer({
   const editing = draft.editing;
   const replyId = draft.replyTo?.id;
   useEffect(() => {
-    if (editing) setText(editing.message);
+    if (editing) setText(toFormatting(editing.message, editing.entities));
     if (editing || replyId !== undefined) input.current?.focus();
   }, [editing, replyId]);
 
@@ -89,7 +91,7 @@ export function Composer({
           dir="auto"
           rows={1}
           value={text}
-          placeholder={placeholder || "Message"}
+          placeholder={placeholder || "Message  (**bold**, __italic__, `code`, [link](url))"}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {

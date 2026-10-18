@@ -27,7 +27,7 @@ jobs:
       - run: cargo test --workspace
 
   js:
-    name: TypeScript (biome, typecheck)
+    name: TypeScript (biome, typecheck, client tests)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +35,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bunx biome ci .
       - run: bun run typecheck
+      - run: bun test apps/web
 
   generated:
     name: Generated code is fresh

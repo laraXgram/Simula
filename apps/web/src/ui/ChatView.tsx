@@ -1,8 +1,8 @@
 /** An open chat: header, messages, the bot's keyboard and the composer. */
 import type { tl } from "@simula/schema";
-import { useEffect, useMemo, useRef, useState } from "react";
-
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Client } from "../state/client";
+import type { DeepLink } from "../state/links";
 import { displayName } from "../state/peers";
 import type { Snapshot } from "../state/store";
 import { Composer, type Draft } from "./Composer";
@@ -17,10 +17,24 @@ interface Props {
   chatKey: string;
   notify: Notify;
   onOpenChat: (key: string) => void;
+  onDeepLink: (link: DeepLink) => void;
+  /** A deep link's `start` parameter waiting for the START button. */
+  startParam?: string;
+  onStarted: () => void;
   onBack: () => void;
 }
 
-export function ChatView({ client, snapshot, chatKey, notify, onOpenChat, onBack }: Props) {
+export function ChatView({
+  client,
+  snapshot,
+  chatKey,
+  notify,
+  onOpenChat,
+  onDeepLink,
+  startParam,
+  onStarted,
+  onBack,
+}: Props) {
   const user = client.userFor(chatKey);
   const dialog = snapshot.dialogs.find((d) => d.key === chatKey);
   const byId = snapshot.messages.get(chatKey);
@@ -29,22 +43,65 @@ export function ChatView({ client, snapshot, chatKey, notify, onOpenChat, onBack
   const [dismissed, setDismissed] = useState<Set<number>>(new Set());
   const [keyboardShown, setKeyboardShown] = useState(true);
   const list = useRef<HTMLDivElement>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [reachedStart, setReachedStart] = useState(false);
+  const loadingOlder = useRef(false);
+  /** Scroll position to restore once older messages are rendered above. */
+  const anchor = useRef<{ height: number; top: number } | null>(null);
 
   useEffect(() => {
     setDraft({});
-    client.openChat(chatKey).catch((error: Error) => notify(error.message));
+    setLoaded(false);
+    setReachedStart(false);
+    client
+      .openChat(chatKey)
+      .then(() => setLoaded(true))
+      .catch((error: Error) => notify(error.message));
   }, [client, chatKey, notify]);
+
+  // Older messages appear above without moving what the reader is looking at.
+  const oldest = messages[0]?.id;
+  useLayoutEffect(() => {
+    const element = list.current;
+    if (oldest === undefined || !element || !anchor.current) return;
+    element.scrollTop = element.scrollHeight - anchor.current.height + anchor.current.top;
+    anchor.current = null;
+  }, [oldest]);
+
+  const onScroll = () => {
+    const element = list.current;
+    if (
+      !element ||
+      element.scrollTop > 80 ||
+      loadingOlder.current ||
+      reachedStart ||
+      oldest === undefined
+    )
+      return;
+    loadingOlder.current = true;
+    anchor.current = { height: element.scrollHeight, top: element.scrollTop };
+    client
+      .loadOlder(chatKey, oldest)
+      .then((count) => {
+        if (count === 0) setReachedStart(true);
+      })
+      .catch((error: Error) => notify(error.message))
+      .finally(() => {
+        loadingOlder.current = false;
+      });
+  };
 
   // Read what arrives while the chat is open.
   useEffect(() => {
     if (dialog && dialog.unread > 0) void client.read(chatKey);
   }, [client, chatKey, dialog]);
 
-  // Follow the conversation: scroll down when a newer message arrives.
+  // Follow the conversation: scroll down when a newer message arrives, and once the
+  // opened chat's history is in (it loads above the message the chat list showed).
   const newest = messages.at(-1)?.id;
   useEffect(() => {
-    if (newest !== undefined) list.current?.scrollTo({ top: list.current.scrollHeight });
-  }, [newest]);
+    if (loaded && newest !== undefined) list.current?.scrollTo({ top: list.current.scrollHeight });
+  }, [loaded, newest]);
 
   const markup = activeMarkup(messages);
   const keyboard =
@@ -86,6 +143,7 @@ export function ChatView({ client, snapshot, chatKey, notify, onOpenChat, onBack
         .then(onOpenChat)
         .catch((error: Error) => notify(error.message)),
     onUser: (id) => onOpenChat(client.keyFor(id)),
+    onDeepLink,
     onCallback: (data) =>
       client
         .press(chatKey, message.id, data)
@@ -106,6 +164,9 @@ export function ChatView({ client, snapshot, chatKey, notify, onOpenChat, onBack
   });
 
   const commands = user?.bot ? (snapshot.commands.get(user.id) ?? []) : [];
+  // Telegram offers START for a bot chat with no messages yet, or after a deep link.
+  const needsStart =
+    user?.bot === true && loaded && (startParam !== undefined || messages.length === 0);
 
   return (
     <section className="chat">
@@ -121,7 +182,10 @@ export function ChatView({ client, snapshot, chatKey, notify, onOpenChat, onBack
           </span>
         </div>
       </header>
-      <div className="messages" ref={list}>
+      <div className="messages" ref={list} onScroll={onScroll}>
+        {reachedStart && messages.length > 0 && (
+          <p className="history-start">Beginning of the chat</p>
+        )}
         {messages.map((message) => (
           <Message
             key={message.id}
@@ -133,16 +197,32 @@ export function ChatView({ client, snapshot, chatKey, notify, onOpenChat, onBack
           />
         ))}
       </div>
-      <Composer
-        draft={{ ...draft, replyTo }}
-        placeholder={placeholder}
-        commands={commands}
-        keyboardAvailable={keyboard !== undefined}
-        keyboardShown={keyboardShown}
-        onToggleKeyboard={() => setKeyboardShown(!keyboardShown)}
-        onCancel={() => setDraft({})}
-        onSend={(text) => void send(text)}
-      />
+      {needsStart ? (
+        <div className="start-bar">
+          <button
+            type="button"
+            onClick={() =>
+              client
+                .startBot(chatKey, startParam)
+                .then(onStarted)
+                .catch((error: Error) => notify(error.message))
+            }
+          >
+            START
+          </button>
+        </div>
+      ) : (
+        <Composer
+          draft={{ ...draft, replyTo }}
+          placeholder={placeholder}
+          commands={commands}
+          keyboardAvailable={keyboard !== undefined}
+          keyboardShown={keyboardShown}
+          onToggleKeyboard={() => setKeyboardShown(!keyboardShown)}
+          onCancel={() => setDraft({})}
+          onSend={(text) => void send(text)}
+        />
+      )}
       {keyboard && keyboardShown && (
         <ReplyKeyboard
           markup={keyboard.markup}

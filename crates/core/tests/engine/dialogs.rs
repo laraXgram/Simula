@@ -199,3 +199,41 @@ async fn bot_profiles_and_usernames() {
         .unwrap_err();
     assert_eq!(missing.message, "USERNAME_NOT_OCCUPIED");
 }
+
+#[tokio::test]
+async fn deep_links_start_the_bot() {
+    let (sandbox, user, bot) = setup().await;
+    let start = |param: &str| functions::messages::StartBot {
+        bot: types::InputUser {
+            user_id: bot.id.0,
+            access_hash: match sandbox.input_peer(user.id, bot.id.into()) {
+                enums::InputPeer::User(p) => p.access_hash,
+                _ => unreachable!(),
+            },
+        }
+        .into(),
+        peer: sandbox.input_peer(user.id, bot.id.into()),
+        random_id: rand::random(),
+        start_param: param.into(),
+    };
+    let updates = sandbox
+        .call(as_account(user.id), start("ref_42"))
+        .await
+        .unwrap();
+    let enums::Updates::Updates(updates) = updates else {
+        panic!("updates expected");
+    };
+    let sent = updates.updates.iter().find_map(|u| match u {
+        enums::Update::NewMessage(u) => match &u.message {
+            enums::Message::Message(m) => Some(m.message.clone()),
+            _ => None,
+        },
+        _ => None,
+    });
+    assert_eq!(sent.as_deref(), Some("/start ref_42"));
+    let bad = sandbox
+        .call(as_account(user.id), start("no spaces"))
+        .await
+        .unwrap_err();
+    assert_eq!(bad.message, "START_PARAM_INVALID");
+}

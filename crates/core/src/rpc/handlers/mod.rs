@@ -31,6 +31,7 @@ pub const IMPLEMENTED: &[&str] = &[
     "messages.readHistory",
     "messages.sendMessage",
     "messages.setBotCallbackAnswer",
+    "messages.startBot",
     "updates.getState",
     "users.getFullUser",
     "users.getUsers",
@@ -70,6 +71,9 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
         Function::MessagesSetBotCallbackAnswer(call) => {
             messages::set_bot_callback_answer::handle(ctx, *call)
                 .map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
+        Function::MessagesStartBot(call) => {
+            messages::start_bot::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
         }
         Function::UpdatesGetState(call) => {
             updates::get_state::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)

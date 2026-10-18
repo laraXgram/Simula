@@ -1,10 +1,13 @@
 /** An inline keyboard under a message. Each button type does what Telegram's does. */
 import type { tl } from "@simula/schema";
 
+import { type DeepLink, parseDeepLink } from "../state/links";
+
 export interface ButtonActions {
   onCallback: (data: string) => void;
   onUser: (userId: string) => void;
   onNotice: (text: string) => void;
+  onDeepLink: (link: DeepLink) => void;
 }
 
 export function InlineKeyboard({
@@ -51,7 +54,11 @@ function InlineButton({
         ? "success"
         : "";
   const type = button.type;
-  const open = (url: string) => window.open(url, "_blank", "noopener");
+  const open = (url: string) => {
+    const link = parseDeepLink(url);
+    if (link) actions.onDeepLink(link);
+    else window.open(url, "_blank", "noopener");
+  };
   let onClick: (() => void) | undefined;
   let mark = "";
   let disabled = false;
