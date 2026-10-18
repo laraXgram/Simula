@@ -66,7 +66,10 @@ async fn the_author_edits_every_copy() {
     let [enums::Update::EditMessage(update)] = updates.updates.as_slice() else {
         panic!("one updateEditMessage expected");
     };
-    assert_eq!(update.pts, 3, "Alice: two new messages, then the edit");
+    assert_eq!(
+        update.pts, 4,
+        "Alice: her message, the bot reading it, the answer, then the edit"
+    );
 
     let enums::Message::Message(alice_copy) = message(&sandbox, user.id, 2).await else {
         panic!("message expected");
@@ -148,7 +151,7 @@ async fn deleting_for_everyone_or_just_yourself() {
         .await
         .unwrap();
     let enums::messages::AffectedMessages::AffectedMessages(affected) = affected;
-    assert_eq!((affected.pts, affected.pts_count), (3, 1));
+    assert_eq!((affected.pts, affected.pts_count), (4, 1));
     assert!(matches!(
         message(&sandbox, user.id, 2).await,
         enums::Message::Empty(_)

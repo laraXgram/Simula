@@ -152,7 +152,7 @@ pub fn read(ctx: &mut Ctx<'_>, reader: UserId, peer: Peer, max_id: i32) -> RpcRe
         let (_, read_outbox) = store::dialogs::read_state(ctx.db, other, reader_peer)?;
         if outbox_max > read_outbox {
             store::dialogs::set_read_outbox(ctx.db, other, reader_peer, outbox_max)?;
-            updates::push_pts(ctx, other, [reader], |pts, pts_count| {
+            updates::push_pts_to_all(ctx, other, [reader], |pts, pts_count| {
                 types::UpdateReadHistoryOutbox {
                     peer: reader_peer.to_tl(),
                     max_id: outbox_max,

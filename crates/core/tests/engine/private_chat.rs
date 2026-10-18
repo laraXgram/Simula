@@ -6,7 +6,7 @@ use simula_core::{AccountUpdates, UserId};
 use simula_tl::{enums, functions, types};
 use tokio::sync::broadcast::Receiver;
 
-/// The single `updateNewMessage` of the next batch delivered to `account`.
+/// The `updateNewMessage` of the next batch delivered to `account` that has one.
 async fn next_message(
     rx: &mut Receiver<std::sync::Arc<AccountUpdates>>,
     account: UserId,
@@ -19,8 +19,11 @@ async fn next_message(
         let enums::Updates::Updates(updates) = &batch.updates else {
             panic!("expected updates")
         };
-        let [enums::Update::NewMessage(new)] = updates.updates.as_slice() else {
-            panic!("expected one updateNewMessage")
+        let Some(new) = updates.updates.iter().find_map(|u| match u {
+            enums::Update::NewMessage(new) => Some(new),
+            _ => None,
+        }) else {
+            continue;
         };
         let enums::Message::Message(message) = &new.message else {
             panic!("expected a message")
@@ -90,7 +93,8 @@ async fn user_and_bot_exchange_private_messages() {
         "access hash is the bot's own"
     );
 
-    // The bot replies: it's message 2 in the user's box, the user's pts moves to 2.
+    // The bot replies: it's message 2 in the user's box. The user's pts: 1 her message,
+    // 2 the bot reading it (bots read at once), 3 the reply.
     sandbox
         .call(
             as_account(bot.id),
@@ -105,7 +109,7 @@ async fn user_and_bot_exchange_private_messages() {
     let (reply, pts, _) = next_message(&mut rx, user.id).await;
     assert_eq!(
         (reply.id, reply.out, reply.message.as_str(), pts),
-        (2, false, "Hello, Alice!", 2)
+        (2, false, "Hello, Alice!", 3)
     );
 
     let state = sandbox
@@ -113,7 +117,7 @@ async fn user_and_bot_exchange_private_messages() {
         .await
         .unwrap();
     let enums::updates::State::State(state) = state;
-    assert_eq!(state.pts, 2);
+    assert_eq!(state.pts, 3);
 }
 
 #[tokio::test]

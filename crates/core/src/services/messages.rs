@@ -8,7 +8,7 @@ use simula_tl::{enums, types};
 use crate::ctx::Ctx;
 use crate::error::{RpcError, RpcResult};
 use crate::ids::{Peer, UserId};
-use crate::services::{entities, markup, previews, replies, updates};
+use crate::services::{dialogs, entities, markup, previews, replies, updates};
 use crate::store::{self, messages::StoredMessage};
 
 /// Documented text limit for one message, in UTF-16 code units.
@@ -127,7 +127,15 @@ pub fn send_private(ctx: &mut Ctx<'_>, from: UserId, to: UserId, out: Outgoing) 
             sent = Some(Sent { message, update });
         }
     }
-    sent.ok_or_else(|| RpcError::internal("sender copy missing"))
+    let sent = sent.ok_or_else(|| RpcError::internal("sender copy missing"))?;
+    // Bots read what users send them at once: the sender sees it read right away.
+    if recipient.is_bot
+        && !sender.is_bot
+        && let Some(id) = store::messages::copy_id(ctx.db, to, global_id)?
+    {
+        dialogs::read(ctx, to, Peer::User(from), id)?;
+    }
+    Ok(sent)
 }
 
 /// A message's final entities: the sender's, plus what Telegram adds itself (mentions,

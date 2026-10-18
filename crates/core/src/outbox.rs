@@ -30,9 +30,9 @@ pub struct Outbox {
 
 #[derive(Debug, Default)]
 struct Pending {
-    updates: Vec<enums::Update>,
+    /// Each update with the session that caused it, if it is that session's own result.
+    updates: Vec<(enums::Update, Option<SessionId>)>,
     users: BTreeSet<UserId>,
-    origin: Option<SessionId>,
 }
 
 impl Outbox {
@@ -45,9 +45,8 @@ impl Outbox {
         origin: Option<SessionId>,
     ) {
         let pending = self.pending.entry(account).or_default();
-        pending.updates.push(update);
+        pending.updates.push((update, origin));
         pending.users.extend(users);
-        pending.origin = pending.origin.or(origin);
     }
 
     /// Users mentioned so far in `account`'s updates.
@@ -58,26 +57,37 @@ impl Outbox {
             .unwrap_or_default()
     }
 
+    /// One batch per account and origin, in the order the updates happened: updates a
+    /// session caused for itself are kept apart from those all sessions should get.
     pub fn render(self, ctx: &Ctx<'_>) -> RpcResult<Vec<AccountUpdates>> {
         let date = ctx.now();
-        self.pending
-            .into_iter()
-            .map(|(account, pending)| {
-                let users = render::users(ctx, account, &pending.users)?;
-                Ok(AccountUpdates {
+        let mut batches = Vec::new();
+        for (account, pending) in self.pending {
+            let users = render::users(ctx, account, &pending.users)?;
+            let is_bot = ctx.account(account)?.is_bot;
+            let mut groups: Vec<(Option<SessionId>, Vec<enums::Update>)> = Vec::new();
+            for (update, origin) in pending.updates {
+                match groups.last_mut() {
+                    Some((last, list)) if *last == origin => list.push(update),
+                    _ => groups.push((origin, vec![update])),
+                }
+            }
+            for (origin, updates) in groups {
+                batches.push(AccountUpdates {
                     account,
-                    is_bot: ctx.account(account)?.is_bot,
-                    origin: pending.origin,
+                    is_bot,
+                    origin,
                     updates: types::Updates {
-                        updates: pending.updates,
-                        users,
+                        updates,
+                        users: users.clone(),
                         chats: vec![],
                         date,
                         seq: 0,
                     }
                     .into(),
-                })
-            })
-            .collect()
+                });
+            }
+        }
+        Ok(batches)
     }
 }

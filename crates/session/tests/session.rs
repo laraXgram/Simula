@@ -76,6 +76,19 @@ async fn next(socket: &mut Socket) -> Value {
     }
 }
 
+/// The next pushed update of kind `kind` (other frames are skipped).
+async fn next_update(socket: &mut Socket, kind: &str) -> Value {
+    loop {
+        let frame = next(socket).await;
+        let found = frame["updates"]["updates"]
+            .as_array()
+            .and_then(|list| list.iter().find(|u| u["_"] == kind).cloned());
+        if let Some(update) = found {
+            return update;
+        }
+    }
+}
+
 async fn call(socket: &mut Socket, id: u32, function: Value) -> Value {
     socket
         .send(Message::Text(
@@ -115,13 +128,16 @@ async fn calls_errors_and_updates_per_session() {
     .await;
     assert_eq!(sent["result"]["updates"][0]["_"], "updateMessageID");
 
-    // The other session of the same user sees the message as an update.
-    let pushed = next(&mut laptop).await;
-    assert_eq!(pushed["updates"]["updates"][0]["_"], "updateNewMessage");
-    assert_eq!(
-        pushed["updates"]["updates"][0]["message"]["message"],
-        "hi from the phone"
-    );
+    // The other session of the same user sees the message as an update; both see the
+    // bot read it (bots read at once).
+    let pushed = next_update(&mut laptop, "updateNewMessage").await;
+    assert_eq!(pushed["message"]["message"], "hi from the phone");
+    for socket in [&mut phone, &mut laptop] {
+        assert_eq!(
+            next_update(socket, "updateReadHistoryOutbox").await["max_id"],
+            1
+        );
+    }
 
     // The bot answers; both sessions get it.
     sandbox
@@ -140,11 +156,8 @@ async fn calls_errors_and_updates_per_session() {
         .await
         .unwrap();
     for socket in [&mut phone, &mut laptop] {
-        let pushed = next(socket).await;
-        assert_eq!(
-            pushed["updates"]["updates"][0]["message"]["message"],
-            "hello!"
-        );
+        let pushed = next_update(socket, "updateNewMessage").await;
+        assert_eq!(pushed["message"]["message"], "hello!");
     }
 
     let wrong = call(
