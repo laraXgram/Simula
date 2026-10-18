@@ -5,6 +5,75 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-10-18 — P7.1 · Docker image; the server serves the client
+
+- **Image** (`Dockerfile`, multi-stage): Bun + Vite build the web client, the release
+  server is built with `--locked` and stripped, and both land in `debian:trixie-slim`
+  running as a non-root user. `/data` is a volume (`SIMULA_DATA_DIR`), port 8081, a
+  health check on `/_simula/v1/health` (over bash's `/dev/tcp`; the slim image has no
+  curl). `compose.yaml` runs it with a named volume: `docker compose up --build`.
+  `docker run … simula --memory` keeps nothing.
+- **`simula --web-dir DIR`** (`SIMULA_WEB_DIR`) serves the built client at `/`, falling
+  back to `index.html`. Vite puts assets under `/_simula/web/` because any two-segment
+  path (`/assets/x.js`) is the Bot API's `/<token>/<method>`.
+- **SIGTERM**: the server stopped only on Ctrl-C; `docker stop` sends SIGTERM, which a
+  PID 1 without a handler ignores until it is killed. Both now shut it down gracefully.
+- **Verification**: Docker isn't installed on the dev machine, so the image itself is
+  built by a new CI job (`docker/build-push-action`, no push). Each stage was checked
+  outside Docker: the web stage from only the files the Dockerfile copies
+  (`bun install --frozen-lockfile` + build), the release build (6 min, 69 MB unstripped;
+  only `cc` is needed natively), the binary with the image's exact environment (data in
+  the volume, client at `/`, assets, Control API, Bot API errors, SIGTERM), the health
+  check command against a live and a closed port, and the served client in headless
+  Chrome (account picker, session WebSocket, a message with its preview card).
+
+## 2026-10-18 — M4 (part 1) · Basic groups: core, Bot API and client (P2.3, P2.10, P3.8, P5.5)
+
+- **Core**: `messages.createChat`, `addChatUser`, `deleteChatUser` (remove or leave),
+  `editChatTitle`, `getChats`, `getFullChat`; sending, history, reading, editing,
+  deleting, callback buttons and `startBot` inside groups. Groups use per-member boxes
+  like private chats (migration 0004: `chats`, `chat_members`). Service messages
+  (created, added, removed or left, title) land in every member's box and share the
+  message store with regular ones. Removed members see `chatForbidden`, members who
+  left `chat{left}`. Updates carry the chats they mention, rendered per viewer.
+- **Privacy mode**: a bot with privacy on gets commands meant for it (`/cmd@bot`; general
+  ones when it wrote last or is the only bot), replies to its messages and service
+  messages; bots with privacy off and admin bots get everything.
+- **Membership updates**: bots get `updateChatParticipant` (qts) when their own
+  membership changes, and admin bots for everyone's — the source of `my_chat_member` /
+  `chat_member` in the Bot API, with tdlib's statuses (basic-group admins hold every
+  right).
+- **Rules**: reading tells each sender in their own ids; only admins delete others'
+  messages for everyone (`MESSAGE_DELETE_FORBIDDEN`); bots that can't join groups are
+  refused; bots may address users they met in a group (access hash 0, as tdlib sends).
+- **Group commands**: `getFullChat` carries `bot_info` with each bot's commands for the
+  caller in Telegram's documented order for groups — the member, the chat's admins,
+  the chat, all chat admins, all groups, default; each in the caller's language first.
+- **Bot API**: messages and service messages from groups (`group_chat_created`,
+  `new_chat_members`, `left_chat_member`, `new_chat_title`); `getChat` (private and
+  group), `leaveChat`, `getChatMember`, `getChatMemberCount`, `getChatAdministrators`,
+  `setChatTitle`, with telegram-bot-api's group checks and texts (chat not found, bot is
+  not a member of the group chat, bot was kicked from the group chat, the group chat
+  was deleted) and its private-chat errors.
+- **Client**: service messages as centered notes ("Alice added Bob", "You changed the
+  group name to «Team 2»"), sender names on incoming group messages, group titles,
+  avatars and "N members" in the header, sender-prefixed previews in the chat list, a ✚
+  form for new groups (name + `@usernames`), add member, rename and leave in the
+  header, a "You left this group" bar, and the group's bot commands as `/cmd@bot` in the
+  commands menu. Deleting asks whether to delete for everyone or only for you.
+- **Verification**: core tests for privacy mode, membership updates, reading and
+  permissions, group command scopes; gateway tests for group updates, access errors and
+  the new methods. In headless Chrome with a Telegraf bot: create «Team» with Bob and
+  the bot, `/ping@demo_bot` (answered as a reply), a general `/who` (the only bot gets
+  it), the bot welcoming the rename, the group-scoped commands menu, leaving. 144 Rust
+  tests, clippy, biome, typecheck clean.
+- Known gaps: outgoing ✓ in groups turns ✓✓ only when a person reads (bots don't mark
+  group messages read); legacy Bot API fields `new_chat_member`, `new_chat_participant`,
+  `left_chat_participant`, `all_members_are_administrators` aren't in the generated
+  types yet; supergroups, channels, admin rights, bans, invite links, join requests and
+  forums are the rest of M4.
+- Coverage: Bot API 20/185, TL 23/813.
+
 ## 2026-10-18 — M3 · Client sessions and the web client — M3 done (P5.1–P5.4, P2.4, P2.5, P2.9)
 
 - **Roadmap**: every place that answers `501 Not implemented in Simula` is now listed in
