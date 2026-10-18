@@ -8,7 +8,7 @@ use simula_tl::{enums, types};
 use crate::ctx::Ctx;
 use crate::error::{RpcError, RpcResult};
 use crate::ids::{ChatId, Peer, UserId};
-use crate::services::updates;
+use crate::services::{service_messages, updates};
 use crate::store::{self, chats::Member, chats::Role};
 
 /// Basic group ids, like Telegram's newer ones.
@@ -290,33 +290,8 @@ fn post(
     action: enums::MessageAction,
     recipients: &[UserId],
 ) -> RpcResult<()> {
-    let date = ctx.now();
-    let global_id = store::meta::next(ctx.db, "global_message", 1)?;
-    let peer = Peer::Chat(chat);
-    let mut mentioned: Vec<UserId> = vec![from];
-    mentioned.extend(action_users(&action));
-    for &owner in recipients {
-        let message = types::MessageService {
-            out: owner == from,
-            id: store::messages::next_id(ctx.db, owner)?,
-            from_id: Some(Peer::User(from).to_tl()),
-            peer_id: peer.to_tl(),
-            date,
-            action: action.clone(),
-            ..Default::default()
-        };
-        store::messages::insert_service(ctx.db, owner, peer, global_id, &message)?;
-        ctx.out.mention_chat(owner, chat);
-        updates::push_pts(ctx, owner, mentioned.clone(), |pts, pts_count| {
-            types::UpdateNewMessage {
-                message: message.clone().into(),
-                pts,
-                pts_count,
-            }
-            .into()
-        })?;
-    }
-    Ok(())
+    let copies: Vec<(UserId, Peer)> = recipients.iter().map(|&r| (r, Peer::Chat(chat))).collect();
+    service_messages::post(ctx, from, &copies, action, None)
 }
 
 /// Users a service action names.

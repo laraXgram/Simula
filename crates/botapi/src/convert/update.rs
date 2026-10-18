@@ -106,11 +106,9 @@ pub fn wanted(updates: &enums::Updates) -> Vec<(Peer, i32)> {
         .updates
         .iter()
         .filter_map(|update| match update {
-            enums::Update::NewMessage(u) => incoming(&u.message).and_then(message::reply_ref),
+            enums::Update::NewMessage(u) => references(&u.message),
             enums::Update::EditMessage(u) => incoming(&u.message).and_then(message::reply_ref),
-            enums::Update::NewChannelMessage(u) => {
-                incoming(&u.message).and_then(message::reply_ref)
-            }
+            enums::Update::NewChannelMessage(u) => references(&u.message),
             enums::Update::EditChannelMessage(u) => {
                 incoming(&u.message).and_then(message::reply_ref)
             }
@@ -118,6 +116,14 @@ pub fn wanted(updates: &enums::Updates) -> Vec<(Peer, i32)> {
             _ => None,
         })
         .collect()
+}
+
+/// What a new message refers to: the replied message, or a pinned one.
+fn references(message: &enums::Message) -> Option<(Peer, i32)> {
+    match message {
+        enums::Message::Service(s) if !s.out => message::service_reply_ref(s),
+        other => incoming(other).and_then(message::reply_ref),
+    }
 }
 
 fn incoming(message: &enums::Message) -> Option<&types::Message> {

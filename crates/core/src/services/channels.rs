@@ -508,6 +508,18 @@ pub fn post_service(
     action: enums::MessageAction,
     also: &[UserId],
 ) -> RpcResult<()> {
+    post_service_replying(ctx, channel, actor, action, also, None)
+}
+
+/// [`post_service`] replying to message `reply_to` (a pinned message's notice).
+pub fn post_service_replying(
+    ctx: &mut Ctx<'_>,
+    channel: &Channel,
+    actor: UserId,
+    action: enums::MessageAction,
+    also: &[UserId],
+    reply_to: Option<i32>,
+) -> RpcResult<()> {
     let mut recipients: Vec<UserId> = store::channels::current_members(ctx.db, channel.id)?
         .into_iter()
         .map(|m| m.user)
@@ -524,6 +536,13 @@ pub fn post_service(
         id: store::channels::next_message_id(ctx.db, channel.id)?,
         from_id: (!channel.broadcast).then(|| Peer::User(actor).to_tl()),
         peer_id: Peer::Channel(channel.id).to_tl(),
+        reply_to: reply_to.map(|id| {
+            types::MessageReplyHeader {
+                reply_to_msg_id: Some(id),
+                ..Default::default()
+            }
+            .into()
+        }),
         date: ctx.now(),
         action,
         ..Default::default()

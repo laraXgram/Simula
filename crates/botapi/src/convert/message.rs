@@ -63,6 +63,21 @@ pub fn is_text(m: &types::Message) -> bool {
     matches!(m.media, None | Some(enums::MessageMedia::WebPage(_)))
 }
 
+/// The chat and id of the message a service message points at (a pinned message).
+pub fn service_reply_ref(m: &types::MessageService) -> Option<(Peer, i32)> {
+    match &m.reply_to {
+        Some(enums::MessageReplyHeader::MessageReplyHeader(h)) if h.reply_to_peer_id.is_none() => {
+            h.reply_to_msg_id.map(|id| (Peer::from_tl(&m.peer_id), id))
+        }
+        _ => None,
+    }
+}
+
+/// One message without its replied message, as `pinned_message` carries it.
+pub fn without_reply(m: &types::Message, context: &Entities<'_>) -> bot::Message {
+    convert(m, context, false)
+}
+
 /// The chat and id of the message `m` replies to in the same chat, if any.
 pub fn reply_ref(m: &types::Message) -> Option<(Peer, i32)> {
     reply_id(m).map(|id| (Peer::from_tl(&m.peer_id), id))
@@ -142,6 +157,31 @@ pub fn service(m: &types::MessageService, context: &Entities<'_>) -> Option<bot:
             new_chat_title: Some(a.title.clone()),
             ..base
         },
+        enums::MessageAction::PinMessage => {
+            let chat_peer = Peer::from_tl(&m.peer_id);
+            let id = match &m.reply_to {
+                Some(enums::MessageReplyHeader::MessageReplyHeader(h)) => h.reply_to_msg_id,
+                _ => None,
+            }?;
+            // The pinned message, without its own reply (telegram-bot-api's
+            // `need_reply = false`), or inaccessible when it can't be fetched.
+            let pinned = match context.message(chat_peer, id) {
+                Some(found) => {
+                    bot::MaybeInaccessibleMessage::Message(Box::new(convert(found, context, false)))
+                }
+                None => bot::MaybeInaccessibleMessage::InaccessibleMessage(Box::new(
+                    bot::InaccessibleMessage {
+                        chat: chat(chat_peer, context),
+                        message_id: id.into(),
+                        date: Default::default(),
+                    },
+                )),
+            };
+            bot::Message {
+                pinned_message: Some(Box::new(pinned)),
+                ..base
+            }
+        }
         enums::MessageAction::ChannelCreate(_) if m.post => bot::Message {
             channel_chat_created: true,
             ..base

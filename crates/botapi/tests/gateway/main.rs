@@ -9,5 +9,6 @@ mod channels;
 mod commands;
 mod edit_delete;
 mod groups;
+mod pins;
 mod send_pipeline;
 mod webhooks;

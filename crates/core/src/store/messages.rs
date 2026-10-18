@@ -207,3 +207,13 @@ pub fn by_random_id(
     )
     .optional()
 }
+
+/// Ids of the pinned messages in `owner`'s dialog with `peer`, newest first.
+pub fn pinned_ids(conn: &Connection, owner: UserId, peer: Peer) -> rusqlite::Result<Vec<i32>> {
+    let mut statement = conn.prepare(
+        "SELECT id FROM messages WHERE owner_id = ?1 AND peer = ?2 AND deleted = 0
+         AND json_extract(body, '$.pinned') = 1 ORDER BY id DESC",
+    )?;
+    let rows = statement.query_map(params![owner.0, peer.bot_api_id()], |row| row.get(0))?;
+    rows.collect()
+}

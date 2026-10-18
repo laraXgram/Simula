@@ -8,4 +8,5 @@ mod channels;
 mod dialogs;
 mod edit_delete;
 mod groups;
+mod pins;
 mod private_chat;

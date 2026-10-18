@@ -15,6 +15,7 @@ mod http;
 mod lookup;
 mod members;
 mod methods;
+mod pins;
 mod present;
 mod resolve;
 mod send;

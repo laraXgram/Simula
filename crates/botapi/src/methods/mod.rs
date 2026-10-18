@@ -21,6 +21,7 @@ pub mod get_my_commands;
 pub mod get_updates;
 pub mod get_webhook_info;
 pub mod leave_chat;
+pub mod pin_chat_message;
 pub mod promote_chat_member;
 pub mod restrict_chat_member;
 pub mod send_message;
@@ -31,6 +32,8 @@ pub mod set_chat_title;
 pub mod set_my_commands;
 pub mod set_webhook;
 pub mod unban_chat_member;
+pub mod unpin_all_chat_messages;
+pub mod unpin_chat_message;
 
 use serde_json::{Map, Value};
 
@@ -57,6 +60,7 @@ pub const IMPLEMENTED: &[&str] = &[
     "getUpdates",
     "getWebhookInfo",
     "leaveChat",
+    "pinChatMessage",
     "promoteChatMember",
     "restrictChatMember",
     "sendMessage",
@@ -67,6 +71,8 @@ pub const IMPLEMENTED: &[&str] = &[
     "setMyCommands",
     "setWebhook",
     "unbanChatMember",
+    "unpinAllChatMessages",
+    "unpinChatMessage",
 ];
 
 /// Run the handler for a lowercase method name; `None` when there is none.
@@ -113,6 +119,7 @@ pub async fn route(
         "getupdates" => run(ctx, params, get_updates::LIMITS, get_updates::handle).await,
         "getwebhookinfo" => run(ctx, params, Limits::Enforce, get_webhook_info::handle).await,
         "leavechat" => run(ctx, params, Limits::Enforce, leave_chat::handle).await,
+        "pinchatmessage" => run(ctx, params, Limits::Enforce, pin_chat_message::handle).await,
         "promotechatmember" => run(ctx, params, Limits::Enforce, promote_chat_member::handle).await,
         "restrictchatmember" => {
             run(ctx, params, Limits::Enforce, restrict_chat_member::handle).await
@@ -137,6 +144,16 @@ pub async fn route(
         "setmycommands" => run(ctx, params, Limits::Enforce, set_my_commands::handle).await,
         "setwebhook" => run(ctx, params, Limits::Enforce, set_webhook::handle).await,
         "unbanchatmember" => run(ctx, params, Limits::Enforce, unban_chat_member::handle).await,
+        "unpinallchatmessages" => {
+            run(
+                ctx,
+                params,
+                Limits::Enforce,
+                unpin_all_chat_messages::handle,
+            )
+            .await
+        }
+        "unpinchatmessage" => run(ctx, params, Limits::Enforce, unpin_chat_message::handle).await,
         _ => return None,
     })
 }

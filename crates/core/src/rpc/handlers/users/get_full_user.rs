@@ -52,6 +52,13 @@ pub fn handle(
         settings: types::PeerSettings::default().into(),
         notify_settings: types::PeerNotifySettings::default().into(),
         bot_info,
+        pinned_msg_id: crate::store::messages::pinned_ids(
+            ctx.db,
+            viewer,
+            crate::ids::Peer::User(id),
+        )?
+        .first()
+        .copied(),
         ..Default::default()
     };
     let viewer_account = ctx.account(viewer)?;

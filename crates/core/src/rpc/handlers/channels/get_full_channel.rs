@@ -66,6 +66,7 @@ pub fn handle(
         notify_settings: types::PeerNotifySettings::default().into(),
         bot_info,
         pts: channel.pts,
+        pinned_msg_id: store::channels::pinned_ids(ctx.db, id)?.first().copied(),
         ..Default::default()
     };
     Ok(types::messages::ChatFull {

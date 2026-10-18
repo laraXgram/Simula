@@ -57,6 +57,8 @@ pub const IMPLEMENTED: &[&str] = &[
     "messages.sendMessage",
     "messages.setBotCallbackAnswer",
     "messages.startBot",
+    "messages.unpinAllMessages",
+    "messages.updatePinnedMessage",
     "updates.getState",
     "users.getFullUser",
     "users.getUsers",
@@ -154,6 +156,14 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
         }
         Function::MessagesStartBot(call) => {
             messages::start_bot::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
+        Function::MessagesUnpinAllMessages(call) => {
+            messages::unpin_all_messages::handle(ctx, *call)
+                .map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
+        Function::MessagesUpdatePinnedMessage(call) => {
+            messages::update_pinned_message::handle(ctx, *call)
+                .map(|reply| Box::new(reply) as Box<dyn Reply>)
         }
         Function::UpdatesGetState(call) => {
             updates::get_state::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)

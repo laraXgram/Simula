@@ -14,6 +14,8 @@ pub struct Group {
     pub title: String,
     pub about: String,
     pub participants: Vec<enums::ChatParticipant>,
+    /// The newest pinned message.
+    pub pinned: Option<i32>,
     pub users: Vec<enums::User>,
     pub chats: Vec<enums::Chat>,
 }
@@ -45,6 +47,7 @@ pub async fn group(ctx: &BotCtx, chat: ChatId) -> BotResult<Group> {
         title,
         about: info.about,
         participants,
+        pinned: info.pinned_msg_id,
         users: full.users,
         chats: full.chats,
     })

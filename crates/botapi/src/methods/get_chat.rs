@@ -4,10 +4,12 @@ use simula_botapi_types::{methods, types as bot};
 use simula_core::Peer;
 use simula_tl::{enums, functions};
 
-use crate::convert::permissions;
+use crate::convert::{self, permissions};
 use crate::ctx::BotCtx;
 use crate::error::{BotResult, ErrorContext};
 use crate::members;
+use crate::pins;
+use crate::present;
 use crate::resolve;
 
 /// Telegram's default reaction limit per message.
@@ -15,6 +17,24 @@ const MAX_REACTIONS: i64 = 11;
 
 pub async fn handle(ctx: BotCtx, params: methods::GetChat) -> BotResult<bot::ChatFullInfo> {
     let peer = resolve::chat(&ctx, &params.chat_id).await?;
+    let mut info = info(&ctx, peer).await?;
+    info.pinned_message = pinned_message(&ctx, peer).await?;
+    Ok(info)
+}
+
+/// The newest pinned message, without its replied message.
+async fn pinned_message(ctx: &BotCtx, peer: Peer) -> BotResult<Option<Box<bot::Message>>> {
+    let Some(id) = pins::pinned_id(ctx, peer).await? else {
+        return Ok(None);
+    };
+    let context = present::context(&ctx.gateway, ctx.bot.id, vec![(peer, id)], &[], &[]).await;
+    let entities = context.entities();
+    Ok(entities
+        .message(peer, id)
+        .map(|m| Box::new(convert::message::without_reply(m, &entities))))
+}
+
+async fn info(ctx: &BotCtx, peer: Peer) -> BotResult<bot::ChatFullInfo> {
     // tdlib's default accent colour for chats without one.
     let accent = peer.bot_api_id().rem_euclid(7);
     match peer {
@@ -53,7 +73,7 @@ pub async fn handle(ctx: BotCtx, params: methods::GetChat) -> BotResult<bot::Cha
             })
         }
         Peer::Chat(chat) => {
-            let group = members::group(&ctx, chat).await?;
+            let group = members::group(ctx, chat).await?;
             let defaults = group.chats.iter().find_map(|c| match c {
                 enums::Chat::Chat(c) => c.default_banned_rights.clone(),
                 _ => None,
@@ -75,7 +95,7 @@ pub async fn handle(ctx: BotCtx, params: methods::GetChat) -> BotResult<bot::Cha
             })
         }
         Peer::Channel(_) => {
-            let channel = members::channel(&ctx, peer).await?;
+            let channel = members::channel(ctx, peer).await?;
             let info = &channel.info;
             Ok(bot::ChatFullInfo {
                 id: peer.bot_api_id(),

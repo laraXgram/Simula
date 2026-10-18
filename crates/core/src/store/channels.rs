@@ -481,3 +481,13 @@ fn from_json<T: serde::de::DeserializeOwned>(text: Option<String>) -> Option<T> 
 fn to_json(value: &impl serde::Serialize) -> String {
     serde_json::to_string(value).expect("TL object serializes")
 }
+
+/// Ids of the channel's pinned messages, newest first.
+pub fn pinned_ids(conn: &Connection, channel: ChannelId) -> rusqlite::Result<Vec<i32>> {
+    let mut statement = conn.prepare(
+        "SELECT id FROM channel_messages WHERE channel_id = ?1 AND deleted = 0
+         AND json_extract(body, '$.pinned') = 1 ORDER BY id DESC",
+    )?;
+    let rows = statement.query_map([channel.0], |row| row.get(0))?;
+    rows.collect()
+}
