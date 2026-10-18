@@ -5,6 +5,77 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-10-19 — M4 (part 2) · Supergroups, channels, admin rights, pins, invite links (P2.3, P2.4, P2.5, P2.10, P3.8, P5.5)
+
+- **One box per channel** (migration 0005): a supergroup's or channel's message is
+  stored once, with one id for everyone, and the channel has its own pts. Every member
+  who gets a message receives the same `updateNewChannelMessage` (marked `out` for its
+  author); edits and deletions go to all members with the channel's next pts. Channel
+  posts carry no author (`post`, no `from_id`). Reading sends `updateReadChannelInbox`
+  to the reader and `updateReadChannelOutbox` to the authors of what was read.
+- **Core functions**: `channels.createChannel`, `inviteToChannel`, `joinChannel`
+  (public), `leaveChannel`, `getChannels`, `getFullChannel`, `getParticipants`
+  (recent, admins, bots, kicked, banned, search), `getParticipant`, `editAdmin`,
+  `editBanned`, `editTitle`, `deleteMessages`, `readHistory`, `getMessages`,
+  `updateUsername`, `checkUsername`; `messages.editChatAbout` and
+  `editChatDefaultBannedRights` for supergroups and basic groups; sending, history
+  (`messages.channelMessages`), editing, callback buttons, dialogs (with the channel's
+  pts) and username lookup work with channels.
+- **Rights**: the creator holds every right; admins grant only rights they hold and
+  edit only admins they promoted; new supergroups forbid members to change info, pin
+  and manage topics; restrictions end at `until_date` (outside 30 s–366 days:
+  forever); banned members see `channelForbidden` and get `CHANNEL_PRIVATE`. Bots join
+  channels only as admins (`USER_BOT`). Bots get `updateChannelParticipant` for their
+  own status and, as admins, for everyone's.
+- **Pinned messages** in every kind of chat: `messages.updatePinnedMessage` (also
+  "only for me" in private chats) and `unpinAllMessages`; copies are marked `pinned`,
+  boxes get `updatePinnedMessages` / `updatePinnedChannelMessages`, and a notice
+  replying to the pinned message is posted. Full objects carry `pinned_msg_id`.
+- **Invite links and join requests** (migration 0006): `messages.exportChatInvite`,
+  `editExportedChatInvite`, `checkChatInvite`, `importChatInvite`,
+  `hideChatJoinRequest`. Links can expire, have a usage limit, a title, or need
+  approval. A request is kept although the call answers `INVITE_REQUEST_SENT` (the
+  core can now commit a transaction and still answer with an error); admin bots get
+  `updateBotChatInviteRequester`, admin users `updatePendingJoinRequests`, and the bot
+  may write to the requester for five minutes. Joining posts
+  `messageActionChatJoinedByLink` (or `…ByRequest`) and the link travels in the member
+  update.
+- **Bot API** (36 of 185 methods): chats of type supergroup and channel;
+  `channel_post` / `edited_channel_post` with `sender_chat`; `chat_join_request`;
+  member statuses owner, administrator (channel-only and supergroup-only rights only
+  where they apply), member, restricted, kicked, left, with `invite_link`;
+  telegram-bot-api's access errors for supergroups and channels; tdlib's checks
+  before sending ("need administrator rights in the channel chat", "not enough rights
+  to send text messages to the chat") and pinning; `@username` for public chats. New:
+  `banChatMember`, `unbanChatMember`, `restrictChatMember` (telegram-bot-api's older
+  permission rules unless independent), `promoteChatMember`,
+  `setChatAdministratorCustomTitle`, `setChatPermissions`, `setChatDescription`,
+  `pinChatMessage`, `unpinChatMessage`, `unpinAllChatMessages`,
+  `exportChatInviteLink`, `createChatInviteLink`, `editChatInviteLink`,
+  `revokeChatInviteLink`, `approveChatJoinRequest`, `declineChatJoinRequest`;
+  `getChat` with permissions, description, pinned message and invite link.
+- **Client**: new group form for groups, supergroups and channels; header actions by
+  rights (add member, add admin, invite link, rename, leave); JOIN for public chats,
+  a subscriber bar in channels; posts without sender; pinned bar and per-message pin;
+  joining by invite link from the search box. The store applies channel updates by
+  channel, so ids of different boxes never mix (a deletion in a private chat no longer
+  touches other chats with the same id).
+- **Verification**: engine tests for the shared box and privacy mode, reading,
+  editing and deleting, admin rights, restrictions and bans, public channels with bot
+  admins, and pins; gateway tests for a supergroup from joining to banning, a channel
+  with the bot as admin, pins, invite links and join requests. In headless Chrome with
+  a Telegraf bot: a supergroup where the bot answers `/ping@demo_bot` and its answer
+  is pinned, a channel where the bot answers a post, and Bob joining by the invite
+  link and seeing the subscriber bar and the pinned message. Found and fixed on the
+  way: the request lost with the rolled-back transaction, delete buttons offered to
+  subscribers, a chat joined by link listed without its top message. 156 Rust tests,
+  clippy, biome, typecheck clean.
+- Known gaps: forums and topics, replies to other chats, upgrading a basic group to a
+  supergroup (`migrate_to_chat_id`), slow mode, banning chats (sender chats),
+  `getExportedChatInvites`, the creator leaving while staying owner, edits of
+  protected link fields by non-owners beyond their own links.
+- Coverage: Bot API 36/185, TL 48/813.
+
 ## 2026-10-18 — P7.1 · Docker image; the server serves the client
 
 - **Image** (`Dockerfile`, multi-stage): Bun + Vite build the web client, the release

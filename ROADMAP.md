@@ -8,21 +8,22 @@ Every finished task is logged in [docs/worklog.md](docs/worklog.md) and committe
 
 **Targets:** Bot API **10.3** · MTProto layer from tdlib `telegram_api.tl`
 
-**Current focus:** M4 — groups and channels: basic groups done end to end (core, Bot API,
-client); next are supergroups and channels (see worklog)
+**Current focus:** M4 — groups and channels: basic groups, supergroups, channels, admin
+rights, pins and invite links work end to end (core, Bot API, client); left are forums,
+replies to other chats and upgrading groups (see worklog)
 
-## Progress at a glance (2026-10-18)
+## Progress at a glance (2026-10-19)
 
 | | Done | In progress | Planned | Total |
 |---|---:|---:|---:|---:|
-| Milestones | 3 | 1 | 0 | 4 |
-| Tasks, all phases | 21 | 20 | 35 | 76 |
+| Milestones | 3 | 1 | 2 | 6 |
+| Tasks, all phases | 22 | 19 | 35 | 76 |
 
 | Phase | Done | In progress | Planned | |
 |---|---:|---:|---:|---|
 | P0 Foundations | 4 | 0 | 0 | ██████████ complete |
 | P1 Specs & codegen | 10 | 0 | 0 | ██████████ complete |
-| P2 Core engine | 2 | 7 | 3 | ██▓▓▓▓▓▓░░ |
+| P2 Core engine | 3 | 6 | 3 | ███▓▓▓▓▓░░ |
 | P3 Bot API gateway | 3 | 4 | 3 | ███▓▓▓▓░░░ |
 | P4 Control API | 1 | 4 | 3 | █▓▓▓▓▓░░░░ |
 | P5 Client (web) | 1 | 4 | 8 | █▓▓▓░░░░░░ |
@@ -33,16 +34,19 @@ client); next are supergroups and channels (see worklog)
 
 █ done · ▓ in progress · ░ planned (bars by share of the phase's tasks)
 
-**API coverage** ([docs/coverage.md](docs/coverage.md)): Bot API 10.3 — 20 of 185 methods
-(10.8%), all of "Getting updates"; MTProto layer 229 — 23 of 813 functions (only what bots
-and the client need is planned). Most of the remaining Bot API methods are waves on top of
-the pipelines that exist now (send, edit, chats), so coverage should grow faster from here.
+**API coverage** ([docs/coverage.md](docs/coverage.md)): Bot API 10.3 — 36 of 185 methods
+(19.5%; 20 a day earlier), all of "Getting updates"; MTProto layer 229 — 48 of 813
+functions (only what bots and the client need is planned). Most remaining Bot API methods
+are waves on top of the pipelines that exist now (send, edit, chats, members), so
+coverage keeps growing by method families.
 
-**Works today**: private chats and basic groups between users and bots; long polling and
-webhooks; HTML/Markdown/MarkdownV2 with Telegram's errors; inline and reply keyboards,
-callback queries, replies with quotes, edits, deletes, commands with scopes, deep links,
-offline link previews, privacy mode, membership updates; Control API with act-as and a
-virtual clock; the web client; a Docker image. 144 Rust tests plus client tests in CI.
+**Works today**: private chats, basic groups, supergroups and channels between users and
+bots; long polling and webhooks; HTML/Markdown/MarkdownV2 with Telegram's errors; inline
+and reply keyboards, callback queries, replies with quotes, edits, deletes, commands with
+scopes, deep links, offline link previews, privacy mode, membership updates; admin
+rights, restrictions, bans, default permissions; pinned messages; invite links and join
+requests; Control API with act-as and a virtual clock; the web client; a Docker image.
+156 Rust tests plus client tests in CI.
 
 ---
 
@@ -62,9 +66,12 @@ vertical slice through several phases, so the architecture is exercised end to e
 - [~] **M4 — groups and channels** (P2.3, P2.10, P3.8, P5.5)
   - [x] basic groups: create, members, rename, leave; privacy mode; `my_chat_member` /
     `chat_member`; group commands; client support
-  - [ ] supergroups and channels: per-channel boxes, channel pts, `updateNewChannelMessage`
-  - [ ] admin rights, bans and restrictions, invite links, join requests
-  - [ ] forums (topics), replies to other chats
+  - [x] supergroups and channels: per-channel boxes, channel pts, `updateNewChannelMessage`,
+    channel posts, public usernames; client support
+  - [x] admin rights, bans and restrictions, default permissions, invite links, join
+    requests; client support
+  - [x] pinned messages in every kind of chat; client support
+  - [ ] forums (topics), replies to other chats, upgrading a group to a supergroup
 - [ ] **M5 — media and files** (P2.6, P3.5): `InputFile` pipeline, photos, documents,
   albums, file downloads; media in the client
 - [ ] **M6 — inline mode, polls, reactions, payments** (P2.11, P5.4, P5.7)
@@ -96,15 +103,16 @@ vertical slice through several phases, so the architecture is exercised end to e
 - [x] P2.1 Storage: SQLite per sandbox, migrations, in-memory mode
 - [x] P2.2 Accounts (users, bots, tokens), peers, access hashes
 - [~] P2.3 Chats: private, basic group, supergroup, channel, forum; members, rights, bans
-  (private and basic groups done)
-- [~] P2.4 Message boxes (per-account vs per-channel IDs), canonical TL storage, presenters
+  (all but forums and group upgrades done)
+- [x] P2.4 Message boxes (per-account vs per-channel IDs), canonical TL storage, presenters
 - [~] P2.5 Update engine: pts/qts/seq, channel pts, `Updates` shapes, difference log
 - [ ] P2.6 Files: storage, file references, thumbnails metadata
 - [~] P2.7 Virtual clock and scheduler (timers for polls, live locations, bans, scheduled posts); waits for answers from other accounts (callback queries)
 - [~] P2.8 Event bus (RPC calls, updates, deliveries, logs)
 - [~] P2.9 TL handlers, wave 1: users/bots, messages send/edit/delete/forward, callbacks
 - [~] P2.10 TL handlers, wave 2: chats/channels admin, invites, join requests, forums
-  (basic groups done: create, add/remove members, leave, rename, full chat with bot info)
+  (done: groups, supergroups, channels, admins, bans, pins, invites, join requests;
+  left: forums, group upgrades)
 - [ ] P2.11 TL handlers, wave 3: inline, payments/stars, stickers, games, polls, reactions
 - [ ] P2.12 TL handlers, wave 4: business, stories, gifts, checklists, suggested posts, boosts, verification
 
@@ -118,7 +126,7 @@ vertical slice through several phases, so the architecture is exercised end to e
 - [~] P3.6 Send pipeline shared by all `send*` methods (done: text, keyboards, replies, options); edit pipeline (done: text, keyboards)
 - [~] P3.7 Converters TL ⇄ Bot API (declarative where possible)
 - [~] P3.8 Method waves mirroring P2.9–P2.12 until 100% of Bot API 10.3 is covered
-  (wave 1 and basic groups: 20 of 185)
+  (wave 1, groups, channels, members, pins, invites: 36 of 185)
 - [ ] P3.9 Declarative mappings for simple methods (derived from patterns found in P3.8)
 - [ ] P3.10 Conformance suite: golden tests against recorded real-Telegram responses
 
@@ -143,9 +151,9 @@ vertical slice through several phases, so the architecture is exercised end to e
   request buttons pending: P2.6, P5.5)
 - [~] P5.4 Inline keyboards, callback answers (toasts/alerts), inline mode results UI (inline results
   with P2.11)
-- [~] P5.5 Groups, channels, forums, admin tools, join requests, invite links (basic
-  groups done: service messages, sender names, new group, add member, rename, leave,
-  group commands)
+- [~] P5.5 Groups, channels, forums, admin tools, join requests, invite links (done:
+  groups, supergroups, channels, adding admins, pins, invite links, joining; left:
+  forums, member lists and per-member rights, handling join requests)
 - [ ] P5.6 Mini App host: real webview + emulated `Telegram.WebApp` bridge, signed initData
 - [ ] P5.7 Payments & Stars checkout simulator (shipping, pre-checkout, success/failure)
 - [ ] P5.8 Multi-user: quick act-as switcher and split view (same chat, several users)
@@ -199,12 +207,14 @@ removes it. A 501 is a placeholder, never a final answer.
 | Topics: forum `message_thread_id`, private-chat topics, `direct_messages_topic_id` | send pipeline | P2.10 (forums) + P3.8 |
 | Ephemeral messages (`ephemeral_message_parameters`, replies to them) | send pipeline, replies | P2.12 + P3.8 |
 | Suggested posts (`suggested_post_parameters`) | send pipeline | P2.12 + P3.8 |
-| Replies to messages in other chats (`reply_parameters.chat_id`) | send pipeline, core replies | M4 (channels and groups) |
+| Replies to messages in other chats (`reply_parameters.chat_id`) | send pipeline, core replies | M4 (last part) |
 | Replies to checklist tasks and poll options | core replies | P2.11 / P2.12 |
 | `login_url` buttons naming another bot | keyboard parsing | P3.8 |
 | Game and password callback buttons | `messages.getBotCallbackAnswer` | P2.11 |
 | Editing message media, scheduled and quick-reply messages | `messages.editMessage` | P2.11, P3.5 |
-| Supergroups and channels for sends, edits, callbacks (basic groups work) | core services | M4 |
+| Forums: `channels.createChannel` with `forum`, topic filters in unpinning | core channels | M4 (forums) |
+| Banning chats (`banChatSenderChat`), contacts/mentions participant filters | core channels | P2.10 |
+| Joining via a link found in a message (`inputChannelFromMessage`) | core peers | P2.10 |
 | HTTPS webhook delivery (today: plain HTTP to the same host and port) | webhook sender | P3.3 follow-up (TLS client) |
 | Message effects checked against Telegram's catalog | core sends | P2.11 |
 
