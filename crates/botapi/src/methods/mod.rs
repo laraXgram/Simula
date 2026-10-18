@@ -11,11 +11,17 @@ pub mod delete_my_commands;
 pub mod delete_webhook;
 pub mod edit_message_reply_markup;
 pub mod edit_message_text;
+pub mod get_chat;
+pub mod get_chat_administrators;
+pub mod get_chat_member;
+pub mod get_chat_member_count;
 pub mod get_me;
 pub mod get_my_commands;
 pub mod get_updates;
 pub mod get_webhook_info;
+pub mod leave_chat;
 pub mod send_message;
+pub mod set_chat_title;
 pub mod set_my_commands;
 pub mod set_webhook;
 
@@ -34,11 +40,17 @@ pub const IMPLEMENTED: &[&str] = &[
     "deleteWebhook",
     "editMessageReplyMarkup",
     "editMessageText",
+    "getChat",
+    "getChatAdministrators",
+    "getChatMember",
+    "getChatMemberCount",
     "getMe",
     "getMyCommands",
     "getUpdates",
     "getWebhookInfo",
+    "leaveChat",
     "sendMessage",
+    "setChatTitle",
     "setMyCommands",
     "setWebhook",
 ];
@@ -67,11 +79,27 @@ pub async fn route(
             .await
         }
         "editmessagetext" => run(ctx, params, Limits::Enforce, edit_message_text::handle).await,
+        "getchat" => run(ctx, params, Limits::Enforce, get_chat::handle).await,
+        "getchatadministrators" => {
+            run(
+                ctx,
+                params,
+                Limits::Enforce,
+                get_chat_administrators::handle,
+            )
+            .await
+        }
+        "getchatmember" => run(ctx, params, Limits::Enforce, get_chat_member::handle).await,
+        "getchatmembercount" => {
+            run(ctx, params, Limits::Enforce, get_chat_member_count::handle).await
+        }
         "getme" => run(ctx, params, Limits::Enforce, get_me::handle).await,
         "getmycommands" => run(ctx, params, Limits::Enforce, get_my_commands::handle).await,
         "getupdates" => run(ctx, params, get_updates::LIMITS, get_updates::handle).await,
         "getwebhookinfo" => run(ctx, params, Limits::Enforce, get_webhook_info::handle).await,
+        "leavechat" => run(ctx, params, Limits::Enforce, leave_chat::handle).await,
         "sendmessage" => run(ctx, params, Limits::Enforce, send_message::handle).await,
+        "setchattitle" => run(ctx, params, Limits::Enforce, set_chat_title::handle).await,
         "setmycommands" => run(ctx, params, Limits::Enforce, set_my_commands::handle).await,
         "setwebhook" => run(ctx, params, Limits::Enforce, set_webhook::handle).await,
         _ => return None,

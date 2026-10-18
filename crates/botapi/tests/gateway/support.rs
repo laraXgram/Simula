@@ -230,3 +230,92 @@ pub fn user_presses(
     };
     tokio::spawn(async move { sandbox.call(caller, call).await })
 }
+
+/// The user creates a basic group with the bot (and `others`); returns its Bot API id.
+pub async fn create_group(w: &World, title: &str, others: &[UserId]) -> i64 {
+    let caller = Caller {
+        account: w.user.id,
+        session: None,
+    };
+    let input = |user: UserId| -> enums::InputUser {
+        let enums::InputPeer::User(peer) = w.sandbox.input_peer(w.user.id, Peer::User(user)) else {
+            unreachable!()
+        };
+        types::InputUser {
+            user_id: peer.user_id,
+            access_hash: peer.access_hash,
+        }
+        .into()
+    };
+    let mut users = vec![input(w.bot_id)];
+    users.extend(others.iter().map(|&u| input(u)));
+    let created = w
+        .sandbox
+        .call(
+            caller,
+            functions::messages::CreateChat {
+                users,
+                title: title.into(),
+                ttl_period: None,
+            },
+        )
+        .await
+        .unwrap();
+    let enums::messages::InvitedUsers::InvitedUsers(created) = created;
+    let enums::Updates::Updates(updates) = created.updates else {
+        panic!("updates expected");
+    };
+    let id = updates
+        .chats
+        .iter()
+        .find_map(|c| match c {
+            enums::Chat::Chat(c) => Some(c.id),
+            _ => None,
+        })
+        .unwrap();
+    -id
+}
+
+/// The user writes into a basic group (Bot API id).
+pub async fn user_says_in_group(w: &World, group: i64, text: &str) {
+    w.sandbox
+        .call(
+            Caller {
+                account: w.user.id,
+                session: None,
+            },
+            functions::messages::SendMessage {
+                peer: types::InputPeerChat { chat_id: -group }.into(),
+                message: text.into(),
+                random_id: rand::random(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+}
+
+/// The user removes someone from a basic group (Bot API id).
+pub async fn user_removes(w: &World, group: i64, user: UserId) {
+    let enums::InputPeer::User(peer) = w.sandbox.input_peer(w.user.id, Peer::User(user)) else {
+        unreachable!()
+    };
+    w.sandbox
+        .call(
+            Caller {
+                account: w.user.id,
+                session: None,
+            },
+            functions::messages::DeleteChatUser {
+                revoke_history: false,
+                chat_id: -group,
+                user_id: types::InputUser {
+                    user_id: peer.user_id,
+                    access_hash: peer.access_hash,
+                }
+                .into(),
+            },
+        )
+        .await
+        .unwrap();
+}

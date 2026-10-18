@@ -12,6 +12,7 @@ pub mod error;
 mod errors;
 mod http;
 mod lookup;
+mod members;
 mod methods;
 mod present;
 mod resolve;

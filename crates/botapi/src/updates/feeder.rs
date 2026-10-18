@@ -30,8 +30,15 @@ async fn deliver(gateway: &Gateway, batch: &AccountUpdates) {
         return;
     };
     let wanted = convert::update::wanted(&batch.updates);
-    let context = present::context(gateway, batch.account, wanted, &updates.users).await;
-    let converted = convert::update::updates(&batch.updates, &context.entities());
+    let context = present::context(
+        gateway,
+        batch.account,
+        wanted,
+        &updates.users,
+        &updates.chats,
+    )
+    .await;
+    let converted = convert::update::updates(&batch.updates, &context.entities(), batch.account.0);
 
     let state = gateway.bot_state(batch.account);
     let now = gateway.sandbox.clock().now_ms();

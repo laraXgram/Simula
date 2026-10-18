@@ -60,7 +60,8 @@ pub fn users(ctx: &Ctx<'_>, viewer: UserId, ids: &BTreeSet<UserId>) -> RpcResult
 pub fn chat(ctx: &Ctx<'_>, viewer: UserId, chat: &store::chats::Chat) -> RpcResult<enums::Chat> {
     let members = store::chats::members(ctx.db, chat.id)?;
     let me = members.iter().find(|m| m.user == viewer);
-    if me.is_none() && chat.creator != viewer && !was_member(ctx, viewer, chat.id)? {
+    let removed = crate::services::chats::was_removed(chat, viewer);
+    if me.is_none() && (removed || (chat.creator != viewer && !was_member(ctx, viewer, chat.id)?)) {
         return Ok(types::ChatForbidden {
             id: chat.id.0,
             title: chat.title.clone(),

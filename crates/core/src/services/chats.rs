@@ -87,6 +87,7 @@ pub fn add_member(ctx: &mut Ctx<'_>, actor: UserId, chat: ChatId, user: UserId) 
         return Err(RpcError::bad_request("USER_ALREADY_PARTICIPANT"));
     }
     check_can_join(ctx, user)?;
+    set_removed(ctx, chat, user, false)?;
     let date = ctx.now();
     store::chats::add_member(
         ctx.db,
@@ -127,6 +128,10 @@ pub fn remove_member(
     }
     let recipients = member_ids(ctx, chat)?;
     store::chats::remove_member(ctx.db, chat, user)?;
+    // Telegram shows a removed member `chatForbidden`, one who left the chat (`left`).
+    if actor != user {
+        set_removed(ctx, chat, user, true)?;
+    }
     store::chats::bump_version(ctx.db, chat)?;
     let action = types::MessageActionChatDeleteUser { user_id: user.0 };
     post(ctx, actor, chat, action.into(), &recipients)?;
@@ -287,5 +292,32 @@ fn membership_changed(
             .into()
         })?;
     }
+    Ok(())
+}
+
+/// Whether `user` was removed by someone else (and not added back).
+pub fn was_removed(chat: &store::chats::Chat, user: UserId) -> bool {
+    chat.extra
+        .get("removed")
+        .and_then(|v| v.as_array())
+        .is_some_and(|list| list.iter().any(|v| v.as_i64() == Some(user.0)))
+}
+
+fn set_removed(ctx: &Ctx<'_>, chat: ChatId, user: UserId, removed: bool) -> RpcResult<()> {
+    let Some(found) = store::chats::get(ctx.db, chat)? else {
+        return Ok(());
+    };
+    let mut extra = found.extra;
+    let mut list: Vec<i64> = extra
+        .get("removed")
+        .and_then(|v| v.as_array())
+        .map(|l| l.iter().filter_map(|v| v.as_i64()).collect())
+        .unwrap_or_default();
+    list.retain(|&id| id != user.0);
+    if removed {
+        list.push(user.0);
+    }
+    extra["removed"] = list.into();
+    store::chats::set_extra(ctx.db, chat, &extra)?;
     Ok(())
 }

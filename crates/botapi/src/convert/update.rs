@@ -4,11 +4,11 @@
 use simula_botapi_types::types as bot;
 use simula_tl::{enums, types};
 
-use super::{Entities, callback, message};
+use super::{Entities, callback, member, message};
 
 /// Bot API updates for a TL batch. A bot's own outgoing messages produce nothing (the
 /// Bot API never echoes them back); deletions in private chats aren't reported either.
-pub fn updates(updates: &enums::Updates, context: &Entities<'_>) -> Vec<bot::Update> {
+pub fn updates(updates: &enums::Updates, context: &Entities<'_>, me: i64) -> Vec<bot::Update> {
     let enums::Updates::Updates(batch) = updates else {
         return Vec::new();
     };
@@ -18,7 +18,18 @@ pub fn updates(updates: &enums::Updates, context: &Entities<'_>) -> Vec<bot::Upd
         .filter_map(|update| {
             Some(match update {
                 enums::Update::NewMessage(u) => bot::Update {
-                    message: Some(Box::new(message::message(incoming(&u.message)?, context))),
+                    message: Some(Box::new(match &u.message {
+                        enums::Message::Service(s) if !s.out => message::service(s, context)?,
+                        other => message::message(incoming(other)?, context),
+                    })),
+                    ..Default::default()
+                },
+                enums::Update::ChatParticipant(u) if u.user_id == me => bot::Update {
+                    my_chat_member: Some(Box::new(member::updated(u, context))),
+                    ..Default::default()
+                },
+                enums::Update::ChatParticipant(u) => bot::Update {
+                    chat_member: Some(Box::new(member::updated(u, context))),
                     ..Default::default()
                 },
                 enums::Update::EditMessage(u) => bot::Update {

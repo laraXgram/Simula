@@ -13,6 +13,7 @@ use crate::state::Gateway;
 #[derive(Default)]
 pub struct Context {
     pub users: Vec<enums::User>,
+    pub chats: Vec<enums::Chat>,
     pub messages: Vec<enums::Message>,
 }
 
@@ -20,12 +21,18 @@ impl Context {
     pub fn entities(&self) -> Entities<'_> {
         Entities {
             users: &self.users,
+            chats: &self.chats,
             messages: &self.messages,
         }
     }
 
     fn add(&mut self, found: types::messages::Messages) {
         self.messages.extend(found.messages);
+        for chat in found.chats {
+            if !self.chats.iter().any(|c| c.id() == chat.id()) {
+                self.chats.push(chat);
+            }
+        }
         for user in found.users {
             if !self.users.iter().any(|u| u.id() == user.id()) {
                 self.users.push(user);
@@ -34,16 +41,18 @@ impl Context {
     }
 }
 
-/// Fetch messages `ids` from `bot`'s box, and the messages those reply to. `users`
-/// came with the update being presented.
+/// Fetch messages `ids` from `bot`'s box, and the messages those reply to. `users` and
+/// `chats` came with the update being presented.
 pub async fn context(
     gateway: &Gateway,
     bot: UserId,
     ids: Vec<i32>,
     users: &[enums::User],
+    chats: &[enums::Chat],
 ) -> Context {
     let mut context = Context {
         users: users.to_vec(),
+        chats: chats.to_vec(),
         messages: Vec::new(),
     };
     let mut wanted = ids;
@@ -100,8 +109,9 @@ pub async fn message(
     bot: UserId,
     m: &types::Message,
     users: &[enums::User],
+    chats: &[enums::Chat],
 ) -> bot::Message {
     let ids = convert::message::reply_id(m).into_iter().collect();
-    let context = context(gateway, bot, ids, users).await;
+    let context = context(gateway, bot, ids, users, chats).await;
     convert::message::message(m, &context.entities())
 }

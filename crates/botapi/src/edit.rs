@@ -106,6 +106,7 @@ pub async fn edit(
         edited.ok_or_else(|| BotError::internal("messages.editMessage returned no message"))?;
     let context = Entities {
         users: &batch.users,
+        chats: &batch.chats,
         messages: &[],
     };
     Ok(bot::MessageOrTrue::Message(Box::new(

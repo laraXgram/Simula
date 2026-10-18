@@ -88,7 +88,7 @@ pub async fn send(ctx: &BotCtx, options: Options, content: Content) -> BotResult
         return Err(BotError::not_implemented("topics"));
     }
 
-    let peer = resolve::chat(ctx, &options.chat_id).await?;
+    let peer = resolve::chat_for(ctx, &options.chat_id, resolve::Access::Write).await?;
     let reply_to = reply::check(ctx, peer, reply).await?;
     let private_chat = matches!(peer, Peer::User(_));
 
@@ -119,19 +119,23 @@ pub async fn send(ctx: &BotCtx, options: Options, content: Content) -> BotResult
         }
     };
     let updates = ctx.call(call, ErrorContext::Send { private_chat }).await?;
-    let (message, users) = sent_message(&updates)
+    let (message, users, chats) = sent_message(&updates)
         .ok_or_else(|| BotError::internal("messages.sendMessage returned no message"))?;
-    Ok(present::message(&ctx.gateway, ctx.bot.id, message, users).await)
+    Ok(present::message(&ctx.gateway, ctx.bot.id, message, users, chats).await)
 }
 
 /// The bot's copy of the message it just sent, from the call's `Updates`.
-fn sent_message(updates: &enums::Updates) -> Option<(&simula_tl::types::Message, &[enums::User])> {
+fn sent_message(
+    updates: &enums::Updates,
+) -> Option<(&simula_tl::types::Message, &[enums::User], &[enums::Chat])> {
     let enums::Updates::Updates(batch) = updates else {
         return None;
     };
     batch.updates.iter().find_map(|update| match update {
         enums::Update::NewMessage(u) => match &u.message {
-            enums::Message::Message(m) => Some((&**m, batch.users.as_slice())),
+            enums::Message::Message(m) => {
+                Some((&**m, batch.users.as_slice(), batch.chats.as_slice()))
+            }
             _ => None,
         },
         _ => None,

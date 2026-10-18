@@ -5,6 +5,7 @@ pub mod chat;
 pub mod entities;
 pub mod link_preview;
 pub mod markup;
+pub mod member;
 pub mod message;
 pub mod update;
 pub mod user;
@@ -16,6 +17,7 @@ use simula_tl::{enums, types};
 #[derive(Clone, Copy, Default)]
 pub struct Entities<'a> {
     pub users: &'a [enums::User],
+    pub chats: &'a [enums::Chat],
     pub messages: &'a [enums::Message],
 }
 
@@ -23,6 +25,15 @@ impl<'a> Entities<'a> {
     pub fn user(&self, id: i64) -> Option<&'a types::User> {
         self.users.iter().find_map(|u| match u {
             enums::User::User(u) if u.id == id => Some(&**u),
+            _ => None,
+        })
+    }
+
+    /// A basic group's title, if it came along.
+    pub fn chat_title(&self, id: i64) -> Option<&'a str> {
+        self.chats.iter().find_map(|c| match c {
+            enums::Chat::Chat(c) if c.id == id => Some(c.title.as_str()),
+            enums::Chat::Forbidden(c) if c.id == id => Some(c.title.as_str()),
             _ => None,
         })
     }

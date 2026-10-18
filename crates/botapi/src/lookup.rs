@@ -17,7 +17,7 @@ pub async fn message(
     what: &str,
 ) -> BotResult<(Peer, types::Message)> {
     let chat_id = chat_id.ok_or_else(|| BotError::bad_request("chat_id is empty"))?;
-    let chat = resolve::chat(ctx, chat_id).await?;
+    let chat = resolve::chat_for(ctx, chat_id, resolve::Access::Write).await?;
     let not_found = || BotError::bad_request(format!("{what} not found"));
     let id = i32::try_from(message_id).map_err(|_| not_found())?;
     if id <= 0 {

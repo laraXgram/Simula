@@ -88,3 +88,46 @@ fn quote(header: &types::MessageReplyHeader, context: &Entities<'_>) -> Option<b
         is_manual: header.quote,
     })
 }
+
+/// A service message as the Bot API shows it, or `None` for kinds bots don't get.
+pub fn service(m: &types::MessageService, context: &Entities<'_>) -> Option<bot::Message> {
+    let person = |id: i64| {
+        context
+            .user(id)
+            .map(|u| user(u, false))
+            .unwrap_or(bot::User {
+                id,
+                ..Default::default()
+            })
+    };
+    let from = match m.from_id.as_ref().map(Peer::from_tl) {
+        Some(Peer::User(id)) => Some(Box::new(person(id.0))),
+        _ => None,
+    };
+    let base = bot::Message {
+        message_id: m.id.into(),
+        from,
+        date: m.date.into(),
+        chat: chat(Peer::from_tl(&m.peer_id), context),
+        ..Default::default()
+    };
+    Some(match &m.action {
+        enums::MessageAction::ChatCreate(_) => bot::Message {
+            group_chat_created: true,
+            ..base
+        },
+        enums::MessageAction::ChatAddUser(a) => bot::Message {
+            new_chat_members: Some(a.users.iter().map(|&id| person(id)).collect()),
+            ..base
+        },
+        enums::MessageAction::ChatDeleteUser(a) => bot::Message {
+            left_chat_member: Some(Box::new(person(a.user_id))),
+            ..base
+        },
+        enums::MessageAction::ChatEditTitle(a) => bot::Message {
+            new_chat_title: Some(a.title.clone()),
+            ..base
+        },
+        _ => return None,
+    })
+}

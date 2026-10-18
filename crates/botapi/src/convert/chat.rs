@@ -18,10 +18,16 @@ pub fn chat(peer: Peer, entities: &Entities<'_>) -> bot::Chat {
                 ..Default::default()
             }
         }
-        // Groups and channels arrive with M4.
-        other => bot::Chat {
-            id: other.bot_api_id(),
+        Peer::Chat(id) => bot::Chat {
+            id: peer.bot_api_id(),
             r#type: "group".into(),
+            title: entities.chat_title(id.0).map(str::to_owned),
+            ..Default::default()
+        },
+        // Supergroups and channels come with the next M4 slice.
+        Peer::Channel(_) => bot::Chat {
+            id: peer.bot_api_id(),
+            r#type: "supergroup".into(),
             ..Default::default()
         },
     }

@@ -62,9 +62,17 @@ fn resolve_user(
     Ok(id)
 }
 
-/// Whether `viewer` has met `user`: they share a dialog. (Shared groups come with P2.3.)
+/// Whether `viewer` has met `user`: they share a dialog, or `user` wrote (or did
+/// something) in a chat `viewer` was in, so `viewer` saw them.
 fn knows(ctx: &Ctx<'_>, viewer: UserId, user: UserId) -> RpcResult<bool> {
-    Ok(viewer == user || messages::has_dialog(ctx, viewer, Peer::User(user))?)
+    if viewer == user || messages::has_dialog(ctx, viewer, Peer::User(user))? {
+        return Ok(true);
+    }
+    Ok(ctx.db.query_row(
+        "SELECT EXISTS (SELECT 1 FROM messages WHERE owner_id = ?1 AND from_id = ?2)",
+        rusqlite::params![viewer.0, Peer::User(user).bot_api_id()],
+        |row| row.get(0),
+    )?)
 }
 
 /// The `InputPeer` that `viewer` would send to address `peer`.
