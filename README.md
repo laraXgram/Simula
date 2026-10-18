@@ -43,8 +43,32 @@ bun run web                              # in another: http://localhost:5173
 
 Pick (or create) a user, open your bot by its `@username` and talk to it: formatting,
 inline and reply keyboards, callback answers, commands, deep links and replies work as in
-Telegram. The client is just another session (`/session`, JSON-TL over WebSocket), so
-everything it does is scriptable too.
+Telegram, and so do basic groups (✚ creates one; add your bot to see privacy mode, group
+commands and membership updates). The client is just another session (`/session`,
+JSON-TL over WebSocket), so everything it does is scriptable too.
+
+To serve a built client from the server itself (one port for everything):
+
+```sh
+bun run --cwd apps/web build
+cargo run -p simula-server -- --memory --web-dir apps/web/dist   # http://localhost:8081
+```
+
+### Docker
+
+```sh
+docker compose up --build        # http://localhost:8081, sandboxes kept in a volume
+# or
+docker build -t simula .
+docker run --rm -p 8081:8081 -v simula-data:/data simula            # persistent
+docker run --rm -p 8081:8081 simula --memory                        # throwaway
+```
+
+The image serves the client, the Bot API, the Control API and sessions on port 8081.
+Bots running on the host reach it at `http://localhost:8081`; bots in other containers
+of the same compose project at `http://simula:8081`. Settings are environment variables
+(`SIMULA_PORT`, `SIMULA_DATA_DIR`, `SIMULA_WEB_DIR`, `RUST_LOG`) or flags
+(`simula --help`).
 
 ## License
 

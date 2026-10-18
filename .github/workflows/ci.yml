@@ -54,3 +54,17 @@ jobs:
       - run: git diff --exit-code && test -z "$(git status --porcelain)"
       # The JSON the Rust crates emit must satisfy the generated TypeScript types.
       - run: bun run codegen verify:ts
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: simula:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

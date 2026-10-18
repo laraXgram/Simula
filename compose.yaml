@@ -1,0 +1,14 @@
+# `docker compose up` — Simula on http://localhost:8081 (client, Bot API, Control API),
+# with sandboxes kept in the `simula-data` volume.
+services:
+  simula:
+    build: .
+    image: simula:dev
+    ports:
+      - "8081:8081"
+    volumes:
+      - simula-data:/data
+    restart: unless-stopped
+
+volumes:
+  simula-data:

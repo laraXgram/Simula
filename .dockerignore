@@ -1,0 +1,15 @@
+# Build outputs and caches stay outside the image's build context.
+target/
+**/node_modules/
+**/dist/
+.cache/
+data/
+files/
+*.db
+*.db-*
+.git/
+.github/
+.env
+.env.*
+samples/
+botapi.html
