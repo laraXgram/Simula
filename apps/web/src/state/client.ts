@@ -1,19 +1,36 @@
 /**
- * The client's actions: the chat list, opening chats, sending, buttons, reading, and
- * basic groups. Every result that carries updates goes through the store, like pushed
- * updates do.
+ * The client's actions: the chat list, opening chats, sending, buttons, reading, groups,
+ * supergroups and channels (members, admins, pins, invite links). Every result that
+ * carries updates goes through the store, like pushed updates do.
  */
 import type { tl } from "@simula/schema";
 
 import { type Params, Session } from "../api/session";
 import { parseFormatting } from "./markdown";
-import { inputPeerFor, inputUser, peerKey, userPeer } from "./peers";
-import { Store } from "./store";
+import { inputChannelFor, inputPeerFor, inputUser, peerKey, userPeer } from "./peers";
+import { chatKey, Store } from "./store";
 
 export interface Outgoing {
   text: string;
   replyTo?: number;
 }
+
+/** What "New group" creates. */
+export type GroupKind = "group" | "supergroup" | "channel";
+
+/** Every right an admin can be given (what the client grants when promoting). */
+const ADMIN_RIGHTS: tl.chatAdminRights = {
+  _: "chatAdminRights",
+  change_info: true,
+  post_messages: true,
+  edit_messages: true,
+  delete_messages: true,
+  ban_users: true,
+  invite_users: true,
+  pin_messages: true,
+  manage_call: true,
+  other: true,
+};
 
 export class Client {
   readonly store = new Store();
@@ -57,7 +74,7 @@ export class Client {
     if (!peer) return;
     this.store.addHistory(await this.session.call("messages.getHistory", history(peer, 0)));
     if (key.startsWith("c")) {
-      await this.loadGroup(key).catch(() => undefined);
+      await this.loadDetails(key).catch(() => undefined);
     } else {
       await this.loadCommands(key);
     }
@@ -78,9 +95,15 @@ export class Client {
 
   async read(key: string) {
     const dialog = this.store.snapshot().dialogs.find((d) => d.key === key);
-    const peer = this.peer(key);
-    if (!dialog || !peer || dialog.unread === 0) return;
-    await this.session.call("messages.readHistory", { peer, max_id: dialog.top });
+    if (!dialog || dialog.unread === 0) return;
+    const channel = this.channel(key);
+    if (channel) {
+      await this.session.call("channels.readHistory", { channel, max_id: dialog.top });
+    } else {
+      const peer = this.peer(key);
+      if (!peer) return;
+      await this.session.call("messages.readHistory", { peer, max_id: dialog.top });
+    }
     this.store.markRead(key, dialog.top);
   }
 
@@ -116,16 +139,31 @@ export class Client {
     return this.session.call("messages.getBotCallbackAnswer", { peer, msg_id: messageId, data });
   }
 
-  async deleteMessage(id: number, revoke: boolean) {
-    const result = await this.session.call("messages.deleteMessages", {
-      id: [id],
-      revoke: revoke || undefined,
-    });
+  async deleteMessage(key: string, id: number, revoke: boolean) {
+    const channel = this.channel(key);
+    const result = channel
+      ? await this.session.call("channels.deleteMessages", { channel, id: [id] })
+      : await this.session.call("messages.deleteMessages", {
+          id: [id],
+          revoke: revoke || undefined,
+        });
+    const update: tl.Update = channel
+      ? {
+          _: "updateDeleteChannelMessages",
+          channel_id: key.slice(2),
+          messages: [id],
+          pts: result.pts,
+          pts_count: result.pts_count,
+        }
+      : {
+          _: "updateDeleteMessages",
+          messages: [id],
+          pts: result.pts,
+          pts_count: result.pts_count,
+        };
     this.store.applyUpdates({
       _: "updates",
-      updates: [
-        { _: "updateDeleteMessages", messages: [id], pts: result.pts, pts_count: result.pts_count },
-      ],
+      updates: [update],
       users: [],
       chats: [],
       date: 0,
@@ -147,46 +185,158 @@ export class Client {
     );
   }
 
-  /** Find `@username` and open (or start) the chat with it. Returns the dialog key. */
+  async pin(key: string, id: number, unpin: boolean) {
+    const peer = this.peer(key);
+    if (!peer) return;
+    this.store.applyUpdates(
+      await this.session.call("messages.updatePinnedMessage", {
+        peer,
+        id,
+        unpin: unpin || undefined,
+      }),
+    );
+  }
+
+  /** Find `@username` (a user, bot, public group or channel); returns the dialog key. */
   async resolve(username: string): Promise<string> {
     const resolved = await this.session.call("contacts.resolveUsername", {
       username: username.replace(/^@/, ""),
     });
     this.store.addUsers(resolved.users);
+    this.store.addChats(resolved.chats);
     return peerKey(resolved.peer);
   }
 
-  // Basic groups
+  // Groups, supergroups and channels
 
-  /** Create a group with the people named by `usernames`; returns its key. */
-  async createGroup(title: string, usernames: readonly string[]): Promise<string> {
-    const users: tl.InputUser[] = [];
+  /** Create a group, supergroup or channel with the people named by `usernames`. */
+  async createGroup(kind: GroupKind, title: string, usernames: readonly string[]): Promise<string> {
+    const users: tl.user[] = [];
     for (const username of usernames) {
-      const key = await this.resolve(username);
-      const user = this.userFor(key);
-      if (user) users.push(inputUser(user, this.me));
+      const user = this.userFor(await this.resolve(username));
+      if (user) users.push(user);
     }
-    const result = await this.session.call("messages.createChat", { users, title });
-    this.store.applyUpdates(result.updates);
-    const created =
-      "chats" in result.updates ? result.updates.chats.find((c) => c._ === "chat") : undefined;
-    if (!created) throw new Error("the group wasn't created");
-    return `c${created.id}`;
+    if (kind === "group") {
+      const result = await this.session.call("messages.createChat", {
+        users: users.map((u) => inputUser(u, this.me)),
+        title,
+      });
+      this.store.applyUpdates(result.updates);
+      return createdKey(result.updates);
+    }
+    const created = await this.session.call("channels.createChannel", {
+      broadcast: kind === "channel" || undefined,
+      megagroup: kind === "supergroup" || undefined,
+      title,
+      about: "",
+    });
+    this.store.applyUpdates(created);
+    const key = createdKey(created);
+    this.store.ensureDialog(key, { _: "peerChannel", channel_id: key.slice(2) });
+    for (const user of users) await this.addUser(key, user);
+    return key;
   }
 
   async addMember(key: string, username: string) {
     const user = this.userFor(await this.resolve(username));
-    if (!user) return;
-    const result = await this.session.call("messages.addChatUser", {
-      chat_id: key.slice(1),
-      user_id: inputUser(user, this.me),
-      fwd_limit: 100,
+    if (!user) throw new Error("that's not a user");
+    await this.addUser(key, user);
+    await this.loadDetails(key);
+  }
+
+  /** Channels take bots only as admins, as Telegram's apps add them. */
+  private async addUser(key: string, user: tl.user) {
+    const channel = this.channel(key);
+    if (!channel) {
+      const result = await this.session.call("messages.addChatUser", {
+        chat_id: key.slice(1),
+        user_id: inputUser(user, this.me),
+        fwd_limit: 100,
+      });
+      this.store.applyUpdates(result.updates);
+      return;
+    }
+    const chat = this.store.snapshot().chats.get(key);
+    if (user.bot && chat?._ === "channel" && chat.broadcast) {
+      await this.promote(key, user);
+      return;
+    }
+    const result = await this.session.call("channels.inviteToChannel", {
+      channel,
+      users: [inputUser(user, this.me)],
     });
     this.store.applyUpdates(result.updates);
-    await this.loadGroup(key);
+  }
+
+  /** Make `@username` an admin with every right. */
+  async promoteByName(key: string, username: string) {
+    const user = this.userFor(await this.resolve(username));
+    if (!user) throw new Error("that's not a user");
+    await this.promote(key, user);
+    await this.loadDetails(key);
+  }
+
+  private async promote(key: string, user: tl.user) {
+    const channel = this.channel(key);
+    if (!channel) throw new Error("only supergroups and channels have admins with rights");
+    this.store.applyUpdates(
+      await this.session.call("channels.editAdmin", {
+        channel,
+        user_id: inputUser(user, this.me),
+        admin_rights: ADMIN_RIGHTS,
+      }),
+    );
+  }
+
+  async join(key: string) {
+    const channel = this.channel(key);
+    if (!channel) return;
+    const result = await this.session.call("channels.joinChannel", { channel });
+    if (result._ === "messages.chatInviteJoinResultOk") this.store.applyUpdates(result.updates);
+    this.store.ensureDialog(key, { _: "peerChannel", channel_id: key.slice(2) });
+    await this.openChat(key);
+  }
+
+  /** Use an invite link; returns the chat's key, or throws INVITE_REQUEST_SENT. */
+  async joinByLink(link: string): Promise<string> {
+    const hash = link.trim().replace(/^(https?:\/\/)?(t|telegram)\.me\/(\+|joinchat\/)/, "");
+    const invite = await this.session.call("messages.checkChatInvite", { hash });
+    if (invite._ === "chatInviteAlready") {
+      this.store.addChats([invite.chat]);
+      return chatKey(invite.chat) ?? "";
+    }
+    const result = await this.session.call("messages.importChatInvite", { hash });
+    if (result._ !== "messages.chatInviteJoinResultOk") throw new Error("can't join here");
+    this.store.applyUpdates(result.updates);
+    const chats = "chats" in result.updates ? result.updates.chats : [];
+    const key = chats.map(chatKey).find(Boolean) ?? "";
+    if (key.startsWith("ch")) {
+      this.store.ensureDialog(key, { _: "peerChannel", channel_id: key.slice(2) });
+    }
+    return key;
+  }
+
+  /** The account's primary invite link (made on first use). */
+  async inviteLink(key: string): Promise<string> {
+    const known = this.store.snapshot().details.get(key)?.inviteLink;
+    if (known) return known;
+    const peer = this.peer(key);
+    if (!peer) throw new Error("unknown chat");
+    const invite = await this.session.call("messages.exportChatInvite", {
+      peer,
+      legacy_revoke_permanent: true,
+    });
+    if (invite._ !== "chatInviteExported") throw new Error("no link");
+    await this.loadDetails(key);
+    return invite.link;
   }
 
   async leave(key: string) {
+    const channel = this.channel(key);
+    if (channel) {
+      this.store.applyUpdates(await this.session.call("channels.leaveChannel", { channel }));
+      return;
+    }
     this.store.applyUpdates(
       await this.session.call("messages.deleteChatUser", {
         chat_id: key.slice(1),
@@ -196,26 +346,53 @@ export class Client {
   }
 
   async rename(key: string, title: string) {
+    const channel = this.channel(key);
     this.store.applyUpdates(
-      await this.session.call("messages.editChatTitle", { chat_id: key.slice(1), title }),
+      channel
+        ? await this.session.call("channels.editTitle", { channel, title })
+        : await this.session.call("messages.editChatTitle", { chat_id: key.slice(1), title }),
     );
   }
 
-  /** Members of a group, and the commands of the bots in it. */
-  async loadGroup(key: string) {
-    const full = await this.session.call("messages.getFullChat", { chat_id: key.slice(1) });
+  /** Members (basic groups), counts, description, the bots and their commands. */
+  async loadDetails(key: string) {
+    const channel = this.channel(key);
+    const full = channel
+      ? await this.session.call("channels.getFullChannel", { channel })
+      : await this.session.call("messages.getFullChat", { chat_id: key.slice(1) });
     this.store.addUsers(full.users);
     this.store.addChats(full.chats);
-    if (full.full_chat._ !== "chatFull") return;
-    if (full.full_chat.participants._ === "chatParticipants") {
-      this.store.setMembers(key.slice(1), full.full_chat.participants.participants);
+    const info = full.full_chat;
+    const bots: string[] = [];
+    if (info._ === "chatFull" || info._ === "channelFull") {
+      for (const bot of info.bot_info ?? []) {
+        if (bot._ !== "botInfo" || bot.user_id === undefined) continue;
+        bots.push(bot.user_id);
+        this.store.setCommands(
+          bot.user_id,
+          (bot.commands ?? []).filter((c): c is tl.botCommand => c._ === "botCommand"),
+        );
+      }
     }
-    for (const info of full.full_chat.bot_info ?? []) {
-      if (info._ !== "botInfo" || info.user_id === undefined) continue;
-      this.store.setCommands(
-        info.user_id,
-        (info.commands ?? []).filter((c): c is tl.botCommand => c._ === "botCommand"),
-      );
+    const link = (invite: tl.ExportedChatInvite | undefined) =>
+      invite?._ === "chatInviteExported" ? invite.link : undefined;
+    if (info._ === "chatFull") {
+      const members =
+        info.participants._ === "chatParticipants" ? info.participants.participants : [];
+      this.store.setDetails(key, {
+        members,
+        count: members.length,
+        about: info.about,
+        bots,
+        inviteLink: link(info.exported_invite),
+      });
+    } else if (info._ === "channelFull") {
+      this.store.setDetails(key, {
+        count: info.participants_count ?? 0,
+        about: info.about,
+        bots,
+        inviteLink: link(info.exported_invite),
+      });
     }
   }
 
@@ -231,7 +408,12 @@ export class Client {
   }
 
   private peer(key: string): tl.InputPeer | undefined {
-    return inputPeerFor(key, this.store.snapshot().users, this.me);
+    const snapshot = this.store.snapshot();
+    return inputPeerFor(key, snapshot.users, snapshot.chats, this.me);
+  }
+
+  private channel(key: string): tl.InputChannel | undefined {
+    return key.startsWith("ch") ? inputChannelFor(key, this.store.snapshot().chats) : undefined;
   }
 
   userFor(key: string): tl.user | undefined {
@@ -242,6 +424,14 @@ export class Client {
   keyFor(userId: string): string {
     return peerKey(userPeer(userId));
   }
+}
+
+/** The key of the group or channel a creation call returned. */
+function createdKey(updates: tl.Updates): string {
+  const chats = "chats" in updates ? updates.chats : [];
+  const key = chats.map(chatKey).find(Boolean);
+  if (!key) throw new Error("the group wasn't created");
+  return key;
 }
 
 function history(peer: tl.InputPeer, before: number): Params<"messages.getHistory"> {

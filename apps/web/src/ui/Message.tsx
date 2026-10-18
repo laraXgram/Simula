@@ -13,7 +13,9 @@ export interface MessageActions extends TextActions, ButtonActions {
   onDeepLink: (link: DeepLink) => void;
   onReply: () => void;
   onEdit?: () => void;
-  onDelete: () => void;
+  onDelete?: () => void;
+  /** Pin or unpin (absent when the account may not). */
+  onPin?: () => void;
 }
 
 interface Props {
@@ -65,6 +67,7 @@ export function Message({ message, replied, users, readOutbox, showSender, actio
         </div>
         {!message.invert_media && card}
         <div className="meta">
+          {message.pinned && <span title="Pinned">📌</span>}
           {message.noforwards && <span title="Protected content">🔒</span>}
           {edited && <span>edited</span>}
           <time dateTime={new Date(message.date * 1000).toISOString()}>{clock(message.date)}</time>
@@ -79,9 +82,16 @@ export function Message({ message, replied, users, readOutbox, showSender, actio
               ✎
             </button>
           )}
-          <button type="button" onClick={actions.onDelete} title="Delete">
-            🗑
-          </button>
+          {actions.onPin && (
+            <button type="button" onClick={actions.onPin} title={message.pinned ? "Unpin" : "Pin"}>
+              📌
+            </button>
+          )}
+          {actions.onDelete && (
+            <button type="button" onClick={actions.onDelete} title="Delete">
+              🗑
+            </button>
+          )}
         </div>
       </div>
       {keyboard && <InlineKeyboard markup={keyboard} actions={actions} />}

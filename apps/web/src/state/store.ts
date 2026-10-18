@@ -1,8 +1,10 @@
 /**
- * What the client knows: users, groups, the chat list and the messages loaded per chat
- * (service messages included). It is filled from call results and kept current by the
- * updates the session pushes, the way a Telegram client applies `updateNewMessage`,
- * `updateEditMessage`, `updateDeleteMessages` and the read-history updates.
+ * What the client knows: users, groups and channels, the chat list and the messages
+ * loaded per chat (service messages included). It is filled from call results and kept
+ * current by the updates the session pushes, the way a Telegram client applies
+ * `updateNewMessage` / `updateNewChannelMessage`, edits, deletions, read receipts and
+ * pins. Messages of private chats and basic groups live in the account's own box;
+ * each supergroup and channel has its own ids, so updates name the channel.
  */
 import type { tl } from "@simula/schema";
 
@@ -10,6 +12,9 @@ import { peerKey } from "./peers";
 
 /** A message as stored: regular, or a service message (a member joined, …). */
 export type AnyMessage = tl.message | tl.messageService;
+
+/** A basic group, supergroup or channel. */
+export type AnyChat = tl.chat | tl.chatForbidden | tl.channel | tl.channelForbidden;
 
 export interface Dialog {
   key: string;
@@ -21,13 +26,25 @@ export interface Dialog {
   readOutbox: number;
 }
 
+/** What a group's or channel's full object told the client. */
+export interface ChatDetails {
+  /** Basic groups: everyone in it. */
+  members?: readonly tl.ChatParticipant[];
+  count: number;
+  about: string;
+  /** Bots in the chat (their commands are in `commands`). */
+  bots: readonly string[];
+  /** The account's primary invite link, if it made one. */
+  inviteLink?: string;
+}
+
 export interface Snapshot {
   me?: tl.user;
   users: ReadonlyMap<string, tl.user>;
-  /** Basic groups by id. */
-  chats: ReadonlyMap<string, tl.chat | tl.chatForbidden>;
-  /** Members of the basic groups whose details were loaded, by chat id. */
-  members: ReadonlyMap<string, readonly tl.ChatParticipant[]>;
+  /** Groups and channels by dialog key ("c…", "ch…"). */
+  chats: ReadonlyMap<string, AnyChat>;
+  /** Details of the groups and channels that were opened, by dialog key. */
+  details: ReadonlyMap<string, ChatDetails>;
   dialogs: readonly Dialog[];
   /** Per dialog key, messages by id. */
   messages: ReadonlyMap<string, ReadonlyMap<number, AnyMessage>>;
@@ -39,7 +56,7 @@ export class Store {
   private state: Snapshot = {
     users: new Map(),
     chats: new Map(),
-    members: new Map(),
+    details: new Map(),
     dialogs: [],
     messages: new Map(),
     commands: new Map(),
@@ -67,15 +84,17 @@ export class Store {
 
   addChats(chats: readonly tl.Chat[]) {
     const next = new Map(this.state.chats);
-    for (const chat of chats)
-      if (chat._ === "chat" || chat._ === "chatForbidden") next.set(chat.id, chat);
+    for (const chat of chats) {
+      const key = chatKey(chat);
+      if (key) next.set(key, chat as AnyChat);
+    }
     this.commit({ chats: next });
   }
 
-  setMembers(chat: string, members: readonly tl.ChatParticipant[]) {
-    const next = new Map(this.state.members);
-    next.set(chat, members);
-    this.commit({ members: next });
+  setDetails(key: string, details: ChatDetails) {
+    const next = new Map(this.state.details);
+    next.set(key, details);
+    this.commit({ details: next });
   }
 
   setCommands(bot: string, commands: readonly tl.botCommand[]) {
@@ -114,6 +133,12 @@ export class Store {
     this.addUsers(result.users);
     this.addChats(result.chats);
     this.addMessages(result.messages);
+    // A chat listed before any message was known (joined just now) gets its top message.
+    for (const dialog of this.state.dialogs) {
+      if (dialog.top === 0 && this.state.messages.get(dialog.key)?.size)
+        this.refreshTop(dialog.key);
+    }
+    this.commit({ dialogs: sortDialogs([...this.state.dialogs]) });
   }
 
   /** Every `Updates` the client gets, pushed or as a call's result. */
@@ -128,30 +153,37 @@ export class Store {
     this.updateDialog(key, (d) => ({ ...d, readInbox: Math.max(d.readInbox, maxId), unread: 0 }));
   }
 
+  /** A chat to list even before it has messages (a channel just joined). */
+  ensureDialog(key: string, peer: tl.Peer) {
+    if (!this.state.dialogs.some((d) => d.key === key)) {
+      this.commit({ dialogs: sortDialogs([emptyDialog(key, peer), ...this.state.dialogs]) });
+    }
+  }
+
   private applyUpdate(update: tl.Update) {
     switch (update._) {
       case "updateNewMessage":
-      case "updateEditMessage": {
+      case "updateEditMessage":
+      case "updateNewChannelMessage":
+      case "updateEditChannelMessage": {
         const message = update.message;
         if (message._ === "messageEmpty") return;
-        const isNew = update._ === "updateNewMessage" && !this.has(message);
+        const isNew =
+          (update._ === "updateNewMessage" || update._ === "updateNewChannelMessage") &&
+          !this.has(message);
         this.addMessages([message]);
         this.touchDialog(message, isNew && !message.out);
         return;
       }
-      case "updateDeleteMessages": {
-        const gone = new Set(update.messages);
-        const next = new Map(this.state.messages);
-        const touched: string[] = [];
-        for (const [key, list] of this.state.messages) {
-          if (![...list.keys()].some((id) => gone.has(id))) continue;
-          next.set(key, new Map([...list].filter(([id]) => !gone.has(id))));
-          touched.push(key);
+      case "updateDeleteMessages":
+        // Ids of the account's own box: every chat but channels.
+        for (const key of this.state.messages.keys()) {
+          if (!key.startsWith("ch")) this.removeMessages(key, update.messages);
         }
-        this.commit({ messages: next });
-        for (const key of touched) this.refreshTop(key);
         return;
-      }
+      case "updateDeleteChannelMessages":
+        this.removeMessages(`ch${update.channel_id}`, update.messages);
+        return;
       case "updateReadHistoryInbox":
         this.upsertDialog(update.peer, (d) => ({
           ...d,
@@ -166,6 +198,34 @@ export class Store {
           readOutbox: Math.max(d.readOutbox, update.max_id),
         }));
         return;
+      case "updateReadChannelInbox":
+        this.upsertDialog({ _: "peerChannel", channel_id: update.channel_id }, (d) => ({
+          ...d,
+          readInbox: update.max_id,
+          unread: update.still_unread_count,
+        }));
+        return;
+      case "updateReadChannelOutbox":
+        this.upsertDialog({ _: "peerChannel", channel_id: update.channel_id }, (d) => ({
+          ...d,
+          readOutbox: Math.max(d.readOutbox, update.max_id),
+        }));
+        return;
+      case "updatePinnedMessages":
+        this.setPinned(peerKey(update.peer), update.messages, update.pinned === true);
+        return;
+      case "updatePinnedChannelMessages":
+        this.setPinned(`ch${update.channel_id}`, update.messages, update.pinned === true);
+        return;
+      case "updateChannel": {
+        // Joined (or promoted, restricted…): make sure the channel is listed.
+        const key = `ch${update.channel_id}`;
+        const chat = this.state.chats.get(key);
+        if (chat?._ === "channel" && !chat.left) {
+          this.ensureDialog(key, { _: "peerChannel", channel_id: update.channel_id });
+        }
+        return;
+      }
       default:
         return;
     }
@@ -185,6 +245,29 @@ export class Store {
       next.set(key, list);
     }
     this.commit({ messages: next });
+  }
+
+  private removeMessages(key: string, ids: readonly number[]) {
+    const list = this.state.messages.get(key);
+    if (!list || !ids.some((id) => list.has(id))) return;
+    const gone = new Set(ids);
+    const next = new Map(this.state.messages);
+    next.set(key, new Map([...list].filter(([id]) => !gone.has(id))));
+    this.commit({ messages: next });
+    this.refreshTop(key);
+  }
+
+  private setPinned(key: string, ids: readonly number[], pinned: boolean) {
+    const list = this.state.messages.get(key);
+    if (!list) return;
+    const next = new Map(list);
+    for (const id of ids) {
+      const message = next.get(id);
+      if (message?._ === "message") next.set(id, { ...message, pinned: pinned || undefined });
+    }
+    const messages = new Map(this.state.messages);
+    messages.set(key, next);
+    this.commit({ messages });
   }
 
   /** A new or edited message moves its dialog to the top (or creates it). */
@@ -226,6 +309,20 @@ export class Store {
   private commit(change: Partial<Snapshot>) {
     this.state = { ...this.state, ...change };
     for (const listener of this.listeners) listener();
+  }
+}
+
+/** The dialog key of a group or channel object. */
+export function chatKey(chat: tl.Chat): string | undefined {
+  switch (chat._) {
+    case "chat":
+    case "chatForbidden":
+      return `c${chat.id}`;
+    case "channel":
+    case "channelForbidden":
+      return `ch${chat.id}`;
+    default:
+      return undefined;
   }
 }
 

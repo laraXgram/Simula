@@ -971,3 +971,62 @@ a,
   color: #fff;
   cursor: pointer;
 }
+
+/* Channels and pins */
+.avatar.channel {
+  background: linear-gradient(135deg, #f0a35e, #e06c5c);
+}
+
+.pinned-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.pinned-message {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  border: 0;
+  border-inline-start: 2px solid var(--accent);
+  padding: 2px 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.pinned-label {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pinned-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 14px;
+}
+
+.service-link {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.new-group select {
+  font: inherit;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: inherit;
+}

@@ -41,11 +41,33 @@ export function displayName(user: tl.user | undefined): string {
 export function inputPeerFor(
   key: string,
   users: ReadonlyMap<string, tl.user>,
+  chats: ReadonlyMap<string, tl.Chat>,
   me: string,
 ): tl.InputPeer | undefined {
-  if (/^c\d/.test(key)) return { _: "inputPeerChat", chat_id: key.slice(1) };
+  if (key.startsWith("ch")) {
+    const channel = inputChannelFor(key, chats);
+    return channel?._ === "inputChannel"
+      ? { _: "inputPeerChannel", channel_id: channel.channel_id, access_hash: channel.access_hash }
+      : undefined;
+  }
+  if (key.startsWith("c")) return { _: "inputPeerChat", chat_id: key.slice(1) };
   const user = key.startsWith("u") ? users.get(key.slice(1)) : undefined;
   return user ? inputPeer(user, me) : undefined;
+}
+
+/** A supergroup or channel as this account addresses it (with its access hash). */
+export function inputChannelFor(
+  key: string,
+  chats: ReadonlyMap<string, tl.Chat>,
+): tl.InputChannel | undefined {
+  const chat = chats.get(key);
+  if (chat?._ === "channel") {
+    return { _: "inputChannel", channel_id: chat.id, access_hash: chat.access_hash ?? "0" };
+  }
+  if (chat?._ === "channelForbidden") {
+    return { _: "inputChannel", channel_id: chat.id, access_hash: chat.access_hash };
+  }
+  return undefined;
 }
 
 /** The sender of a message, if a user. */

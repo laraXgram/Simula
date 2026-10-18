@@ -1,7 +1,11 @@
-/** The chat list, with a box to open a chat by `@username` and a form for new groups. */
+/**
+ * The chat list, with a box to open a chat by `@username` (or join by invite link) and
+ * a form for new groups, supergroups and channels.
+ */
 import { useState } from "react";
 
 import type { Account } from "../api/control";
+import type { GroupKind } from "../state/client";
 import { displayName, senderId } from "../state/peers";
 import type { AnyMessage, Snapshot } from "../state/store";
 import { initials, initialsOf } from "./ChatView";
@@ -13,7 +17,7 @@ interface Props {
   selected?: string;
   onSelect: (key: string) => void;
   onFind: (username: string) => Promise<void>;
-  onCreateGroup: (title: string, usernames: string[]) => Promise<void>;
+  onCreateGroup: (kind: GroupKind, title: string, usernames: string[]) => Promise<void>;
   onSwitchAccount: () => void;
   onToggleTheme: () => void;
   onToggleDirection: () => void;
@@ -35,6 +39,7 @@ export function Sidebar({
   const [creating, setCreating] = useState(false);
   const [groupTitle, setGroupTitle] = useState("");
   const [groupMembers, setGroupMembers] = useState("");
+  const [groupKind, setGroupKind] = useState<GroupKind>("group");
 
   return (
     <aside className="sidebar">
@@ -73,7 +78,7 @@ export function Sidebar({
               .split(/[\s,]+/)
               .map((name) => name.trim())
               .filter(Boolean);
-            onCreateGroup(groupTitle.trim(), usernames)
+            onCreateGroup(groupKind, groupTitle.trim(), usernames)
               .then(() => {
                 setCreating(false);
                 setGroupTitle("");
@@ -82,10 +87,19 @@ export function Sidebar({
               .catch((e: Error) => setError(e.message));
           }}
         >
+          <select
+            value={groupKind}
+            onChange={(event) => setGroupKind(event.target.value as GroupKind)}
+            aria-label="Kind"
+          >
+            <option value="group">Group</option>
+            <option value="supergroup">Supergroup</option>
+            <option value="channel">Channel</option>
+          </select>
           <input
             value={groupTitle}
             onChange={(event) => setGroupTitle(event.target.value)}
-            placeholder="Group name"
+            placeholder={groupKind === "channel" ? "Channel name" : "Group name"}
             required
           />
           <input
@@ -93,7 +107,7 @@ export function Sidebar({
             onChange={(event) => setGroupMembers(event.target.value)}
             placeholder="Members: @alice, @demo_bot"
           />
-          <button type="submit">Create group</button>
+          <button type="submit">Create {groupKind}</button>
         </form>
       )}
       <form
@@ -113,7 +127,7 @@ export function Sidebar({
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Open @username"
+          placeholder="Open @username or invite link"
         />
       </form>
       {error && <p className="find-error">{error}</p>}
@@ -121,8 +135,9 @@ export function Sidebar({
         {snapshot.dialogs.map((dialog) => {
           const user =
             dialog.peer._ === "peerUser" ? snapshot.users.get(dialog.peer.user_id) : undefined;
-          const group =
-            dialog.peer._ === "peerChat" ? snapshot.chats.get(dialog.peer.chat_id) : undefined;
+          const group = dialog.peer._ === "peerUser" ? undefined : snapshot.chats.get(dialog.key);
+          const broadcast =
+            (group?._ === "channel" || group?._ === "channelForbidden") && group.broadcast === true;
           const title = group ? group.title : displayName(user);
           const top = snapshot.messages.get(dialog.key)?.get(dialog.top);
           return (
@@ -132,17 +147,20 @@ export function Sidebar({
               className={dialog.key === selected ? "dialog selected" : "dialog"}
               onClick={() => onSelect(dialog.key)}
             >
-              <span className={group ? "avatar group" : "avatar"}>
+              <span className={group ? `avatar ${broadcast ? "channel" : "group"}` : "avatar"}>
                 {group ? initialsOf(title) : initials(user)}
               </span>
               <span className="dialog-body">
                 <span className="dialog-title">
                   <span dir="auto">{title}</span>
                   {user?.bot && <span className="badge">bot</span>}
+                  {broadcast && <span className="badge">channel</span>}
                   <time>{top ? day(top.date) : ""}</time>
                 </span>
                 <span className="dialog-preview">
-                  <span dir="auto">{preview(top, snapshot, group !== undefined)}</span>
+                  <span dir="auto">
+                    {preview(top, snapshot, group !== undefined && !broadcast)}
+                  </span>
                   {dialog.unread > 0 && <span className="unread">{dialog.unread}</span>}
                 </span>
               </span>

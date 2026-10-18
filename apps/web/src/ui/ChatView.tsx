@@ -1,10 +1,13 @@
-/** An open chat: header, messages, the bot's keyboard and the composer. */
+/**
+ * An open chat: header (with group and channel actions), the pinned message, messages,
+ * the bot's keyboard and the composer — or a bar when the account can't write here.
+ */
 import type { tl } from "@simula/schema";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Client } from "../state/client";
 import type { DeepLink } from "../state/links";
 import { displayName } from "../state/peers";
-import type { AnyMessage, Snapshot } from "../state/store";
+import type { AnyChat, AnyMessage, ChatDetails, Snapshot } from "../state/store";
 import { Composer, type Draft } from "./Composer";
 import { Message, type MessageActions } from "./Message";
 import { activeMarkup, ReplyKeyboard } from "./ReplyKeyboard";
@@ -37,9 +40,9 @@ export function ChatView({
   onBack,
 }: Props) {
   const user = client.userFor(chatKey);
-  const group = chatKey.startsWith("c") ? snapshot.chats.get(chatKey.slice(1)) : undefined;
-  const members = group ? snapshot.members.get(group.id) : undefined;
-  const isMember = group?._ === "chat" && !group.left && !group.deactivated;
+  const group = chatKey.startsWith("c") ? snapshot.chats.get(chatKey) : undefined;
+  const details = snapshot.details.get(chatKey);
+  const rights = chatRights(group);
   const dialog = snapshot.dialogs.find((d) => d.key === chatKey);
   const byId = snapshot.messages.get(chatKey);
   const all = useMemo(() => [...(byId?.values() ?? [])].sort((a, b) => a.id - b.id), [byId]);
@@ -137,13 +140,26 @@ export function ChatView({
 
   const actionsFor = (message: tl.message): MessageActions => ({
     onReply: () => setDraft({ replyTo: message }),
-    onEdit: message.out ? () => setDraft({ editing: message }) : undefined,
-    onDelete: () => {
-      const forEveryone = window.confirm(
-        "Delete this message for everyone? (Cancel deletes it only for you.)",
-      );
-      client.deleteMessage(message.id, forEveryone).catch((error: Error) => notify(error.message));
-    },
+    onEdit: message.out || rights.editsPosts ? () => setDraft({ editing: message }) : undefined,
+    onDelete:
+      !chatKey.startsWith("ch") || message.out || rights.deletes
+        ? () => {
+            // Supergroups and channels have one box: deleting is always for everyone.
+            const forEveryone =
+              chatKey.startsWith("ch") ||
+              window.confirm("Delete this message for everyone? (Cancel deletes it only for you.)");
+            client
+              .deleteMessage(chatKey, message.id, forEveryone)
+              .catch((error: Error) => notify(error.message));
+          }
+        : undefined,
+    onPin:
+      !group || rights.pins
+        ? () =>
+            client
+              .pin(chatKey, message.id, message.pinned === true)
+              .catch((error: Error) => notify(error.message))
+        : undefined,
     onCommand: (command) => void send(command),
     onMention: (username) =>
       client
@@ -174,7 +190,7 @@ export function ChatView({
   const commands = user?.bot
     ? (snapshot.commands.get(user.id) ?? [])
     : group
-      ? groupCommands(members, snapshot)
+      ? groupCommands(details, snapshot)
       : [];
   // Telegram offers START for a bot chat with no messages yet, or after a deep link.
   const needsStart = user?.bot === true && loaded && (startParam !== undefined || all.length === 0);
@@ -191,18 +207,27 @@ export function ChatView({
   const leave = () => {
     if (window.confirm(`Leave «${group?.title}»?`)) void run(client.leave(chatKey));
   };
+  const promote = () => {
+    const username = window.prompt("Make an admin (every right) by @username")?.trim();
+    if (username) void run(client.promoteByName(chatKey, username));
+  };
+  const inviteLink = () =>
+    void run(
+      client.inviteLink(chatKey).then((link) => {
+        void navigator.clipboard?.writeText(link).catch(() => undefined);
+        notify(`Invite link (copied): ${link}`, { alert: true });
+      }),
+    );
   const title = group ? group.title : displayName(user);
   const subtitle = group
-    ? group._ === "chatForbidden"
-      ? "you were removed"
-      : group.left
-        ? "you left"
-        : `${members?.length ?? group.participants_count} members`
+    ? groupSubtitle(group, details)
     : user?.bot
       ? "bot"
       : user?.username
         ? `@${user.username}`
         : "";
+  const pinned = messages.filter((m) => m.pinned).at(-1);
+  const blocked = group ? blockedReason(group, rights) : undefined;
 
   return (
     <section className="chat">
@@ -210,25 +235,74 @@ export function ChatView({
         <button type="button" className="icon-button back" onClick={onBack} title="Back">
           ←
         </button>
-        <div className={group ? "avatar group" : "avatar"}>{initialsOf(title)}</div>
+        <div className={group ? `avatar ${rights.broadcast ? "channel" : "group"}` : "avatar"}>
+          {initialsOf(title)}
+        </div>
         <div className="chat-title">
           <span dir="auto">{title}</span>
           <span className="chat-subtitle">{subtitle}</span>
         </div>
-        {isMember && (
+        {rights.member && (
           <div className="chat-actions">
-            <button type="button" className="icon-button" onClick={addMember} title="Add member">
-              ＋
-            </button>
-            <button type="button" className="icon-button" onClick={rename} title="Rename">
-              ✎
-            </button>
-            <button type="button" className="icon-button" onClick={leave} title="Leave group">
+            {rights.invites && (
+              <button type="button" className="icon-button" onClick={addMember} title="Add member">
+                ＋
+              </button>
+            )}
+            {rights.promotes && (
+              <button type="button" className="icon-button" onClick={promote} title="Add admin">
+                ★
+              </button>
+            )}
+            {rights.links && (
+              <button
+                type="button"
+                className="icon-button"
+                onClick={inviteLink}
+                title="Invite link"
+              >
+                🔗
+              </button>
+            )}
+            {rights.changesInfo && (
+              <button type="button" className="icon-button" onClick={rename} title="Rename">
+                ✎
+              </button>
+            )}
+            <button type="button" className="icon-button" onClick={leave} title="Leave">
               ⎋
             </button>
           </div>
         )}
       </header>
+      {pinned && (
+        <div className="pinned-bar">
+          <button
+            type="button"
+            className="pinned-message"
+            onClick={() =>
+              list.current
+                ?.querySelector(`[data-id="${pinned.id}"]`)
+                ?.scrollIntoView({ block: "center", behavior: "smooth" })
+            }
+          >
+            <span className="pinned-label">Pinned message</span>
+            <span className="pinned-text" dir="auto">
+              {pinned.message}
+            </span>
+          </button>
+          {(!group || rights.pins) && (
+            <button
+              type="button"
+              className="icon-button"
+              title="Unpin"
+              onClick={() => void run(client.pin(chatKey, pinned.id, true))}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      )}
       <div className="messages" ref={list} onScroll={onScroll}>
         {reachedStart && all.length > 0 && <p className="history-start">Beginning of the chat</p>}
         {all.map((message) =>
@@ -239,7 +313,7 @@ export function ChatView({
               replied={repliedTo(message, byId)}
               users={snapshot.users}
               readOutbox={dialog?.readOutbox ?? 0}
-              showSender={group !== undefined}
+              showSender={group !== undefined && !rights.broadcast}
               actions={actionsFor(message)}
             />
           ) : (
@@ -248,13 +322,25 @@ export function ChatView({
               message={message}
               users={snapshot.users}
               me={snapshot.me?.id}
+              replied={repliedTo(message, byId)}
+              onOpen={(id) =>
+                list.current
+                  ?.querySelector(`[data-id="${id}"]`)
+                  ?.scrollIntoView({ block: "center", behavior: "smooth" })
+              }
             />
           ),
         )}
       </div>
-      {group && !isMember ? (
+      {blocked ? (
         <div className="start-bar">
-          <span>{subtitle === "you left" ? "You left this group" : "You are not a member"}</span>
+          {blocked === "join" ? (
+            <button type="button" onClick={() => void run(client.join(chatKey))}>
+              {rights.broadcast ? "JOIN CHANNEL" : "JOIN GROUP"}
+            </button>
+          ) : (
+            <span>{blocked}</span>
+          )}
         </div>
       ) : needsStart ? (
         <div className="start-bar">
@@ -297,7 +383,7 @@ export function isRegular(message: AnyMessage): message is tl.message {
   return message._ === "message";
 }
 
-function repliedTo(message: tl.message, byId: ReadonlyMap<number, AnyMessage> | undefined) {
+function repliedTo(message: AnyMessage, byId: ReadonlyMap<number, AnyMessage> | undefined) {
   const header = message.reply_to?._ === "messageReplyHeader" ? message.reply_to : undefined;
   const replied =
     header?.reply_to_msg_id !== undefined ? byId?.get(header.reply_to_msg_id) : undefined;
@@ -305,18 +391,113 @@ function repliedTo(message: tl.message, byId: ReadonlyMap<number, AnyMessage> | 
 }
 
 /** The commands of every bot in the group, as `/command@bot` like Telegram shows them. */
-function groupCommands(
-  members: readonly tl.ChatParticipant[] | undefined,
-  snapshot: Snapshot,
-): tl.botCommand[] {
-  return (members ?? []).flatMap((member) => {
-    const bot = snapshot.users.get(member.user_id);
+function groupCommands(details: ChatDetails | undefined, snapshot: Snapshot): tl.botCommand[] {
+  return (details?.bots ?? []).flatMap((id) => {
+    const bot = snapshot.users.get(id);
     if (!bot?.bot) return [];
     return (snapshot.commands.get(bot.id) ?? []).map((c) => ({
       ...c,
       command: `${c.command}@${bot.username}`,
     }));
   });
+}
+
+/** What the account may do in a group or channel, from the chat object it was given. */
+interface Rights {
+  member: boolean;
+  broadcast: boolean;
+  /** May post (channels: admins with post_messages). */
+  posts: boolean;
+  editsPosts: boolean;
+  /** Supergroups and channels: may delete anyone's messages. */
+  deletes: boolean;
+  pins: boolean;
+  invites: boolean;
+  links: boolean;
+  promotes: boolean;
+  changesInfo: boolean;
+}
+
+function chatRights(chat: AnyChat | undefined): Rights {
+  const none: Rights = {
+    member: false,
+    broadcast: false,
+    posts: false,
+    editsPosts: false,
+    deletes: false,
+    pins: false,
+    invites: false,
+    links: false,
+    promotes: false,
+    changesInfo: false,
+  };
+  if (chat?._ === "chat") {
+    const admin = chat.creator === true || chat.admin_rights !== undefined;
+    const defaults = chat.default_banned_rights;
+    return {
+      ...none,
+      member: !chat.left && !chat.deactivated,
+      posts: !chat.left,
+      pins: admin || !defaults?.pin_messages,
+      invites: true,
+      links: admin,
+      changesInfo: admin || !defaults?.change_info,
+    };
+  }
+  if (chat?._ === "channel") {
+    const creator = chat.creator === true;
+    const rights = chat.admin_rights;
+    const has = (right: keyof tl.chatAdminRights) => creator || rights?.[right] === true;
+    const defaults = chat.default_banned_rights;
+    const banned = chat.banned_rights;
+    const memberMay = (right: keyof tl.chatBannedRights) =>
+      !chat.broadcast && !defaults?.[right] && !banned?.[right];
+    return {
+      member: !chat.left,
+      broadcast: chat.broadcast === true,
+      posts: chat.broadcast ? has("post_messages") : !banned?.send_plain && !defaults?.send_plain,
+      editsPosts: chat.broadcast === true && has("edit_messages"),
+      deletes: has("delete_messages"),
+      pins:
+        has("pin_messages") ||
+        (chat.broadcast === true && has("edit_messages")) ||
+        memberMay("pin_messages"),
+      invites: has("invite_users") || memberMay("invite_users"),
+      links: has("invite_users"),
+      promotes: has("add_admins"),
+      changesInfo: has("change_info") || memberMay("change_info"),
+    };
+  }
+  if (chat?._ === "channelForbidden") return { ...none, broadcast: chat.broadcast === true };
+  return none;
+}
+
+function groupSubtitle(chat: AnyChat, details: ChatDetails | undefined): string {
+  switch (chat._) {
+    case "chatForbidden":
+      return "you were removed";
+    case "channelForbidden":
+      return "you are banned";
+    case "chat":
+      return chat.left ? "you left" : `${details?.count ?? chat.participants_count} members`;
+    case "channel": {
+      const count = details?.count ?? chat.participants_count ?? 0;
+      const kind = chat.broadcast ? "subscribers" : "members";
+      const counted = `${count} ${kind}`;
+      return chat.username ? `${counted} · @${chat.username}` : counted;
+    }
+  }
+}
+
+/** Why the composer is replaced by a bar ("join" offers joining), if it is. */
+function blockedReason(chat: AnyChat, rights: Rights): string | undefined {
+  if (chat._ === "chatForbidden") return "You were removed from this group";
+  if (chat._ === "channelForbidden") return "You are banned here";
+  if (chat._ === "chat") return chat.left ? "You left this group" : undefined;
+  if (chat.left) return chat.username ? "join" : "You are not a member";
+  if (!rights.posts)
+    return rights.broadcast ? "Only admins post in this channel" : "You can't write here";
+  return undefined;
 }
 
 export function initials(user: tl.user | undefined): string {

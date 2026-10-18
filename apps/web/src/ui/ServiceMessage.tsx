@@ -7,12 +7,23 @@ interface Props {
   message: tl.messageService;
   users: ReadonlyMap<string, tl.user>;
   me?: string;
+  /** The message a "pinned" notice points at, if loaded. */
+  replied?: tl.message;
+  onOpen?: (id: number) => void;
 }
 
-export function ServiceMessage({ message, users, me }: Props) {
+export function ServiceMessage({ message, users, me, replied, onOpen }: Props) {
+  const target =
+    message.reply_to?._ === "messageReplyHeader" ? message.reply_to.reply_to_msg_id : undefined;
   return (
     <div className="service" data-id={message.id}>
-      <span dir="auto">{describeService(message, users, me)}</span>
+      {target !== undefined && onOpen ? (
+        <button type="button" className="service-link" dir="auto" onClick={() => onOpen(target)}>
+          {describeService(message, users, me, replied)}
+        </button>
+      ) : (
+        <span dir="auto">{describeService(message, users, me, replied)}</span>
+      )}
     </div>
   );
 }
@@ -22,6 +33,7 @@ export function describeService(
   message: tl.messageService,
   users: ReadonlyMap<string, tl.user>,
   me?: string,
+  replied?: tl.message,
 ): string {
   const name = (id: string | undefined) =>
     id === undefined ? "Someone" : id === me ? "You" : displayName(users.get(id));
@@ -41,8 +53,23 @@ export function describeService(
         : `${who} removed ${name(action.user_id)}`;
     case "messageActionChatJoinedByLink":
       return `${who} joined the group via invite link`;
+    case "messageActionChatJoinedByRequest":
+      return `${who} was accepted into the group`;
     case "messageActionChatEditTitle":
-      return `${who} changed the group name to «${action.title}»`;
+      return message.post
+        ? `Channel name was changed to «${action.title}»`
+        : `${who} changed the group name to «${action.title}»`;
+    case "messageActionChannelCreate":
+      return message.post
+        ? `Channel «${action.title}» created`
+        : `${who} created the group «${action.title}»`;
+    case "messageActionPinMessage": {
+      const text = replied?.message.replace(/\s+/g, " ") ?? "";
+      const quoted = text
+        ? ` «${text.length > 40 ? `${text.slice(0, 40)}…` : text}»`
+        : " a message";
+      return message.post ? `Pinned${quoted}` : `${who} pinned${quoted}`;
+    }
     default:
       return "Service message";
   }

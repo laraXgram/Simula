@@ -2,7 +2,7 @@
 import { type ReactNode, useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import type { Account } from "../api/control";
-import { Client } from "../state/client";
+import { Client, type GroupKind } from "../state/client";
 import type { DeepLink } from "../state/links";
 import { AccountPicker } from "../ui/AccountPicker";
 import { ChatView } from "../ui/ChatView";
@@ -89,13 +89,28 @@ function Shell({
   const snapshot = useSyncExternalStore(client.store.subscribe, client.store.snapshot);
   const [selected, setSelected] = useRoute();
   const [starts, setStarts] = useState<Record<string, string>>({});
+  // An invite link joins (or asks to join); anything else is a username.
   const find = useCallback(
-    async (username: string) => setSelected(await client.resolve(username)),
-    [client, setSelected],
+    async (query: string) => {
+      if (/(t|telegram)\.me\/(\+|joinchat\/)/.test(query)) {
+        try {
+          setSelected(await client.joinByLink(query));
+        } catch (error) {
+          if ((error as Error).message === "INVITE_REQUEST_SENT") {
+            notify("Your request to join was sent to the admins", { alert: true });
+            return;
+          }
+          throw error;
+        }
+        return;
+      }
+      setSelected(await client.resolve(query));
+    },
+    [client, notify, setSelected],
   );
   const createGroup = useCallback(
-    async (title: string, usernames: string[]) =>
-      setSelected(await client.createGroup(title, usernames)),
+    async (kind: GroupKind, title: string, usernames: string[]) =>
+      setSelected(await client.createGroup(kind, title, usernames)),
     [client, setSelected],
   );
   const openDeepLink = useCallback(
