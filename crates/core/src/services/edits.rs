@@ -38,12 +38,22 @@ pub fn edit(
     id: i32,
     edit: Edit,
 ) -> RpcResult<Edited> {
-    let Peer::User(other) = peer else {
-        return Err(RpcError::not_implemented(
-            "editing messages in groups and channels",
-        ));
-    };
     let account = ctx.account(editor)?;
+    // Bot commands are detected in chats with bots.
+    let with_commands = account.is_bot
+        || match peer {
+            Peer::User(other) => ctx.account(other)?.is_bot,
+            Peer::Chat(chat) => store::chats::members(ctx.db, chat)?
+                .iter()
+                .map(|m| ctx.account(m.user).map(|a| a.is_bot))
+                .collect::<RpcResult<Vec<_>>>()?
+                .contains(&true),
+            Peer::Channel(_) => {
+                return Err(RpcError::not_implemented(
+                    "editing in channels and supergroups",
+                ));
+            }
+        };
     let Some((global_id, old)) = store::messages::get_in(ctx.db, editor, peer, id)? else {
         return Err(RpcError::bad_request("MESSAGE_ID_INVALID"));
     };
@@ -69,7 +79,6 @@ pub fn edit(
             if entities::utf16_len(&text) as usize > messages::MAX_TEXT_LENGTH {
                 return Err(RpcError::message_too_long());
             }
-            let with_commands = account.is_bot || ctx.account(other)?.is_bot;
             let entities =
                 messages::text_entities(ctx, editor, with_commands, &text, edit.entities)?;
             (text, (!entities.is_empty()).then_some(entities))

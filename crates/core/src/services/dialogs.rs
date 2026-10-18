@@ -7,7 +7,7 @@ use simula_tl::{enums, types};
 
 use crate::ctx::Ctx;
 use crate::error::{RpcError, RpcResult};
-use crate::ids::{Peer, UserId};
+use crate::ids::{ChatId, Peer, UserId};
 use crate::services::{messages, updates};
 use crate::store;
 
@@ -15,6 +15,7 @@ pub struct DialogList {
     pub dialogs: Vec<enums::Dialog>,
     pub messages: Vec<enums::Message>,
     pub users: BTreeSet<UserId>,
+    pub chats: BTreeSet<ChatId>,
     /// All dialogs, when this page holds fewer.
     pub total: usize,
 }
@@ -33,6 +34,7 @@ pub fn list(
         dialogs: Vec::new(),
         messages: Vec::new(),
         users: BTreeSet::new(),
+        chats: BTreeSet::new(),
         total,
     };
     let page = all.into_iter().filter(|&(_, id, date)| {
@@ -52,9 +54,12 @@ pub fn list(
             }
             .into(),
         );
-        if let Some(message) = store::messages::get(ctx.db, owner, top)? {
-            out.users.extend(messages::users(&message));
-            out.messages.push(message.into());
+        if let Some(message) = store::messages::get_any(ctx.db, owner, top)? {
+            out.users.extend(messages::users_any(&message));
+            out.messages.push(message);
+        }
+        if let Peer::Chat(chat) = peer {
+            out.chats.insert(chat);
         }
     }
     Ok(out)
@@ -107,9 +112,9 @@ pub fn history(ctx: &Ctx<'_>, owner: UserId, peer: Peer, window: Window) -> RpcR
         count: ids.len(),
     };
     for &id in ids.get(start..end).unwrap_or_default() {
-        if let Some(message) = store::messages::get(ctx.db, owner, id)? {
-            history.users.extend(messages::users(&message));
-            history.messages.push(message.into());
+        if let Some(message) = store::messages::get_any(ctx.db, owner, id)? {
+            history.users.extend(messages::users_any(&message));
+            history.messages.push(message);
         }
     }
     Ok(history)
@@ -118,9 +123,20 @@ pub fn history(ctx: &Ctx<'_>, owner: UserId, peer: Peer, window: Window) -> RpcR
 /// `reader` read its dialog with `peer` up to `max_id` (0 = everything). Returns the
 /// reader's `(pts, pts_count)`.
 pub fn read(ctx: &mut Ctx<'_>, reader: UserId, peer: Peer, max_id: i32) -> RpcResult<(i32, i32)> {
-    let Peer::User(other) = peer else {
-        return Err(RpcError::not_implemented("reading groups and channels"));
+    // Who learns their messages were read, and how they see this dialog.
+    let others: Vec<(UserId, Peer)> = match peer {
+        Peer::User(other) => vec![(other, Peer::User(reader))],
+        Peer::Chat(chat) => store::chats::members(ctx.db, chat)?
+            .into_iter()
+            .map(|m| (m.user, Peer::Chat(chat)))
+            .collect(),
+        Peer::Channel(_) => {
+            return Err(RpcError::not_implemented(
+                "reading channels and supergroups",
+            ));
+        }
     };
+    let mentioned: Vec<UserId> = others.iter().map(|&(user, _)| user).collect();
     let top = store::dialogs::message_ids(ctx.db, reader, peer)?
         .first()
         .copied()
@@ -132,7 +148,7 @@ pub fn read(ctx: &mut Ctx<'_>, reader: UserId, peer: Peer, max_id: i32) -> RpcRe
     }
     store::dialogs::set_read_inbox(ctx.db, reader, peer, max_id)?;
     let still_unread = store::dialogs::unread_count(ctx.db, reader, peer, max_id)?;
-    let update = updates::push_pts(ctx, reader, [other], |pts, pts_count| {
+    let update = updates::push_pts(ctx, reader, mentioned, |pts, pts_count| {
         types::UpdateReadHistoryInbox {
             peer: peer.to_tl(),
             max_id,
@@ -144,17 +160,25 @@ pub fn read(ctx: &mut Ctx<'_>, reader: UserId, peer: Peer, max_id: i32) -> RpcRe
         .into()
     })?;
 
-    // The other side learns its messages up to there were read, by its own ids.
-    if other != reader
-        && let Some(outbox_max) = store::dialogs::counterpart_max_id(ctx.db, reader, other, max_id)?
-    {
-        let reader_peer = Peer::User(reader);
-        let (_, read_outbox) = store::dialogs::read_state(ctx.db, other, reader_peer)?;
+    // Senders learn their messages up to there were read, by their own ids.
+    for (other, their_peer) in others {
+        if other == reader {
+            continue;
+        }
+        let Some(outbox_max) =
+            store::dialogs::counterpart_max_id(ctx.db, reader, peer, other, max_id)?
+        else {
+            continue;
+        };
+        let (_, read_outbox) = store::dialogs::read_state(ctx.db, other, their_peer)?;
         if outbox_max > read_outbox {
-            store::dialogs::set_read_outbox(ctx.db, other, reader_peer, outbox_max)?;
+            store::dialogs::set_read_outbox(ctx.db, other, their_peer, outbox_max)?;
+            if let Peer::Chat(chat) = their_peer {
+                ctx.out.mention_chat(other, chat);
+            }
             updates::push_pts_to_all(ctx, other, [reader], |pts, pts_count| {
                 types::UpdateReadHistoryOutbox {
-                    peer: reader_peer.to_tl(),
+                    peer: their_peer.to_tl(),
                     max_id: outbox_max,
                     pts,
                     pts_count,

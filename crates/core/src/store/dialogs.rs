@@ -85,18 +85,26 @@ pub fn message_ids(conn: &Connection, owner: UserId, peer: Peer) -> rusqlite::Re
     rows.collect()
 }
 
-/// The highest id `other` has for the messages `owner` received from it up to `max_id`.
+/// The highest id `sender` has for the messages it sent that `owner` received in the
+/// dialog with `peer`, up to `max_id`.
 pub fn counterpart_max_id(
     conn: &Connection,
     owner: UserId,
-    other: UserId,
+    peer: Peer,
+    sender: UserId,
     max_id: i32,
 ) -> rusqlite::Result<Option<i32>> {
     conn.query_row(
         "SELECT MAX(o.id) FROM messages r
          JOIN messages o ON o.global_id = r.global_id AND o.owner_id = ?2
-         WHERE r.owner_id = ?1 AND r.peer = ?3 AND r.out = 0 AND r.id <= ?4",
-        params![owner.0, other.0, Peer::User(other).bot_api_id(), max_id],
+         WHERE r.owner_id = ?1 AND r.peer = ?3 AND r.from_id = ?4 AND r.out = 0 AND r.id <= ?5",
+        params![
+            owner.0,
+            sender.0,
+            peer.bot_api_id(),
+            Peer::User(sender).bot_api_id(),
+            max_id
+        ],
         |row| row.get(0),
     )
 }

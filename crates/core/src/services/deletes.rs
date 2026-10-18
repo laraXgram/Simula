@@ -29,8 +29,18 @@ pub fn delete(
         else {
             continue;
         };
-        if matches!(Peer::from_tl(&message.peer_id), Peer::Channel(_)) {
+        let peer = Peer::from_tl(&message.peer_id);
+        if matches!(peer, Peer::Channel(_)) {
             return Err(RpcError::not_implemented("deleting channel messages"));
+        }
+        // In groups, only admins delete other people's messages for everyone.
+        if let Peer::Chat(chat) = peer
+            && revoke
+            && !message.out
+            && store::chats::member(ctx.db, chat, caller)?
+                .is_none_or(|m| m.role == store::chats::Role::Member)
+        {
+            return Err(RpcError::bad_request("MESSAGE_DELETE_FORBIDDEN"));
         }
         if is_bot && ctx.now() - message.date > BOT_DELETE_TIME_LIMIT {
             return Err(RpcError::bad_request("MESSAGE_DELETE_FORBIDDEN"));

@@ -19,12 +19,13 @@ pub fn handle(
     let limit = req.limit.clamp(1, 100) as usize;
     let list = dialogs::list(ctx, owner, req.offset_date, req.offset_id, limit)?;
     let users = render::users(ctx, owner, &list.users)?;
+    let chats = render::chats(ctx, owner, &list.chats)?;
     Ok(if list.dialogs.len() < list.total {
         types::messages::DialogsSlice {
             count: list.total as i32,
             dialogs: list.dialogs,
             messages: list.messages,
-            chats: vec![],
+            chats: chats.clone(),
             users,
         }
         .into()
@@ -32,7 +33,7 @@ pub fn handle(
         types::messages::Dialogs {
             dialogs: list.dialogs,
             messages: list.messages,
-            chats: vec![],
+            chats,
             users,
         }
         .into()

@@ -19,10 +19,11 @@ pub fn handle(
     let caller = ctx.caller()?.account;
     let mut found = Vec::with_capacity(req.id.len());
     let mut users = BTreeSet::new();
+    let mut chats = BTreeSet::new();
     for input in &req.id {
         let message = match input {
-            enums::InputMessage::ID(m) => store::messages::get(ctx.db, caller, m.id)?,
-            enums::InputMessage::ReplyTo(m) => replied(ctx, m.id)?,
+            enums::InputMessage::ID(m) => store::messages::get_any(ctx.db, caller, m.id)?,
+            enums::InputMessage::ReplyTo(m) => replied(ctx, m.id)?.map(Into::into),
             _ => {
                 return Err(RpcError::not_implemented(
                     "messages.getMessages for pinned and callback query messages",
@@ -31,8 +32,11 @@ pub fn handle(
         };
         found.push(match message {
             Some(message) => {
-                users.extend(messages::users(&message));
-                message.into()
+                users.extend(messages::users_any(&message));
+                if let Some(enums::Peer::Chat(chat)) = message_peer(&message) {
+                    chats.insert(crate::ids::ChatId(chat.chat_id));
+                }
+                message
             }
             None => types::MessageEmpty {
                 id: input_id(input),
@@ -44,7 +48,7 @@ pub fn handle(
     Ok(types::messages::Messages {
         messages: found,
         topics: vec![],
-        chats: vec![],
+        chats: render::chats(ctx, caller, &chats)?,
         users: render::users(ctx, caller, &users)?,
     }
     .into())
@@ -68,5 +72,13 @@ fn input_id(input: &enums::InputMessage) -> i32 {
         enums::InputMessage::ID(m) => m.id,
         enums::InputMessage::ReplyTo(m) => m.id,
         _ => 0,
+    }
+}
+
+fn message_peer(message: &enums::Message) -> Option<&enums::Peer> {
+    match message {
+        enums::Message::Message(m) => Some(&m.peer_id),
+        enums::Message::Service(m) => Some(&m.peer_id),
+        enums::Message::Empty(_) => None,
     }
 }

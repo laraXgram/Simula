@@ -31,15 +31,17 @@ pub fn press(
         Some(Peer::User(bot)) if ctx.account(bot)?.is_bot => bot,
         _ => return Err(RpcError::bad_request("BOT_RESPONSE_TIMEOUT")),
     };
-    let Peer::User(_) = peer else {
-        return Err(RpcError::not_implemented(
-            "callback buttons in groups and channels",
-        ));
+    // The bot sees the query on its own copy: in its chat with the presser, or the group.
+    let bot_chat = match peer {
+        Peer::User(_) => Peer::User(presser),
+        Peer::Chat(_) => peer,
+        Peer::Channel(_) => return Err(RpcError::not_implemented("callback buttons in channels")),
     };
-    // The bot sees the query on its own copy, in its chat with the presser.
     let bot_msg_id = store::messages::copy_id(ctx.db, bot, global_id)?
         .ok_or_else(|| RpcError::bad_request("MESSAGE_ID_INVALID"))?;
-    let bot_chat = Peer::User(presser);
+    if let Peer::Chat(chat) = bot_chat {
+        ctx.out.mention_chat(bot, chat);
+    }
 
     let query_id = loop {
         let id = rand::random::<i64>() & i64::MAX;

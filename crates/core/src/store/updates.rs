@@ -36,3 +36,12 @@ pub fn log(
     )?;
     Ok(())
 }
+
+/// Advance an account's qts (bot-only updates such as membership changes) by one.
+pub fn advance_qts(conn: &Connection, account: UserId) -> rusqlite::Result<i32> {
+    conn.query_row(
+        "UPDATE account_state SET qts = qts + 1 WHERE account_id = ?1 RETURNING qts",
+        [account.0],
+        |row| row.get(0),
+    )
+}

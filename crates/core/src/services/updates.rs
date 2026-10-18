@@ -54,3 +54,17 @@ fn push_pts_from(
     ctx.out.push(account, update.clone(), mentions, origin);
     Ok(update)
 }
+
+/// Record one qts-carrying update for `account` (bots' membership updates).
+/// `build` receives the new qts.
+pub fn push_qts(
+    ctx: &mut Ctx<'_>,
+    account: UserId,
+    mentions: impl IntoIterator<Item = UserId>,
+    build: impl FnOnce(i32) -> enums::Update,
+) -> RpcResult<enums::Update> {
+    let qts = store::updates::advance_qts(ctx.db, account)?;
+    let update = build(qts);
+    ctx.out.push(account, update.clone(), mentions, None);
+    Ok(update)
+}

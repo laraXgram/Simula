@@ -13,6 +13,14 @@ use crate::store;
 pub struct Target {
     global_id: i64,
     quote: Option<Quote>,
+    author: Option<UserId>,
+}
+
+impl Target {
+    /// Who sent the replied message.
+    pub fn author(&self) -> Option<UserId> {
+        self.author
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -65,7 +73,15 @@ pub fn resolve(
         }
         _ => None,
     };
-    Ok(Some(Target { global_id, quote }))
+    let author = match replied.from_id.as_ref().map(Peer::from_tl) {
+        Some(Peer::User(user)) => Some(user),
+        _ => None,
+    };
+    Ok(Some(Target {
+        global_id,
+        quote,
+        author,
+    }))
 }
 
 /// The reply header of `owner`'s copy. If `owner` no longer has the replied message, the

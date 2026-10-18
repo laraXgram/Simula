@@ -1,8 +1,10 @@
-//! Message boxes. A private-chat message is stored once per participant, each copy with
-//! the id and perspective (`out`, `peer_id`) of that participant.
+//! Message boxes. A message in a private chat or basic group is stored once per
+//! participant, each copy with the id and perspective (`out`, `peer_id`) of that
+//! participant. Regular messages are stored as `message` objects; service messages
+//! (a member joined, the title changed…) as tagged `messageService` objects.
 
 use rusqlite::{Connection, OptionalExtension, params};
-use simula_tl::types;
+use simula_tl::{enums, types};
 
 use crate::ids::{Peer, UserId};
 
@@ -48,7 +50,59 @@ pub fn insert(conn: &Connection, row: &StoredMessage<'_>) -> rusqlite::Result<()
     Ok(())
 }
 
-pub fn get(conn: &Connection, owner: UserId, id: i32) -> rusqlite::Result<Option<types::Message>> {
+/// A service message (the action happened in `peer`).
+pub fn insert_service(
+    conn: &Connection,
+    owner: UserId,
+    peer: Peer,
+    global_id: i64,
+    message: &types::MessageService,
+) -> rusqlite::Result<()> {
+    let from = message
+        .from_id
+        .as_ref()
+        .map(|p| Peer::from_tl(p).bot_api_id());
+    let body = enums::Message::from(message.clone());
+    conn.execute(
+        "INSERT INTO messages (owner_id, id, peer, from_id, out, date, global_id, random_id, body)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8)",
+        params![
+            owner.0,
+            message.id,
+            peer.bot_api_id(),
+            from,
+            message.out,
+            message.date,
+            global_id,
+            serde_json::to_string(&body).expect("TL message serializes"),
+        ],
+    )?;
+    Ok(())
+}
+
+/// A stored body: tagged (service messages) or a plain `message`.
+fn decode(body: &str) -> enums::Message {
+    if let Ok(message) = serde_json::from_str::<enums::Message>(body) {
+        return message;
+    }
+    let message: types::Message =
+        serde_json::from_str(body).expect("stored message is valid JSON-TL");
+    message.into()
+}
+
+fn regular(message: enums::Message) -> Option<types::Message> {
+    match message {
+        enums::Message::Message(m) => Some(*m),
+        _ => None,
+    }
+}
+
+/// Any message in `owner`'s box, service messages included.
+pub fn get_any(
+    conn: &Connection,
+    owner: UserId,
+    id: i32,
+) -> rusqlite::Result<Option<enums::Message>> {
     let body: Option<String> = conn
         .query_row(
             "SELECT body FROM messages WHERE owner_id = ?1 AND id = ?2 AND deleted = 0",
@@ -56,7 +110,12 @@ pub fn get(conn: &Connection, owner: UserId, id: i32) -> rusqlite::Result<Option
             |row| row.get(0),
         )
         .optional()?;
-    Ok(body.map(|b| serde_json::from_str(&b).expect("stored message is valid JSON-TL")))
+    Ok(body.map(|b| decode(&b)))
+}
+
+/// A regular message in `owner`'s box.
+pub fn get(conn: &Connection, owner: UserId, id: i32) -> rusqlite::Result<Option<types::Message>> {
+    Ok(get_any(conn, owner, id)?.and_then(regular))
 }
 
 /// A message in `owner`'s box, if it belongs to the dialog with `peer`.
@@ -74,10 +133,7 @@ pub fn get_in(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()?;
-    Ok(row.map(|(global_id, body)| {
-        let message = serde_json::from_str(&body).expect("stored message is valid JSON-TL");
-        (global_id, message)
-    }))
+    Ok(row.and_then(|(global_id, body)| regular(decode(&body)).map(|m| (global_id, m))))
 }
 
 /// A message in `owner`'s box with its `global_id`, whatever the dialog.
@@ -93,10 +149,7 @@ pub fn get_with_global(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()?;
-    Ok(row.map(|(global_id, body)| {
-        let message = serde_json::from_str(&body).expect("stored message is valid JSON-TL");
-        (global_id, message)
-    }))
+    Ok(row.and_then(|(global_id, body)| regular(decode(&body)).map(|m| (global_id, m))))
 }
 
 /// The id of `owner`'s copy of a message, found through the copies' shared `global_id`.

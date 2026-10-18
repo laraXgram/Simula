@@ -1,0 +1,49 @@
+//! `messages.getFullChat`
+
+use std::collections::BTreeSet;
+
+use simula_tl::{enums, functions, types};
+
+use crate::ctx::Ctx;
+use crate::error::{RpcError, RpcResult};
+use crate::ids::ChatId;
+use crate::render;
+use crate::services::chats;
+use crate::store;
+
+/// A basic group with its members (only for members, as on Telegram).
+pub fn handle(
+    ctx: &mut Ctx<'_>,
+    req: functions::messages::GetFullChat,
+) -> RpcResult<enums::messages::ChatFull> {
+    let caller = ctx.caller()?.account;
+    let chat = chats::get(ctx, ChatId(req.chat_id))?;
+    let members = store::chats::members(ctx.db, chat.id)?;
+    if !members.iter().any(|m| m.user == caller) {
+        return Err(RpcError::bad_request("CHAT_ID_INVALID"));
+    }
+    let users: BTreeSet<_> = members.iter().map(|m| m.user).collect();
+    let full = types::ChatFull {
+        id: chat.id.0,
+        about: chat
+            .extra
+            .get("about")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_owned(),
+        participants: types::ChatParticipants {
+            chat_id: chat.id.0,
+            participants: members.iter().map(chats::participant).collect(),
+            version: chat.version,
+        }
+        .into(),
+        notify_settings: types::PeerNotifySettings::default().into(),
+        ..Default::default()
+    };
+    Ok(types::messages::ChatFull {
+        full_chat: full.into(),
+        chats: vec![render::chat(ctx, caller, &chat)?],
+        users: render::users(ctx, caller, &users)?,
+    }
+    .into())
+}

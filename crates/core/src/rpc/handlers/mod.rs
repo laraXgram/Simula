@@ -22,10 +22,16 @@ pub const IMPLEMENTED: &[&str] = &[
     "bots.resetBotCommands",
     "bots.setBotCommands",
     "contacts.resolveUsername",
+    "messages.addChatUser",
+    "messages.createChat",
+    "messages.deleteChatUser",
     "messages.deleteMessages",
+    "messages.editChatTitle",
     "messages.editMessage",
     "messages.getBotCallbackAnswer",
+    "messages.getChats",
     "messages.getDialogs",
+    "messages.getFullChat",
     "messages.getHistory",
     "messages.getMessages",
     "messages.readHistory",
@@ -48,7 +54,16 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::ContactsResolveUsername(call) => contacts::resolve_username::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::MessagesAddChatUser(call) => messages::add_chat_user::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::MessagesCreateChat(call) => {
+            messages::create_chat::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
+        Function::MessagesDeleteChatUser(call) => messages::delete_chat_user::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesDeleteMessages(call) => messages::delete_messages::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::MessagesEditChatTitle(call) => messages::edit_chat_title::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesEditMessage(call) => messages::edit_message::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
@@ -56,9 +71,14 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
             messages::get_bot_callback_answer::handle(ctx, *call)
                 .map(|reply| Box::new(reply) as Box<dyn Reply>)
         }
+        Function::MessagesGetChats(call) => {
+            messages::get_chats::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
         Function::MessagesGetDialogs(call) => {
             messages::get_dialogs::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
         }
+        Function::MessagesGetFullChat(call) => messages::get_full_chat::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesGetHistory(call) => {
             messages::get_history::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
         }

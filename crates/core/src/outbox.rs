@@ -8,7 +8,7 @@ use simula_tl::{enums, types};
 
 use crate::ctx::{Ctx, SessionId};
 use crate::error::RpcResult;
-use crate::ids::UserId;
+use crate::ids::{ChatId, UserId};
 use crate::render;
 
 /// Updates for one account, ready to deliver.
@@ -33,6 +33,7 @@ struct Pending {
     /// Each update with the session that caused it, if it is that session's own result.
     updates: Vec<(enums::Update, Option<SessionId>)>,
     users: BTreeSet<UserId>,
+    chats: BTreeSet<ChatId>,
 }
 
 impl Outbox {
@@ -47,6 +48,27 @@ impl Outbox {
         let pending = self.pending.entry(account).or_default();
         pending.updates.push((update, origin));
         pending.users.extend(users);
+    }
+
+    /// Note that `account`'s updates mention basic group `chat` (it gets the chat object).
+    pub fn mention_chat(&mut self, account: UserId, chat: ChatId) {
+        self.pending.entry(account).or_default().chats.insert(chat);
+    }
+
+    /// Basic groups mentioned so far in `account`'s updates.
+    pub fn chats_for(&self, account: UserId) -> BTreeSet<ChatId> {
+        self.pending
+            .get(&account)
+            .map(|p| p.chats.clone())
+            .unwrap_or_default()
+    }
+
+    /// The updates queued so far for `account`, for a call that returns them as its result.
+    pub fn updates_for(&self, account: UserId) -> Vec<enums::Update> {
+        self.pending
+            .get(&account)
+            .map(|p| p.updates.iter().map(|(update, _)| update.clone()).collect())
+            .unwrap_or_default()
     }
 
     /// Users mentioned so far in `account`'s updates.
@@ -64,6 +86,7 @@ impl Outbox {
         let mut batches = Vec::new();
         for (account, pending) in self.pending {
             let users = render::users(ctx, account, &pending.users)?;
+            let chats = render::chats(ctx, account, &pending.chats)?;
             let is_bot = ctx.account(account)?.is_bot;
             let mut groups: Vec<(Option<SessionId>, Vec<enums::Update>)> = Vec::new();
             for (update, origin) in pending.updates {
@@ -80,7 +103,7 @@ impl Outbox {
                     updates: types::Updates {
                         updates,
                         users: users.clone(),
-                        chats: vec![],
+                        chats: chats.clone(),
                         date,
                         seq: 0,
                     }
