@@ -58,6 +58,7 @@ pub fn handle(
         .into(),
         notify_settings: types::PeerNotifySettings::default().into(),
         bot_info: Some(bot_info),
+        exported_invite: crate::services::invites::primary(ctx, caller, Peer::Chat(chat.id))?,
         pinned_msg_id: store::messages::pinned_ids(ctx.db, caller, Peer::Chat(chat.id))?
             .first()
             .copied(),

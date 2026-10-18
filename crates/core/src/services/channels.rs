@@ -186,7 +186,7 @@ pub fn invite(ctx: &mut Ctx<'_>, actor: UserId, id: ChannelId, users: &[UserId])
         post_service(ctx, &channel, actor, action.into(), &[])?;
     }
     for (user, before) in added {
-        membership_changed(ctx, actor, &channel, user, before)?;
+        membership_changed(ctx, actor, &channel, user, before, None)?;
     }
     Ok(())
 }
@@ -218,7 +218,44 @@ pub fn join(ctx: &mut Ctx<'_>, user: UserId, id: ChannelId) -> RpcResult<()> {
         };
         post_service(ctx, &channel, user, action.into(), &[])?;
     }
-    membership_changed(ctx, user, &channel, user, before)
+    membership_changed(ctx, user, &channel, user, before, None)
+}
+
+/// `user` joins through an invite link created by `inviter` (or, `via_request`, after
+/// an admin approved their request).
+pub fn join_by_link(
+    ctx: &mut Ctx<'_>,
+    user: UserId,
+    id: ChannelId,
+    inviter: UserId,
+    invite: enums::ExportedChatInvite,
+    via_request: bool,
+) -> RpcResult<()> {
+    let channel = get(ctx, id)?;
+    let before = member(ctx, id, user)?;
+    match &before {
+        Some(m) if m.status.is_member() => {
+            return Err(RpcError::bad_request("USER_ALREADY_PARTICIPANT"));
+        }
+        Some(m) if m.status == Status::Banned => {
+            return Err(RpcError::forbidden("CHANNEL_PRIVATE"));
+        }
+        _ => {}
+    }
+    let now = ctx.now();
+    store::channels::put_member(ctx.db, id, &Member::new(user, Status::Member, inviter, now))?;
+    if !channel.broadcast {
+        let action: enums::MessageAction = if via_request {
+            types::MessageActionChatJoinedByRequest {}.into()
+        } else {
+            types::MessageActionChatJoinedByLink {
+                inviter_id: inviter.0,
+            }
+            .into()
+        };
+        post_service(ctx, &channel, user, action, &[])?;
+    }
+    membership_changed(ctx, user, &channel, user, before, Some(invite))
 }
 
 /// Leave. (The creator can't leave the group they own here; Telegram lets them leave
@@ -249,7 +286,7 @@ pub fn leave(ctx: &mut Ctx<'_>, user: UserId, id: ChannelId) -> RpcResult<()> {
             ..before.clone()
         },
     )?;
-    membership_changed(ctx, user, &channel, user, Some(before))
+    membership_changed(ctx, user, &channel, user, Some(before), None)
 }
 
 /// Promote, edit or demote an admin (empty rights demote). Bots that aren't members
@@ -334,7 +371,7 @@ pub fn edit_admin(
         };
         post_service(ctx, &channel, actor, action.into(), &[])?;
     }
-    membership_changed(ctx, actor, &channel, user, before)
+    membership_changed(ctx, actor, &channel, user, before, None)
 }
 
 /// Restrict, ban (`view_messages`) or lift restrictions (no rights taken).
@@ -410,7 +447,7 @@ pub fn edit_banned(
         post_service(ctx, &channel, actor, action.into(), &[])?;
     }
     store::channels::put_member(ctx.db, id, &next)?;
-    membership_changed(ctx, actor, &channel, user, before)
+    membership_changed(ctx, actor, &channel, user, before, None)
 }
 
 pub fn rename(ctx: &mut Ctx<'_>, actor: UserId, id: ChannelId, title: &str) -> RpcResult<()> {
@@ -575,6 +612,7 @@ fn membership_changed(
     channel: &Channel,
     user: UserId,
     before: Option<Member>,
+    invite: Option<enums::ExportedChatInvite>,
 ) -> RpcResult<()> {
     let after = member(ctx, channel.id, user)?;
     updates::push_plain(
@@ -610,7 +648,7 @@ fn membership_changed(
                 user_id: user.0,
                 prev_participant: prev,
                 new_participant: new,
-                invite: None,
+                invite: invite.clone(),
                 qts,
             }
             .into()

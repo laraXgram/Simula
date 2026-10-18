@@ -3,6 +3,7 @@
 pub mod callback;
 pub mod chat;
 pub mod entities;
+pub mod invite;
 pub mod link_preview;
 pub mod markup;
 pub mod member;

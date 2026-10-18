@@ -5,13 +5,18 @@
 //! (`bun run codegen new:botapi <method>`).
 
 pub mod answer_callback_query;
+pub mod approve_chat_join_request;
 pub mod ban_chat_member;
+pub mod create_chat_invite_link;
+pub mod decline_chat_join_request;
 pub mod delete_message;
 pub mod delete_messages;
 pub mod delete_my_commands;
 pub mod delete_webhook;
+pub mod edit_chat_invite_link;
 pub mod edit_message_reply_markup;
 pub mod edit_message_text;
+pub mod export_chat_invite_link;
 pub mod get_chat;
 pub mod get_chat_administrators;
 pub mod get_chat_member;
@@ -24,6 +29,7 @@ pub mod leave_chat;
 pub mod pin_chat_message;
 pub mod promote_chat_member;
 pub mod restrict_chat_member;
+pub mod revoke_chat_invite_link;
 pub mod send_message;
 pub mod set_chat_administrator_custom_title;
 pub mod set_chat_description;
@@ -44,13 +50,18 @@ use crate::error::BotResult;
 /// Bot API methods with a handler (stubs included).
 pub const IMPLEMENTED: &[&str] = &[
     "answerCallbackQuery",
+    "approveChatJoinRequest",
     "banChatMember",
+    "createChatInviteLink",
+    "declineChatJoinRequest",
     "deleteMessage",
     "deleteMessages",
     "deleteMyCommands",
     "deleteWebhook",
+    "editChatInviteLink",
     "editMessageReplyMarkup",
     "editMessageText",
+    "exportChatInviteLink",
     "getChat",
     "getChatAdministrators",
     "getChatMember",
@@ -63,6 +74,7 @@ pub const IMPLEMENTED: &[&str] = &[
     "pinChatMessage",
     "promoteChatMember",
     "restrictChatMember",
+    "revokeChatInviteLink",
     "sendMessage",
     "setChatAdministratorCustomTitle",
     "setChatDescription",
@@ -85,11 +97,41 @@ pub async fn route(
         "answercallbackquery" => {
             run(ctx, params, Limits::Enforce, answer_callback_query::handle).await
         }
+        "approvechatjoinrequest" => {
+            run(
+                ctx,
+                params,
+                Limits::Enforce,
+                approve_chat_join_request::handle,
+            )
+            .await
+        }
         "banchatmember" => run(ctx, params, Limits::Enforce, ban_chat_member::handle).await,
+        "createchatinvitelink" => {
+            run(
+                ctx,
+                params,
+                Limits::Enforce,
+                create_chat_invite_link::handle,
+            )
+            .await
+        }
+        "declinechatjoinrequest" => {
+            run(
+                ctx,
+                params,
+                Limits::Enforce,
+                decline_chat_join_request::handle,
+            )
+            .await
+        }
         "deletemessage" => run(ctx, params, Limits::Enforce, delete_message::handle).await,
         "deletemessages" => run(ctx, params, Limits::Enforce, delete_messages::handle).await,
         "deletemycommands" => run(ctx, params, Limits::Enforce, delete_my_commands::handle).await,
         "deletewebhook" => run(ctx, params, Limits::Enforce, delete_webhook::handle).await,
+        "editchatinvitelink" => {
+            run(ctx, params, Limits::Enforce, edit_chat_invite_link::handle).await
+        }
         "editmessagereplymarkup" => {
             run(
                 ctx,
@@ -100,6 +142,15 @@ pub async fn route(
             .await
         }
         "editmessagetext" => run(ctx, params, Limits::Enforce, edit_message_text::handle).await,
+        "exportchatinvitelink" => {
+            run(
+                ctx,
+                params,
+                Limits::Enforce,
+                export_chat_invite_link::handle,
+            )
+            .await
+        }
         "getchat" => run(ctx, params, Limits::Enforce, get_chat::handle).await,
         "getchatadministrators" => {
             run(
@@ -123,6 +174,15 @@ pub async fn route(
         "promotechatmember" => run(ctx, params, Limits::Enforce, promote_chat_member::handle).await,
         "restrictchatmember" => {
             run(ctx, params, Limits::Enforce, restrict_chat_member::handle).await
+        }
+        "revokechatinvitelink" => {
+            run(
+                ctx,
+                params,
+                Limits::Enforce,
+                revoke_chat_invite_link::handle,
+            )
+            .await
         }
         "sendmessage" => run(ctx, params, Limits::Enforce, send_message::handle).await,
         "setchatadministratorcustomtitle" => {

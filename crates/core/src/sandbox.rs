@@ -113,13 +113,14 @@ impl Sandbox {
             .run(move |world| {
                 world.transact(Some(caller), |ctx| {
                     let reply = rpc::dispatch(ctx, call)?;
-                    Ok((reply, ctx.take_deferred()))
+                    Ok((reply, ctx.take_deferred(), ctx.take_committed_error()))
                 })
             })
             .await;
 
         let (result, deferred, updates) = match outcome {
-            Ok(((reply, deferred), updates)) => (Ok(reply), deferred, updates),
+            Ok(((_, _, Some(error)), updates)) => (Err(error), None, updates),
+            Ok(((reply, deferred, None), updates)) => (Ok(reply), deferred, updates),
             Err(error) => (Err(error), None, Vec::new()),
         };
         self.publish(updates).await;

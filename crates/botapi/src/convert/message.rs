@@ -149,6 +149,17 @@ pub fn service(m: &types::MessageService, context: &Entities<'_>) -> Option<bot:
             new_chat_members: Some(a.users.iter().map(|&id| person(id)).collect()),
             ..base
         },
+        // Joining by link or by approved request shows the joiner as the new member.
+        enums::MessageAction::ChatJoinedByLink(_) | enums::MessageAction::ChatJoinedByRequest => {
+            let joiner = match m.from_id.as_ref().map(Peer::from_tl) {
+                Some(Peer::User(id)) => person(id.0),
+                _ => return None,
+            };
+            bot::Message {
+                new_chat_members: Some(vec![joiner]),
+                ..base
+            }
+        }
         enums::MessageAction::ChatDeleteUser(a) => bot::Message {
             left_chat_member: Some(Box::new(person(a.user_id))),
             ..base

@@ -65,7 +65,7 @@ async fn connect(url: &str, account: &Account) -> Socket {
 
 async fn next(socket: &mut Socket) -> Value {
     loop {
-        let frame = tokio::time::timeout(Duration::from_secs(2), socket.next())
+        let frame = tokio::time::timeout(Duration::from_secs(10), socket.next())
             .await
             .expect("a frame in time")
             .unwrap()

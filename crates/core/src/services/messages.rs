@@ -48,8 +48,12 @@ pub fn send_private(ctx: &mut Ctx<'_>, from: UserId, to: UserId, out: Outgoing) 
     if sender.is_bot && recipient.is_bot && from != to {
         return Err(RpcError::bad_request("USER_IS_BOT"));
     }
-    // A bot can only write to users who have written to it first.
-    if sender.is_bot && !has_dialog(ctx, from, Peer::User(to))? {
+    // A bot can only write to users who have written to it first (or who just asked to
+    // join a chat it handles join requests for).
+    if sender.is_bot
+        && !has_dialog(ctx, from, Peer::User(to))?
+        && !crate::services::invites::may_contact(ctx, from, to)?
+    {
         return Err(RpcError::peer_id_invalid());
     }
 

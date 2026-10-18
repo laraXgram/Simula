@@ -33,9 +33,21 @@ pub struct Ctx<'a> {
     registered: Vec<WaitKey>,
     deferred: Option<Deferred>,
     answers: Vec<(WaitKey, Answer)>,
+    /// An error to answer with although the transaction commits.
+    committed_error: Option<RpcError>,
 }
 
 impl Ctx<'_> {
+    /// Keep what the call did, but answer it with `error` (Telegram files a join
+    /// request and answers `INVITE_REQUEST_SENT`). The handler's result is discarded.
+    pub fn fail_after_commit(&mut self, error: RpcError) {
+        self.committed_error = Some(error);
+    }
+
+    pub(crate) fn take_committed_error(&mut self) -> Option<RpcError> {
+        self.committed_error.take()
+    }
+
     pub fn now(&self) -> i32 {
         self.clock.now()
     }
@@ -140,6 +152,7 @@ impl World {
             registered: Vec::new(),
             deferred: None,
             answers: Vec::new(),
+            committed_error: None,
         };
         let prepared = f(&mut ctx).and_then(|result| {
             let outbox = std::mem::take(&mut ctx.out);

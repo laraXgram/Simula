@@ -5,7 +5,7 @@ use simula_botapi_types::types as bot;
 use simula_core::Peer;
 use simula_tl::{enums, types};
 
-use super::{Entities, callback, member, message};
+use super::{Entities, callback, invite, member, message};
 
 /// Bot API updates for a TL batch. A bot's own outgoing messages produce nothing (the
 /// Bot API never echoes them back); deletions in private chats aren't reported either.
@@ -84,6 +84,10 @@ pub fn updates(updates: &enums::Updates, context: &Entities<'_>, me: i64) -> Vec
                         incoming(&u.message)?,
                         context,
                     ))),
+                    ..Default::default()
+                },
+                enums::Update::BotChatInviteRequester(u) => bot::Update {
+                    chat_join_request: Some(Box::new(invite::join_request(u, context))),
                     ..Default::default()
                 },
                 enums::Update::BotCallbackQuery(q) => bot::Update {

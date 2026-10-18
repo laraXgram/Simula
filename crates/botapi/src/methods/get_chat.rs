@@ -83,6 +83,7 @@ async fn info(ctx: &BotCtx, peer: Peer) -> BotResult<bot::ChatFullInfo> {
                 r#type: "group".into(),
                 title: Some(group.title.clone()),
                 description: (!group.about.is_empty()).then(|| group.about.clone()),
+                invite_link: group.invite_link.clone(),
                 permissions: Some(Box::new(match defaults {
                     Some(enums::ChatBannedRights::ChatBannedRights(r)) => {
                         permissions::from_banned(&r)
@@ -108,6 +109,10 @@ async fn info(ctx: &BotCtx, peer: Peer) -> BotResult<bot::ChatFullInfo> {
                 title: Some(info.title.clone()),
                 username: info.username.clone(),
                 description: (!channel.full.about.is_empty()).then(|| channel.full.about.clone()),
+                invite_link: match &channel.full.exported_invite {
+                    Some(enums::ExportedChatInvite::ChatInviteExported(i)) => Some(i.link.clone()),
+                    _ => None,
+                },
                 permissions: match &info.default_banned_rights {
                     Some(enums::ChatBannedRights::ChatBannedRights(r)) if !info.broadcast => {
                         Some(Box::new(permissions::from_banned(r)))

@@ -16,6 +16,8 @@ pub struct Group {
     pub participants: Vec<enums::ChatParticipant>,
     /// The newest pinned message.
     pub pinned: Option<i32>,
+    /// The bot's primary invite link, if it made one.
+    pub invite_link: Option<String>,
     pub users: Vec<enums::User>,
     pub chats: Vec<enums::Chat>,
 }
@@ -48,6 +50,10 @@ pub async fn group(ctx: &BotCtx, chat: ChatId) -> BotResult<Group> {
         about: info.about,
         participants,
         pinned: info.pinned_msg_id,
+        invite_link: match &info.exported_invite {
+            Some(enums::ExportedChatInvite::ChatInviteExported(i)) => Some(i.link.clone()),
+            _ => None,
+        },
         users: full.users,
         chats: full.chats,
     })

@@ -75,7 +75,7 @@ pub fn create(
     };
     post(ctx, creator, id, action.into(), &all)?;
     for &user in all.iter().filter(|&&u| u != creator) {
-        membership_changed(ctx, creator, id, user, None)?;
+        membership_changed(ctx, creator, id, user, None, None)?;
     }
     Ok(id)
 }
@@ -104,7 +104,46 @@ pub fn add_member(ctx: &mut Ctx<'_>, actor: UserId, chat: ChatId, user: UserId) 
         users: vec![user.0],
     };
     post(ctx, actor, chat, action.into(), &member_ids(ctx, chat)?)?;
-    membership_changed(ctx, actor, chat, user, None)
+    membership_changed(ctx, actor, chat, user, None, None)
+}
+
+/// `user` joins through an invite link created by `inviter` (or, `via_request`, after
+/// an admin approved their request).
+pub fn join_by_link(
+    ctx: &mut Ctx<'_>,
+    user: UserId,
+    chat: ChatId,
+    inviter: UserId,
+    invite: enums::ExportedChatInvite,
+    via_request: bool,
+) -> RpcResult<()> {
+    get(ctx, chat)?;
+    if store::chats::member(ctx.db, chat, user)?.is_some() {
+        return Err(RpcError::bad_request("USER_ALREADY_PARTICIPANT"));
+    }
+    set_removed(ctx, chat, user, false)?;
+    let date = ctx.now();
+    store::chats::add_member(
+        ctx.db,
+        chat,
+        &Member {
+            user,
+            role: Role::Member,
+            inviter,
+            date,
+        },
+    )?;
+    store::chats::bump_version(ctx.db, chat)?;
+    let action: enums::MessageAction = if via_request {
+        types::MessageActionChatJoinedByRequest {}.into()
+    } else {
+        types::MessageActionChatJoinedByLink {
+            inviter_id: inviter.0,
+        }
+        .into()
+    };
+    post(ctx, user, chat, action, &member_ids(ctx, chat)?)?;
+    membership_changed(ctx, user, chat, user, None, Some(invite))
 }
 
 /// Remove `user` (or leave, when `actor == user`). The removed user still gets the
@@ -135,7 +174,7 @@ pub fn remove_member(
     store::chats::bump_version(ctx.db, chat)?;
     let action = types::MessageActionChatDeleteUser { user_id: user.0 };
     post(ctx, actor, chat, action.into(), &recipients)?;
-    membership_changed(ctx, actor, chat, user, Some(removed))
+    membership_changed(ctx, actor, chat, user, Some(removed), None)
 }
 
 pub fn rename(ctx: &mut Ctx<'_>, actor: UserId, chat: ChatId, title: &str) -> RpcResult<()> {
@@ -311,6 +350,7 @@ fn membership_changed(
     chat: ChatId,
     user: UserId,
     before: Option<Member>,
+    invite: Option<enums::ExportedChatInvite>,
 ) -> RpcResult<()> {
     let after = store::chats::member(ctx.db, chat, user)?;
     let mut bots: Vec<UserId> = Vec::new();
@@ -333,7 +373,7 @@ fn membership_changed(
                 user_id: user.0,
                 prev_participant: before.as_ref().map(participant),
                 new_participant: after.as_ref().map(participant),
-                invite: None,
+                invite: invite.clone(),
                 qts,
             }
             .into()

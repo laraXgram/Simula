@@ -40,19 +40,24 @@ pub const IMPLEMENTED: &[&str] = &[
     "channels.updateUsername",
     "contacts.resolveUsername",
     "messages.addChatUser",
+    "messages.checkChatInvite",
     "messages.createChat",
     "messages.deleteChatUser",
     "messages.deleteMessages",
     "messages.editChatAbout",
     "messages.editChatDefaultBannedRights",
     "messages.editChatTitle",
+    "messages.editExportedChatInvite",
     "messages.editMessage",
+    "messages.exportChatInvite",
     "messages.getBotCallbackAnswer",
     "messages.getChats",
     "messages.getDialogs",
     "messages.getFullChat",
     "messages.getHistory",
     "messages.getMessages",
+    "messages.hideChatJoinRequest",
+    "messages.importChatInvite",
     "messages.readHistory",
     "messages.sendMessage",
     "messages.setBotCallbackAnswer",
@@ -112,6 +117,8 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesAddChatUser(call) => messages::add_chat_user::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::MessagesCheckChatInvite(call) => messages::check_chat_invite::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesCreateChat(call) => {
             messages::create_chat::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
         }
@@ -127,8 +134,16 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
         }
         Function::MessagesEditChatTitle(call) => messages::edit_chat_title::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::MessagesEditExportedChatInvite(call) => {
+            messages::edit_exported_chat_invite::handle(ctx, *call)
+                .map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
         Function::MessagesEditMessage(call) => messages::edit_message::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::MessagesExportChatInvite(call) => {
+            messages::export_chat_invite::handle(ctx, *call)
+                .map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
         Function::MessagesGetBotCallbackAnswer(call) => {
             messages::get_bot_callback_answer::handle(ctx, *call)
                 .map(|reply| Box::new(reply) as Box<dyn Reply>)
@@ -146,6 +161,14 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
         }
         Function::MessagesGetMessages(call) => messages::get_messages::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::MessagesHideChatJoinRequest(call) => {
+            messages::hide_chat_join_request::handle(ctx, *call)
+                .map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
+        Function::MessagesImportChatInvite(call) => {
+            messages::import_chat_invite::handle(ctx, *call)
+                .map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
         Function::MessagesReadHistory(call) => messages::read_history::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesSendMessage(call) => messages::send_message::handle(ctx, *call)

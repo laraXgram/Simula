@@ -11,6 +11,7 @@ pub mod dialogs;
 pub mod edits;
 pub mod entities;
 pub mod group_messages;
+pub mod invites;
 pub mod markup;
 pub mod messages;
 pub mod peers;

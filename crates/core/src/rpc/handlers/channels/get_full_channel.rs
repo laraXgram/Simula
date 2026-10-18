@@ -66,6 +66,11 @@ pub fn handle(
         notify_settings: types::PeerNotifySettings::default().into(),
         bot_info,
         pts: channel.pts,
+        exported_invite: crate::services::invites::primary(ctx, caller, peer)?,
+        requests_pending: admin
+            .then(|| store::invites::requesters(ctx.db, peer).map(|r| r.len() as i32))
+            .transpose()?
+            .filter(|&n| n > 0),
         pinned_msg_id: store::channels::pinned_ids(ctx.db, id)?.first().copied(),
         ..Default::default()
     };

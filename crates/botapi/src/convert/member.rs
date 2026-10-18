@@ -6,7 +6,7 @@ use simula_botapi_types::types as bot;
 use simula_core::{ChannelId, ChatId, Peer};
 use simula_tl::{enums, types};
 
-use super::{Entities, chat::chat, permissions, user::user};
+use super::{Entities, chat::chat, invite, permissions, user::user};
 
 /// `my_chat_member` / `chat_member` for an `updateChatParticipant`.
 pub fn updated(u: &types::UpdateChatParticipant, context: &Entities<'_>) -> bot::ChatMemberUpdated {
@@ -27,6 +27,11 @@ pub fn updated(u: &types::UpdateChatParticipant, context: &Entities<'_>) -> bot:
         date: u.date.into(),
         old_chat_member: member(u.prev_participant.as_ref()),
         new_chat_member: member(u.new_participant.as_ref()),
+        invite_link: u
+            .invite
+            .as_ref()
+            .and_then(|i| invite::link(i, context))
+            .map(Box::new),
         ..Default::default()
     }
 }
@@ -92,6 +97,16 @@ pub fn updated_channel(
         date: u.date.into(),
         old_chat_member: member(u.prev_participant.as_ref()),
         new_chat_member: member(u.new_participant.as_ref()),
+        invite_link: u
+            .invite
+            .as_ref()
+            .and_then(|i| invite::link(i, context))
+            .map(Box::new),
+        via_join_request: matches!(
+            u.invite,
+            Some(enums::ExportedChatInvite::ChatInvitePublicJoinRequests)
+        )
+        .then_some(true),
         ..Default::default()
     }
 }
