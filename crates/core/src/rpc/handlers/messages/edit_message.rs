@@ -31,6 +31,7 @@ pub fn handle(
             text: req.message,
             entities: req.entities.unwrap_or_default(),
             reply_markup: req.reply_markup,
+            no_webpage: req.no_webpage,
             invert_media: req.invert_media,
         },
     )?;

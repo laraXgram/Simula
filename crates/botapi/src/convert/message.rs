@@ -25,7 +25,7 @@ fn convert(m: &types::Message, context: &Entities<'_>, with_reply: bool) -> bot:
         Some(enums::MessageReplyHeader::MessageReplyHeader(header)) => Some(&**header),
         _ => None,
     };
-    let is_text = m.media.is_none();
+    let is_text = is_text(m);
     bot::Message {
         message_id: m.id.into(),
         from,
@@ -48,6 +48,11 @@ fn convert(m: &types::Message, context: &Entities<'_>, with_reply: bool) -> bot:
         reply_markup: markup::inline_keyboard(m.reply_markup.as_ref()).map(Box::new),
         ..Default::default()
     }
+}
+
+/// A text message, possibly with a link preview (which bots don't see as media).
+pub fn is_text(m: &types::Message) -> bool {
+    matches!(m.media, None | Some(enums::MessageMedia::WebPage(_)))
 }
 
 /// The id of the message `m` replies to in the same chat, if any.

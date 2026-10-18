@@ -31,6 +31,7 @@ pub fn handle(
             random_id: Some(req.random_id),
             silent: req.silent,
             noforwards: req.noforwards,
+            no_webpage: req.no_webpage,
             invert_media: req.invert_media,
             effect: req.effect,
         },

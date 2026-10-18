@@ -63,7 +63,7 @@ pub async fn edit(
     if !message.out || has_reply_keyboard {
         return Err(BotError::bad_request("message can't be edited"));
     }
-    if matches!(change, Change::Text { .. }) && message.media.is_some() {
+    if matches!(change, Change::Text { .. }) && !convert::message::is_text(&message) {
         return Err(BotError::bad_request(
             "there is no text in the message to edit",
         ));

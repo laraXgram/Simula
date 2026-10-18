@@ -8,7 +8,7 @@ use simula_tl::{enums, types};
 use crate::ctx::Ctx;
 use crate::error::{RpcError, RpcResult};
 use crate::ids::{Peer, UserId};
-use crate::services::{entities, markup, replies, updates};
+use crate::services::{entities, markup, previews, replies, updates};
 use crate::store::{self, messages::StoredMessage};
 
 /// Documented text limit for one message, in UTF-16 code units.
@@ -25,6 +25,8 @@ pub struct Outgoing {
     pub silent: bool,
     /// Protected content: can't be forwarded or saved.
     pub noforwards: bool,
+    /// Send no link preview.
+    pub no_webpage: bool,
     /// Show the link preview above the text.
     pub invert_media: bool,
     /// Message effect (private chats only). Simula has no effect catalog, so any id is kept.
@@ -65,6 +67,11 @@ pub fn send_private(ctx: &mut Ctx<'_>, from: UserId, to: UserId, out: Outgoing) 
         &out.text,
         out.entities,
     )?;
+    let preview = if out.no_webpage {
+        None
+    } else {
+        previews::for_text(&out.text, &entities)
+    };
     let reply_markup = markup::normalize(ctx, from, out.reply_markup)?;
     let reply_to = replies::resolve(ctx, from, Peer::User(to), out.reply_to.as_ref())?;
 
@@ -82,7 +89,8 @@ pub fn send_private(ctx: &mut Ctx<'_>, from: UserId, to: UserId, out: Outgoing) 
             out: is_out,
             silent: out.silent,
             noforwards: out.noforwards,
-            invert_media: out.invert_media,
+            invert_media: out.invert_media && preview.is_some(),
+            media: preview.clone(),
             id: store::messages::next_id(ctx.db, owner)?,
             from_id: Some(Peer::User(from).to_tl()),
             peer_id: Peer::User(peer).to_tl(),

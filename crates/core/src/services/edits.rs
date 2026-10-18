@@ -6,7 +6,7 @@ use simula_tl::{enums, types};
 use crate::ctx::Ctx;
 use crate::error::{RpcError, RpcResult};
 use crate::ids::{Peer, UserId};
-use crate::services::{entities, markup, messages, updates};
+use crate::services::{entities, markup, messages, previews, updates};
 use crate::store;
 
 /// Users may edit for 48 hours; a bot's own messages have no limit.
@@ -19,6 +19,8 @@ pub struct Edit {
     pub entities: Vec<enums::MessageEntity>,
     /// The new keyboard; `None` removes it, as on Telegram. Only inline keyboards.
     pub reply_markup: Option<enums::ReplyMarkup>,
+    /// With new text: send no link preview.
+    pub no_webpage: bool,
     pub invert_media: bool,
 }
 
@@ -80,6 +82,13 @@ pub fn edit(
     } else {
         old.invert_media
     };
+    // The preview follows the text; a keyboard-only edit keeps it.
+    let media = match &edit.text {
+        Some(_) if edit.no_webpage => None,
+        Some(_) => previews::for_text(&text, entities.as_deref().unwrap_or_default()),
+        None => old.media.clone(),
+    };
+    let invert_media = invert_media && media.is_some();
     let reply_markup = markup::normalize(ctx, editor, edit.reply_markup)?;
     let text_changed = text != old.message || entities != old.entities;
     if !text_changed && reply_markup == old.reply_markup && invert_media == old.invert_media {
@@ -96,6 +105,7 @@ pub fn edit(
         copy.entities = entities.clone();
         copy.reply_markup = reply_markup.clone();
         copy.invert_media = invert_media;
+        copy.media = media.clone();
         copy.edit_date = Some(date);
         // A keyboard-only change doesn't mark the message as edited.
         copy.edit_hide = !text_changed;

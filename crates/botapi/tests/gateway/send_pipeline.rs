@@ -241,9 +241,17 @@ async fn message_options() {
     .await;
     assert_eq!(sent["has_protected_content"], true);
     assert_eq!(sent["effect_id"], "5104841245755180586");
-    // Simula never builds previews, so a link reads as "preview disabled".
+    // The link gets an (offline-built) preview, so only the placement shows, as on
+    // Telegram when a preview exists.
     assert_eq!(
         sent["link_preview_options"],
-        json!({ "is_disabled": true, "show_above_text": true })
+        json!({ "show_above_text": true })
     );
+    let plain = ok(
+        &w,
+        "sendMessage",
+        json!({ "chat_id": w.user.id.0, "text": "see https://example.com/a" }),
+    )
+    .await;
+    assert!(plain.get("link_preview_options").is_none());
 }

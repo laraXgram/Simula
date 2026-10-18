@@ -9,5 +9,6 @@ pub mod entities;
 pub mod markup;
 pub mod messages;
 pub mod peers;
+pub mod previews;
 pub mod replies;
 pub mod updates;
