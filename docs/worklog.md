@@ -5,6 +5,62 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-10-18 — M3 · Client sessions and the web client — M3 done (P5.1–P5.4, P2.4, P2.5, P2.9)
+
+- **Roadmap**: every place that answers `501 Not implemented in Simula` is now listed in
+  ROADMAP.md with the task that removes it — a 501 is a placeholder, never the final
+  answer. The client shows when a message has a link preview.
+- **Offline link previews** (core): the first link of a message gets a
+  `messageMediaWebPage` built from the URL alone (address, display URL, host as site
+  name, a stable id per URL); `no_webpage` sends none; edits recompute it. The client
+  shows a preview card marked "built offline". Bots no longer see `is_disabled` on links
+  they didn't disable — on Telegram a link normally gets a preview.
+- **Core functions for clients**: `messages.getDialogs` (unread counts, paging),
+  `messages.getHistory` (offset, `add_offset`, bounds, slices), `messages.readHistory`
+  (the reader's inbox, the other side's outbox in its own ids, each with its pts),
+  `users.getFullUser` (bot description and the commands a user sees, in Telegram's
+  documented order: the chat, all private chats, default — each in the user's language,
+  then for all), `contacts.resolveUsername`, `messages.startBot` (deep links: the user
+  sends `/start <param>`, `START_PARAM_INVALID`). Read state lives in a `dialogs` table
+  (migration 0003).
+- **Bots read at once**: what users send to bots is read immediately, as on Telegram, so
+  senders see ✓✓ right away.
+- **Outbox fix**: an account's updates from one transaction were merged into one batch
+  with a single origin, so an update meant for every session (that read receipt) was
+  dropped along with the caller's own result. Updates now keep their origin and batches
+  are split by it, in order.
+- **Session gateway** (`crates/session`): `GET /session?account=<id>` opens a WebSocket
+  session for a simulated account. `{id, call}` frames run any TL function and get
+  `{id, result | error}`; the account's updates are pushed as `{updates}`, except those
+  the session's own calls caused, exactly as per MTProto session. Calls run
+  concurrently, so a button press waiting for the bot holds up nothing else.
+- **Web client** (`apps/web`, React + TypeScript + Vite, calls typed by the generated
+  `Methods` map): account picker; chat list with unread counts; `@username` search;
+  messages with every entity (spoilers, collapsed quotes, code blocks, mentions,
+  commands, formatted dates), reply headers with quotes, ticks, edited mark, protected
+  content, link-preview cards; inline keyboards (callback answers as toasts or alerts,
+  URLs, copy, profile buttons, and explicit notices for kinds that come later); reply
+  keyboards (newest markup wins, one-time, resize, placeholder, forced replies); the
+  bot's commands menu; reply, edit, delete; composer formatting (`**bold**`, `__italic__`,
+  `~~strike~~`, `||spoiler||`, code, pre, `[text](url)`) sent as entities, restored when
+  editing; deep links (`t.me`, `tg://resolve`) handled inside, with the START button for
+  fresh bot chats and `start` parameters; the open chat in the URL; older history paged
+  in on scroll without moving the view; light and dark themes; a mirrored RTL layout;
+  one pane on narrow screens.
+- **Verification**: core tests for dialogs, history pages, reading, profiles with
+  commands, usernames and deep links; a session test over a real WebSocket (two
+  sessions of one user, who gets which update, errors). The client was driven in
+  headless Chrome (puppeteer-core against the installed Chrome) with a Telegraf bot:
+  formatting, preview cards, callback toast and alert, keyboard edits by the bot, the
+  commands menu, a one-time reply keyboard, replies, dark + RTL with Persian text,
+  mobile layout, START, a deep link with payload, edit round-trip, and 308 messages
+  paged in by scrolling. Bugs that run found and fixed: the read receipt lost by the
+  outbox, read receipts arriving before the dialog existed in the client, and the view
+  stuck at the top when history loaded above the chat-list message. Unit tests for the
+  composer formatter and the link parser run in CI (`bun test apps/web`). Workspace: 138
+  Rust tests, clippy clean, biome and typecheck clean.
+- Coverage: Bot API 14/185, TL 17/813.
+
 ## 2026-09-28 — M2 (part 5) · Bot commands — M2 done (P2.9, P3.8)
 
 - **Core**: `bots.setBotCommands`, `bots.getBotCommands`, `bots.resetBotCommands`.

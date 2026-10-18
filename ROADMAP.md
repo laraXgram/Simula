@@ -8,7 +8,7 @@ Every finished task is logged in [docs/worklog.md](docs/worklog.md) and committe
 
 **Targets:** Bot API **10.3** · MTProto layer from tdlib `telegram_api.tl`
 
-**Current focus:** M3 — client shell talking TL over WebSocket (M2 done; see worklog)
+**Current focus:** M4 — groups and channels (M3 done; see worklog)
 
 ---
 
@@ -23,7 +23,8 @@ vertical slice through several phases, so the architecture is exercised end to e
   then P1.9–P1.10 once handler files exist.
 - [x] **M2 — webhooks, formatting, keyboards, callbacks** (P3.3, P3.4, P3.6, wave 1 complete):
   formatting, keyboards, replies, edits, deletes, callback queries, webhooks, commands
-- [ ] **M3 — client shell** talking TL over WebSocket (P5.1–P5.4)
+- [x] **M3 — client shell** talking TL over WebSocket (P5.1–P5.4): session gateway, web client;
+  media, request buttons and inline results follow their core phases (P2.6, P2.11)
 - [ ] **M4 — groups and channels** (P2.3, P2.10, P5.5)
 
 ---
@@ -89,12 +90,14 @@ vertical slice through several phases, so the architecture is exercised end to e
 
 ## P5 — Client (web)
 
-- [ ] P5.1 App shell: routing, state, TL session client, theming (light/dark), RTL support
-- [ ] P5.2 Chat list + chat view (virtualized), Telegram-like rendering of all message types;
+- [x] P5.1 App shell: routing, state, TL session client, theming (light/dark), RTL support
+- [~] P5.2 Chat list + chat view (paged; virtualized rendering pending), Telegram-like rendering of all message types;
   messages whose link would get a preview on Telegram show that they have one (Simula is
   offline and builds no previews)
-- [ ] P5.3 Composer: text + formatting, media, commands menu, reply keyboards, deep links
-- [ ] P5.4 Inline keyboards, callback answers (toasts/alerts), inline mode results UI
+- [~] P5.3 Composer: text + formatting, media, commands menu, reply keyboards, deep links (media and
+  request buttons pending: P2.6, P5.5)
+- [~] P5.4 Inline keyboards, callback answers (toasts/alerts), inline mode results UI (inline results
+  with P2.11)
 - [ ] P5.5 Groups, channels, forums, admin tools, join requests, invite links
 - [ ] P5.6 Mini App host: real webview + emulated `Telegram.WebApp` bridge, signed initData
 - [ ] P5.7 Payments & Stars checkout simulator (shipping, pre-checkout, success/failure)

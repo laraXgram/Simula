@@ -33,6 +33,19 @@ curl -X POST localhost:8081/_simula/v1/accounts/1000000001/send -H 'content-type
      -d '{"chat_id":"@echo_bot","text":"/start"}'
 ```
 
+### The client
+
+```sh
+bun install
+cargo run -p simula-server -- --memory   # in one terminal
+bun run web                              # in another: http://localhost:5173
+```
+
+Pick (or create) a user, open your bot by its `@username` and talk to it: formatting,
+inline and reply keyboards, callback answers, commands, deep links and replies work as in
+Telegram. The client is just another session (`/session`, JSON-TL over WebSocket), so
+everything it does is scriptable too.
+
 ## License
 
 MIT — see [LICENSE.md](LICENSE.md).
