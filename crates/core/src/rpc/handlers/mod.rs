@@ -9,6 +9,7 @@ pub mod channels;
 pub mod contacts;
 pub mod messages;
 pub mod updates;
+pub mod upload;
 pub mod users;
 
 use simula_tl::Function;
@@ -68,13 +69,19 @@ pub const IMPLEMENTED: &[&str] = &[
     "messages.migrateChat",
     "messages.readHistory",
     "messages.reorderPinnedForumTopics",
+    "messages.sendMedia",
     "messages.sendMessage",
+    "messages.sendMultiMedia",
     "messages.setBotCallbackAnswer",
     "messages.startBot",
     "messages.unpinAllMessages",
     "messages.updatePinnedForumTopic",
     "messages.updatePinnedMessage",
+    "messages.uploadMedia",
     "updates.getState",
+    "upload.getFile",
+    "upload.saveBigFilePart",
+    "upload.saveFilePart",
     "users.getFullUser",
     "users.getUsers",
 ];
@@ -208,7 +215,12 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
             messages::reorder_pinned_forum_topics::handle(ctx, *call)
                 .map(|reply| Box::new(reply) as Box<dyn Reply>)
         }
+        Function::MessagesSendMedia(call) => {
+            messages::send_media::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
         Function::MessagesSendMessage(call) => messages::send_message::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::MessagesSendMultiMedia(call) => messages::send_multi_media::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesSetBotCallbackAnswer(call) => {
             messages::set_bot_callback_answer::handle(ctx, *call)
@@ -229,9 +241,18 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
             messages::update_pinned_message::handle(ctx, *call)
                 .map(|reply| Box::new(reply) as Box<dyn Reply>)
         }
+        Function::MessagesUploadMedia(call) => messages::upload_media::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::UpdatesGetState(call) => {
             updates::get_state::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
         }
+        Function::UploadGetFile(call) => {
+            upload::get_file::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
+        Function::UploadSaveBigFilePart(call) => upload::save_big_file_part::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::UploadSaveFilePart(call) => upload::save_file_part::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::UsersGetFullUser(call) => {
             users::get_full_user::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
         }

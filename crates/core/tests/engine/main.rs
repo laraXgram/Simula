@@ -9,5 +9,6 @@ mod dialogs;
 mod edit_delete;
 mod forums;
 mod groups;
+mod media;
 mod pins;
 mod private_chat;

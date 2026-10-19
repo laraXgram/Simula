@@ -19,7 +19,7 @@ use crate::store::{self, accounts::Account, chats::Role};
 pub fn send(ctx: &mut Ctx<'_>, from: UserId, chat: ChatId, out: Outgoing) -> RpcResult<Sent> {
     let found = chats::get(ctx, chat)?;
     chats::require_member(ctx, chat, from)?;
-    messages::check_text(&out.text)?;
+    messages::check_content(ctx, from, &out)?;
     let members = store::chats::members(ctx.db, chat)?;
     let accounts: Vec<(Account, Role)> = members
         .iter()

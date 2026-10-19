@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 simula-tl.workspace = true
 
+image.workspace = true
 rand.workspace = true
 rusqlite.workspace = true
 serde.workspace = true

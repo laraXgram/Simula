@@ -8,7 +8,7 @@ use simula_tl::{enums, types};
 use crate::ctx::Ctx;
 use crate::error::{RpcError, RpcResult};
 use crate::ids::{ChannelId, Peer, UserId};
-use crate::services::{dialogs, entities, markup, previews, replies, updates};
+use crate::services::{dialogs, entities, markup, media, previews, replies, updates};
 use crate::store::{self, messages::StoredMessage};
 
 /// Documented text limit for one message, in UTF-16 code units.
@@ -31,6 +31,10 @@ pub struct Outgoing {
     pub invert_media: bool,
     /// Message effect (private chats only). Simula has no effect catalog, so any id is kept.
     pub effect: Option<i64>,
+    /// A photo or document (the text is then its caption).
+    pub media: Option<enums::MessageMedia>,
+    /// The album the message belongs to.
+    pub grouped_id: Option<i64>,
 }
 
 pub struct Sent {
@@ -44,7 +48,7 @@ pub struct Sent {
 pub fn send_private(ctx: &mut Ctx<'_>, from: UserId, to: UserId, out: Outgoing) -> RpcResult<Sent> {
     let sender = ctx.account(from)?;
     let recipient = ctx.account(to).map_err(|_| RpcError::peer_id_invalid())?;
-    check_text(&out.text)?;
+    check_content(ctx, from, &out)?;
     if sender.is_bot && recipient.is_bot && from != to {
         return Err(RpcError::bad_request("USER_IS_BOT"));
     }
@@ -75,6 +79,65 @@ pub fn send_private(ctx: &mut Ctx<'_>, from: UserId, to: UserId, out: Outgoing) 
     Ok(sent)
 }
 
+/// Send into any dialog: a private chat, a basic group, a supergroup or channel.
+pub fn send_to(ctx: &mut Ctx<'_>, from: UserId, peer: Peer, out: Outgoing) -> RpcResult<Sent> {
+    match peer {
+        Peer::User(to) => send_private(ctx, from, to, out),
+        Peer::Chat(chat) => crate::services::group_messages::send(ctx, from, chat, out),
+        Peer::Channel(channel) => crate::services::channel_messages::send(ctx, from, channel, out),
+    }
+}
+
+/// The `Updates` a send call answers with: for each message sent, `updateMessageID`
+/// (its `random_id` → id) and the sender's own copy, with the users and chats they name.
+pub fn sent_result(
+    ctx: &Ctx<'_>,
+    caller: UserId,
+    sent: Vec<(i64, Sent)>,
+) -> RpcResult<enums::Updates> {
+    let mut updates = Vec::with_capacity(sent.len() * 2);
+    for (random_id, sent) in &sent {
+        updates.push(
+            types::UpdateMessageID {
+                id: sent.message.id,
+                random_id: *random_id,
+            }
+            .into(),
+        );
+    }
+    updates.extend(sent.into_iter().map(|(_, sent)| sent.update));
+    Ok(types::Updates {
+        updates,
+        users: crate::render::users(ctx, caller, &ctx.out.users_for(caller))?,
+        chats: crate::render::all_chats(
+            ctx,
+            caller,
+            &ctx.out.chats_for(caller),
+            &ctx.out.channels_for(caller),
+        )?,
+        date: ctx.now(),
+        seq: 0,
+    }
+    .into())
+}
+
+/// A message's text, or a medium's caption (which may be empty; at most 1024 UTF-16
+/// units, 4096 for Premium accounts).
+pub(crate) fn check_content(ctx: &Ctx<'_>, from: UserId, out: &Outgoing) -> RpcResult<()> {
+    if out.media.is_none() {
+        return check_text(&out.text);
+    }
+    let max = if ctx.account(from)?.is_premium {
+        media::MAX_PREMIUM_CAPTION_LENGTH
+    } else {
+        media::MAX_CAPTION_LENGTH
+    };
+    if entities::utf16_len(out.text.trim_end()) as usize > max {
+        return Err(RpcError::bad_request("MEDIA_CAPTION_TOO_LONG"));
+    }
+    Ok(())
+}
+
 /// Telegram's checks on a message's text: non-empty, at most 4096 UTF-16 code units.
 pub(crate) fn check_text(text: &str) -> RpcResult<()> {
     if text.trim().is_empty() {
@@ -90,7 +153,8 @@ pub(crate) fn check_text(text: &str) -> RpcResult<()> {
 pub(crate) struct Prepared {
     pub out: Outgoing,
     pub entities: Vec<enums::MessageEntity>,
-    pub preview: Option<enums::MessageMedia>,
+    /// The photo or document, or else the text's link preview.
+    pub media: Option<enums::MessageMedia>,
     pub reply_markup: Option<enums::ReplyMarkup>,
     pub reply_to: Option<replies::Target>,
 }
@@ -112,17 +176,17 @@ pub(crate) fn prepare(
 ) -> RpcResult<Prepared> {
     let explicit = std::mem::take(&mut out.entities);
     let entities = text_entities(ctx, from, with_bot_commands, &out.text, explicit)?;
-    let preview = if out.no_webpage {
-        None
-    } else {
-        previews::for_text(&out.text, &entities)
+    let media = match out.media.take() {
+        Some(media) => Some(media),
+        None if out.no_webpage => None,
+        None => previews::for_text(&out.text, &entities),
     };
     let reply_markup = markup::normalize(ctx, from, out.reply_markup.take())?;
     let reply_to = replies::resolve(ctx, from, peer, out.reply_to.as_ref())?;
     Ok(Prepared {
         out,
         entities,
-        preview,
+        media,
         reply_markup,
         reply_to,
     })
@@ -147,8 +211,9 @@ pub(crate) fn deliver(
             mentioned: !is_out && mentions(ctx, prepared, owner)?,
             silent: out.silent,
             noforwards: out.noforwards,
-            invert_media: out.invert_media && prepared.preview.is_some(),
-            media: prepared.preview.clone(),
+            invert_media: out.invert_media && prepared.media.is_some(),
+            media: prepared.media.clone(),
+            grouped_id: out.grouped_id,
             id: store::messages::next_id(ctx.db, owner)?,
             from_id: Some(Peer::User(from).to_tl()),
             peer_id: peer.to_tl(),

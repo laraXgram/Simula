@@ -50,7 +50,7 @@ pub fn send(
     let channel = channels::get(ctx, id)?;
     let sender = channels::require_member(ctx, &channel, from)?;
     rights::check_can_send(ctx, &channel, &sender)?;
-    messages::check_text(&out.text)?;
+    messages::check_content(ctx, from, &out)?;
     let members = store::channels::current_members(ctx.db, id)?;
     let accounts = members
         .iter()
@@ -85,8 +85,9 @@ pub fn send(
         post: channel.broadcast,
         silent: out.silent,
         noforwards: out.noforwards,
-        invert_media: out.invert_media && prepared.preview.is_some(),
-        media: prepared.preview.clone(),
+        invert_media: out.invert_media && prepared.media.is_some(),
+        media: prepared.media.clone(),
+        grouped_id: out.grouped_id,
         id: store::channels::next_message_id(ctx.db, id)?,
         from_id: (!channel.broadcast).then(|| Peer::User(from).to_tl()),
         peer_id: Peer::Channel(id).to_tl(),

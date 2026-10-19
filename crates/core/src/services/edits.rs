@@ -6,7 +6,7 @@ use simula_tl::{enums, types};
 use crate::ctx::Ctx;
 use crate::error::{RpcError, RpcResult};
 use crate::ids::{Peer, UserId};
-use crate::services::{entities, markup, messages, previews, updates};
+use crate::services::{entities, markup, media, messages, previews, updates};
 use crate::store;
 
 /// Users may edit for 48 hours; a bot's own messages have no limit.
@@ -119,9 +119,24 @@ impl Content {
         {
             return Err(RpcError::bad_request("REPLY_MARKUP_INVALID"));
         }
+        // A photo's or document's text is its caption: it may be empty, and the media
+        // stays.
+        let has_media = old
+            .media
+            .as_ref()
+            .is_some_and(|m| !matches!(m, enums::MessageMedia::WebPage(_)));
         let (text, entities) = match edit.text.clone() {
             Some(text) => {
-                if text.trim().is_empty() {
+                if has_media {
+                    let max = if ctx.account(editor)?.is_premium {
+                        media::MAX_PREMIUM_CAPTION_LENGTH
+                    } else {
+                        media::MAX_CAPTION_LENGTH
+                    };
+                    if entities::utf16_len(text.trim_end()) as usize > max {
+                        return Err(RpcError::bad_request("MEDIA_CAPTION_TOO_LONG"));
+                    }
+                } else if text.trim().is_empty() {
                     return Err(RpcError::message_empty());
                 }
                 if entities::utf16_len(&text) as usize > messages::MAX_TEXT_LENGTH {
@@ -141,6 +156,7 @@ impl Content {
         };
         // The preview follows the text; a keyboard-only edit keeps it.
         let media = match &edit.text {
+            _ if has_media => old.media.clone(),
             Some(_) if edit.no_webpage => None,
             Some(_) => previews::for_text(&text, entities.as_deref().unwrap_or_default()),
             None => old.media.clone(),

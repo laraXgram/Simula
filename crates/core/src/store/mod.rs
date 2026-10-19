@@ -6,6 +6,7 @@ pub mod bot_commands;
 pub mod channels;
 pub mod chats;
 pub mod dialogs;
+pub mod files;
 pub mod invites;
 pub mod messages;
 pub mod meta;
@@ -24,6 +25,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0005_channels.sql"),
     include_str!("migrations/0006_invites.sql"),
     include_str!("migrations/0007_forums.sql"),
+    include_str!("migrations/0008_files.sql"),
 ];
 
 /// Open (or create) a sandbox database. `None` keeps it in memory, for tests.
