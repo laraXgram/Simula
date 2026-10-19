@@ -16,8 +16,8 @@ replies to other chats and upgrading groups (see worklog)
 
 | | Done | In progress | Planned | Total |
 |---|---:|---:|---:|---:|
-| Milestones | 3 | 1 | 2 | 6 |
-| Tasks, all phases | 22 | 19 | 35 | 76 |
+| Milestones | 3 | 1 | 3 | 7 |
+| Tasks, all phases | 22 | 19 | 45 | 86 |
 
 | Phase | Done | In progress | Planned | |
 |---|---:|---:|---:|---|
@@ -31,6 +31,7 @@ replies to other chats and upgrading groups (see worklog)
 | P7 Testing ecosystem | 0 | 1 | 7 | ▓░░░░░░░░░ |
 | P8 MTProto wire | 0 | 0 | 5 | ░░░░░░░░░░ |
 | P9 Beyond bots | 0 | 0 | 1 | ░░░░░░░░░░ |
+| P10 Plugins | 0 | 0 | 10 | ░░░░░░░░░░ |
 
 █ done · ▓ in progress · ░ planned (bars by share of the phase's tasks)
 
@@ -75,6 +76,10 @@ vertical slice through several phases, so the architecture is exercised end to e
 - [ ] **M5 — media and files** (P2.6, P3.5): `InputFile` pipeline, photos, documents,
   albums, file downloads; media in the client
 - [ ] **M6 — inline mode, polls, reactions, payments** (P2.11, P5.4, P5.7)
+- [ ] **M7 — plugin platform** (P10): the client becomes a plugin host (activity bar,
+  views, panels, commands, status bar); the dev tools (P5.9–P5.12) are written as
+  plugins and installed by default. Comes after the client and server are complete
+  enough (M4–M6), but new client UI is shaped for it from now on
 
 ---
 
@@ -157,6 +162,9 @@ vertical slice through several phases, so the architecture is exercised end to e
 - [ ] P5.6 Mini App host: real webview + emulated `Telegram.WebApp` bridge, signed initData
 - [ ] P5.7 Payments & Stars checkout simulator (shipping, pre-checkout, success/failure)
 - [ ] P5.8 Multi-user: quick act-as switcher and split view (same chat, several users)
+Dev tools P5.9–P5.12 are built as plugins on the plugin platform (P10), bundled and
+installed by default.
+
 - [ ] P5.9 Dev tools: request log, update inspector (TL ⇄ Bot API side by side), webhook console
 - [ ] P5.10 Dev tools: method playground (forms generated from the spec, "copy as curl/PHP/Python/TS")
 - [ ] P5.11 Dev tools: entity/DB browser, fault & clock controls, bot connection status
@@ -195,6 +203,26 @@ vertical slice through several phases, so the architecture is exercised end to e
 
 - [ ] P9.1 Broaden TL coverage towards a full client simulation
 
+## P10 — Plugin platform
+
+Design: [architecture.md § Plugins](docs/architecture.md#plugins).
+
+- [ ] P10.1 Manifest (`simula-plugin.json`) schema, validation, `engines.simula` versioning
+- [ ] P10.2 Shell slots: activity bar, sidebar view containers, bottom panel, status bar,
+  main-area tabs (the chat list becomes the first built-in view)
+- [ ] P10.3 Plugin host: one Web Worker per plugin, typed RPC, activation events,
+  disposables, crash isolation
+- [ ] P10.4 Webviews: sandboxed iframes with the `postMessage` bridge, theming variables
+- [ ] P10.5 `@simula/plugin-api`: Control API, TL calls as the current account, event bus,
+  commands, menus, notifications, storage, settings
+- [ ] P10.6 Server side: `<data-dir>/plugins`, `/_simula/plugins/<id>/` static serving,
+  Control API install / enable / disable / remove
+- [ ] P10.7 Extensions view: browse installed, install from file or URL, enable, disable
+- [ ] P10.8 Built-in plugins: request log, update inspector, webhook console, playground,
+  DB browser, faults and clock, trace export (P5.9–P5.12)
+- [ ] P10.9 Plugin dev kit: `create-simula-plugin` scaffold, dev mode with reload, docs
+- [ ] P10.10 Desktop: plugins in bunium, native menus and notifications contributed by plugins
+
 ## Explicit gaps (answer `501 Not implemented in Simula` today)
 
 Every one of these must end up fully supported; each is listed under the task that
@@ -232,4 +260,5 @@ removes it. A 501 is a placeholder, never a final answer.
 | Testing | UI only | Control API + SDKs + YAML scenarios + recorder |
 | Mini Apps | not rendered | real webview with emulated `Telegram.WebApp` bridge |
 | Debugging | logs, webhook list, diff | + TL ⇄ Bot API inspector, playground, faults, clock, replay, metrics |
+| Extensibility | none | plugin host like VS Code; the dev tools are plugins |
 | Desktop | planned (Electrobun) | bunium, sidecar server |

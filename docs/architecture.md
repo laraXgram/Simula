@@ -141,6 +141,42 @@ REST + WebSocket under `/_simula/v1`, described by a generated OpenAPI document.
 - Desktop builds wrap the same web app in bunium; the Bun main process starts
   `simula-server` as a sidecar and loads the UI over `bunium://`.
 
+## Plugins
+
+The client is a plugin host, in the way VS Code and JetBrains IDEs are: anyone can write
+a plugin, install it, and get an icon in the activity bar with its own views. The dev
+tools (request log, update inspector, webhook console, playground, DB browser, faults
+and clock, trace export) are **plugins too**, bundled and installed by default; they use
+only the public plugin API, so a third-party plugin can do everything they do.
+
+- **Package**: a directory (or a `.simula-plugin` zip of one) with a
+  `simula-plugin.json` manifest — `id` (`publisher.name`), `version`, `displayName`,
+  `icon`, `engines.simula`, `main` (optional background script), `activationEvents`, and
+  `contributes`, VS Code style.
+- **Contribution points**: `activityBar` (an icon in the left bar opening a view
+  container), `views` (inside a container, the sidebar or the bottom panel), `panels`,
+  `commands` (in the command palette, P5.13, with keybindings), `menus` (chat header,
+  message context menu, composer), `statusBar` items, `settings` (a schema; values edited
+  in a generated settings page), `messageRenderers` later.
+- **Runtime**, mirroring VS Code's extension host and webviews: a plugin's `main` runs in
+  its own Web Worker and talks to the host over a typed RPC (`@simula/plugin-api`); views
+  are sandboxed iframes (webviews) that get the same API through a `postMessage` bridge.
+  Plugins never touch the host's DOM or state directly, so a broken plugin can't break
+  the client, and plugins can be written with any web framework.
+- **API surface** (`@simula/plugin-api`, versioned, typed from the generated schemas):
+  the Control API (accounts, act-as, clock, faults, inspection streams), TL calls as the
+  current account, the event bus (RPC calls, updates, deliveries, webhook attempts),
+  commands, notifications, per-plugin storage, the current chat/account selection, and
+  `Disposable`s for everything registered.
+- **Installation**: the server keeps plugins in `<data-dir>/plugins/` and serves them at
+  `/_simula/plugins/<id>/`; the Control API lists, installs (upload or URL), enables,
+  disables and removes them (`/_simula/v1/plugins`); an Extensions view in the client is
+  built on those endpoints. Built-in plugins ship in `plugins/` in this repo, can be
+  disabled but not removed. The desktop app uses the same mechanism.
+- **Shell layout** the host provides: activity bar · sidebar (chat list is the first
+  view) · main area (chats; plugins may open editor-like tabs) · bottom panel · status
+  bar. New client UI is placed with these slots in mind.
+
 ## Identifiers & encodings
 
 - TL `long` is encoded as a JSON string in JSON-TL (64-bit safe for JS); Bot API keeps
