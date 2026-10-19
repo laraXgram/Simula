@@ -5,6 +5,76 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-10-19 — M4 (part 3) · Group upgrades, replies to other chats, forums — M4 done (P2.3, P2.9, P2.10, P3.6, P3.8, P5.3, P5.5)
+
+- **Plugin platform planned** (P10, M7): at the maintainer's request the client becomes
+  a plugin host like VS Code — manifests with contribution points (activity bar, views,
+  panels, commands, menus, status bar, settings), plugin code in Web Workers, views as
+  sandboxed webviews, install / enable / remove through the Control API — and the dev
+  tools (P5.9–P5.12) are written as plugins, installed by default. Client and server
+  come first; new client UI is shaped for the host's slots. See architecture.md §
+  Plugins.
+- **Upgrading a basic group** (`messages.migrateChat`, creator only): a new supergroup
+  with the group's title, description, default permissions and members (its admins
+  keep their rights, not adding admins), invite links and join requests. The group is
+  deactivated with `migrated_to`; members get `messageActionChatMigrateTo` there and
+  `messageActionChannelMigrateFrom` as the supergroup's first message;
+  `channelFull.migrated_from_chat_id` / `migrated_from_max_id`; the old history stays
+  readable. Bot API: `migrate_to_chat_id` / `migrate_from_chat_id`, and writing to the
+  old group answers "Bad Request: group chat was upgraded to a supergroup chat" with
+  `parameters.migrate_to_chat_id`. Client: an upgrade button for the creator, the old
+  group leaves the chat list and opens with "OPEN THE SUPERGROUP", the supergroup links
+  to its earlier history.
+- **Replies to messages in other chats** (`reply_to_peer_id`): the message must be
+  readable and forwardable (`CHAT_FORWARDS_RESTRICTED`); copies carry `reply_from`
+  (author, or channel and post), the link preview as `reply_media`, and the sender's
+  quote or an automatic one (the text's first 1024 UTF-16 units with the entities a
+  quote keeps, as tdlib's `quote_length_max`). Only supergroup and channel messages
+  keep their chat and id. Recipients get the channels such replies name, in updates
+  and every history result. Bot API: `reply_parameters.chat_id` after
+  telegram-bot-api's checks (members only for supergroups and channels, else "message
+  to be replied not found") and tdlib's silent drop for protected messages and a
+  channel's first message; `external_reply` with `MessageOrigin` and the `quote`.
+  Client: "Reply in another chat" with a chat chooser; such replies show their origin
+  and open it when the account can.
+- **Forums** (migration 0007): `createChannel` with `forum`, `toggleForum`,
+  `createForumTopic`, `editForumTopic` (title, icon, closed, General hidden),
+  `deleteTopicHistory`, pinning and reordering topics, `getForumTopics(ByID)`,
+  `getReplies`, `unpinAllMessages` per topic. A topic's id is its creation message;
+  General is 1; messages in topics carry `forum_topic` and the topic, and a reply into
+  another topic gives way to the topic. Rights follow tdlib (`manage_topics` to create,
+  an admin's to edit and pin, the topic's creator for their own; closed topics:
+  `TOPIC_CLOSED`; deleted: `TOPIC_DELETED`). Other supergroups get reply threads:
+  `reply_to_top_id` names where a reply chain starts.
+- **Bot API forums** (48 of 185 methods): the twelve topic methods with tdlib's checks
+  and texts; `message_thread_id` / `is_topic_message` after tdlib's `MessageTopic`
+  (General unnamed, reply threads in supergroups), the six forum service messages,
+  `is_forum` on chats; sending with `message_thread_id` after `check_message_topic`
+  ("message thread not found"). As on Telegram, a message in a topic replies to the
+  topic's `forum_topic_created` message — service messages can be `reply_to_message`
+  now.
+- **Client forums**: forum creation and a topics switch; a forum opens on its topic list
+  (pinned, closed, hidden, newest message, unread); a topic shows only its messages and
+  offers rename, close, pin, delete and hiding General as rights allow.
+- **Codegen**: mutable accessors next to the shared-field getters of TL enums
+  (`MessageEntity::length_mut()`).
+- **Verification**: engine tests for the upgrade, cross-chat replies (automatic quote,
+  private origins, access, protection, history chats), topics (rights, closing,
+  pinning, deleting, `getReplies`, ordering) and reply threads with `toggleForum`;
+  gateway tests for migration errors, `external_reply` both ways, every forum method,
+  topic messages and threads. In headless Chrome with a Telegraf bot: a group answered
+  before and after its upgrade with Bob following; a reply from a channel post into a
+  supergroup read by the bot with its automatic bold-keeping quote, Bob outside the
+  private channel seeing only the origin; a forum where the bot answers inside a
+  topic, General kept apart, the list ordered by activity and Bob facing a closed
+  topic. 164 Rust tests, clippy, biome, typecheck clean; regeneration writes 0 files.
+- Known gaps: topics in private chats with bots and channel direct messages
+  (`direct_messages_topic_id`), `getForumTopicIconStickers` (needs stickers, M5),
+  forums as tabs, `link_preview_options` inside `external_reply`, replies to service
+  messages from another chat (reported as not found), slow mode, banning sender chats,
+  `getExportedChatInvites`.
+- Coverage: Bot API 48/185, TL 58/813.
+
 ## 2026-10-19 — M4 (part 2) · Supergroups, channels, admin rights, pins, invite links (P2.3, P2.4, P2.5, P2.10, P3.8, P5.5)
 
 - **One box per channel** (migration 0005): a supergroup's or channel's message is
