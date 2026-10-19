@@ -24,10 +24,24 @@ impl EncryptedMessage {
         }
     }
 
+    pub fn random_id_mut(&mut self) -> &mut i64 {
+        match self {
+            Self::EncryptedMessage(x) => &mut x.random_id,
+            Self::Service(x) => &mut x.random_id,
+        }
+    }
+
     pub fn chat_id(&self) -> i32 {
         match self {
             Self::EncryptedMessage(x) => x.chat_id,
             Self::Service(x) => x.chat_id,
+        }
+    }
+
+    pub fn chat_id_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::EncryptedMessage(x) => &mut x.chat_id,
+            Self::Service(x) => &mut x.chat_id,
         }
     }
 
@@ -38,10 +52,24 @@ impl EncryptedMessage {
         }
     }
 
+    pub fn date_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::EncryptedMessage(x) => &mut x.date,
+            Self::Service(x) => &mut x.date,
+        }
+    }
+
     pub fn bytes(&self) -> &Vec<u8> {
         match self {
             Self::EncryptedMessage(x) => &x.bytes,
             Self::Service(x) => &x.bytes,
+        }
+    }
+
+    pub fn bytes_mut(&mut self) -> &mut Vec<u8> {
+        match self {
+            Self::EncryptedMessage(x) => &mut x.bytes,
+            Self::Service(x) => &mut x.bytes,
         }
     }
 

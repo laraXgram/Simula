@@ -24,6 +24,13 @@ impl PeerLocated {
         }
     }
 
+    pub fn expires_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::PeerLocated(x) => &mut x.expires,
+            Self::PeerSelfLocated(x) => &mut x.expires,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::PeerLocated(_) => 0xca461b5d,

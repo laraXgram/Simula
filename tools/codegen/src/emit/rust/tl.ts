@@ -512,7 +512,8 @@ const COPY_TYPES = new Set([
 
 /**
  * Accessors for fields every constructor of the type has with the same Rust type, e.g.
- * `MessageEntity::offset()`. Names clashing with the enum's own methods are skipped.
+ * `MessageEntity::offset()` and `MessageEntity::offset_mut()`. Names clashing with the
+ * enum's own methods are skipped.
  */
 function commonAccessors(ctx: TlContext, vs: Variant[]): string {
   if (vs.length < 2 || vs.some((v) => v.unit)) return "";
@@ -530,7 +531,8 @@ function commonAccessors(ctx: TlContext, vs: Variant[]): string {
       const arms = vs
         .map((v) => `Self::${v.name}(x) => ${byValue ? "" : "&"}x.${f.name},`)
         .join("\n");
-      return `    pub fn ${f.name}(&self) -> ${byValue ? f.rust : `&${f.rust}`} {\n        match self {\n${arms}\n        }\n    }\n`;
+      const mutArms = vs.map((v) => `Self::${v.name}(x) => &mut x.${f.name},`).join("\n");
+      return `    pub fn ${f.name}(&self) -> ${byValue ? f.rust : `&${f.rust}`} {\n        match self {\n${arms}\n        }\n    }\n\n    pub fn ${f.name}_mut(&mut self) -> &mut ${f.rust} {\n        match self {\n${mutArms}\n        }\n    }\n`;
     })
     .join("\n");
 }

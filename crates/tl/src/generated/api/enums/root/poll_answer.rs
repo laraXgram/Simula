@@ -24,6 +24,13 @@ impl PollAnswer {
         }
     }
 
+    pub fn text_mut(&mut self) -> &mut crate::generated::api::enums::TextWithEntities {
+        match self {
+            Self::PollAnswer(x) => &mut x.text,
+            Self::InputPollAnswer(x) => &mut x.text,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::PollAnswer(_) => 0x4b7d786a,

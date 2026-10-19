@@ -27,11 +27,27 @@ impl PaymentForm {
         }
     }
 
+    pub fn form_id_mut(&mut self) -> &mut i64 {
+        match self {
+            Self::PaymentForm(x) => &mut x.form_id,
+            Self::Stars(x) => &mut x.form_id,
+            Self::StarGift(x) => &mut x.form_id,
+        }
+    }
+
     pub fn invoice(&self) -> &crate::generated::api::enums::Invoice {
         match self {
             Self::PaymentForm(x) => &x.invoice,
             Self::Stars(x) => &x.invoice,
             Self::StarGift(x) => &x.invoice,
+        }
+    }
+
+    pub fn invoice_mut(&mut self) -> &mut crate::generated::api::enums::Invoice {
+        match self {
+            Self::PaymentForm(x) => &mut x.invoice,
+            Self::Stars(x) => &mut x.invoice,
+            Self::StarGift(x) => &mut x.invoice,
         }
     }
 

@@ -24,10 +24,24 @@ impl PQInnerData {
         }
     }
 
+    pub fn pq_mut(&mut self) -> &mut Vec<u8> {
+        match self {
+            Self::Dc(x) => &mut x.pq,
+            Self::TempDc(x) => &mut x.pq,
+        }
+    }
+
     pub fn p(&self) -> &Vec<u8> {
         match self {
             Self::Dc(x) => &x.p,
             Self::TempDc(x) => &x.p,
+        }
+    }
+
+    pub fn p_mut(&mut self) -> &mut Vec<u8> {
+        match self {
+            Self::Dc(x) => &mut x.p,
+            Self::TempDc(x) => &mut x.p,
         }
     }
 
@@ -38,10 +52,24 @@ impl PQInnerData {
         }
     }
 
+    pub fn q_mut(&mut self) -> &mut Vec<u8> {
+        match self {
+            Self::Dc(x) => &mut x.q,
+            Self::TempDc(x) => &mut x.q,
+        }
+    }
+
     pub fn nonce(&self) -> &[u8; 16] {
         match self {
             Self::Dc(x) => &x.nonce,
             Self::TempDc(x) => &x.nonce,
+        }
+    }
+
+    pub fn nonce_mut(&mut self) -> &mut [u8; 16] {
+        match self {
+            Self::Dc(x) => &mut x.nonce,
+            Self::TempDc(x) => &mut x.nonce,
         }
     }
 
@@ -52,6 +80,13 @@ impl PQInnerData {
         }
     }
 
+    pub fn server_nonce_mut(&mut self) -> &mut [u8; 16] {
+        match self {
+            Self::Dc(x) => &mut x.server_nonce,
+            Self::TempDc(x) => &mut x.server_nonce,
+        }
+    }
+
     pub fn new_nonce(&self) -> &[u8; 32] {
         match self {
             Self::Dc(x) => &x.new_nonce,
@@ -59,10 +94,24 @@ impl PQInnerData {
         }
     }
 
+    pub fn new_nonce_mut(&mut self) -> &mut [u8; 32] {
+        match self {
+            Self::Dc(x) => &mut x.new_nonce,
+            Self::TempDc(x) => &mut x.new_nonce,
+        }
+    }
+
     pub fn dc(&self) -> i32 {
         match self {
             Self::Dc(x) => x.dc,
             Self::TempDc(x) => x.dc,
+        }
+    }
+
+    pub fn dc_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::Dc(x) => &mut x.dc,
+            Self::TempDc(x) => &mut x.dc,
         }
     }
 

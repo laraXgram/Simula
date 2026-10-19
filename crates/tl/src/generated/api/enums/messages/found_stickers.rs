@@ -24,6 +24,13 @@ impl FoundStickers {
         }
     }
 
+    pub fn next_offset_mut(&mut self) -> &mut Option<i32> {
+        match self {
+            Self::NotModified(x) => &mut x.next_offset,
+            Self::FoundStickers(x) => &mut x.next_offset,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::NotModified(_) => 0x6010c534,

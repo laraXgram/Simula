@@ -24,10 +24,24 @@ impl PhoneConnection {
         }
     }
 
+    pub fn id_mut(&mut self) -> &mut i64 {
+        match self {
+            Self::PhoneConnection(x) => &mut x.id,
+            Self::Webrtc(x) => &mut x.id,
+        }
+    }
+
     pub fn ip(&self) -> &String {
         match self {
             Self::PhoneConnection(x) => &x.ip,
             Self::Webrtc(x) => &x.ip,
+        }
+    }
+
+    pub fn ip_mut(&mut self) -> &mut String {
+        match self {
+            Self::PhoneConnection(x) => &mut x.ip,
+            Self::Webrtc(x) => &mut x.ip,
         }
     }
 
@@ -38,10 +52,24 @@ impl PhoneConnection {
         }
     }
 
+    pub fn ipv6_mut(&mut self) -> &mut String {
+        match self {
+            Self::PhoneConnection(x) => &mut x.ipv6,
+            Self::Webrtc(x) => &mut x.ipv6,
+        }
+    }
+
     pub fn port(&self) -> i32 {
         match self {
             Self::PhoneConnection(x) => x.port,
             Self::Webrtc(x) => x.port,
+        }
+    }
+
+    pub fn port_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::PhoneConnection(x) => &mut x.port,
+            Self::Webrtc(x) => &mut x.port,
         }
     }
 

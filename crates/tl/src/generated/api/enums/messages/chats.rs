@@ -24,6 +24,13 @@ impl Chats {
         }
     }
 
+    pub fn chats_mut(&mut self) -> &mut Vec<crate::generated::api::enums::Chat> {
+        match self {
+            Self::Chats(x) => &mut x.chats,
+            Self::Slice(x) => &mut x.chats,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Chats(_) => 0x64ff9fd5,

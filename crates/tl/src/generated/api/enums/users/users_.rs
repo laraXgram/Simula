@@ -24,6 +24,13 @@ impl Users {
         }
     }
 
+    pub fn users_mut(&mut self) -> &mut Vec<crate::generated::api::enums::User> {
+        match self {
+            Self::Users(x) => &mut x.users,
+            Self::Slice(x) => &mut x.users,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Users(_) => 0x62d706b8,

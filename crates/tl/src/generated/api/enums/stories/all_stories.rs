@@ -24,10 +24,24 @@ impl AllStories {
         }
     }
 
+    pub fn state_mut(&mut self) -> &mut String {
+        match self {
+            Self::NotModified(x) => &mut x.state,
+            Self::AllStories(x) => &mut x.state,
+        }
+    }
+
     pub fn stealth_mode(&self) -> &crate::generated::api::enums::StoriesStealthMode {
         match self {
             Self::NotModified(x) => &x.stealth_mode,
             Self::AllStories(x) => &x.stealth_mode,
+        }
+    }
+
+    pub fn stealth_mode_mut(&mut self) -> &mut crate::generated::api::enums::StoriesStealthMode {
+        match self {
+            Self::NotModified(x) => &mut x.stealth_mode,
+            Self::AllStories(x) => &mut x.stealth_mode,
         }
     }
 

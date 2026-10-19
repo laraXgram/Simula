@@ -24,6 +24,13 @@ impl User {
         }
     }
 
+    pub fn id_mut(&mut self) -> &mut i64 {
+        match self {
+            Self::Empty(x) => &mut x.id,
+            Self::User(x) => &mut x.id,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Empty(_) => 0xd3bc4b7a,

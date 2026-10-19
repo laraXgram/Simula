@@ -24,6 +24,13 @@ impl FeaturedStickers {
         }
     }
 
+    pub fn count_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::NotModified(x) => &mut x.count,
+            Self::FeaturedStickers(x) => &mut x.count,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::NotModified(_) => 0xc6dc0c66,

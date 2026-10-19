@@ -27,6 +27,14 @@ impl StoryItem {
         }
     }
 
+    pub fn id_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::Deleted(x) => &mut x.id,
+            Self::Skipped(x) => &mut x.id,
+            Self::StoryItem(x) => &mut x.id,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Deleted(_) => 0x51e6ee4f,

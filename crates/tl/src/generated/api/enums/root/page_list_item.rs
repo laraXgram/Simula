@@ -24,10 +24,24 @@ impl PageListItem {
         }
     }
 
+    pub fn checkbox_mut(&mut self) -> &mut bool {
+        match self {
+            Self::Text(x) => &mut x.checkbox,
+            Self::Blocks(x) => &mut x.checkbox,
+        }
+    }
+
     pub fn checked(&self) -> bool {
         match self {
             Self::Text(x) => x.checked,
             Self::Blocks(x) => x.checked,
+        }
+    }
+
+    pub fn checked_mut(&mut self) -> &mut bool {
+        match self {
+            Self::Text(x) => &mut x.checked,
+            Self::Blocks(x) => &mut x.checked,
         }
     }
 

@@ -24,6 +24,13 @@ impl AiComposeTone {
         }
     }
 
+    pub fn title_mut(&mut self) -> &mut String {
+        match self {
+            Self::AiComposeTone(x) => &mut x.title,
+            Self::Default(x) => &mut x.title,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::AiComposeTone(_) => 0xcff63ea9,

@@ -27,11 +27,27 @@ impl EmojiGroup {
         }
     }
 
+    pub fn title_mut(&mut self) -> &mut String {
+        match self {
+            Self::EmojiGroup(x) => &mut x.title,
+            Self::Greeting(x) => &mut x.title,
+            Self::Premium(x) => &mut x.title,
+        }
+    }
+
     pub fn icon_emoji_id(&self) -> i64 {
         match self {
             Self::EmojiGroup(x) => x.icon_emoji_id,
             Self::Greeting(x) => x.icon_emoji_id,
             Self::Premium(x) => x.icon_emoji_id,
+        }
+    }
+
+    pub fn icon_emoji_id_mut(&mut self) -> &mut i64 {
+        match self {
+            Self::EmojiGroup(x) => &mut x.icon_emoji_id,
+            Self::Greeting(x) => &mut x.icon_emoji_id,
+            Self::Premium(x) => &mut x.icon_emoji_id,
         }
     }
 

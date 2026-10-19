@@ -45,6 +45,20 @@ impl MediaArea {
         }
     }
 
+    pub fn coordinates_mut(&mut self) -> &mut crate::generated::api::enums::MediaAreaCoordinates {
+        match self {
+            Self::Venue(x) => &mut x.coordinates,
+            Self::InputMediaAreaVenue(x) => &mut x.coordinates,
+            Self::GeoPoint(x) => &mut x.coordinates,
+            Self::SuggestedReaction(x) => &mut x.coordinates,
+            Self::ChannelPost(x) => &mut x.coordinates,
+            Self::InputMediaAreaChannelPost(x) => &mut x.coordinates,
+            Self::Url(x) => &mut x.coordinates,
+            Self::Weather(x) => &mut x.coordinates,
+            Self::StarGift(x) => &mut x.coordinates,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Venue(_) => 0xbe82db9c,

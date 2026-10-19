@@ -27,11 +27,27 @@ impl SetClientDHParamsAnswer {
         }
     }
 
+    pub fn nonce_mut(&mut self) -> &mut [u8; 16] {
+        match self {
+            Self::DhGenOk(x) => &mut x.nonce,
+            Self::DhGenRetry(x) => &mut x.nonce,
+            Self::DhGenFail(x) => &mut x.nonce,
+        }
+    }
+
     pub fn server_nonce(&self) -> &[u8; 16] {
         match self {
             Self::DhGenOk(x) => &x.server_nonce,
             Self::DhGenRetry(x) => &x.server_nonce,
             Self::DhGenFail(x) => &x.server_nonce,
+        }
+    }
+
+    pub fn server_nonce_mut(&mut self) -> &mut [u8; 16] {
+        match self {
+            Self::DhGenOk(x) => &mut x.server_nonce,
+            Self::DhGenRetry(x) => &mut x.server_nonce,
+            Self::DhGenFail(x) => &mut x.server_nonce,
         }
     }
 

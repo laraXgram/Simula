@@ -24,10 +24,24 @@ impl SavedDialog {
         }
     }
 
+    pub fn peer_mut(&mut self) -> &mut crate::generated::api::enums::Peer {
+        match self {
+            Self::SavedDialog(x) => &mut x.peer,
+            Self::MonoForumDialog(x) => &mut x.peer,
+        }
+    }
+
     pub fn top_message(&self) -> i32 {
         match self {
             Self::SavedDialog(x) => x.top_message,
             Self::MonoForumDialog(x) => x.top_message,
+        }
+    }
+
+    pub fn top_message_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::SavedDialog(x) => &mut x.top_message,
+            Self::MonoForumDialog(x) => &mut x.top_message,
         }
     }
 

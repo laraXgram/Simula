@@ -24,6 +24,13 @@ impl DhConfig {
         }
     }
 
+    pub fn random_mut(&mut self) -> &mut Vec<u8> {
+        match self {
+            Self::NotModified(x) => &mut x.random,
+            Self::DhConfig(x) => &mut x.random,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::NotModified(_) => 0xc0e24635,

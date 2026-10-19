@@ -36,6 +36,17 @@ impl PhoneCall {
         }
     }
 
+    pub fn id_mut(&mut self) -> &mut i64 {
+        match self {
+            Self::Empty(x) => &mut x.id,
+            Self::Waiting(x) => &mut x.id,
+            Self::Requested(x) => &mut x.id,
+            Self::Accepted(x) => &mut x.id,
+            Self::PhoneCall(x) => &mut x.id,
+            Self::Discarded(x) => &mut x.id,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Empty(_) => 0x5366c915,

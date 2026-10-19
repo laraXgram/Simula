@@ -24,6 +24,13 @@ impl PostInteractionCounters {
         }
     }
 
+    pub fn views_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::Message(x) => &mut x.views,
+            Self::Story(x) => &mut x.views,
+        }
+    }
+
     pub fn forwards(&self) -> i32 {
         match self {
             Self::Message(x) => x.forwards,
@@ -31,10 +38,24 @@ impl PostInteractionCounters {
         }
     }
 
+    pub fn forwards_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::Message(x) => &mut x.forwards,
+            Self::Story(x) => &mut x.forwards,
+        }
+    }
+
     pub fn reactions(&self) -> i32 {
         match self {
             Self::Message(x) => x.reactions,
             Self::Story(x) => x.reactions,
+        }
+    }
+
+    pub fn reactions_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::Message(x) => &mut x.reactions,
+            Self::Story(x) => &mut x.reactions,
         }
     }
 

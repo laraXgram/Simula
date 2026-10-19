@@ -27,6 +27,14 @@ impl RequestedPeer {
         }
     }
 
+    pub fn photo_mut(&mut self) -> &mut Option<crate::generated::api::enums::Photo> {
+        match self {
+            Self::User(x) => &mut x.photo,
+            Self::Chat(x) => &mut x.photo,
+            Self::Channel(x) => &mut x.photo,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::User(_) => 0xd62ff46a,

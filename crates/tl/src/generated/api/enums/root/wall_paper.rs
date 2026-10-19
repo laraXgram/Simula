@@ -24,10 +24,24 @@ impl WallPaper {
         }
     }
 
+    pub fn id_mut(&mut self) -> &mut i64 {
+        match self {
+            Self::WallPaper(x) => &mut x.id,
+            Self::NoFile(x) => &mut x.id,
+        }
+    }
+
     pub fn default(&self) -> bool {
         match self {
             Self::WallPaper(x) => x.default,
             Self::NoFile(x) => x.default,
+        }
+    }
+
+    pub fn default_mut(&mut self) -> &mut bool {
+        match self {
+            Self::WallPaper(x) => &mut x.default,
+            Self::NoFile(x) => &mut x.default,
         }
     }
 
@@ -38,10 +52,24 @@ impl WallPaper {
         }
     }
 
+    pub fn dark_mut(&mut self) -> &mut bool {
+        match self {
+            Self::WallPaper(x) => &mut x.dark,
+            Self::NoFile(x) => &mut x.dark,
+        }
+    }
+
     pub fn settings(&self) -> &Option<crate::generated::api::enums::WallPaperSettings> {
         match self {
             Self::WallPaper(x) => &x.settings,
             Self::NoFile(x) => &x.settings,
+        }
+    }
+
+    pub fn settings_mut(&mut self) -> &mut Option<crate::generated::api::enums::WallPaperSettings> {
+        match self {
+            Self::WallPaper(x) => &mut x.settings,
+            Self::NoFile(x) => &mut x.settings,
         }
     }
 

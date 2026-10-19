@@ -24,10 +24,24 @@ impl WebDocument {
         }
     }
 
+    pub fn url_mut(&mut self) -> &mut String {
+        match self {
+            Self::WebDocument(x) => &mut x.url,
+            Self::NoProxy(x) => &mut x.url,
+        }
+    }
+
     pub fn size(&self) -> i32 {
         match self {
             Self::WebDocument(x) => x.size,
             Self::NoProxy(x) => x.size,
+        }
+    }
+
+    pub fn size_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::WebDocument(x) => &mut x.size,
+            Self::NoProxy(x) => &mut x.size,
         }
     }
 
@@ -38,10 +52,24 @@ impl WebDocument {
         }
     }
 
+    pub fn mime_type_mut(&mut self) -> &mut String {
+        match self {
+            Self::WebDocument(x) => &mut x.mime_type,
+            Self::NoProxy(x) => &mut x.mime_type,
+        }
+    }
+
     pub fn attributes(&self) -> &Vec<crate::generated::api::enums::DocumentAttribute> {
         match self {
             Self::WebDocument(x) => &x.attributes,
             Self::NoProxy(x) => &x.attributes,
+        }
+    }
+
+    pub fn attributes_mut(&mut self) -> &mut Vec<crate::generated::api::enums::DocumentAttribute> {
+        match self {
+            Self::WebDocument(x) => &mut x.attributes,
+            Self::NoProxy(x) => &mut x.attributes,
         }
     }
 

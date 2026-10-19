@@ -24,10 +24,24 @@ impl StarGiftAuctionRound {
         }
     }
 
+    pub fn num_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::StarGiftAuctionRound(x) => &mut x.num,
+            Self::Extendable(x) => &mut x.num,
+        }
+    }
+
     pub fn duration(&self) -> i32 {
         match self {
             Self::StarGiftAuctionRound(x) => x.duration,
             Self::Extendable(x) => x.duration,
+        }
+    }
+
+    pub fn duration_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::StarGiftAuctionRound(x) => &mut x.duration,
+            Self::Extendable(x) => &mut x.duration,
         }
     }
 

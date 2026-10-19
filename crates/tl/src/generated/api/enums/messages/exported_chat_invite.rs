@@ -24,10 +24,24 @@ impl ExportedChatInvite {
         }
     }
 
+    pub fn invite_mut(&mut self) -> &mut crate::generated::api::enums::ExportedChatInvite {
+        match self {
+            Self::ExportedChatInvite(x) => &mut x.invite,
+            Self::Replaced(x) => &mut x.invite,
+        }
+    }
+
     pub fn users(&self) -> &Vec<crate::generated::api::enums::User> {
         match self {
             Self::ExportedChatInvite(x) => &x.users,
             Self::Replaced(x) => &x.users,
+        }
+    }
+
+    pub fn users_mut(&mut self) -> &mut Vec<crate::generated::api::enums::User> {
+        match self {
+            Self::ExportedChatInvite(x) => &mut x.users,
+            Self::Replaced(x) => &mut x.users,
         }
     }
 

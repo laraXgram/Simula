@@ -24,6 +24,13 @@ impl InputRichFile {
         }
     }
 
+    pub fn id_mut(&mut self) -> &mut String {
+        match self {
+            Self::Photo(x) => &mut x.id,
+            Self::Document(x) => &mut x.id,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Photo(_) => 0x9b00622b,

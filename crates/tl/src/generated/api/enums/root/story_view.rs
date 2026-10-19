@@ -27,11 +27,27 @@ impl StoryView {
         }
     }
 
+    pub fn blocked_mut(&mut self) -> &mut bool {
+        match self {
+            Self::StoryView(x) => &mut x.blocked,
+            Self::PublicForward(x) => &mut x.blocked,
+            Self::PublicRepost(x) => &mut x.blocked,
+        }
+    }
+
     pub fn blocked_my_stories_from(&self) -> bool {
         match self {
             Self::StoryView(x) => x.blocked_my_stories_from,
             Self::PublicForward(x) => x.blocked_my_stories_from,
             Self::PublicRepost(x) => x.blocked_my_stories_from,
+        }
+    }
+
+    pub fn blocked_my_stories_from_mut(&mut self) -> &mut bool {
+        match self {
+            Self::StoryView(x) => &mut x.blocked_my_stories_from,
+            Self::PublicForward(x) => &mut x.blocked_my_stories_from,
+            Self::PublicRepost(x) => &mut x.blocked_my_stories_from,
         }
     }
 

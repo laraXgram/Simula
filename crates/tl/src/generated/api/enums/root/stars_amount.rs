@@ -24,6 +24,13 @@ impl StarsAmount {
         }
     }
 
+    pub fn amount_mut(&mut self) -> &mut i64 {
+        match self {
+            Self::StarsAmount(x) => &mut x.amount,
+            Self::StarsTonAmount(x) => &mut x.amount,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::StarsAmount(_) => 0xbbb6b4a3,

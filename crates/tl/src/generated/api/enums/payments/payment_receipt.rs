@@ -24,10 +24,24 @@ impl PaymentReceipt {
         }
     }
 
+    pub fn date_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::PaymentReceipt(x) => &mut x.date,
+            Self::Stars(x) => &mut x.date,
+        }
+    }
+
     pub fn bot_id(&self) -> i64 {
         match self {
             Self::PaymentReceipt(x) => x.bot_id,
             Self::Stars(x) => x.bot_id,
+        }
+    }
+
+    pub fn bot_id_mut(&mut self) -> &mut i64 {
+        match self {
+            Self::PaymentReceipt(x) => &mut x.bot_id,
+            Self::Stars(x) => &mut x.bot_id,
         }
     }
 
@@ -38,10 +52,24 @@ impl PaymentReceipt {
         }
     }
 
+    pub fn title_mut(&mut self) -> &mut String {
+        match self {
+            Self::PaymentReceipt(x) => &mut x.title,
+            Self::Stars(x) => &mut x.title,
+        }
+    }
+
     pub fn description(&self) -> &String {
         match self {
             Self::PaymentReceipt(x) => &x.description,
             Self::Stars(x) => &x.description,
+        }
+    }
+
+    pub fn description_mut(&mut self) -> &mut String {
+        match self {
+            Self::PaymentReceipt(x) => &mut x.description,
+            Self::Stars(x) => &mut x.description,
         }
     }
 
@@ -52,10 +80,24 @@ impl PaymentReceipt {
         }
     }
 
+    pub fn photo_mut(&mut self) -> &mut Option<crate::generated::api::enums::WebDocument> {
+        match self {
+            Self::PaymentReceipt(x) => &mut x.photo,
+            Self::Stars(x) => &mut x.photo,
+        }
+    }
+
     pub fn invoice(&self) -> &crate::generated::api::enums::Invoice {
         match self {
             Self::PaymentReceipt(x) => &x.invoice,
             Self::Stars(x) => &x.invoice,
+        }
+    }
+
+    pub fn invoice_mut(&mut self) -> &mut crate::generated::api::enums::Invoice {
+        match self {
+            Self::PaymentReceipt(x) => &mut x.invoice,
+            Self::Stars(x) => &mut x.invoice,
         }
     }
 
@@ -66,6 +108,13 @@ impl PaymentReceipt {
         }
     }
 
+    pub fn currency_mut(&mut self) -> &mut String {
+        match self {
+            Self::PaymentReceipt(x) => &mut x.currency,
+            Self::Stars(x) => &mut x.currency,
+        }
+    }
+
     pub fn total_amount(&self) -> i64 {
         match self {
             Self::PaymentReceipt(x) => x.total_amount,
@@ -73,10 +122,24 @@ impl PaymentReceipt {
         }
     }
 
+    pub fn total_amount_mut(&mut self) -> &mut i64 {
+        match self {
+            Self::PaymentReceipt(x) => &mut x.total_amount,
+            Self::Stars(x) => &mut x.total_amount,
+        }
+    }
+
     pub fn users(&self) -> &Vec<crate::generated::api::enums::User> {
         match self {
             Self::PaymentReceipt(x) => &x.users,
             Self::Stars(x) => &x.users,
+        }
+    }
+
+    pub fn users_mut(&mut self) -> &mut Vec<crate::generated::api::enums::User> {
+        match self {
+            Self::PaymentReceipt(x) => &mut x.users,
+            Self::Stars(x) => &mut x.users,
         }
     }
 

@@ -27,11 +27,27 @@ impl ChatParticipant {
         }
     }
 
+    pub fn user_id_mut(&mut self) -> &mut i64 {
+        match self {
+            Self::ChatParticipant(x) => &mut x.user_id,
+            Self::Creator(x) => &mut x.user_id,
+            Self::Admin(x) => &mut x.user_id,
+        }
+    }
+
     pub fn rank(&self) -> &Option<String> {
         match self {
             Self::ChatParticipant(x) => &x.rank,
             Self::Creator(x) => &x.rank,
             Self::Admin(x) => &x.rank,
+        }
+    }
+
+    pub fn rank_mut(&mut self) -> &mut Option<String> {
+        match self {
+            Self::ChatParticipant(x) => &mut x.rank,
+            Self::Creator(x) => &mut x.rank,
+            Self::Admin(x) => &mut x.rank,
         }
     }
 

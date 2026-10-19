@@ -24,6 +24,13 @@ impl InputSecureFile {
         }
     }
 
+    pub fn id_mut(&mut self) -> &mut i64 {
+        match self {
+            Self::Uploaded(x) => &mut x.id,
+            Self::InputSecureFile(x) => &mut x.id,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Uploaded(_) => 0x3334b0f0,

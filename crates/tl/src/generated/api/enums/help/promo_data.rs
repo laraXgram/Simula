@@ -24,6 +24,13 @@ impl PromoData {
         }
     }
 
+    pub fn expires_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::Empty(x) => &mut x.expires,
+            Self::PromoData(x) => &mut x.expires,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Empty(_) => 0x98f6ac75,

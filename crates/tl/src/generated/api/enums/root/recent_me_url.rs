@@ -33,6 +33,16 @@ impl RecentMeUrl {
         }
     }
 
+    pub fn url_mut(&mut self) -> &mut String {
+        match self {
+            Self::Unknown(x) => &mut x.url,
+            Self::User(x) => &mut x.url,
+            Self::Chat(x) => &mut x.url,
+            Self::ChatInvite(x) => &mut x.url,
+            Self::StickerSet(x) => &mut x.url,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Unknown(_) => 0x46e1d13d,

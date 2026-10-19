@@ -93,6 +93,36 @@ impl MessageEntity {
         }
     }
 
+    pub fn offset_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::Unknown(x) => &mut x.offset,
+            Self::Mention(x) => &mut x.offset,
+            Self::Hashtag(x) => &mut x.offset,
+            Self::BotCommand(x) => &mut x.offset,
+            Self::Url(x) => &mut x.offset,
+            Self::Email(x) => &mut x.offset,
+            Self::Bold(x) => &mut x.offset,
+            Self::Italic(x) => &mut x.offset,
+            Self::Code(x) => &mut x.offset,
+            Self::Pre(x) => &mut x.offset,
+            Self::TextUrl(x) => &mut x.offset,
+            Self::MentionName(x) => &mut x.offset,
+            Self::InputMessageEntityMentionName(x) => &mut x.offset,
+            Self::Phone(x) => &mut x.offset,
+            Self::Cashtag(x) => &mut x.offset,
+            Self::Underline(x) => &mut x.offset,
+            Self::Strike(x) => &mut x.offset,
+            Self::BankCard(x) => &mut x.offset,
+            Self::Spoiler(x) => &mut x.offset,
+            Self::CustomEmoji(x) => &mut x.offset,
+            Self::Blockquote(x) => &mut x.offset,
+            Self::FormattedDate(x) => &mut x.offset,
+            Self::DiffInsert(x) => &mut x.offset,
+            Self::DiffReplace(x) => &mut x.offset,
+            Self::DiffDelete(x) => &mut x.offset,
+        }
+    }
+
     pub fn length(&self) -> i32 {
         match self {
             Self::Unknown(x) => x.length,
@@ -120,6 +150,36 @@ impl MessageEntity {
             Self::DiffInsert(x) => x.length,
             Self::DiffReplace(x) => x.length,
             Self::DiffDelete(x) => x.length,
+        }
+    }
+
+    pub fn length_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::Unknown(x) => &mut x.length,
+            Self::Mention(x) => &mut x.length,
+            Self::Hashtag(x) => &mut x.length,
+            Self::BotCommand(x) => &mut x.length,
+            Self::Url(x) => &mut x.length,
+            Self::Email(x) => &mut x.length,
+            Self::Bold(x) => &mut x.length,
+            Self::Italic(x) => &mut x.length,
+            Self::Code(x) => &mut x.length,
+            Self::Pre(x) => &mut x.length,
+            Self::TextUrl(x) => &mut x.length,
+            Self::MentionName(x) => &mut x.length,
+            Self::InputMessageEntityMentionName(x) => &mut x.length,
+            Self::Phone(x) => &mut x.length,
+            Self::Cashtag(x) => &mut x.length,
+            Self::Underline(x) => &mut x.length,
+            Self::Strike(x) => &mut x.length,
+            Self::BankCard(x) => &mut x.length,
+            Self::Spoiler(x) => &mut x.length,
+            Self::CustomEmoji(x) => &mut x.length,
+            Self::Blockquote(x) => &mut x.length,
+            Self::FormattedDate(x) => &mut x.length,
+            Self::DiffInsert(x) => &mut x.length,
+            Self::DiffReplace(x) => &mut x.length,
+            Self::DiffDelete(x) => &mut x.length,
         }
     }
 

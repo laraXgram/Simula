@@ -24,10 +24,24 @@ impl ChatlistInvite {
         }
     }
 
+    pub fn chats_mut(&mut self) -> &mut Vec<crate::generated::api::enums::Chat> {
+        match self {
+            Self::Already(x) => &mut x.chats,
+            Self::ChatlistInvite(x) => &mut x.chats,
+        }
+    }
+
     pub fn users(&self) -> &Vec<crate::generated::api::enums::User> {
         match self {
             Self::Already(x) => &x.users,
             Self::ChatlistInvite(x) => &x.users,
+        }
+    }
+
+    pub fn users_mut(&mut self) -> &mut Vec<crate::generated::api::enums::User> {
+        match self {
+            Self::Already(x) => &mut x.users,
+            Self::ChatlistInvite(x) => &mut x.users,
         }
     }
 

@@ -27,11 +27,27 @@ impl ChannelDifference {
         }
     }
 
+    pub fn r#final_mut(&mut self) -> &mut bool {
+        match self {
+            Self::Empty(x) => &mut x.r#final,
+            Self::TooLong(x) => &mut x.r#final,
+            Self::ChannelDifference(x) => &mut x.r#final,
+        }
+    }
+
     pub fn timeout(&self) -> Option<i32> {
         match self {
             Self::Empty(x) => x.timeout,
             Self::TooLong(x) => x.timeout,
             Self::ChannelDifference(x) => x.timeout,
+        }
+    }
+
+    pub fn timeout_mut(&mut self) -> &mut Option<i32> {
+        match self {
+            Self::Empty(x) => &mut x.timeout,
+            Self::TooLong(x) => &mut x.timeout,
+            Self::ChannelDifference(x) => &mut x.timeout,
         }
     }
 

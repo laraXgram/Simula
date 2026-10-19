@@ -24,6 +24,13 @@ impl EmailVerified {
         }
     }
 
+    pub fn email_mut(&mut self) -> &mut String {
+        match self {
+            Self::EmailVerified(x) => &mut x.email,
+            Self::Login(x) => &mut x.email,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::EmailVerified(_) => 0x2b96cd1b,

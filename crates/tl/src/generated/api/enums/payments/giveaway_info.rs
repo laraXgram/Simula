@@ -24,6 +24,13 @@ impl GiveawayInfo {
         }
     }
 
+    pub fn start_date_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::GiveawayInfo(x) => &mut x.start_date,
+            Self::Results(x) => &mut x.start_date,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::GiveawayInfo(_) => 0x4367daa0,

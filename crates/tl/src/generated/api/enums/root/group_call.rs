@@ -24,10 +24,24 @@ impl GroupCall {
         }
     }
 
+    pub fn id_mut(&mut self) -> &mut i64 {
+        match self {
+            Self::Discarded(x) => &mut x.id,
+            Self::GroupCall(x) => &mut x.id,
+        }
+    }
+
     pub fn access_hash(&self) -> i64 {
         match self {
             Self::Discarded(x) => x.access_hash,
             Self::GroupCall(x) => x.access_hash,
+        }
+    }
+
+    pub fn access_hash_mut(&mut self) -> &mut i64 {
+        match self {
+            Self::Discarded(x) => &mut x.access_hash,
+            Self::GroupCall(x) => &mut x.access_hash,
         }
     }
 

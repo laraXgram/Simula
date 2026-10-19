@@ -24,6 +24,13 @@ impl Document {
         }
     }
 
+    pub fn id_mut(&mut self) -> &mut i64 {
+        match self {
+            Self::Empty(x) => &mut x.id,
+            Self::Document(x) => &mut x.id,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Empty(_) => 0x36f8c871,

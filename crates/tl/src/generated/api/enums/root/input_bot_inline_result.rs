@@ -30,12 +30,30 @@ impl InputBotInlineResult {
         }
     }
 
+    pub fn id_mut(&mut self) -> &mut String {
+        match self {
+            Self::InputBotInlineResult(x) => &mut x.id,
+            Self::Photo(x) => &mut x.id,
+            Self::Document(x) => &mut x.id,
+            Self::Game(x) => &mut x.id,
+        }
+    }
+
     pub fn send_message(&self) -> &crate::generated::api::enums::InputBotInlineMessage {
         match self {
             Self::InputBotInlineResult(x) => &x.send_message,
             Self::Photo(x) => &x.send_message,
             Self::Document(x) => &x.send_message,
             Self::Game(x) => &x.send_message,
+        }
+    }
+
+    pub fn send_message_mut(&mut self) -> &mut crate::generated::api::enums::InputBotInlineMessage {
+        match self {
+            Self::InputBotInlineResult(x) => &mut x.send_message,
+            Self::Photo(x) => &mut x.send_message,
+            Self::Document(x) => &mut x.send_message,
+            Self::Game(x) => &mut x.send_message,
         }
     }
 

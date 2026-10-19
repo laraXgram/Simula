@@ -24,10 +24,24 @@ impl Photos {
         }
     }
 
+    pub fn photos_mut(&mut self) -> &mut Vec<crate::generated::api::enums::Photo> {
+        match self {
+            Self::Photos(x) => &mut x.photos,
+            Self::Slice(x) => &mut x.photos,
+        }
+    }
+
     pub fn users(&self) -> &Vec<crate::generated::api::enums::User> {
         match self {
             Self::Photos(x) => &x.users,
             Self::Slice(x) => &x.users,
+        }
+    }
+
+    pub fn users_mut(&mut self) -> &mut Vec<crate::generated::api::enums::User> {
+        match self {
+            Self::Photos(x) => &mut x.users,
+            Self::Slice(x) => &mut x.users,
         }
     }
 

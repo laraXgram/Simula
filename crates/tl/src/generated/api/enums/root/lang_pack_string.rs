@@ -27,6 +27,14 @@ impl LangPackString {
         }
     }
 
+    pub fn key_mut(&mut self) -> &mut String {
+        match self {
+            Self::LangPackString(x) => &mut x.key,
+            Self::Pluralized(x) => &mut x.key,
+            Self::Deleted(x) => &mut x.key,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::LangPackString(_) => 0xcad181f6,

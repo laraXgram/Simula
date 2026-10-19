@@ -24,10 +24,24 @@ impl PageListOrderedItem {
         }
     }
 
+    pub fn checkbox_mut(&mut self) -> &mut bool {
+        match self {
+            Self::Text(x) => &mut x.checkbox,
+            Self::Blocks(x) => &mut x.checkbox,
+        }
+    }
+
     pub fn checked(&self) -> bool {
         match self {
             Self::Text(x) => x.checked,
             Self::Blocks(x) => x.checked,
+        }
+    }
+
+    pub fn checked_mut(&mut self) -> &mut bool {
+        match self {
+            Self::Text(x) => &mut x.checked,
+            Self::Blocks(x) => &mut x.checked,
         }
     }
 
@@ -38,6 +52,13 @@ impl PageListOrderedItem {
         }
     }
 
+    pub fn num_mut(&mut self) -> &mut Option<String> {
+        match self {
+            Self::Text(x) => &mut x.num,
+            Self::Blocks(x) => &mut x.num,
+        }
+    }
+
     pub fn value(&self) -> Option<i32> {
         match self {
             Self::Text(x) => x.value,
@@ -45,10 +66,24 @@ impl PageListOrderedItem {
         }
     }
 
+    pub fn value_mut(&mut self) -> &mut Option<i32> {
+        match self {
+            Self::Text(x) => &mut x.value,
+            Self::Blocks(x) => &mut x.value,
+        }
+    }
+
     pub fn r#type(&self) -> &Option<String> {
         match self {
             Self::Text(x) => &x.r#type,
             Self::Blocks(x) => &x.r#type,
+        }
+    }
+
+    pub fn r#type_mut(&mut self) -> &mut Option<String> {
+        match self {
+            Self::Text(x) => &mut x.r#type,
+            Self::Blocks(x) => &mut x.r#type,
         }
     }
 

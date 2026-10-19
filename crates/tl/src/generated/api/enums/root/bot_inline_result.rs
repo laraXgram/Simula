@@ -24,10 +24,24 @@ impl BotInlineResult {
         }
     }
 
+    pub fn id_mut(&mut self) -> &mut String {
+        match self {
+            Self::BotInlineResult(x) => &mut x.id,
+            Self::BotInlineMediaResult(x) => &mut x.id,
+        }
+    }
+
     pub fn r#type(&self) -> &String {
         match self {
             Self::BotInlineResult(x) => &x.r#type,
             Self::BotInlineMediaResult(x) => &x.r#type,
+        }
+    }
+
+    pub fn r#type_mut(&mut self) -> &mut String {
+        match self {
+            Self::BotInlineResult(x) => &mut x.r#type,
+            Self::BotInlineMediaResult(x) => &mut x.r#type,
         }
     }
 
@@ -38,6 +52,13 @@ impl BotInlineResult {
         }
     }
 
+    pub fn title_mut(&mut self) -> &mut Option<String> {
+        match self {
+            Self::BotInlineResult(x) => &mut x.title,
+            Self::BotInlineMediaResult(x) => &mut x.title,
+        }
+    }
+
     pub fn description(&self) -> &Option<String> {
         match self {
             Self::BotInlineResult(x) => &x.description,
@@ -45,10 +66,24 @@ impl BotInlineResult {
         }
     }
 
+    pub fn description_mut(&mut self) -> &mut Option<String> {
+        match self {
+            Self::BotInlineResult(x) => &mut x.description,
+            Self::BotInlineMediaResult(x) => &mut x.description,
+        }
+    }
+
     pub fn send_message(&self) -> &crate::generated::api::enums::BotInlineMessage {
         match self {
             Self::BotInlineResult(x) => &x.send_message,
             Self::BotInlineMediaResult(x) => &x.send_message,
+        }
+    }
+
+    pub fn send_message_mut(&mut self) -> &mut crate::generated::api::enums::BotInlineMessage {
+        match self {
+            Self::BotInlineResult(x) => &mut x.send_message,
+            Self::BotInlineMediaResult(x) => &mut x.send_message,
         }
     }
 

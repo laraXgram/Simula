@@ -24,6 +24,13 @@ impl SentEncryptedMessage {
         }
     }
 
+    pub fn date_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::SentEncryptedMessage(x) => &mut x.date,
+            Self::SentEncryptedFile(x) => &mut x.date,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::SentEncryptedMessage(_) => 0x560f8935,

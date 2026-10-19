@@ -45,6 +45,20 @@ impl SecureValueError {
         }
     }
 
+    pub fn r#type_mut(&mut self) -> &mut crate::generated::api::enums::SecureValueType {
+        match self {
+            Self::Data(x) => &mut x.r#type,
+            Self::FrontSide(x) => &mut x.r#type,
+            Self::ReverseSide(x) => &mut x.r#type,
+            Self::Selfie(x) => &mut x.r#type,
+            Self::File(x) => &mut x.r#type,
+            Self::Files(x) => &mut x.r#type,
+            Self::SecureValueError(x) => &mut x.r#type,
+            Self::TranslationFile(x) => &mut x.r#type,
+            Self::TranslationFiles(x) => &mut x.r#type,
+        }
+    }
+
     pub fn text(&self) -> &String {
         match self {
             Self::Data(x) => &x.text,
@@ -56,6 +70,20 @@ impl SecureValueError {
             Self::SecureValueError(x) => &x.text,
             Self::TranslationFile(x) => &x.text,
             Self::TranslationFiles(x) => &x.text,
+        }
+    }
+
+    pub fn text_mut(&mut self) -> &mut String {
+        match self {
+            Self::Data(x) => &mut x.text,
+            Self::FrontSide(x) => &mut x.text,
+            Self::ReverseSide(x) => &mut x.text,
+            Self::Selfie(x) => &mut x.text,
+            Self::File(x) => &mut x.text,
+            Self::Files(x) => &mut x.text,
+            Self::SecureValueError(x) => &mut x.text,
+            Self::TranslationFile(x) => &mut x.text,
+            Self::TranslationFiles(x) => &mut x.text,
         }
     }
 

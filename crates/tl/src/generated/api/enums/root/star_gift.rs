@@ -24,6 +24,13 @@ impl StarGift {
         }
     }
 
+    pub fn require_premium_mut(&mut self) -> &mut bool {
+        match self {
+            Self::StarGift(x) => &mut x.require_premium,
+            Self::Unique(x) => &mut x.require_premium,
+        }
+    }
+
     pub fn id(&self) -> i64 {
         match self {
             Self::StarGift(x) => x.id,
@@ -31,10 +38,24 @@ impl StarGift {
         }
     }
 
+    pub fn id_mut(&mut self) -> &mut i64 {
+        match self {
+            Self::StarGift(x) => &mut x.id,
+            Self::Unique(x) => &mut x.id,
+        }
+    }
+
     pub fn released_by(&self) -> &Option<crate::generated::api::enums::Peer> {
         match self {
             Self::StarGift(x) => &x.released_by,
             Self::Unique(x) => &x.released_by,
+        }
+    }
+
+    pub fn released_by_mut(&mut self) -> &mut Option<crate::generated::api::enums::Peer> {
+        match self {
+            Self::StarGift(x) => &mut x.released_by,
+            Self::Unique(x) => &mut x.released_by,
         }
     }
 

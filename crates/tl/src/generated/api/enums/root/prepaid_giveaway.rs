@@ -24,6 +24,13 @@ impl PrepaidGiveaway {
         }
     }
 
+    pub fn id_mut(&mut self) -> &mut i64 {
+        match self {
+            Self::PrepaidGiveaway(x) => &mut x.id,
+            Self::PrepaidStarsGiveaway(x) => &mut x.id,
+        }
+    }
+
     pub fn quantity(&self) -> i32 {
         match self {
             Self::PrepaidGiveaway(x) => x.quantity,
@@ -31,10 +38,24 @@ impl PrepaidGiveaway {
         }
     }
 
+    pub fn quantity_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::PrepaidGiveaway(x) => &mut x.quantity,
+            Self::PrepaidStarsGiveaway(x) => &mut x.quantity,
+        }
+    }
+
     pub fn date(&self) -> i32 {
         match self {
             Self::PrepaidGiveaway(x) => x.date,
             Self::PrepaidStarsGiveaway(x) => x.date,
+        }
+    }
+
+    pub fn date_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::PrepaidGiveaway(x) => &mut x.date,
+            Self::PrepaidStarsGiveaway(x) => &mut x.date,
         }
     }
 

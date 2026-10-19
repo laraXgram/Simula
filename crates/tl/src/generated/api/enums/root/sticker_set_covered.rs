@@ -30,6 +30,15 @@ impl StickerSetCovered {
         }
     }
 
+    pub fn set_mut(&mut self) -> &mut crate::generated::api::enums::StickerSet {
+        match self {
+            Self::StickerSetCovered(x) => &mut x.set,
+            Self::StickerSetMultiCovered(x) => &mut x.set,
+            Self::StickerSetFullCovered(x) => &mut x.set,
+            Self::StickerSetNoCovered(x) => &mut x.set,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::StickerSetCovered(_) => 0x6410a5d2,

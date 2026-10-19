@@ -27,11 +27,27 @@ impl ChatFull {
         }
     }
 
+    pub fn id_mut(&mut self) -> &mut i64 {
+        match self {
+            Self::ChatFull(x) => &mut x.id,
+            Self::ChannelFull(x) => &mut x.id,
+            Self::CommunityFull(x) => &mut x.id,
+        }
+    }
+
     pub fn about(&self) -> &String {
         match self {
             Self::ChatFull(x) => &x.about,
             Self::ChannelFull(x) => &x.about,
             Self::CommunityFull(x) => &x.about,
+        }
+    }
+
+    pub fn about_mut(&mut self) -> &mut String {
+        match self {
+            Self::ChatFull(x) => &mut x.about,
+            Self::ChannelFull(x) => &mut x.about,
+            Self::CommunityFull(x) => &mut x.about,
         }
     }
 

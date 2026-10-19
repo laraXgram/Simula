@@ -45,6 +45,20 @@ impl InputBotInlineMessage {
         }
     }
 
+    pub fn reply_markup_mut(&mut self) -> &mut Option<crate::generated::api::enums::ReplyMarkup> {
+        match self {
+            Self::MediaAuto(x) => &mut x.reply_markup,
+            Self::Text(x) => &mut x.reply_markup,
+            Self::MediaGeo(x) => &mut x.reply_markup,
+            Self::MediaVenue(x) => &mut x.reply_markup,
+            Self::MediaContact(x) => &mut x.reply_markup,
+            Self::Game(x) => &mut x.reply_markup,
+            Self::MediaInvoice(x) => &mut x.reply_markup,
+            Self::MediaWebPage(x) => &mut x.reply_markup,
+            Self::RichMessage(x) => &mut x.reply_markup,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::MediaAuto(_) => 0x3380c786,

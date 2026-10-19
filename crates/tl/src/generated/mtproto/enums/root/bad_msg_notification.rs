@@ -24,6 +24,13 @@ impl BadMsgNotification {
         }
     }
 
+    pub fn bad_msg_id_mut(&mut self) -> &mut i64 {
+        match self {
+            Self::BadMsgNotification(x) => &mut x.bad_msg_id,
+            Self::BadServerSalt(x) => &mut x.bad_msg_id,
+        }
+    }
+
     pub fn bad_msg_seqno(&self) -> i32 {
         match self {
             Self::BadMsgNotification(x) => x.bad_msg_seqno,
@@ -31,10 +38,24 @@ impl BadMsgNotification {
         }
     }
 
+    pub fn bad_msg_seqno_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::BadMsgNotification(x) => &mut x.bad_msg_seqno,
+            Self::BadServerSalt(x) => &mut x.bad_msg_seqno,
+        }
+    }
+
     pub fn error_code(&self) -> i32 {
         match self {
             Self::BadMsgNotification(x) => x.error_code,
             Self::BadServerSalt(x) => x.error_code,
+        }
+    }
+
+    pub fn error_code_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::BadMsgNotification(x) => &mut x.error_code,
+            Self::BadServerSalt(x) => &mut x.error_code,
         }
     }
 

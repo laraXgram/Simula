@@ -36,6 +36,17 @@ impl PhotoSize {
         }
     }
 
+    pub fn r#type_mut(&mut self) -> &mut String {
+        match self {
+            Self::Empty(x) => &mut x.r#type,
+            Self::PhotoSize(x) => &mut x.r#type,
+            Self::PhotoCachedSize(x) => &mut x.r#type,
+            Self::PhotoStrippedSize(x) => &mut x.r#type,
+            Self::Progressive(x) => &mut x.r#type,
+            Self::PhotoPathSize(x) => &mut x.r#type,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Empty(_) => 0x0e17e23c,

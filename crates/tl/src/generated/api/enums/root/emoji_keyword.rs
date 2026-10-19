@@ -24,10 +24,24 @@ impl EmojiKeyword {
         }
     }
 
+    pub fn keyword_mut(&mut self) -> &mut String {
+        match self {
+            Self::EmojiKeyword(x) => &mut x.keyword,
+            Self::Deleted(x) => &mut x.keyword,
+        }
+    }
+
     pub fn emoticons(&self) -> &Vec<String> {
         match self {
             Self::EmojiKeyword(x) => &x.emoticons,
             Self::Deleted(x) => &x.emoticons,
+        }
+    }
+
+    pub fn emoticons_mut(&mut self) -> &mut Vec<String> {
+        match self {
+            Self::EmojiKeyword(x) => &mut x.emoticons,
+            Self::Deleted(x) => &mut x.emoticons,
         }
     }
 

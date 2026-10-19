@@ -33,6 +33,16 @@ impl EncryptedChat {
         }
     }
 
+    pub fn id_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::Empty(x) => &mut x.id,
+            Self::Waiting(x) => &mut x.id,
+            Self::Requested(x) => &mut x.id,
+            Self::EncryptedChat(x) => &mut x.id,
+            Self::Discarded(x) => &mut x.id,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Empty(_) => 0xab7ec0a0,

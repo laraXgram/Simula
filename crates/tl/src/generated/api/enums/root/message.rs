@@ -27,6 +27,14 @@ impl Message {
         }
     }
 
+    pub fn id_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::Empty(x) => &mut x.id,
+            Self::Message(x) => &mut x.id,
+            Self::Service(x) => &mut x.id,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Empty(_) => 0x90a6ca84,

@@ -24,6 +24,13 @@ impl InputPasskeyResponse {
         }
     }
 
+    pub fn client_data_mut(&mut self) -> &mut crate::generated::api::enums::DataJSON {
+        match self {
+            Self::Register(x) => &mut x.client_data,
+            Self::Login(x) => &mut x.client_data,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Register(_) => 0x3e63935c,

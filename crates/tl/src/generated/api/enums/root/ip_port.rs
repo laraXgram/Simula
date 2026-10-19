@@ -24,10 +24,24 @@ impl IpPort {
         }
     }
 
+    pub fn ipv4_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::IpPort(x) => &mut x.ipv4,
+            Self::Secret(x) => &mut x.ipv4,
+        }
+    }
+
     pub fn port(&self) -> i32 {
         match self {
             Self::IpPort(x) => x.port,
             Self::Secret(x) => x.port,
+        }
+    }
+
+    pub fn port_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::IpPort(x) => &mut x.port,
+            Self::Secret(x) => &mut x.port,
         }
     }
 

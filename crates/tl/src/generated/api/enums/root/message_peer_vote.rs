@@ -27,11 +27,27 @@ impl MessagePeerVote {
         }
     }
 
+    pub fn peer_mut(&mut self) -> &mut crate::generated::api::enums::Peer {
+        match self {
+            Self::MessagePeerVote(x) => &mut x.peer,
+            Self::InputOption(x) => &mut x.peer,
+            Self::Multiple(x) => &mut x.peer,
+        }
+    }
+
     pub fn date(&self) -> i32 {
         match self {
             Self::MessagePeerVote(x) => x.date,
             Self::InputOption(x) => x.date,
             Self::Multiple(x) => x.date,
+        }
+    }
+
+    pub fn date_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::MessagePeerVote(x) => &mut x.date,
+            Self::InputOption(x) => &mut x.date,
+            Self::Multiple(x) => &mut x.date,
         }
     }
 

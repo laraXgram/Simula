@@ -27,11 +27,27 @@ impl InputRichMessage {
         }
     }
 
+    pub fn rtl_mut(&mut self) -> &mut bool {
+        match self {
+            Self::InputRichMessage(x) => &mut x.rtl,
+            Self::HTML(x) => &mut x.rtl,
+            Self::Markdown(x) => &mut x.rtl,
+        }
+    }
+
     pub fn noautolink(&self) -> bool {
         match self {
             Self::InputRichMessage(x) => x.noautolink,
             Self::HTML(x) => x.noautolink,
             Self::Markdown(x) => x.noautolink,
+        }
+    }
+
+    pub fn noautolink_mut(&mut self) -> &mut bool {
+        match self {
+            Self::InputRichMessage(x) => &mut x.noautolink,
+            Self::HTML(x) => &mut x.noautolink,
+            Self::Markdown(x) => &mut x.noautolink,
         }
     }
 

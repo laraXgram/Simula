@@ -24,6 +24,13 @@ impl TermsOfServiceUpdate {
         }
     }
 
+    pub fn expires_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::Empty(x) => &mut x.expires,
+            Self::TermsOfServiceUpdate(x) => &mut x.expires,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Empty(_) => 0xe3309f7f,

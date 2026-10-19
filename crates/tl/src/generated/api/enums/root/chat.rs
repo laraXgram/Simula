@@ -39,6 +39,18 @@ impl Chat {
         }
     }
 
+    pub fn id_mut(&mut self) -> &mut i64 {
+        match self {
+            Self::Empty(x) => &mut x.id,
+            Self::Chat(x) => &mut x.id,
+            Self::Forbidden(x) => &mut x.id,
+            Self::Channel(x) => &mut x.id,
+            Self::ChannelForbidden(x) => &mut x.id,
+            Self::CommunityForbidden(x) => &mut x.id,
+            Self::Community(x) => &mut x.id,
+        }
+    }
+
     pub fn constructor_id(&self) -> u32 {
         match self {
             Self::Empty(_) => 0x29562865,

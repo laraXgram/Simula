@@ -24,6 +24,13 @@ impl MsgDetailedInfo {
         }
     }
 
+    pub fn answer_msg_id_mut(&mut self) -> &mut i64 {
+        match self {
+            Self::MsgDetailedInfo(x) => &mut x.answer_msg_id,
+            Self::MsgNewDetailedInfo(x) => &mut x.answer_msg_id,
+        }
+    }
+
     pub fn bytes(&self) -> i32 {
         match self {
             Self::MsgDetailedInfo(x) => x.bytes,
@@ -31,10 +38,24 @@ impl MsgDetailedInfo {
         }
     }
 
+    pub fn bytes_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::MsgDetailedInfo(x) => &mut x.bytes,
+            Self::MsgNewDetailedInfo(x) => &mut x.bytes,
+        }
+    }
+
     pub fn status(&self) -> i32 {
         match self {
             Self::MsgDetailedInfo(x) => x.status,
             Self::MsgNewDetailedInfo(x) => x.status,
+        }
+    }
+
+    pub fn status_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::MsgDetailedInfo(x) => &mut x.status,
+            Self::MsgNewDetailedInfo(x) => &mut x.status,
         }
     }
 

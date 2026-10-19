@@ -24,10 +24,24 @@ impl InputBotInlineMessageID {
         }
     }
 
+    pub fn dc_id_mut(&mut self) -> &mut i32 {
+        match self {
+            Self::InputBotInlineMessageID(x) => &mut x.dc_id,
+            Self::InputBotInlineMessageID64(x) => &mut x.dc_id,
+        }
+    }
+
     pub fn access_hash(&self) -> i64 {
         match self {
             Self::InputBotInlineMessageID(x) => x.access_hash,
             Self::InputBotInlineMessageID64(x) => x.access_hash,
+        }
+    }
+
+    pub fn access_hash_mut(&mut self) -> &mut i64 {
+        match self {
+            Self::InputBotInlineMessageID(x) => &mut x.access_hash,
+            Self::InputBotInlineMessageID64(x) => &mut x.access_hash,
         }
     }
 
