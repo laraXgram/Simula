@@ -13,7 +13,7 @@ use simula_tl::{enums, types};
 use crate::ctx::Ctx;
 use crate::error::{RpcError, RpcResult};
 use crate::ids::{ChannelId, Peer, UserId};
-use crate::services::{channels, peers};
+use crate::services::{channels, forums, peers};
 use crate::store;
 
 /// A checked reply target, independent of whose box it is rendered for.
@@ -25,6 +25,10 @@ pub struct Target {
     quote: Option<Quote>,
     author: Option<UserId>,
     external: Option<External>,
+    /// Supergroups: the reply is in a forum topic (`forum_topic`), and the topic or
+    /// thread it is in when that isn't the replied message (`reply_to_top_id`).
+    forum_topic: bool,
+    top: Option<i32>,
 }
 
 /// A replied message from another chat.
@@ -84,37 +88,74 @@ pub fn resolve(
     if let Some(input) = &reply.reply_to_peer_id {
         let source = peers::resolve_input_peer(ctx, sender, input)?;
         if source != peer {
-            return external(ctx, sender, source, reply).map(Some);
+            let mut target = external(ctx, sender, source, reply)?;
+            // From inside a forum topic, the reply stays in the topic.
+            if let (Peer::Channel(channel), Some(topic)) = (peer, reply.top_msg_id)
+                && forums::is_forum(&channels::get(ctx, channel)?)
+                && topic != forums::GENERAL
+            {
+                target.forum_topic = true;
+                target.top = Some(topic);
+            }
+            return Ok(Some(target));
         }
     }
-    let found = match peer {
-        Peer::Channel(channel) => store::channels::message(ctx.db, channel, reply.reply_to_msg_id)?
-            .and_then(|stored| match stored.message {
-                enums::Message::Message(m) => Some((i64::from(m.id), *m)),
-                _ => None,
-            }),
-        _ => store::messages::get_in(ctx.db, sender, peer, reply.reply_to_msg_id)?,
-    };
-    let Some((global_id, replied)) = found else {
+    if let Peer::Channel(channel) = peer {
+        return in_channel(ctx, channel, reply).map(Some);
+    }
+    let Some((global_id, replied)) =
+        store::messages::get_in(ctx.db, sender, peer, reply.reply_to_msg_id)?
+    else {
         return Err(RpcError::bad_request("REPLY_MESSAGE_ID_INVALID"));
     };
     let quote = manual_quote(reply, &replied)?;
-    let author = match peer {
-        Peer::Channel(channel) => {
-            store::channels::message(ctx.db, channel, replied.id)?.map(|stored| stored.author)
-        }
-        _ => match replied.from_id.as_ref().map(Peer::from_tl) {
-            Some(Peer::User(user)) => Some(user),
-            _ => None,
-        },
+    let author = match replied.from_id.as_ref().map(Peer::from_tl) {
+        Some(Peer::User(user)) => Some(user),
+        _ => None,
     };
     Ok(Some(Target {
         global_id,
-        in_channel: matches!(peer, Peer::Channel(_)),
+        in_channel: false,
         quote,
         author,
         external: None,
+        forum_topic: false,
+        top: None,
     }))
+}
+
+/// A reply in a supergroup or channel, placed in its forum topic or thread. Writing
+/// into a topic replies to the topic's creation message, which stands for the topic.
+fn in_channel(
+    ctx: &Ctx<'_>,
+    id: ChannelId,
+    reply: &types::InputReplyToMessage,
+) -> RpcResult<Target> {
+    let channel = channels::get(ctx, id)?;
+    let (forum_topic, top, replied) =
+        forums::place_reply(ctx, &channel, reply.reply_to_msg_id, reply.top_msg_id)?;
+    if forum_topic && store::topics::get(ctx.db, id, top.unwrap_or(replied))?.is_none() {
+        return Err(RpcError::bad_request("TOPIC_DELETED"));
+    }
+    let Some(stored) = store::channels::message(ctx.db, id, replied)? else {
+        return Err(RpcError::bad_request("REPLY_MESSAGE_ID_INVALID"));
+    };
+    let (quote, author) = match &stored.message {
+        enums::Message::Message(m) => (manual_quote(reply, m)?, Some(stored.author)),
+        enums::Message::Service(s) if matches!(s.action, enums::MessageAction::TopicCreate(_)) => {
+            (None, None)
+        }
+        _ => return Err(RpcError::bad_request("REPLY_MESSAGE_ID_INVALID")),
+    };
+    Ok(Target {
+        global_id: i64::from(replied),
+        in_channel: true,
+        quote,
+        author,
+        external: None,
+        forum_topic,
+        top,
+    })
 }
 
 /// The sender's quote of `replied`, located in its text.
@@ -211,6 +252,8 @@ fn external(
             from,
             media: replied.media.clone(),
         }),
+        forum_topic: false,
+        top: None,
     })
 }
 
@@ -271,6 +314,8 @@ pub fn header(
                 .map(|(channel, _)| Peer::Channel(channel).to_tl()),
             reply_to_msg_id: external.channel_message.map(|(_, id)| id),
             reply_from: Some(external.from.clone().into()),
+            forum_topic: target.forum_topic,
+            reply_to_top_id: target.top,
             reply_media: external.media.clone(),
             quote: quote.is_some_and(|q| q.manual),
             quote_text: quote.map(|q| q.text.clone()),
@@ -287,6 +332,8 @@ pub fn header(
         } else {
             store::messages::copy_id(ctx.db, owner, target.global_id)?
         },
+        forum_topic: target.forum_topic,
+        reply_to_top_id: target.top,
         quote: quote.is_some(),
         quote_text: quote.map(|q| q.text.clone()),
         quote_entities: quote.and_then(|q| (!q.entities.is_empty()).then(|| q.entities.clone())),

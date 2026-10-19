@@ -338,11 +338,13 @@ pub struct Stored {
     pub message: enums::Message,
 }
 
+/// Store a new message; `thread` is its topic or reply chain (see `services::forums`).
 pub fn insert_message(
     conn: &Connection,
     channel: ChannelId,
     author: UserId,
     random_id: Option<i64>,
+    thread: Option<i32>,
     message: &enums::Message,
 ) -> rusqlite::Result<()> {
     let (id, date) = match message {
@@ -351,15 +353,16 @@ pub fn insert_message(
         enums::Message::Empty(m) => (m.id, 0),
     };
     conn.execute(
-        "INSERT INTO channel_messages (channel_id, id, author_id, date, random_id, body)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO channel_messages (channel_id, id, author_id, date, random_id, body, thread_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             channel.0,
             id,
             author.0,
             date,
             random_id,
-            serde_json::to_string(message).expect("TL message serializes")
+            serde_json::to_string(message).expect("TL message serializes"),
+            thread
         ],
     )?;
     Ok(())

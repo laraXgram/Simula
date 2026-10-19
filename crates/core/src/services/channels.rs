@@ -10,7 +10,7 @@ use simula_tl::{enums, types};
 use crate::ctx::Ctx;
 use crate::error::{RpcError, RpcResult};
 use crate::ids::{ChannelId, Peer, UserId};
-use crate::services::{accounts, channel_messages, chats, rights, updates};
+use crate::services::{accounts, channel_messages, chats, forums, rights, updates};
 use crate::store::{
     self,
     channels::{Channel, Member, Status},
@@ -577,6 +577,25 @@ pub fn post_service_replying(
     also: &[UserId],
     reply_to: Option<i32>,
 ) -> RpcResult<()> {
+    let header = reply_to.map(|id| {
+        types::MessageReplyHeader {
+            reply_to_msg_id: Some(id),
+            ..Default::default()
+        }
+        .into()
+    });
+    post_service_with(ctx, channel, actor, action, also, header).map(|_| ())
+}
+
+/// [`post_service`] with any reply header (a forum topic's); returns the message id.
+pub fn post_service_with(
+    ctx: &mut Ctx<'_>,
+    channel: &Channel,
+    actor: UserId,
+    action: enums::MessageAction,
+    also: &[UserId],
+    reply_to: Option<enums::MessageReplyHeader>,
+) -> RpcResult<i32> {
     let mut recipients: Vec<UserId> = store::channels::current_members(ctx.db, channel.id)?
         .into_iter()
         .map(|m| m.user)
@@ -588,24 +607,20 @@ pub fn post_service_replying(
     }
     let mut mentions = vec![actor];
     mentions.extend(chats::action_users(&action));
+    let id = store::channels::next_message_id(ctx.db, channel.id)?;
     let message: enums::Message = types::MessageService {
         post: channel.broadcast,
-        id: store::channels::next_message_id(ctx.db, channel.id)?,
+        id,
         from_id: (!channel.broadcast).then(|| Peer::User(actor).to_tl()),
         peer_id: Peer::Channel(channel.id).to_tl(),
-        reply_to: reply_to.map(|id| {
-            types::MessageReplyHeader {
-                reply_to_msg_id: Some(id),
-                ..Default::default()
-            }
-            .into()
-        }),
+        reply_to,
         date: ctx.now(),
         action,
         ..Default::default()
     }
     .into();
-    store::channels::insert_message(ctx.db, channel.id, actor, None, &message)?;
+    let thread = forums::thread_of(channel, &message);
+    store::channels::insert_message(ctx.db, channel.id, actor, None, thread, &message)?;
     updates::push_channel(
         ctx,
         channel.id,
@@ -621,7 +636,7 @@ pub fn post_service_replying(
             .into()
         },
     )?;
-    Ok(())
+    Ok(id)
 }
 
 /// After `user`'s status changed: their clients get `updateChannel`; the bot itself

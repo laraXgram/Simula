@@ -37,33 +37,42 @@ pub const IMPLEMENTED: &[&str] = &[
     "channels.joinChannel",
     "channels.leaveChannel",
     "channels.readHistory",
+    "channels.toggleForum",
     "channels.updateUsername",
     "contacts.resolveUsername",
     "messages.addChatUser",
     "messages.checkChatInvite",
     "messages.createChat",
+    "messages.createForumTopic",
     "messages.deleteChatUser",
     "messages.deleteMessages",
+    "messages.deleteTopicHistory",
     "messages.editChatAbout",
     "messages.editChatDefaultBannedRights",
     "messages.editChatTitle",
     "messages.editExportedChatInvite",
+    "messages.editForumTopic",
     "messages.editMessage",
     "messages.exportChatInvite",
     "messages.getBotCallbackAnswer",
     "messages.getChats",
     "messages.getDialogs",
+    "messages.getForumTopicsByID",
+    "messages.getForumTopics",
     "messages.getFullChat",
     "messages.getHistory",
     "messages.getMessages",
+    "messages.getReplies",
     "messages.hideChatJoinRequest",
     "messages.importChatInvite",
     "messages.migrateChat",
     "messages.readHistory",
+    "messages.reorderPinnedForumTopics",
     "messages.sendMessage",
     "messages.setBotCallbackAnswer",
     "messages.startBot",
     "messages.unpinAllMessages",
+    "messages.updatePinnedForumTopic",
     "messages.updatePinnedMessage",
     "updates.getState",
     "users.getFullUser",
@@ -112,6 +121,8 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::ChannelsReadHistory(call) => channels::read_history::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::ChannelsToggleForum(call) => channels::toggle_forum::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::ChannelsUpdateUsername(call) => channels::update_username::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::ContactsResolveUsername(call) => contacts::resolve_username::handle(ctx, *call)
@@ -123,10 +134,18 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
         Function::MessagesCreateChat(call) => {
             messages::create_chat::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
         }
+        Function::MessagesCreateForumTopic(call) => {
+            messages::create_forum_topic::handle(ctx, *call)
+                .map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
         Function::MessagesDeleteChatUser(call) => messages::delete_chat_user::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesDeleteMessages(call) => messages::delete_messages::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::MessagesDeleteTopicHistory(call) => {
+            messages::delete_topic_history::handle(ctx, *call)
+                .map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
         Function::MessagesEditChatAbout(call) => messages::edit_chat_about::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesEditChatDefaultBannedRights(call) => {
@@ -139,6 +158,8 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
             messages::edit_exported_chat_invite::handle(ctx, *call)
                 .map(|reply| Box::new(reply) as Box<dyn Reply>)
         }
+        Function::MessagesEditForumTopic(call) => messages::edit_forum_topic::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesEditMessage(call) => messages::edit_message::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesExportChatInvite(call) => {
@@ -155,6 +176,12 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
         Function::MessagesGetDialogs(call) => {
             messages::get_dialogs::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
         }
+        Function::MessagesGetForumTopicsByID(call) => {
+            messages::get_forum_topics_by_id::handle(ctx, *call)
+                .map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
+        Function::MessagesGetForumTopics(call) => messages::get_forum_topics::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesGetFullChat(call) => messages::get_full_chat::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesGetHistory(call) => {
@@ -162,6 +189,9 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
         }
         Function::MessagesGetMessages(call) => messages::get_messages::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::MessagesGetReplies(call) => {
+            messages::get_replies::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
         Function::MessagesHideChatJoinRequest(call) => {
             messages::hide_chat_join_request::handle(ctx, *call)
                 .map(|reply| Box::new(reply) as Box<dyn Reply>)
@@ -174,6 +204,10 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesReadHistory(call) => messages::read_history::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::MessagesReorderPinnedForumTopics(call) => {
+            messages::reorder_pinned_forum_topics::handle(ctx, *call)
+                .map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
         Function::MessagesSendMessage(call) => messages::send_message::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesSetBotCallbackAnswer(call) => {
@@ -185,6 +219,10 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
         }
         Function::MessagesUnpinAllMessages(call) => {
             messages::unpin_all_messages::handle(ctx, *call)
+                .map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
+        Function::MessagesUpdatePinnedForumTopic(call) => {
+            messages::update_pinned_forum_topic::handle(ctx, *call)
                 .map(|reply| Box::new(reply) as Box<dyn Reply>)
         }
         Function::MessagesUpdatePinnedMessage(call) => {

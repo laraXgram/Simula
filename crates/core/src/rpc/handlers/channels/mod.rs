@@ -15,4 +15,5 @@ pub mod invite_to_channel;
 pub mod join_channel;
 pub mod leave_channel;
 pub mod read_history;
+pub mod toggle_forum;
 pub mod update_username;

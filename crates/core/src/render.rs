@@ -156,6 +156,7 @@ pub fn channel(
         left: !status.is_some_and(Status::is_member),
         broadcast: channel.broadcast,
         megagroup: !channel.broadcast,
+        forum: crate::services::forums::is_forum(channel),
         id: channel.id.0,
         access_hash: Some(access_hash),
         title: channel.title.clone(),

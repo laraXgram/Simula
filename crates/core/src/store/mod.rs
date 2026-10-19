@@ -9,6 +9,7 @@ pub mod dialogs;
 pub mod invites;
 pub mod messages;
 pub mod meta;
+pub mod topics;
 pub mod updates;
 
 use std::path::Path;
@@ -22,6 +23,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0004_chats.sql"),
     include_str!("migrations/0005_channels.sql"),
     include_str!("migrations/0006_invites.sql"),
+    include_str!("migrations/0007_forums.sql"),
 ];
 
 /// Open (or create) a sandbox database. `None` keeps it in memory, for tests.

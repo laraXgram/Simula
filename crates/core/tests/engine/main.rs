@@ -7,6 +7,7 @@ mod callbacks;
 mod channels;
 mod dialogs;
 mod edit_delete;
+mod forums;
 mod groups;
 mod pins;
 mod private_chat;

@@ -8,7 +8,7 @@ use simula_tl::{enums, types};
 use crate::ctx::Ctx;
 use crate::error::{RpcError, RpcResult};
 use crate::ids::{ChannelId, Peer, UserId};
-use crate::services::{channels, chats, rights, service_messages, updates};
+use crate::services::{channels, chats, forums, rights, service_messages, updates};
 use crate::store::{self, chats::Role};
 
 pub struct Pin {
@@ -26,14 +26,35 @@ pub fn pin(ctx: &mut Ctx<'_>, actor: UserId, peer: Peer, id: i32, pin: Pin) -> R
     }
 }
 
-/// Unpin everything in the dialog; returns the caller's `(pts, pts_count)`.
-pub fn unpin_all(ctx: &mut Ctx<'_>, actor: UserId, peer: Peer) -> RpcResult<(i32, i32)> {
+/// Unpin everything in the dialog (or in one forum topic); returns the caller's
+/// `(pts, pts_count)`.
+pub fn unpin_all(
+    ctx: &mut Ctx<'_>,
+    actor: UserId,
+    peer: Peer,
+    topic: Option<i32>,
+) -> RpcResult<(i32, i32)> {
     let ids = match peer {
         Peer::Channel(channel) => {
             let found = channels::get(ctx, channel)?;
             check_channel_right(ctx, &found, actor)?;
-            store::channels::pinned_ids(ctx.db, channel)?
+            let mut ids = store::channels::pinned_ids(ctx.db, channel)?;
+            if let Some(topic) = topic {
+                if !forums::is_forum(&found) {
+                    return Err(RpcError::bad_request("CHANNEL_FORUM_MISSING"));
+                }
+                let mut kept = Vec::new();
+                for id in ids {
+                    let thread = store::topics::thread_of(ctx.db, channel, id)?;
+                    if thread.unwrap_or(forums::GENERAL) == topic {
+                        kept.push(id);
+                    }
+                }
+                ids = kept;
+            }
+            ids
         }
+        _ if topic.is_some() => return Err(RpcError::bad_request("CHANNEL_FORUM_MISSING")),
         _ => {
             check_box_right(ctx, actor, peer)?;
             store::messages::pinned_ids(ctx.db, actor, peer)?
@@ -173,13 +194,21 @@ fn pin_in_channel(
         .into()
     })?;
     if !pin.unpin {
-        channels::post_service_replying(
+        // The notice goes where the pinned message is (its forum topic or thread).
+        let (forum_topic, top, _) = forums::place_reply(ctx, &channel, message_id, None)?;
+        let header = types::MessageReplyHeader {
+            forum_topic,
+            reply_to_msg_id: Some(message_id),
+            reply_to_top_id: top,
+            ..Default::default()
+        };
+        channels::post_service_with(
             ctx,
             &channel,
             actor,
             types::MessageActionPinMessage {}.into(),
             &[],
-            Some(message_id),
+            Some(header.into()),
         )?;
     }
     Ok(())

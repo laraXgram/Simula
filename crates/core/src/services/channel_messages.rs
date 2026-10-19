@@ -12,7 +12,7 @@ use crate::ctx::Ctx;
 use crate::error::{RpcError, RpcResult};
 use crate::ids::{ChannelId, Peer, UserId};
 use crate::services::{
-    channels, dialogs, edits, group_messages, messages, replies, rights, updates,
+    channels, dialogs, edits, forums, group_messages, messages, replies, rights, updates,
 };
 use crate::store::{self, channels::Channel};
 
@@ -102,7 +102,9 @@ pub fn send(
         ..Default::default()
     };
     let stored: enums::Message = message.clone().into();
-    store::channels::insert_message(ctx.db, id, from, out.random_id, &stored)?;
+    let thread = forums::thread_of(&channel, &stored);
+    forums::check_can_post(ctx, &channel, &sender, thread)?;
+    store::channels::insert_message(ctx.db, id, from, out.random_id, thread, &stored)?;
     let mut mentioned = BTreeSet::new();
     for &recipient in &recipients {
         if recipient != from && messages::mentions(ctx, &prepared, recipient)? {
@@ -388,6 +390,17 @@ pub fn delete(
             deleted.push(message_id);
         }
     }
+    remove(ctx, &channel, deleted)
+}
+
+/// Delete `deleted` (checked already) for everyone; returns the channel's
+/// `(pts, pts_count)`.
+pub(crate) fn remove(
+    ctx: &mut Ctx<'_>,
+    channel: &Channel,
+    deleted: Vec<i32>,
+) -> RpcResult<(i32, i32)> {
+    let id = channel.id;
     if deleted.is_empty() {
         return Ok((channel.pts, 0));
     }
@@ -395,7 +408,7 @@ pub fn delete(
         store::channels::delete_message(ctx.db, id, message_id)?;
     }
     let count = deleted.len() as i32;
-    let recipients = recipients(ctx, &channel)?;
+    let recipients = recipients(ctx, channel)?;
     let pts = updates::push_channel(ctx, id, count, &recipients, &[], |_, pts, pts_count| {
         types::UpdateDeleteChannelMessages {
             channel_id: id.0,
