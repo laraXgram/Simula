@@ -63,6 +63,15 @@ export function describeService(
       return message.post
         ? `Channel «${action.title}» created`
         : `${who} created the group «${action.title}»`;
+    case "messageActionTopicCreate":
+      return `${who} created the topic «${action.title}»`;
+    case "messageActionTopicEdit":
+      if (action.closed !== undefined)
+        return action.closed ? `${who} closed the topic` : `${who} reopened the topic`;
+      if (action.hidden !== undefined)
+        return action.hidden ? `${who} hid the topic` : `${who} unhid the topic`;
+      if (action.title !== undefined) return `${who} renamed the topic to «${action.title}»`;
+      return `${who} changed the topic icon`;
     case "messageActionChatMigrateTo":
       return "The group was upgraded to a supergroup";
     case "messageActionChannelMigrateFrom":

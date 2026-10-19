@@ -8,11 +8,13 @@ import type { Client } from "../state/client";
 import type { DeepLink } from "../state/links";
 import { displayName } from "../state/peers";
 import type { AnyChat, AnyMessage, ChatDetails, Snapshot } from "../state/store";
+import { GENERAL, isForum, topicOf, topicRights } from "../state/topics";
 import { chatTitle } from "./ChatChooser";
 import { Composer, type Draft } from "./Composer";
 import { Message, type MessageActions } from "./Message";
 import { activeMarkup, ReplyKeyboard } from "./ReplyKeyboard";
 import { ServiceMessage } from "./ServiceMessage";
+import { TopicList } from "./TopicList";
 
 export type Notify = (text: string, options?: { alert?: boolean }) => void;
 
@@ -53,7 +55,19 @@ export function ChatView({
   const rights = chatRights(group);
   const dialog = snapshot.dialogs.find((d) => d.key === chatKey);
   const byId = snapshot.messages.get(chatKey);
-  const all = useMemo(() => [...(byId?.values() ?? [])].sort((a, b) => a.id - b.id), [byId]);
+  // Forums show their topics first; an open topic shows only its messages.
+  const forum = isForum(group);
+  const [topic, setTopic] = useState<number | undefined>();
+  const topics = snapshot.topics.get(chatKey) ?? [];
+  const openTopic = forum ? topics.find((t) => t.id === topic) : undefined;
+  const topicVersion = snapshot.topicsVersion.get(chatKey) ?? 0;
+  const all = useMemo(
+    () =>
+      [...(byId?.values() ?? [])]
+        .filter((m) => !forum || topic === undefined || topicOf(m) === topic)
+        .sort((a, b) => a.id - b.id),
+    [byId, forum, topic],
+  );
   const messages = useMemo(() => all.filter(isRegular), [all]);
   const [draft, setDraft] = useState<Draft>({});
   const [dismissed, setDismissed] = useState<Set<number>>(new Set());
@@ -69,11 +83,27 @@ export function ChatView({
     setDraft({});
     setLoaded(false);
     setReachedStart(false);
+    setTopic(undefined);
     client
       .openChat(chatKey)
       .then(() => setLoaded(true))
       .catch((error: Error) => notify(error.message));
   }, [client, chatKey, notify]);
+
+  // A forum's topics while they are listed, again whenever they or their messages change.
+  const listing = forum && topic === undefined;
+  const top = dialog?.top;
+  useEffect(() => {
+    if (listing && topicVersion >= 0 && top !== -1)
+      client.loadTopics(chatKey).catch(() => undefined);
+  }, [client, chatKey, listing, topicVersion, top]);
+
+  useEffect(() => {
+    if (!forum || topic === undefined) return;
+    setDraft({});
+    setReachedStart(false);
+    client.openTopic(chatKey, topic).catch((error: Error) => notify(error.message));
+  }, [client, chatKey, forum, topic, notify]);
 
   // Older messages appear above without moving what the reader is looking at.
   const oldest = all[0]?.id;
@@ -97,7 +127,7 @@ export function ChatView({
     loadingOlder.current = true;
     anchor.current = { height: element.scrollHeight, top: element.scrollTop };
     client
-      .loadOlder(chatKey, oldest)
+      .loadOlder(chatKey, oldest, forum ? topic : undefined)
       .then((count) => {
         if (count === 0) setReachedStart(true);
       })
@@ -143,9 +173,10 @@ export function ChatView({
           text,
           replyTo: external.message.id,
           replyIn: external.from,
+          topic,
         });
         onExternalReplyDone();
-      } else await client.send(chatKey, { text, replyTo: replyTo?.id });
+      } else await client.send(chatKey, { text, replyTo: replyTo?.id, topic });
       if (fromKeyboard && keyboard?.markup.single_use)
         setDismissed(new Set(dismissed).add(keyboard.message));
       setDraft({});
@@ -247,16 +278,44 @@ export function ChatView({
         notify(`Invite link (copied): ${link}`, { alert: true });
       }),
     );
-  const title = group ? group.title : displayName(user);
-  const subtitle = group
-    ? groupSubtitle(group, details)
-    : user?.bot
-      ? "bot"
-      : user?.username
-        ? `@${user.username}`
-        : "";
+  const title = openTopic ? openTopic.title : group ? group.title : displayName(user);
+  const subtitle = openTopic
+    ? `topic in ${group?.title}`
+    : group
+      ? groupSubtitle(group, details)
+      : user?.bot
+        ? "bot"
+        : user?.username
+          ? `@${user.username}`
+          : "";
   const pinned = messages.filter((m) => m.pinned).at(-1);
-  const blocked = group ? blockedReason(group, rights) : undefined;
+  const topicManage = topicRights(group);
+  const ownTopic = openTopic?.my === true && openTopic.id !== GENERAL;
+  const blocked = group
+    ? (blockedReason(group, rights) ??
+      (openTopic?.closed && !topicManage.manage && !ownTopic ? "This topic is closed" : undefined))
+    : undefined;
+  const topicActions = openTopic && {
+    rename: () => {
+      const next = window.prompt("Topic name", openTopic.title)?.trim();
+      if (next && next !== openTopic.title)
+        void run(client.editTopic(chatKey, openTopic.id, { title: next }));
+    },
+    close: () => void run(client.editTopic(chatKey, openTopic.id, { closed: !openTopic.closed })),
+    hide: () => void run(client.editTopic(chatKey, openTopic.id, { hidden: !openTopic.hidden })),
+    pin: () => void run(client.pinTopic(chatKey, openTopic.id, !openTopic.pinned)),
+    remove: () => {
+      if (window.confirm(`Delete the topic «${openTopic.title}» with all its messages?`))
+        void run(client.deleteTopic(chatKey, openTopic.id).then(() => setTopic(undefined)));
+    },
+  };
+  const toggleForum = () => {
+    const turnOn = !forum;
+    const question = turnOn
+      ? "Turn on topics? Existing messages move to General."
+      : "Turn off topics?";
+    if (window.confirm(question)) void run(client.toggleForum(chatKey, turnOn));
+  };
   const upgradedTo =
     group?._ === "chat" && group.migrated_to?._ === "inputChannel"
       ? `ch${group.migrated_to.channel_id}`
@@ -265,7 +324,12 @@ export function ChatView({
   return (
     <section className="chat">
       <header className="chat-header">
-        <button type="button" className="icon-button back" onClick={onBack} title="Back">
+        <button
+          type="button"
+          className={openTopic ? "icon-button" : "icon-button back"}
+          onClick={openTopic ? () => setTopic(undefined) : onBack}
+          title={openTopic ? "Topics" : "Back"}
+        >
           ←
         </button>
         <div className={group ? `avatar ${rights.broadcast ? "channel" : "group"}` : "avatar"}>
@@ -275,8 +339,72 @@ export function ChatView({
           <span dir="auto">{title}</span>
           <span className="chat-subtitle">{subtitle}</span>
         </div>
-        {rights.member && (
+        {topicActions && (
           <div className="chat-actions">
+            {(topicManage.manage || ownTopic) && (
+              <button
+                type="button"
+                className="icon-button"
+                onClick={topicActions.rename}
+                title="Rename topic"
+              >
+                ✎
+              </button>
+            )}
+            {(topicManage.manage || ownTopic) && (
+              <button
+                type="button"
+                className="icon-button"
+                onClick={topicActions.close}
+                title={openTopic.closed ? "Reopen topic" : "Close topic"}
+              >
+                {openTopic.closed ? "🔓" : "🔒"}
+              </button>
+            )}
+            {topicManage.manage && openTopic.id === GENERAL && (
+              <button
+                type="button"
+                className="icon-button"
+                onClick={topicActions.hide}
+                title={openTopic.hidden ? "Show General" : "Hide General"}
+              >
+                {openTopic.hidden ? "◉" : "◌"}
+              </button>
+            )}
+            {topicManage.manage && (
+              <button
+                type="button"
+                className="icon-button"
+                onClick={topicActions.pin}
+                title={openTopic.pinned ? "Unpin topic" : "Pin topic"}
+              >
+                📌
+              </button>
+            )}
+            {(rights.deletes || ownTopic) && openTopic.id !== GENERAL && (
+              <button
+                type="button"
+                className="icon-button"
+                onClick={topicActions.remove}
+                title="Delete topic"
+              >
+                🗑
+              </button>
+            )}
+          </div>
+        )}
+        {rights.member && !topicActions && (
+          <div className="chat-actions">
+            {group?._ === "channel" && group.creator && !group.broadcast && (
+              <button
+                type="button"
+                className={forum ? "icon-button active" : "icon-button"}
+                onClick={toggleForum}
+                title={forum ? "Turn off topics" : "Turn on topics"}
+              >
+                ☰
+              </button>
+            )}
             {rights.invites && (
               <button type="button" className="icon-button" onClick={addMember} title="Add member">
                 ＋
@@ -346,103 +474,118 @@ export function ChatView({
           )}
         </div>
       )}
-      <div className="messages" ref={list} onScroll={onScroll}>
-        {reachedStart && all.length > 0 && !details?.migratedFrom && (
-          <p className="history-start">Beginning of the chat</p>
-        )}
-        {details?.migratedFrom && (reachedStart || oldest === 1) && (
-          <button
-            type="button"
-            className="history-start link"
-            onClick={() => details.migratedFrom && onOpenChat(details.migratedFrom)}
-          >
-            History from before the upgrade
-          </button>
-        )}
-        {all.map((message) =>
-          isRegular(message) ? (
-            <Message
-              key={message.id}
-              message={message}
-              replied={repliedTo(message, byId)}
-              users={snapshot.users}
-              readOutbox={dialog?.readOutbox ?? 0}
-              showSender={group !== undefined && !rights.broadcast}
-              externalOrigin={externalOrigin(message, snapshot)}
-              actions={actionsFor(message)}
-            />
-          ) : (
-            <ServiceMessage
-              key={message.id}
-              message={message}
-              users={snapshot.users}
-              me={snapshot.me?.id}
-              replied={repliedTo(message, byId)}
-              onOpen={(id) =>
-                list.current
-                  ?.querySelector(`[data-id="${id}"]`)
-                  ?.scrollIntoView({ block: "center", behavior: "smooth" })
-              }
-            />
-          ),
-        )}
-      </div>
-      {blocked ? (
-        <div className="start-bar">
-          {blocked === "upgraded" ? (
-            <button type="button" onClick={() => upgradedTo && onOpenChat(upgradedTo)}>
-              OPEN THE SUPERGROUP
-            </button>
-          ) : blocked === "join" ? (
-            <button type="button" onClick={() => void run(client.join(chatKey))}>
-              {rights.broadcast ? "JOIN CHANNEL" : "JOIN GROUP"}
-            </button>
-          ) : (
-            <span>{blocked}</span>
-          )}
-        </div>
-      ) : needsStart ? (
-        <div className="start-bar">
-          <button
-            type="button"
-            onClick={() =>
-              client
-                .startBot(chatKey, startParam)
-                .then(onStarted)
-                .catch((error: Error) => notify(error.message))
-            }
-          >
-            START
-          </button>
-        </div>
+      {forum && topic === undefined ? (
+        <TopicList
+          topics={topics}
+          messages={byId}
+          users={snapshot.users}
+          me={snapshot.me?.id}
+          canCreate={rights.member && topicManage.create}
+          onOpen={setTopic}
+          onCreate={(name) => client.createTopic(chatKey, name).then(setTopic)}
+        />
       ) : (
-        <Composer
-          draft={{
-            ...draft,
-            replyTo,
-            external: external && {
-              chat: chatTitle(snapshot, external.from) ?? "another chat",
-              message: external.message,
-            },
-          }}
-          placeholder={placeholder}
-          commands={commands}
-          keyboardAvailable={keyboard !== undefined}
-          keyboardShown={keyboardShown}
-          onToggleKeyboard={() => setKeyboardShown(!keyboardShown)}
-          onCancel={() => {
-            setDraft({});
-            if (external) onExternalReplyDone();
-          }}
-          onSend={(text) => void send(text)}
-        />
-      )}
-      {keyboard && keyboardShown && (
-        <ReplyKeyboard
-          markup={keyboard.markup}
-          onText={(text) => void send(text, true)}
-          onNotice={(text) => notify(text)}
-        />
+        <>
+          <div className="messages" ref={list} onScroll={onScroll}>
+            {reachedStart && all.length > 0 && !details?.migratedFrom && (
+              <p className="history-start">Beginning of the chat</p>
+            )}
+            {details?.migratedFrom && (reachedStart || oldest === 1) && (
+              <button
+                type="button"
+                className="history-start link"
+                onClick={() => details.migratedFrom && onOpenChat(details.migratedFrom)}
+              >
+                History from before the upgrade
+              </button>
+            )}
+            {all.map((message) =>
+              isRegular(message) ? (
+                <Message
+                  key={message.id}
+                  message={message}
+                  replied={repliedTo(message, byId)}
+                  users={snapshot.users}
+                  readOutbox={dialog?.readOutbox ?? 0}
+                  showSender={group !== undefined && !rights.broadcast}
+                  hideReply={forum && repliesToTopic(message)}
+                  externalOrigin={externalOrigin(message, snapshot)}
+                  actions={actionsFor(message)}
+                />
+              ) : (
+                <ServiceMessage
+                  key={message.id}
+                  message={message}
+                  users={snapshot.users}
+                  me={snapshot.me?.id}
+                  replied={repliedTo(message, byId)}
+                  onOpen={(id) =>
+                    list.current
+                      ?.querySelector(`[data-id="${id}"]`)
+                      ?.scrollIntoView({ block: "center", behavior: "smooth" })
+                  }
+                />
+              ),
+            )}
+          </div>
+          {blocked ? (
+            <div className="start-bar">
+              {blocked === "upgraded" ? (
+                <button type="button" onClick={() => upgradedTo && onOpenChat(upgradedTo)}>
+                  OPEN THE SUPERGROUP
+                </button>
+              ) : blocked === "join" ? (
+                <button type="button" onClick={() => void run(client.join(chatKey))}>
+                  {rights.broadcast ? "JOIN CHANNEL" : "JOIN GROUP"}
+                </button>
+              ) : (
+                <span>{blocked}</span>
+              )}
+            </div>
+          ) : needsStart ? (
+            <div className="start-bar">
+              <button
+                type="button"
+                onClick={() =>
+                  client
+                    .startBot(chatKey, startParam)
+                    .then(onStarted)
+                    .catch((error: Error) => notify(error.message))
+                }
+              >
+                START
+              </button>
+            </div>
+          ) : (
+            <Composer
+              draft={{
+                ...draft,
+                replyTo,
+                external: external && {
+                  chat: chatTitle(snapshot, external.from) ?? "another chat",
+                  message: external.message,
+                },
+              }}
+              placeholder={placeholder}
+              commands={commands}
+              keyboardAvailable={keyboard !== undefined}
+              keyboardShown={keyboardShown}
+              onToggleKeyboard={() => setKeyboardShown(!keyboardShown)}
+              onCancel={() => {
+                setDraft({});
+                if (external) onExternalReplyDone();
+              }}
+              onSend={(text) => void send(text)}
+            />
+          )}
+          {keyboard && keyboardShown && (
+            <ReplyKeyboard
+              markup={keyboard.markup}
+              onText={(text) => void send(text, true)}
+              onNotice={(text) => notify(text)}
+            />
+          )}
+        </>
       )}
     </section>
   );
@@ -467,6 +610,12 @@ function externalSource(message: tl.message, snapshot: Snapshot): string | undef
   const key = peer?._ === "peerChannel" ? `ch${peer.channel_id}` : undefined;
   const chat = key ? snapshot.chats.get(key) : undefined;
   return chat?._ === "channel" && (!chat.left || chat.username) ? key : undefined;
+}
+
+/** A forum message that only names its topic (it replies to the topic's creation). */
+function repliesToTopic(message: tl.message): boolean {
+  const header = message.reply_to?._ === "messageReplyHeader" ? message.reply_to : undefined;
+  return header?.forum_topic === true && header.reply_to_top_id === undefined;
 }
 
 export function isRegular(message: AnyMessage): message is tl.message {

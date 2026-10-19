@@ -94,6 +94,7 @@ export function Sidebar({
           >
             <option value="group">Group</option>
             <option value="supergroup">Supergroup</option>
+            <option value="forum">Forum (topics)</option>
             <option value="channel">Channel</option>
           </select>
           <input

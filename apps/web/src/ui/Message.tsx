@@ -32,6 +32,8 @@ interface Props {
   showSender?: boolean;
   /** For replies to messages of other chats: where the message came from. */
   externalOrigin?: string;
+  /** No reply header (a forum message that only names its topic). */
+  hideReply?: boolean;
   actions: MessageActions;
 }
 
@@ -42,9 +44,11 @@ export function Message({
   readOutbox,
   showSender,
   externalOrigin,
+  hideReply,
   actions,
 }: Props) {
-  const header = message.reply_to?._ === "messageReplyHeader" ? message.reply_to : undefined;
+  const header =
+    message.reply_to?._ === "messageReplyHeader" && !hideReply ? message.reply_to : undefined;
   const preview = message.media?._ === "messageMediaWebPage" ? message.media : undefined;
   const keyboard =
     message.reply_markup?._ === "replyInlineMarkup" ? message.reply_markup : undefined;

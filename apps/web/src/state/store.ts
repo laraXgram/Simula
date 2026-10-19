@@ -52,6 +52,10 @@ export interface Snapshot {
   messages: ReadonlyMap<string, ReadonlyMap<number, AnyMessage>>;
   /** Bot commands per bot user id, for the commands menu. */
   commands: ReadonlyMap<string, readonly tl.botCommand[]>;
+  /** Forums' topics by dialog key, in the order the server lists them. */
+  topics: ReadonlyMap<string, readonly tl.forumTopic[]>;
+  /** Bumped when a forum's topics changed (opened, edited, pinned, deleted). */
+  topicsVersion: ReadonlyMap<string, number>;
 }
 
 export class Store {
@@ -62,6 +66,8 @@ export class Store {
     dialogs: [],
     messages: new Map(),
     commands: new Map(),
+    topics: new Map(),
+    topicsVersion: new Map(),
   };
   private listeners = new Set<() => void>();
 
@@ -97,6 +103,18 @@ export class Store {
     const next = new Map(this.state.details);
     next.set(key, details);
     this.commit({ details: next });
+  }
+
+  setTopics(key: string, topics: readonly tl.forumTopic[]) {
+    const next = new Map(this.state.topics);
+    next.set(key, topics);
+    this.commit({ topics: next });
+  }
+
+  private topicsChanged(key: string) {
+    const next = new Map(this.state.topicsVersion);
+    next.set(key, (next.get(key) ?? 0) + 1);
+    this.commit({ topicsVersion: next });
   }
 
   setCommands(bot: string, commands: readonly tl.botCommand[]) {
@@ -175,8 +193,18 @@ export class Store {
           !this.has(message);
         this.addMessages([message]);
         this.touchDialog(message, isNew && !message.out);
+        if (
+          message._ === "messageService" &&
+          (message.action._ === "messageActionTopicCreate" ||
+            message.action._ === "messageActionTopicEdit")
+        )
+          this.topicsChanged(peerKey(message.peer_id));
         return;
       }
+      case "updatePinnedForumTopic":
+      case "updatePinnedForumTopics":
+        this.topicsChanged(peerKey(update.peer));
+        return;
       case "updateDeleteMessages":
         // Ids of the account's own box: every chat but channels.
         for (const key of this.state.messages.keys()) {
@@ -185,6 +213,7 @@ export class Store {
         return;
       case "updateDeleteChannelMessages":
         this.removeMessages(`ch${update.channel_id}`, update.messages);
+        this.topicsChanged(`ch${update.channel_id}`);
         return;
       case "updateReadHistoryInbox":
         this.upsertDialog(update.peer, (d) => ({

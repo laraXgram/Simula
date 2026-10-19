@@ -13,12 +13,21 @@ import { chatKey, Store } from "./store";
 export interface Outgoing {
   text: string;
   replyTo?: number;
+  /** The forum topic written in (General when absent). */
+  topic?: number;
   /** The chat `replyTo` is in, when it isn't the one written to. */
   replyIn?: string;
 }
 
 /** What "New group" creates. */
-export type GroupKind = "group" | "supergroup" | "channel";
+export type GroupKind = "group" | "supergroup" | "forum" | "channel";
+
+/** What editing a topic changes. */
+export interface TopicEdit {
+  title?: string;
+  closed?: boolean;
+  hidden?: boolean;
+}
 
 /** Every right an admin can be given (what the client grants when promoting). */
 const ADMIN_RIGHTS: tl.chatAdminRights = {
@@ -83,14 +92,21 @@ export class Client {
     await this.read(key);
   }
 
-  /** Messages older than `before`; resolves with how many came (0 = the beginning). */
-  async loadOlder(key: string, before: number): Promise<number> {
+  /**
+   * Messages older than `before` (in a forum topic, when given); resolves with how many
+   * came (0 = the beginning).
+   */
+  async loadOlder(key: string, before: number, topic?: number): Promise<number> {
     const peer = this.peer(key);
     if (!peer) return 0;
-    const result = await this.session.call("messages.getHistory", {
-      ...history(peer, before),
-      limit: 50,
-    });
+    const result =
+      topic === undefined
+        ? await this.session.call("messages.getHistory", { ...history(peer, before), limit: 50 })
+        : await this.session.call("messages.getReplies", {
+            ...history(peer, before),
+            msg_id: topic,
+            limit: 50,
+          });
     this.store.addHistory(result);
     return "messages" in result ? result.messages.length : 0;
   }
@@ -115,10 +131,14 @@ export class Client {
     const { text, entities } = parseFormatting(outgoing.text);
     const params: Params<"messages.sendMessage"> = { peer, message: text, random_id: randomId() };
     if (entities.length > 0) params.entities = entities;
-    if (outgoing.replyTo)
+    // In a forum topic, a message replies to the topic unless it replies to a message.
+    const topic = outgoing.topic !== undefined && outgoing.topic !== 1 ? outgoing.topic : undefined;
+    const replyTo = outgoing.replyTo ?? topic;
+    if (replyTo)
       params.reply_to = {
         _: "inputReplyToMessage",
-        reply_to_msg_id: outgoing.replyTo,
+        reply_to_msg_id: replyTo,
+        top_msg_id: topic,
         reply_to_peer_id: outgoing.replyIn ? this.peer(outgoing.replyIn) : undefined,
       };
     this.store.applyUpdates(await this.session.call("messages.sendMessage", params));
@@ -232,7 +252,8 @@ export class Client {
     }
     const created = await this.session.call("channels.createChannel", {
       broadcast: kind === "channel" || undefined,
-      megagroup: kind === "supergroup" || undefined,
+      megagroup: kind === "supergroup" || kind === "forum" || undefined,
+      forum: kind === "forum" || undefined,
       title,
       about: "",
     });
@@ -349,6 +370,98 @@ export class Client {
         user_id: { _: "inputUserSelf" },
       }),
     );
+  }
+
+  // Forums
+
+  /** The forum's topics, and the newest message of each. */
+  async loadTopics(key: string) {
+    const peer = this.peer(key);
+    if (!peer) return;
+    const found = await this.session.call("messages.getForumTopics", {
+      peer,
+      offset_date: 0,
+      offset_id: 0,
+      offset_topic: 0,
+      limit: 100,
+    });
+    this.store.addUsers(found.users);
+    this.store.addChats(found.chats);
+    this.store.addHistory({
+      _: "messages.messages",
+      messages: found.messages,
+      topics: [],
+      chats: [],
+      users: [],
+    });
+    this.store.setTopics(
+      key,
+      found.topics.filter((t): t is tl.forumTopic => t._ === "forumTopic"),
+    );
+  }
+
+  /** The newest messages of a topic. */
+  async openTopic(key: string, topic: number) {
+    const peer = this.peer(key);
+    if (!peer) return;
+    this.store.addHistory(
+      await this.session.call("messages.getReplies", { ...history(peer, 0), msg_id: topic }),
+    );
+  }
+
+  /** Open a topic; returns its id. */
+  async createTopic(key: string, title: string): Promise<number> {
+    const peer = this.peer(key);
+    if (!peer) throw new Error("unknown chat");
+    const updates = await this.session.call("messages.createForumTopic", {
+      peer,
+      title,
+      random_id: randomId(),
+    });
+    this.store.applyUpdates(updates);
+    await this.loadTopics(key);
+    const list = "updates" in updates ? updates.updates : [];
+    for (const update of list) {
+      if (update._ === "updateNewChannelMessage" && update.message._ === "messageService")
+        return update.message.id;
+    }
+    throw new Error("the topic wasn't created");
+  }
+
+  async editTopic(key: string, topic: number, edit: TopicEdit) {
+    const peer = this.peer(key);
+    if (!peer) return;
+    this.store.applyUpdates(
+      await this.session.call("messages.editForumTopic", { peer, topic_id: topic, ...edit }),
+    );
+    await this.loadTopics(key);
+  }
+
+  async pinTopic(key: string, topic: number, pinned: boolean) {
+    const peer = this.peer(key);
+    if (!peer) return;
+    this.store.applyUpdates(
+      await this.session.call("messages.updatePinnedForumTopic", { peer, topic_id: topic, pinned }),
+    );
+    await this.loadTopics(key);
+  }
+
+  /** Delete a topic with everything in it. */
+  async deleteTopic(key: string, topic: number) {
+    const peer = this.peer(key);
+    if (!peer) return;
+    await this.session.call("messages.deleteTopicHistory", { peer, top_msg_id: topic });
+    await this.loadTopics(key);
+  }
+
+  /** Turn a supergroup into a forum or back (its creator only). */
+  async toggleForum(key: string, enabled: boolean) {
+    const channel = this.channel(key);
+    if (!channel) return;
+    this.store.applyUpdates(
+      await this.session.call("channels.toggleForum", { channel, enabled, tabs: false }),
+    );
+    await this.loadDetails(key);
   }
 
   /** Upgrade a basic group to a supergroup; returns the supergroup's key. */
