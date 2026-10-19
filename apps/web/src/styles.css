@@ -1030,3 +1030,10 @@ a,
   background: var(--bg);
   color: inherit;
 }
+
+/* An upgraded supergroup links to the basic group's older history. */
+button.history-start.link {
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+}

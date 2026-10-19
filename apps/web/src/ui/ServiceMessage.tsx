@@ -63,6 +63,10 @@ export function describeService(
       return message.post
         ? `Channel «${action.title}» created`
         : `${who} created the group «${action.title}»`;
+    case "messageActionChatMigrateTo":
+      return "The group was upgraded to a supergroup";
+    case "messageActionChannelMigrateFrom":
+      return `${who} upgraded «${action.title}» to a supergroup`;
     case "messageActionPinMessage": {
       const text = replied?.message.replace(/\s+/g, " ") ?? "";
       const quoted = text

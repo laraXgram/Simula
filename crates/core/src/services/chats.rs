@@ -17,10 +17,15 @@ const MAX_TITLE_LENGTH: usize = 128;
 
 /// The chat, if it exists and isn't deactivated.
 pub fn get(ctx: &Ctx<'_>, chat: ChatId) -> RpcResult<store::chats::Chat> {
-    match store::chats::get(ctx.db, chat)? {
-        Some(found) if !found.deactivated => Ok(found),
+    match get_any(ctx, chat)? {
+        found if !found.deactivated => Ok(found),
         _ => Err(RpcError::bad_request("CHAT_ID_INVALID")),
     }
+}
+
+/// The chat, deactivated (upgraded) or not: its history and info stay readable.
+pub fn get_any(ctx: &Ctx<'_>, chat: ChatId) -> RpcResult<store::chats::Chat> {
+    store::chats::get(ctx.db, chat)?.ok_or_else(|| RpcError::bad_request("CHAT_ID_INVALID"))
 }
 
 pub fn create(

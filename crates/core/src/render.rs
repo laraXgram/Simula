@@ -80,6 +80,8 @@ pub fn chat(ctx: &Ctx<'_>, viewer: UserId, chat: &store::chats::Chat) -> RpcResu
         participants_count: members.len() as i32,
         date: chat.date,
         version: chat.version,
+        migrated_to: crate::services::upgrades::migrated_to(chat)
+            .map(|channel| crate::services::upgrades::input_channel(ctx, viewer, channel)),
         admin_rights: admin.then(|| full_admin_rights().into()),
         default_banned_rights: Some(crate::services::chats::default_banned(chat).into()),
         ..Default::default()

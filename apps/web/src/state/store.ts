@@ -36,6 +36,8 @@ export interface ChatDetails {
   bots: readonly string[];
   /** The account's primary invite link, if it made one. */
   inviteLink?: string;
+  /** Supergroups: the basic group it was upgraded from ("c…"), whose history is older. */
+  migratedFrom?: string;
 }
 
 export interface Snapshot {

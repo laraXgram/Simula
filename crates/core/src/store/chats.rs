@@ -101,6 +101,12 @@ pub fn set_extra(conn: &Connection, id: ChatId, extra: &serde_json::Value) -> ru
     Ok(())
 }
 
+/// The group was upgraded to a supergroup (or deleted): it takes no more messages.
+pub fn deactivate(conn: &Connection, id: ChatId) -> rusqlite::Result<()> {
+    conn.execute("UPDATE chats SET deactivated = 1 WHERE id = ?1", [id.0])?;
+    Ok(())
+}
+
 /// Bump the member list's version and return the new one.
 pub fn bump_version(conn: &Connection, id: ChatId) -> rusqlite::Result<i32> {
     conn.query_row(

@@ -345,6 +345,18 @@ export class Client {
     );
   }
 
+  /** Upgrade a basic group to a supergroup; returns the supergroup's key. */
+  async upgrade(key: string): Promise<string> {
+    const updates = await this.session.call("messages.migrateChat", { chat_id: key.slice(1) });
+    this.store.applyUpdates(updates);
+    const chats = "chats" in updates ? updates.chats : [];
+    const channel = chats.find((c) => c._ === "channel");
+    if (!channel) throw new Error("the group wasn't upgraded");
+    const upgraded = `ch${channel.id}`;
+    this.store.ensureDialog(upgraded, { _: "peerChannel", channel_id: channel.id });
+    return upgraded;
+  }
+
   async rename(key: string, title: string) {
     const channel = this.channel(key);
     this.store.applyUpdates(
@@ -392,6 +404,8 @@ export class Client {
         about: info.about,
         bots,
         inviteLink: link(info.exported_invite),
+        migratedFrom:
+          info.migrated_from_chat_id !== undefined ? `c${info.migrated_from_chat_id}` : undefined,
       });
     }
   }

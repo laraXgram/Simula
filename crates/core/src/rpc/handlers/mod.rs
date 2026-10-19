@@ -58,6 +58,7 @@ pub const IMPLEMENTED: &[&str] = &[
     "messages.getMessages",
     "messages.hideChatJoinRequest",
     "messages.importChatInvite",
+    "messages.migrateChat",
     "messages.readHistory",
     "messages.sendMessage",
     "messages.setBotCallbackAnswer",
@@ -169,6 +170,8 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
             messages::import_chat_invite::handle(ctx, *call)
                 .map(|reply| Box::new(reply) as Box<dyn Reply>)
         }
+        Function::MessagesMigrateChat(call) => messages::migrate_chat::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesReadHistory(call) => messages::read_history::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesSendMessage(call) => messages::send_message::handle(ctx, *call)

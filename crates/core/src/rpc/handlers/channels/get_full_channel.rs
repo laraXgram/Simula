@@ -8,7 +8,7 @@ use crate::ctx::Ctx;
 use crate::error::RpcResult;
 use crate::ids::Peer;
 use crate::render;
-use crate::services::{channels, commands, peers};
+use crate::services::{channels, commands, peers, upgrades};
 use crate::store::{self, channels::Status};
 
 /// A supergroup or channel with its description, counts, the caller's read state and
@@ -46,6 +46,7 @@ pub fn handle(
         }
     }
     let peer = Peer::Channel(id);
+    let migrated_from = upgrades::migrated_from(&channel);
     let (read_inbox, read_outbox) = store::dialogs::read_state(ctx.db, caller, peer)?;
     let full = types::ChannelFull {
         can_view_participants: !channel.broadcast || admin,
@@ -72,11 +73,20 @@ pub fn handle(
             .transpose()?
             .filter(|&n| n > 0),
         pinned_msg_id: store::channels::pinned_ids(ctx.db, id)?.first().copied(),
+        migrated_from_chat_id: migrated_from.map(|chat| chat.0),
+        migrated_from_max_id: migrated_from
+            .map(|chat| store::dialogs::message_ids(ctx.db, caller, Peer::Chat(chat)))
+            .transpose()?
+            .map(|ids| ids.into_iter().max().unwrap_or(0)),
         ..Default::default()
     };
+    let mut chats = vec![render::channel(ctx, caller, &channel)?];
+    if let Some(chat) = migrated_from {
+        chats.extend(render::chats(ctx, caller, &[chat].into())?);
+    }
     Ok(types::messages::ChatFull {
         full_chat: full.into(),
-        chats: vec![render::channel(ctx, caller, &channel)?],
+        chats,
         users: render::users(ctx, caller, &users)?,
     }
     .into())

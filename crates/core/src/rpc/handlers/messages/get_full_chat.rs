@@ -18,7 +18,7 @@ pub fn handle(
     req: functions::messages::GetFullChat,
 ) -> RpcResult<enums::messages::ChatFull> {
     let caller = ctx.caller()?.account;
-    let chat = chats::get(ctx, ChatId(req.chat_id))?;
+    let chat = chats::get_any(ctx, ChatId(req.chat_id))?;
     let members = store::chats::members(ctx.db, chat.id)?;
     if !members.iter().any(|m| m.user == caller) {
         return Err(RpcError::bad_request("CHAT_ID_INVALID"));

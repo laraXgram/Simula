@@ -338,3 +338,178 @@ async fn bot_commands_for_the_group() {
     .await;
     assert_eq!(commands(g.bob.id).await, ["here"]);
 }
+
+/// Every update `account` received in the batches so far.
+fn all_updates(rx: &mut Receiver<Arc<AccountUpdates>>, account: UserId) -> Vec<enums::Update> {
+    let mut out = Vec::new();
+    while let Ok(batch) = rx.try_recv() {
+        if batch.account != account {
+            continue;
+        }
+        if let enums::Updates::Updates(updates) = &batch.updates {
+            out.extend(updates.updates.iter().cloned());
+        }
+    }
+    out
+}
+
+#[tokio::test]
+async fn upgrading_to_a_supergroup() {
+    let g = group().await;
+    say(&g, g.alice.id, "before the upgrade").await;
+    let migrate = functions::messages::MigrateChat { chat_id: g.chat };
+    let err = g
+        .sandbox
+        .call(as_account(g.bob.id), migrate.clone())
+        .await
+        .unwrap_err();
+    assert_eq!(err.message, "CHAT_ADMIN_REQUIRED");
+
+    let mut rx = g.sandbox.subscribe_updates();
+    let enums::Updates::Updates(result) = g
+        .sandbox
+        .call(as_account(g.alice.id), migrate.clone())
+        .await
+        .unwrap()
+    else {
+        panic!("updates expected");
+    };
+    let channel = result
+        .chats
+        .iter()
+        .find_map(|c| match c {
+            enums::Chat::Channel(c) => Some(c.clone()),
+            _ => None,
+        })
+        .expect("the supergroup");
+    assert!(channel.megagroup && channel.creator);
+    assert_eq!(channel.title, "Team");
+    assert_eq!(channel.participants_count, Some(3));
+    let old = result
+        .chats
+        .iter()
+        .find_map(|c| match c {
+            enums::Chat::Chat(c) => Some(c.clone()),
+            _ => None,
+        })
+        .expect("the old group");
+    assert!(old.deactivated);
+    let Some(enums::InputChannel::InputChannel(to)) = &old.migrated_to else {
+        panic!("migrated_to expected");
+    };
+    assert_eq!(to.channel_id, channel.id);
+    assert_eq!(to.access_hash, channel.access_hash.unwrap());
+
+    // The bot (privacy mode on) gets both service messages: the group's last, then the
+    // supergroup's first.
+    let bot_updates = all_updates(&mut rx, g.bot.id);
+    let actions: Vec<_> = bot_updates
+        .iter()
+        .filter_map(|u| match u {
+            enums::Update::NewMessage(u) => Some(&u.message),
+            enums::Update::NewChannelMessage(u) => Some(&u.message),
+            _ => None,
+        })
+        .filter_map(|m| match m {
+            enums::Message::Service(s) => Some((s.id, s.action.clone())),
+            _ => None,
+        })
+        .collect();
+    assert!(matches!(
+        &actions[..],
+        [
+            (_, enums::MessageAction::ChatMigrateTo(to)),
+            (1, enums::MessageAction::ChannelMigrateFrom(from)),
+        ] if to.channel_id == channel.id && from.chat_id == g.chat && from.title == "Team"
+    ));
+
+    // The group takes no more messages, nor a second upgrade.
+    let err = g
+        .sandbox
+        .call(
+            as_account(g.bob.id),
+            functions::messages::SendMessage {
+                peer: peer(g.chat),
+                message: "late".into(),
+                random_id: 1,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.message, "CHAT_ID_INVALID");
+    let err = g
+        .sandbox
+        .call(as_account(g.alice.id), migrate)
+        .await
+        .unwrap_err();
+    assert_eq!(err.message, "CHAT_ID_INVALID");
+
+    // Bob is a member of the supergroup and sees where it came from.
+    let input = g.sandbox.input_peer(
+        g.bob.id,
+        simula_core::Peer::Channel(simula_core::ChannelId(channel.id)),
+    );
+    let enums::InputPeer::Channel(input) = input else {
+        unreachable!()
+    };
+    let enums::messages::ChatFull::ChatFull(full) = g
+        .sandbox
+        .call(
+            as_account(g.bob.id),
+            functions::channels::GetFullChannel {
+                channel: types::InputChannel {
+                    channel_id: input.channel_id,
+                    access_hash: input.access_hash,
+                }
+                .into(),
+            },
+        )
+        .await
+        .unwrap();
+    let enums::ChatFull::ChannelFull(full_channel) = &full.full_chat else {
+        panic!("channelFull expected");
+    };
+    assert_eq!(full_channel.migrated_from_chat_id, Some(g.chat));
+    assert!(full_channel.migrated_from_max_id.unwrap() > 1);
+    assert!(
+        full.chats
+            .iter()
+            .any(|c| matches!(c, enums::Chat::Chat(c) if c.id == g.chat))
+    );
+    g.sandbox
+        .call(
+            as_account(g.bob.id),
+            functions::messages::SendMessage {
+                peer: enums::InputPeer::Channel(input.clone()),
+                message: "after the upgrade".into(),
+                random_id: 2,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    // The old history stays readable.
+    let enums::messages::Messages::Messages(history) = g
+        .sandbox
+        .call(
+            as_account(g.bob.id),
+            functions::messages::GetHistory {
+                peer: peer(g.chat),
+                limit: 10,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("all messages expected");
+    };
+    assert!(
+        history
+            .messages
+            .iter()
+            .any(|m| matches!(m, enums::Message::Message(m) if m.message == "before the upgrade"))
+    );
+}

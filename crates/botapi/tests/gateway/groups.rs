@@ -2,9 +2,10 @@
 //! sending, and being removed.
 
 use serde_json::json;
+use simula_tl::functions;
 
 use crate::support::{
-    create_group, fails, next_updates, ok, user_removes, user_says_in_group, world,
+    as_user, create_group, fails, next_updates, ok, post, user_removes, user_says_in_group, world,
 };
 
 #[tokio::test]
@@ -153,4 +154,60 @@ async fn chat_and_member_methods() {
         (private["type"].clone(), private["first_name"].clone()),
         (json!("private"), json!("Alice"))
     );
+}
+
+#[tokio::test]
+async fn upgraded_to_a_supergroup() {
+    let w = world().await;
+    let mut offset = 0;
+    let group = create_group(&w, "Team", &[]).await;
+    next_updates(&w, &mut offset).await;
+    let chat_id = -group;
+    as_user(&w, w.user.id, functions::messages::MigrateChat { chat_id })
+        .await
+        .unwrap();
+
+    let updates = next_updates(&w, &mut offset).await;
+    let messages: Vec<_> = updates.iter().filter_map(|u| u.get("message")).collect();
+    assert_eq!(messages.len(), 2, "{updates:?}");
+    let supergroup = messages[0]["migrate_to_chat_id"].as_i64().unwrap();
+    assert!(supergroup < -1_000_000_000_000);
+    assert_eq!(messages[0]["chat"]["id"], group);
+    assert_eq!(messages[0]["from"]["id"], w.user.id.0);
+    assert_eq!(messages[1]["migrate_from_chat_id"], group);
+    assert_eq!(messages[1]["message_id"], 1);
+    assert_eq!(
+        messages[1]["chat"],
+        json!({ "id": supergroup, "type": "supergroup", "title": "Team" })
+    );
+
+    // Writing to the old group says where it went.
+    let (status, body) = post(
+        &w,
+        "sendMessage",
+        json!({ "chat_id": group, "text": "hello?" }),
+    )
+    .await;
+    assert_eq!(status, 400);
+    assert_eq!(
+        body,
+        json!({
+            "ok": false,
+            "error_code": 400,
+            "description": "Bad Request: group chat was upgraded to a supergroup chat",
+            "parameters": { "migrate_to_chat_id": supergroup },
+        })
+    );
+    // Reading it still works; the supergroup takes messages.
+    assert_eq!(
+        ok(&w, "getChat", json!({ "chat_id": group })).await["type"],
+        "group"
+    );
+    let sent = ok(
+        &w,
+        "sendMessage",
+        json!({ "chat_id": supergroup, "text": "here now" }),
+    )
+    .await;
+    assert_eq!(sent["chat"]["type"], "supergroup");
 }

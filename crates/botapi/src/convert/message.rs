@@ -201,6 +201,16 @@ pub fn service(m: &types::MessageService, context: &Entities<'_>) -> Option<bot:
             supergroup_chat_created: true,
             ..base
         },
+        enums::MessageAction::ChatMigrateTo(a) => bot::Message {
+            migrate_to_chat_id: Some(
+                Peer::Channel(simula_core::ChannelId(a.channel_id)).bot_api_id(),
+            ),
+            ..base
+        },
+        enums::MessageAction::ChannelMigrateFrom(a) => bot::Message {
+            migrate_from_chat_id: Some(Peer::Chat(simula_core::ChatId(a.chat_id)).bot_api_id()),
+            ..base
+        },
         _ => return None,
     })
 }

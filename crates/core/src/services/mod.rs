@@ -21,3 +21,4 @@ pub mod replies;
 pub mod rights;
 pub mod service_messages;
 pub mod updates;
+pub mod upgrades;

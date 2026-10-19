@@ -204,6 +204,12 @@ export function ChatView({
     const title = window.prompt("Group name", group?.title)?.trim();
     if (title && title !== group?.title) void run(client.rename(chatKey, title));
   };
+  const upgrade = () => {
+    const confirmed = window.confirm(
+      `Upgrade «${group?.title}» to a supergroup? Everyone moves along; this can't be undone.`,
+    );
+    if (confirmed) void run(client.upgrade(chatKey).then(onOpenChat));
+  };
   const leave = () => {
     if (window.confirm(`Leave «${group?.title}»?`)) void run(client.leave(chatKey));
   };
@@ -228,6 +234,10 @@ export function ChatView({
         : "";
   const pinned = messages.filter((m) => m.pinned).at(-1);
   const blocked = group ? blockedReason(group, rights) : undefined;
+  const upgradedTo =
+    group?._ === "chat" && group.migrated_to?._ === "inputChannel"
+      ? `ch${group.migrated_to.channel_id}`
+      : undefined;
 
   return (
     <section className="chat">
@@ -269,6 +279,16 @@ export function ChatView({
                 ✎
               </button>
             )}
+            {group?._ === "chat" && group.creator && (
+              <button
+                type="button"
+                className="icon-button"
+                onClick={upgrade}
+                title="Upgrade to supergroup"
+              >
+                ⇪
+              </button>
+            )}
             <button type="button" className="icon-button" onClick={leave} title="Leave">
               ⎋
             </button>
@@ -304,7 +324,18 @@ export function ChatView({
         </div>
       )}
       <div className="messages" ref={list} onScroll={onScroll}>
-        {reachedStart && all.length > 0 && <p className="history-start">Beginning of the chat</p>}
+        {reachedStart && all.length > 0 && !details?.migratedFrom && (
+          <p className="history-start">Beginning of the chat</p>
+        )}
+        {details?.migratedFrom && (reachedStart || oldest === 1) && (
+          <button
+            type="button"
+            className="history-start link"
+            onClick={() => details.migratedFrom && onOpenChat(details.migratedFrom)}
+          >
+            History from before the upgrade
+          </button>
+        )}
         {all.map((message) =>
           isRegular(message) ? (
             <Message
@@ -334,7 +365,11 @@ export function ChatView({
       </div>
       {blocked ? (
         <div className="start-bar">
-          {blocked === "join" ? (
+          {blocked === "upgraded" ? (
+            <button type="button" onClick={() => upgradedTo && onOpenChat(upgradedTo)}>
+              OPEN THE SUPERGROUP
+            </button>
+          ) : blocked === "join" ? (
             <button type="button" onClick={() => void run(client.join(chatKey))}>
               {rights.broadcast ? "JOIN CHANNEL" : "JOIN GROUP"}
             </button>
@@ -489,11 +524,18 @@ function groupSubtitle(chat: AnyChat, details: ChatDetails | undefined): string 
   }
 }
 
-/** Why the composer is replaced by a bar ("join" offers joining), if it is. */
+/**
+ * Why the composer is replaced by a bar ("join" offers joining, "upgraded" opens the
+ * supergroup), if it is.
+ */
 function blockedReason(chat: AnyChat, rights: Rights): string | undefined {
   if (chat._ === "chatForbidden") return "You were removed from this group";
   if (chat._ === "channelForbidden") return "You are banned here";
-  if (chat._ === "chat") return chat.left ? "You left this group" : undefined;
+  if (chat._ === "chat") {
+    if (chat.migrated_to) return "upgraded";
+    if (chat.deactivated) return "This group was deleted";
+    return chat.left ? "You left this group" : undefined;
+  }
   if (chat.left) return chat.username ? "join" : "You are not a member";
   if (!rights.posts)
     return rights.broadcast ? "Only admins post in this channel" : "You can't write here";

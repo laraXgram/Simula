@@ -132,47 +132,56 @@ export function Sidebar({
       </form>
       {error && <p className="find-error">{error}</p>}
       <nav className="dialogs">
-        {snapshot.dialogs.map((dialog) => {
-          const user =
-            dialog.peer._ === "peerUser" ? snapshot.users.get(dialog.peer.user_id) : undefined;
-          const group = dialog.peer._ === "peerUser" ? undefined : snapshot.chats.get(dialog.key);
-          const broadcast =
-            (group?._ === "channel" || group?._ === "channelForbidden") && group.broadcast === true;
-          const title = group ? group.title : displayName(user);
-          const top = snapshot.messages.get(dialog.key)?.get(dialog.top);
-          return (
-            <button
-              key={dialog.key}
-              type="button"
-              className={dialog.key === selected ? "dialog selected" : "dialog"}
-              onClick={() => onSelect(dialog.key)}
-            >
-              <span className={group ? `avatar ${broadcast ? "channel" : "group"}` : "avatar"}>
-                {group ? initialsOf(title) : initials(user)}
-              </span>
-              <span className="dialog-body">
-                <span className="dialog-title">
-                  <span dir="auto">{title}</span>
-                  {user?.bot && <span className="badge">bot</span>}
-                  {broadcast && <span className="badge">channel</span>}
-                  <time>{top ? day(top.date) : ""}</time>
+        {snapshot.dialogs
+          .filter((dialog) => !upgraded(snapshot, dialog.key))
+          .map((dialog) => {
+            const user =
+              dialog.peer._ === "peerUser" ? snapshot.users.get(dialog.peer.user_id) : undefined;
+            const group = dialog.peer._ === "peerUser" ? undefined : snapshot.chats.get(dialog.key);
+            const broadcast =
+              (group?._ === "channel" || group?._ === "channelForbidden") &&
+              group.broadcast === true;
+            const title = group ? group.title : displayName(user);
+            const top = snapshot.messages.get(dialog.key)?.get(dialog.top);
+            return (
+              <button
+                key={dialog.key}
+                type="button"
+                className={dialog.key === selected ? "dialog selected" : "dialog"}
+                onClick={() => onSelect(dialog.key)}
+              >
+                <span className={group ? `avatar ${broadcast ? "channel" : "group"}` : "avatar"}>
+                  {group ? initialsOf(title) : initials(user)}
                 </span>
-                <span className="dialog-preview">
-                  <span dir="auto">
-                    {preview(top, snapshot, group !== undefined && !broadcast)}
+                <span className="dialog-body">
+                  <span className="dialog-title">
+                    <span dir="auto">{title}</span>
+                    {user?.bot && <span className="badge">bot</span>}
+                    {broadcast && <span className="badge">channel</span>}
+                    <time>{top ? day(top.date) : ""}</time>
                   </span>
-                  {dialog.unread > 0 && <span className="unread">{dialog.unread}</span>}
+                  <span className="dialog-preview">
+                    <span dir="auto">
+                      {preview(top, snapshot, group !== undefined && !broadcast)}
+                    </span>
+                    {dialog.unread > 0 && <span className="unread">{dialog.unread}</span>}
+                  </span>
                 </span>
-              </span>
-            </button>
-          );
-        })}
+              </button>
+            );
+          })}
         {snapshot.dialogs.length === 0 && (
           <p className="empty">No chats yet. Open a bot by its @username.</p>
         )}
       </nav>
     </aside>
   );
+}
+
+/** A basic group that became a supergroup: its dialog is the supergroup's now. */
+function upgraded(snapshot: Snapshot, key: string): boolean {
+  const chat = snapshot.chats.get(key);
+  return chat?._ === "chat" && chat.migrated_to !== undefined;
 }
 
 function preview(message: AnyMessage | undefined, snapshot: Snapshot, inGroup: boolean): string {

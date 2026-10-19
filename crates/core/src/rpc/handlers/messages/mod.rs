@@ -19,6 +19,7 @@ pub mod get_history;
 pub mod get_messages;
 pub mod hide_chat_join_request;
 pub mod import_chat_invite;
+pub mod migrate_chat;
 pub mod read_history;
 pub mod send_message;
 pub mod set_bot_callback_answer;

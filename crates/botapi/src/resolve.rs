@@ -84,9 +84,15 @@ async fn check_group(ctx: &BotCtx, chat: simula_core::ChatId, access: Access) ->
     };
     let write = access == Access::Write;
     match found.chats.first() {
-        Some(enums::Chat::Chat(c)) if c.deactivated && write => {
-            Err(BotError::forbidden("the group chat was deleted"))
-        }
+        Some(enums::Chat::Chat(c)) if c.deactivated && write => match &c.migrated_to {
+            Some(enums::InputChannel::InputChannel(to)) => Err(BotError {
+                migrate_to_chat_id: Some(
+                    Peer::Channel(simula_core::ChannelId(to.channel_id)).bot_api_id(),
+                ),
+                ..BotError::bad_request("group chat was upgraded to a supergroup chat")
+            }),
+            _ => Err(BotError::forbidden("the group chat was deleted")),
+        },
         Some(enums::Chat::Chat(c)) if c.left && write => {
             Err(BotError::forbidden("bot is not a member of the group chat"))
         }

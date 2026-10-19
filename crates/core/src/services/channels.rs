@@ -100,27 +100,13 @@ pub fn create(
     }
     let title = check_title(title)?;
     check_about(about)?;
-    let id = ChannelId(store::meta::next(ctx.db, "channel", FIRST_CHANNEL_ID)?);
-    let date = ctx.now();
-    store::channels::insert(
-        ctx.db,
-        &Channel {
-            id,
-            broadcast,
-            title: title.clone(),
-            username: None,
-            about: about.to_owned(),
-            creator,
-            date,
-            pts: 0,
-            deleted: false,
-            extra: serde_json::json!({}),
-        },
-    )?;
-    store::channels::put_member(
-        ctx.db,
-        id,
-        &Member::new(creator, Status::Creator, creator, date),
+    let id = insert(
+        ctx,
+        creator,
+        broadcast,
+        &title,
+        about,
+        serde_json::json!({}),
     )?;
     updates::push_plain(
         ctx,
@@ -136,6 +122,40 @@ pub fn create(
         creator,
         types::MessageActionChannelCreate { title }.into(),
         &[],
+    )?;
+    Ok(id)
+}
+
+/// A new channel row with `creator` as its creator, and nothing posted yet.
+pub(crate) fn insert(
+    ctx: &mut Ctx<'_>,
+    creator: UserId,
+    broadcast: bool,
+    title: &str,
+    about: &str,
+    extra: serde_json::Value,
+) -> RpcResult<ChannelId> {
+    let id = ChannelId(store::meta::next(ctx.db, "channel", FIRST_CHANNEL_ID)?);
+    let date = ctx.now();
+    store::channels::insert(
+        ctx.db,
+        &Channel {
+            id,
+            broadcast,
+            title: title.to_owned(),
+            username: None,
+            about: about.to_owned(),
+            creator,
+            date,
+            pts: 0,
+            deleted: false,
+            extra,
+        },
+    )?;
+    store::channels::put_member(
+        ctx.db,
+        id,
+        &Member::new(creator, Status::Creator, creator, date),
     )?;
     Ok(id)
 }
