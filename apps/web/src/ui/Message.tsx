@@ -12,6 +12,10 @@ export interface MessageActions extends TextActions, ButtonActions {
   onUser: (userId: string) => void;
   onDeepLink: (link: DeepLink) => void;
   onReply: () => void;
+  /** Reply to this message from another chat (absent for protected messages). */
+  onReplyElsewhere?: () => void;
+  /** Open where a reply to another chat's message came from. */
+  onOpenReplied?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
   /** Pin or unpin (absent when the account may not). */
@@ -26,10 +30,20 @@ interface Props {
   readOutbox: number;
   /** In groups, incoming messages are signed with their sender's name. */
   showSender?: boolean;
+  /** For replies to messages of other chats: where the message came from. */
+  externalOrigin?: string;
   actions: MessageActions;
 }
 
-export function Message({ message, replied, users, readOutbox, showSender, actions }: Props) {
+export function Message({
+  message,
+  replied,
+  users,
+  readOutbox,
+  showSender,
+  externalOrigin,
+  actions,
+}: Props) {
   const header = message.reply_to?._ === "messageReplyHeader" ? message.reply_to : undefined;
   const preview = message.media?._ === "messageMediaWebPage" ? message.media : undefined;
   const keyboard =
@@ -51,15 +65,31 @@ export function Message({ message, replied, users, readOutbox, showSender, actio
             {displayName(sender)}
           </button>
         )}
-        {header && (
-          <div className="reply-header">
-            <span className="reply-author">
-              {replied ? displayName(senderOf(replied, users)) : "Deleted message"}
+        {header && externalOrigin !== undefined ? (
+          <button
+            type="button"
+            className="reply-header external"
+            onClick={actions.onOpenReplied}
+            disabled={!actions.onOpenReplied}
+          >
+            <span className="reply-author" dir="auto">
+              {externalOrigin}
             </span>
             <span className="reply-text" dir="auto">
-              {header.quote_text ?? replied?.message ?? ""}
+              {header.quote_text ?? ""}
             </span>
-          </div>
+          </button>
+        ) : (
+          header && (
+            <div className="reply-header">
+              <span className="reply-author">
+                {replied ? displayName(senderOf(replied, users)) : "Deleted message"}
+              </span>
+              <span className="reply-text" dir="auto">
+                {header.quote_text ?? replied?.message ?? ""}
+              </span>
+            </div>
+          )
         )}
         {message.invert_media && card}
         <div className="text" dir="auto">
@@ -77,6 +107,11 @@ export function Message({ message, replied, users, readOutbox, showSender, actio
           <button type="button" onClick={actions.onReply} title="Reply">
             ↩
           </button>
+          {actions.onReplyElsewhere && (
+            <button type="button" onClick={actions.onReplyElsewhere} title="Reply in another chat">
+              ↪
+            </button>
+          )}
           {actions.onEdit && (
             <button type="button" onClick={actions.onEdit} title="Edit">
               ✎

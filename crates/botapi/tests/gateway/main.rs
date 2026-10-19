@@ -11,5 +11,6 @@ mod edit_delete;
 mod groups;
 mod invites;
 mod pins;
+mod replies;
 mod send_pipeline;
 mod webhooks;

@@ -8,6 +8,7 @@ import type { Client } from "../state/client";
 import type { DeepLink } from "../state/links";
 import { displayName } from "../state/peers";
 import type { AnyChat, AnyMessage, ChatDetails, Snapshot } from "../state/store";
+import { chatTitle } from "./ChatChooser";
 import { Composer, type Draft } from "./Composer";
 import { Message, type MessageActions } from "./Message";
 import { activeMarkup, ReplyKeyboard } from "./ReplyKeyboard";
@@ -24,6 +25,10 @@ interface Props {
   onDeepLink: (link: DeepLink) => void;
   /** A deep link's `start` parameter waiting for the START button. */
   startParam?: string;
+  /** A message of another chat (`from`) to reply to here. */
+  externalReply?: { from: string; message: tl.message };
+  onReplyElsewhere: (message: tl.message) => void;
+  onExternalReplyDone: () => void;
   onStarted: () => void;
   onBack: () => void;
 }
@@ -36,6 +41,9 @@ export function ChatView({
   onOpenChat,
   onDeepLink,
   startParam,
+  externalReply,
+  onReplyElsewhere,
+  onExternalReplyDone,
   onStarted,
   onBack,
 }: Props) {
@@ -126,10 +134,18 @@ export function ChatView({
     draft.replyTo ?? (forcedMessage && isRegular(forcedMessage) ? forcedMessage : undefined);
   const placeholder = keyboard?.markup.placeholder ?? forced?.markup.placeholder;
 
+  const external = draft.editing || draft.replyTo ? undefined : externalReply;
   const send = async (text: string, fromKeyboard = false) => {
     try {
       if (draft.editing) await client.editMessage(chatKey, draft.editing.id, text);
-      else await client.send(chatKey, { text, replyTo: replyTo?.id });
+      else if (external) {
+        await client.send(chatKey, {
+          text,
+          replyTo: external.message.id,
+          replyIn: external.from,
+        });
+        onExternalReplyDone();
+      } else await client.send(chatKey, { text, replyTo: replyTo?.id });
       if (fromKeyboard && keyboard?.markup.single_use)
         setDismissed(new Set(dismissed).add(keyboard.message));
       setDraft({});
@@ -140,6 +156,13 @@ export function ChatView({
 
   const actionsFor = (message: tl.message): MessageActions => ({
     onReply: () => setDraft({ replyTo: message }),
+    onReplyElsewhere: message.noforwards ? undefined : () => onReplyElsewhere(message),
+    onOpenReplied: externalSource(message, snapshot)
+      ? () => {
+          const source = externalSource(message, snapshot);
+          if (source) onOpenChat(source);
+        }
+      : undefined,
     onEdit: message.out || rights.editsPosts ? () => setDraft({ editing: message }) : undefined,
     onDelete:
       !chatKey.startsWith("ch") || message.out || rights.deletes
@@ -345,6 +368,7 @@ export function ChatView({
               users={snapshot.users}
               readOutbox={dialog?.readOutbox ?? 0}
               showSender={group !== undefined && !rights.broadcast}
+              externalOrigin={externalOrigin(message, snapshot)}
               actions={actionsFor(message)}
             />
           ) : (
@@ -393,13 +417,23 @@ export function ChatView({
         </div>
       ) : (
         <Composer
-          draft={{ ...draft, replyTo }}
+          draft={{
+            ...draft,
+            replyTo,
+            external: external && {
+              chat: chatTitle(snapshot, external.from) ?? "another chat",
+              message: external.message,
+            },
+          }}
           placeholder={placeholder}
           commands={commands}
           keyboardAvailable={keyboard !== undefined}
           keyboardShown={keyboardShown}
           onToggleKeyboard={() => setKeyboardShown(!keyboardShown)}
-          onCancel={() => setDraft({})}
+          onCancel={() => {
+            setDraft({});
+            if (external) onExternalReplyDone();
+          }}
           onSend={(text) => void send(text)}
         />
       )}
@@ -414,14 +448,38 @@ export function ChatView({
   );
 }
 
+/** Where a reply to another chat's message came from: the channel, or the author. */
+function externalOrigin(message: tl.message, snapshot: Snapshot): string | undefined {
+  const header = message.reply_to?._ === "messageReplyHeader" ? message.reply_to : undefined;
+  const from = header?.reply_from;
+  if (!from) return undefined;
+  const origin = from.from_id;
+  if (origin?._ === "peerUser") return displayName(snapshot.users.get(origin.user_id));
+  if (origin?._ === "peerChannel")
+    return chatTitle(snapshot, `ch${origin.channel_id}`) ?? "a channel";
+  return from.from_name ?? "Hidden sender";
+}
+
+/** The supergroup or channel a reply to another chat's message points into, if known. */
+function externalSource(message: tl.message, snapshot: Snapshot): string | undefined {
+  const header = message.reply_to?._ === "messageReplyHeader" ? message.reply_to : undefined;
+  const peer = header?.reply_from ? header.reply_to_peer_id : undefined;
+  const key = peer?._ === "peerChannel" ? `ch${peer.channel_id}` : undefined;
+  const chat = key ? snapshot.chats.get(key) : undefined;
+  return chat?._ === "channel" && (!chat.left || chat.username) ? key : undefined;
+}
+
 export function isRegular(message: AnyMessage): message is tl.message {
   return message._ === "message";
 }
 
 function repliedTo(message: AnyMessage, byId: ReadonlyMap<number, AnyMessage> | undefined) {
   const header = message.reply_to?._ === "messageReplyHeader" ? message.reply_to : undefined;
+  const sameChat = header?.reply_from === undefined && header?.reply_to_peer_id === undefined;
   const replied =
-    header?.reply_to_msg_id !== undefined ? byId?.get(header.reply_to_msg_id) : undefined;
+    sameChat && header?.reply_to_msg_id !== undefined
+      ? byId?.get(header.reply_to_msg_id)
+      : undefined;
   return replied && isRegular(replied) ? replied : undefined;
 }
 

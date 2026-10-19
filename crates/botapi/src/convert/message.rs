@@ -43,6 +43,7 @@ fn convert(m: &types::Message, context: &Entities<'_>, with_reply: bool) -> bot:
             .filter(|_| with_reply)
             .and_then(|h| replied(m, h, context))
             .map(|replied| Box::new(convert(replied, context, false))),
+        external_reply: header.and_then(|h| external(h, context)).map(Box::new),
         quote: header.and_then(|h| quote(h, context)).map(Box::new),
         edit_date: m.edit_date.map(Into::into),
         has_protected_content: m.noforwards,
@@ -103,6 +104,69 @@ fn replied<'a>(
         return None;
     }
     context.message(Peer::from_tl(&m.peer_id), header.reply_to_msg_id?)
+}
+
+/// A reply to a message in another chat: where it came from (telegram-bot-api's
+/// `JsonExternalReplyInfo`). The chat and id are known only for supergroups and channels.
+fn external(
+    header: &types::MessageReplyHeader,
+    context: &Entities<'_>,
+) -> Option<bot::ExternalReplyInfo> {
+    let Some(enums::MessageFwdHeader::MessageFwdHeader(from)) = &header.reply_from else {
+        return None;
+    };
+    let channel = header
+        .reply_to_peer_id
+        .as_ref()
+        .map(Peer::from_tl)
+        .filter(|peer| matches!(peer, Peer::Channel(_)));
+    Some(bot::ExternalReplyInfo {
+        origin: origin(from, context)?,
+        chat: channel.map(|peer| Box::new(chat(peer, context))),
+        message_id: channel.and(header.reply_to_msg_id).map(Into::into),
+        ..Default::default()
+    })
+}
+
+/// Who a forwarded or externally replied message came from (tdlib's `MessageOrigin`).
+pub fn origin(
+    from: &types::MessageFwdHeader,
+    context: &Entities<'_>,
+) -> Option<bot::MessageOrigin> {
+    let date = from.date.into();
+    Some(match from.from_id.as_ref().map(Peer::from_tl) {
+        Some(Peer::User(id)) => bot::MessageOrigin::User(Box::new(bot::MessageOriginUser {
+            date,
+            sender_user: context
+                .user(id.0)
+                .map(|u| user(u, false))
+                .unwrap_or(bot::User {
+                    id: id.0,
+                    ..Default::default()
+                }),
+            ..Default::default()
+        })),
+        Some(peer) => match from.channel_post {
+            Some(post) => bot::MessageOrigin::Channel(Box::new(bot::MessageOriginChannel {
+                date,
+                chat: chat(peer, context),
+                message_id: post.into(),
+                author_signature: from.post_author.clone(),
+                ..Default::default()
+            })),
+            None => bot::MessageOrigin::Chat(Box::new(bot::MessageOriginChat {
+                date,
+                sender_chat: chat(peer, context),
+                author_signature: from.post_author.clone(),
+                ..Default::default()
+            })),
+        },
+        None => bot::MessageOrigin::HiddenUser(Box::new(bot::MessageOriginHiddenUser {
+            date,
+            sender_user_name: from.from_name.clone()?,
+            ..Default::default()
+        })),
+    })
 }
 
 fn quote(header: &types::MessageReplyHeader, context: &Entities<'_>) -> Option<bot::TextQuote> {

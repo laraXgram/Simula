@@ -111,6 +111,11 @@ pub fn send(
     }
     let mut mentions: Vec<UserId> = messages::users(&message).into_iter().collect();
     mentions.push(from);
+    for &recipient in &recipients {
+        for other in messages::channels(&message) {
+            ctx.out.mention_channel(recipient, other);
+        }
+    }
     updates::push_channel(
         ctx,
         id,
@@ -153,6 +158,8 @@ pub fn send(
 pub struct History {
     pub messages: Vec<enums::Message>,
     pub users: BTreeSet<UserId>,
+    /// Other supergroups and channels the messages refer to.
+    pub channels: BTreeSet<ChannelId>,
     pub count: usize,
     pub pts: i32,
 }
@@ -170,6 +177,7 @@ pub fn history(
     let mut history = History {
         messages: Vec::new(),
         users: BTreeSet::new(),
+        channels: BTreeSet::new(),
         count,
         pts: channel.pts,
     };
@@ -177,6 +185,7 @@ pub fn history(
         if let Some(stored) = store::channels::message(ctx.db, id, message_id)? {
             let message = as_seen_by(&stored.message, stored.author, Some(viewer));
             history.users.extend(messages::users_any(&message));
+            history.channels.extend(messages::channels_any(&message));
             history.messages.push(message);
         }
     }
@@ -184,21 +193,18 @@ pub fn history(
 }
 
 /// Messages by id, as `viewer` sees them; missing ones are `messageEmpty`.
-pub fn get(
-    ctx: &Ctx<'_>,
-    viewer: UserId,
-    id: ChannelId,
-    ids: &[i32],
-) -> RpcResult<(Vec<enums::Message>, BTreeSet<UserId>, i32)> {
+pub fn get(ctx: &Ctx<'_>, viewer: UserId, id: ChannelId, ids: &[i32]) -> RpcResult<History> {
     let channel = channels::get(ctx, id)?;
     channels::require_reader(ctx, &channel, viewer)?;
     let mut found = Vec::with_capacity(ids.len());
     let mut users = BTreeSet::new();
+    let mut referred = BTreeSet::new();
     for &message_id in ids {
         found.push(match store::channels::message(ctx.db, id, message_id)? {
             Some(stored) => {
                 let message = as_seen_by(&stored.message, stored.author, Some(viewer));
                 users.extend(messages::users_any(&message));
+                referred.extend(messages::channels_any(&message));
                 message
             }
             None => types::MessageEmpty {
@@ -208,17 +214,20 @@ pub fn get(
             .into(),
         });
     }
-    Ok((found, users, channel.pts))
+    Ok(History {
+        count: found.len(),
+        messages: found,
+        users,
+        channels: referred,
+        pts: channel.pts,
+    })
 }
 
 /// The id of the message `viewer`'s message `id` replies to.
 pub fn replied_id(ctx: &Ctx<'_>, id: ChannelId, message_id: i32) -> RpcResult<Option<i32>> {
     Ok(
         store::channels::message(ctx.db, id, message_id)?.and_then(|stored| match stored.message {
-            enums::Message::Message(m) => match m.reply_to {
-                Some(enums::MessageReplyHeader::MessageReplyHeader(h)) => h.reply_to_msg_id,
-                _ => None,
-            },
+            enums::Message::Message(m) => messages::same_chat_reply_id(&m),
             _ => None,
         }),
     )

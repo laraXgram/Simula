@@ -1,10 +1,12 @@
 /** The client: pick an account, then the chat list and the open chat side by side. */
+import type { tl } from "@simula/schema";
 import { type ReactNode, useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import type { Account } from "../api/control";
 import { Client, type GroupKind } from "../state/client";
 import type { DeepLink } from "../state/links";
 import { AccountPicker } from "../ui/AccountPicker";
+import { ChatChooser } from "../ui/ChatChooser";
 import { ChatView } from "../ui/ChatView";
 import { useNotices } from "../ui/Notices";
 import { Sidebar } from "../ui/Sidebar";
@@ -89,6 +91,12 @@ function Shell({
   const snapshot = useSyncExternalStore(client.store.subscribe, client.store.snapshot);
   const [selected, setSelected] = useRoute();
   const [starts, setStarts] = useState<Record<string, string>>({});
+  // Replying in another chat: the message, then (once chosen) the chat to reply in.
+  const [elsewhere, setElsewhere] = useState<{
+    from: string;
+    message: tl.message;
+    to?: string;
+  } | null>(null);
   // An invite link joins (or asks to join); anything else is a username.
   const find = useCallback(
     async (query: string) => {
@@ -149,6 +157,9 @@ function Shell({
           onOpenChat={setSelected}
           onDeepLink={openDeepLink}
           startParam={starts[selected]}
+          externalReply={elsewhere?.to === selected ? elsewhere : undefined}
+          onReplyElsewhere={(message) => setElsewhere({ from: selected, message })}
+          onExternalReplyDone={() => setElsewhere(null)}
           onStarted={() =>
             setStarts((all) => {
               const { [selected]: _, ...rest } = all;
@@ -161,6 +172,18 @@ function Shell({
         <section className="chat empty-chat">
           <p>Select a chat, or open a bot by its @username.</p>
         </section>
+      )}
+      {elsewhere && !elsewhere.to && (
+        <ChatChooser
+          snapshot={snapshot}
+          title="Reply in…"
+          exclude={elsewhere.from}
+          onPick={(key) => {
+            setElsewhere({ ...elsewhere, to: key });
+            setSelected(key);
+          }}
+          onCancel={() => setElsewhere(null)}
+        />
       )}
       {notices}
     </div>

@@ -20,6 +20,7 @@ pub fn handle(
     let mut found = Vec::with_capacity(req.id.len());
     let mut users = BTreeSet::new();
     let mut chats = BTreeSet::new();
+    let mut channels = BTreeSet::new();
     for input in &req.id {
         let message = match input {
             enums::InputMessage::ID(m) => store::messages::get_any(ctx.db, caller, m.id)?,
@@ -33,6 +34,7 @@ pub fn handle(
         found.push(match message {
             Some(message) => {
                 users.extend(messages::users_any(&message));
+                channels.extend(messages::channels_any(&message));
                 if let Some(enums::Peer::Chat(chat)) = message_peer(&message) {
                     chats.insert(crate::ids::ChatId(chat.chat_id));
                 }
@@ -48,7 +50,7 @@ pub fn handle(
     Ok(types::messages::Messages {
         messages: found,
         topics: vec![],
-        chats: render::chats(ctx, caller, &chats)?,
+        chats: render::all_chats(ctx, caller, &chats, &channels)?,
         users: render::users(ctx, caller, &users)?,
     }
     .into())
@@ -57,10 +59,8 @@ pub fn handle(
 /// The message that the caller's message `id` replies to.
 fn replied(ctx: &Ctx<'_>, id: i32) -> RpcResult<Option<types::Message>> {
     let caller = ctx.caller()?.account;
-    let reply_to = store::messages::get(ctx.db, caller, id)?.and_then(|m| match m.reply_to {
-        Some(enums::MessageReplyHeader::MessageReplyHeader(header)) => header.reply_to_msg_id,
-        _ => None,
-    });
+    let reply_to =
+        store::messages::get(ctx.db, caller, id)?.and_then(|m| messages::same_chat_reply_id(&m));
     match reply_to {
         Some(id) => Ok(store::messages::get(ctx.db, caller, id)?),
         None => Ok(None),

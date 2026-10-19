@@ -1037,3 +1037,72 @@ button.history-start.link {
   color: var(--accent);
   cursor: pointer;
 }
+
+/* Choosing a chat */
+.chooser {
+  background: var(--bg);
+  border-radius: 14px;
+  padding: 14px 8px 8px;
+  inline-size: min(380px, 92vw);
+  max-block-size: min(520px, 86vh);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+}
+
+.chooser h2 {
+  font-size: 1em;
+  margin: 0 12px 10px;
+}
+
+.chooser-list {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.chooser-list button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: start;
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.chooser-list button:hover {
+  background: var(--bg-hover);
+}
+
+.chooser-cancel {
+  align-self: flex-end;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-weight: 600;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+button.reply-header.external {
+  inline-size: 100%;
+  border-block: 0;
+  border-inline-end: 0;
+  color: inherit;
+  font: inherit;
+  font-size: 0.9em;
+  text-align: start;
+  cursor: pointer;
+}
+
+button.reply-header.external:disabled {
+  cursor: default;
+}
+
+.reply-header.external .reply-author::before {
+  content: "↪ ";
+}

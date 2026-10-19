@@ -7,7 +7,7 @@ use simula_tl::{enums, types};
 
 use crate::ctx::Ctx;
 use crate::error::{RpcError, RpcResult};
-use crate::ids::{Peer, UserId};
+use crate::ids::{ChannelId, Peer, UserId};
 use crate::services::{dialogs, entities, markup, previews, replies, updates};
 use crate::store::{self, messages::StoredMessage};
 
@@ -177,6 +177,9 @@ pub(crate) fn deliver(
         if let Peer::Chat(chat) = peer {
             ctx.out.mention_chat(owner, chat);
         }
+        for channel in channels(&message) {
+            ctx.out.mention_channel(owner, channel);
+        }
         let update = updates::push_pts(ctx, owner, users(&message), |pts, pts_count| {
             types::UpdateNewMessage {
                 message: message.clone().into(),
@@ -270,7 +273,62 @@ pub fn users(message: &types::Message) -> BTreeSet<UserId> {
         }
     }
     users.extend(markup::users(message.reply_markup.as_ref()));
+    if let Some(Peer::User(user)) = reply_from(message)
+        .and_then(|f| f.from_id.as_ref())
+        .map(Peer::from_tl)
+    {
+        users.insert(user);
+    }
     users
+}
+
+/// Supergroups and channels a message refers to besides its own chat: where the
+/// message it replies to came from. Whoever receives the message receives these too.
+pub fn channels(message: &types::Message) -> BTreeSet<ChannelId> {
+    let mut out = BTreeSet::new();
+    if let Some(enums::MessageReplyHeader::MessageReplyHeader(h)) = &message.reply_to {
+        let peers = [
+            h.reply_to_peer_id.as_ref(),
+            reply_from(message).and_then(|f| f.from_id.as_ref()),
+        ];
+        for peer in peers.into_iter().flatten() {
+            if let Peer::Channel(channel) = Peer::from_tl(peer) {
+                out.insert(channel);
+            }
+        }
+    }
+    out
+}
+
+/// [`channels`] for any message (service messages refer to none).
+pub fn channels_any(message: &enums::Message) -> BTreeSet<ChannelId> {
+    match message {
+        enums::Message::Message(m) => channels(m),
+        _ => BTreeSet::new(),
+    }
+}
+
+/// Where a reply to another chat's message came from.
+fn reply_from(message: &types::Message) -> Option<&types::MessageFwdHeader> {
+    match &message.reply_to {
+        Some(enums::MessageReplyHeader::MessageReplyHeader(h)) => match &h.reply_from {
+            Some(enums::MessageFwdHeader::MessageFwdHeader(from)) => Some(from),
+            None => None,
+        },
+        _ => None,
+    }
+}
+
+/// The id a message replies to in its own chat (none for replies to other chats).
+pub fn same_chat_reply_id(message: &types::Message) -> Option<i32> {
+    match &message.reply_to {
+        Some(enums::MessageReplyHeader::MessageReplyHeader(h))
+            if h.reply_to_peer_id.is_none() && h.reply_from.is_none() =>
+        {
+            h.reply_to_msg_id
+        }
+        _ => None,
+    }
 }
 
 pub(crate) fn has_dialog(ctx: &Ctx<'_>, owner: UserId, peer: Peer) -> RpcResult<bool> {

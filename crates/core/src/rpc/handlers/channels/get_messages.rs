@@ -30,13 +30,21 @@ pub fn handle(
             }
         });
     }
-    let (messages, users, pts) = channel_messages::get(ctx, caller, id, &ids)?;
+    let found = channel_messages::get(ctx, caller, id, &ids)?;
+    let mut chats = vec![render::channel(ctx, caller, &channel)?];
+    let others = found
+        .channels
+        .iter()
+        .copied()
+        .filter(|&c| c != id)
+        .collect();
+    chats.extend(render::channels(ctx, caller, &others)?);
     Ok(types::messages::ChannelMessages {
-        pts,
-        count: messages.len() as i32,
-        messages,
-        chats: vec![render::channel(ctx, caller, &channel)?],
-        users: render::users(ctx, caller, &users)?,
+        pts: found.pts,
+        count: found.messages.len() as i32,
+        messages: found.messages,
+        chats,
+        users: render::users(ctx, caller, &found.users)?,
         ..Default::default()
     }
     .into())

@@ -7,6 +7,8 @@ import { toFormatting } from "../state/markdown";
 export interface Draft {
   replyTo?: tl.message;
   editing?: tl.message;
+  /** A reply to a message of another chat (named `chat`). */
+  external?: { chat: string; message: tl.message };
 }
 
 interface Props {
@@ -36,7 +38,7 @@ export function Composer({
 
   // Starting a reply or an edit puts the cursor in the box (and the text, for edits).
   const editing = draft.editing;
-  const replyId = draft.replyTo?.id;
+  const replyId = draft.replyTo?.id ?? draft.external?.message.id;
   useEffect(() => {
     if (editing) setText(toFormatting(editing.message, editing.entities));
     if (editing || replyId !== undefined) input.current?.focus();
@@ -48,13 +50,20 @@ export function Composer({
     setText("");
     setMenu(false);
   };
-  const target = draft.editing ?? draft.replyTo;
+  const target = draft.editing ?? draft.replyTo ?? draft.external?.message;
+  const label = draft.editing
+    ? "Editing"
+    : draft.external
+      ? `Reply to «${draft.external.chat}»`
+      : "Reply to";
 
   return (
     <div className="composer">
       {target && (
         <div className="composer-context">
-          <span className="composer-context-label">{draft.editing ? "Editing" : "Reply to"}</span>
+          <span className="composer-context-label" dir="auto">
+            {label}
+          </span>
           <span className="composer-context-text" dir="auto">
             {target.message}
           </span>

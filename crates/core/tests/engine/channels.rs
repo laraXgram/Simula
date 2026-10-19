@@ -547,3 +547,247 @@ async fn public_channels_and_bot_admins() {
     // The bot posts too.
     say(&w, w.bot.id, news, "bot post").await.unwrap();
 }
+
+fn reply_in(
+    to: enums::InputPeer,
+    source: enums::InputPeer,
+    id: i32,
+    quote: Option<&str>,
+    text: &str,
+) -> functions::messages::SendMessage {
+    functions::messages::SendMessage {
+        peer: to,
+        message: text.into(),
+        random_id: rand::random(),
+        reply_to: Some(
+            types::InputReplyToMessage {
+                reply_to_msg_id: id,
+                reply_to_peer_id: Some(source),
+                quote_text: quote.map(Into::into),
+                ..Default::default()
+            }
+            .into(),
+        ),
+        ..Default::default()
+    }
+}
+
+/// The reply header and `chats` of the new message `account` got in `channel`.
+fn received_reply(
+    rx: &mut Receiver<Arc<AccountUpdates>>,
+    account: UserId,
+) -> (types::MessageReplyHeader, Vec<enums::Chat>) {
+    while let Ok(batch) = rx.try_recv() {
+        if batch.account != account {
+            continue;
+        }
+        let enums::Updates::Updates(u) = &batch.updates else {
+            continue;
+        };
+        for update in &u.updates {
+            if let enums::Update::NewChannelMessage(n) = update
+                && let enums::Message::Message(m) = &n.message
+                && let Some(enums::MessageReplyHeader::MessageReplyHeader(h)) = &m.reply_to
+            {
+                return ((**h).clone(), u.chats.clone());
+            }
+        }
+    }
+    panic!("no reply received");
+}
+
+#[tokio::test]
+async fn replies_to_messages_in_other_chats() {
+    let w = world().await;
+    let news = create(&w, true, "News").await;
+    let dev = create(&w, false, "Dev").await;
+    invite(&w, w.alice.id, dev, &[w.bob.id]).await.unwrap();
+    let alice_news = input_peer(&w.sandbox, w.alice.id, news);
+    let post = w
+        .sandbox
+        .call(
+            as_account(w.alice.id),
+            functions::messages::SendMessage {
+                peer: alice_news.clone(),
+                message: "Big news today".into(),
+                random_id: 1,
+                entities: Some(vec![
+                    types::MessageEntityBold {
+                        offset: 0,
+                        length: 3,
+                    }
+                    .into(),
+                    types::MessageEntityCode {
+                        offset: 4,
+                        length: 4,
+                    }
+                    .into(),
+                ]),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let enums::Updates::Updates(post) = post else {
+        panic!()
+    };
+    let post = post
+        .updates
+        .iter()
+        .find_map(|u| match u {
+            enums::Update::MessageID(u) => Some(u.id),
+            _ => None,
+        })
+        .unwrap();
+
+    // Alice quotes nothing: the start of the post becomes an automatic quote. Bob, who
+    // can't read the private channel, still learns which channel and post it was.
+    let mut rx = w.sandbox.subscribe_updates();
+    w.sandbox
+        .call(
+            as_account(w.alice.id),
+            reply_in(
+                input_peer(&w.sandbox, w.alice.id, dev),
+                alice_news.clone(),
+                post,
+                None,
+                "seen this?",
+            ),
+        )
+        .await
+        .unwrap();
+    let (header, chats) = received_reply(&mut rx, w.bob.id);
+    assert_eq!(header.reply_to_peer_id, Some(Peer::Channel(news).to_tl()));
+    assert_eq!(header.reply_to_msg_id, Some(post));
+    let Some(enums::MessageFwdHeader::MessageFwdHeader(from)) = &header.reply_from else {
+        panic!("reply_from expected");
+    };
+    assert_eq!(from.from_id, Some(Peer::Channel(news).to_tl()));
+    assert_eq!(from.channel_post, Some(post));
+    assert!(!header.quote);
+    assert_eq!(header.quote_text.as_deref(), Some("Big news today"));
+    assert_eq!(header.quote_offset, None);
+    assert_eq!(
+        header.quote_entities,
+        Some(vec![
+            types::MessageEntityBold {
+                offset: 0,
+                length: 3
+            }
+            .into()
+        ]),
+        "code isn't kept in quotes"
+    );
+    assert!(
+        chats
+            .iter()
+            .any(|c| matches!(c, enums::Chat::Channel(c) if c.id == news.0 && c.left))
+    );
+
+    // A private message, replied to elsewhere with a quote: only its author shows.
+    let alice_bob = w.sandbox.input_peer(w.alice.id, w.bob.id.into());
+    w.sandbox
+        .call(
+            as_account(w.alice.id),
+            functions::messages::SendMessage {
+                peer: alice_bob,
+                message: "lunch at noon, then the demo".into(),
+                random_id: 2,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let mut rx = w.sandbox.subscribe_updates();
+    w.sandbox
+        .call(
+            as_account(w.bob.id),
+            reply_in(
+                input_peer(&w.sandbox, w.bob.id, dev),
+                w.sandbox.input_peer(w.bob.id, w.alice.id.into()),
+                1,
+                Some("the demo"),
+                "about this",
+            ),
+        )
+        .await
+        .unwrap();
+    let (header, _) = received_reply(&mut rx, w.alice.id);
+    assert_eq!(header.reply_to_peer_id, None);
+    assert_eq!(header.reply_to_msg_id, None);
+    let Some(enums::MessageFwdHeader::MessageFwdHeader(from)) = &header.reply_from else {
+        panic!("reply_from expected");
+    };
+    assert_eq!(from.from_id, Some(Peer::User(w.alice.id).to_tl()));
+    assert!(header.quote);
+    assert_eq!(header.quote_text.as_deref(), Some("the demo"));
+    assert_eq!(header.quote_offset, Some(20));
+
+    // Bob can't reach the private channel's post; protected posts can't be replied to.
+    let err = w
+        .sandbox
+        .call(
+            as_account(w.bob.id),
+            reply_in(
+                input_peer(&w.sandbox, w.bob.id, dev),
+                input_peer(&w.sandbox, w.bob.id, news),
+                post,
+                None,
+                "x",
+            ),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(code(err), (403, "CHANNEL_PRIVATE".into()));
+    w.sandbox
+        .call(
+            as_account(w.alice.id),
+            functions::messages::SendMessage {
+                peer: alice_news.clone(),
+                message: "members only".into(),
+                random_id: 3,
+                noforwards: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let err = w
+        .sandbox
+        .call(
+            as_account(w.alice.id),
+            reply_in(
+                input_peer(&w.sandbox, w.alice.id, dev),
+                alice_news,
+                post + 1,
+                None,
+                "x",
+            ),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(code(err), (400, "CHAT_FORWARDS_RESTRICTED".into()));
+
+    // Bob's history of the supergroup names the channel the reply came from.
+    let enums::messages::Messages::ChannelMessages(history) = w
+        .sandbox
+        .call(
+            as_account(w.bob.id),
+            functions::messages::GetHistory {
+                peer: input_peer(&w.sandbox, w.bob.id, dev),
+                limit: 10,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("channel messages expected");
+    };
+    assert!(
+        history
+            .chats
+            .iter()
+            .any(|c| matches!(c, enums::Chat::Channel(c) if c.id == news.0))
+    );
+}

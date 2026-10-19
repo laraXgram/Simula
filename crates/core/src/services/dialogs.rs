@@ -80,6 +80,7 @@ pub fn list(
                 let message =
                     channel_messages::as_seen_by(&stored.message, stored.author, Some(owner));
                 out.users.extend(messages::users_any(&message));
+                out.channels.extend(messages::channels_any(&message));
                 out.messages.push(message);
             }
             out.channels.insert(channel);
@@ -99,6 +100,7 @@ pub fn list(
         );
         if let Some(message) = store::messages::get_any(ctx.db, owner, top)? {
             out.users.extend(messages::users_any(&message));
+            out.channels.extend(messages::channels_any(&message));
             out.messages.push(message);
         }
         if let Peer::Chat(chat) = peer {
@@ -121,6 +123,8 @@ pub struct Window {
 pub struct History {
     pub messages: Vec<enums::Message>,
     pub users: BTreeSet<UserId>,
+    /// Supergroups and channels the messages refer to.
+    pub channels: BTreeSet<ChannelId>,
     /// Messages in the dialog within the id bounds.
     pub count: usize,
 }
@@ -157,11 +161,13 @@ pub fn history(ctx: &Ctx<'_>, owner: UserId, peer: Peer, window: Window) -> RpcR
     let mut history = History {
         messages: Vec::new(),
         users: BTreeSet::new(),
+        channels: BTreeSet::new(),
         count,
     };
     for id in page {
         if let Some(message) = store::messages::get_any(ctx.db, owner, id)? {
             history.users.extend(messages::users_any(&message));
+            history.channels.extend(messages::channels_any(&message));
             history.messages.push(message);
         }
     }

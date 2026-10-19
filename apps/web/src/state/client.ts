@@ -13,6 +13,8 @@ import { chatKey, Store } from "./store";
 export interface Outgoing {
   text: string;
   replyTo?: number;
+  /** The chat `replyTo` is in, when it isn't the one written to. */
+  replyIn?: string;
 }
 
 /** What "New group" creates. */
@@ -114,7 +116,11 @@ export class Client {
     const params: Params<"messages.sendMessage"> = { peer, message: text, random_id: randomId() };
     if (entities.length > 0) params.entities = entities;
     if (outgoing.replyTo)
-      params.reply_to = { _: "inputReplyToMessage", reply_to_msg_id: outgoing.replyTo };
+      params.reply_to = {
+        _: "inputReplyToMessage",
+        reply_to_msg_id: outgoing.replyTo,
+        reply_to_peer_id: outgoing.replyIn ? this.peer(outgoing.replyIn) : undefined,
+      };
     this.store.applyUpdates(await this.session.call("messages.sendMessage", params));
   }
 

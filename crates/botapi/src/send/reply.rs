@@ -1,6 +1,11 @@
 //! `reply_parameters`. telegram-bot-api parses them (quote included) before anything
 //! else, then, once the chat is known, fetches the replied message: a missing one is
 //! "message to be replied not found" unless `allow_sending_without_reply` is set.
+//!
+//! With `chat_id` naming another chat, the bot replies to a message there: the chat must
+//! be readable, and for supergroups and channels the bot must be a member. tdlib then
+//! sends the message without a reply when the replied one can't be replied to from
+//! another chat (protected content, a channel's first message).
 
 use simula_botapi_types::{ChatId, types as bot};
 use simula_core::Peer;
@@ -63,22 +68,28 @@ pub async fn check(
     if request.message_id <= 0 {
         return Ok(None);
     }
-    if let Some(chat_id) = &request.chat_id
-        && resolve::chat(ctx, chat_id).await? != chat
-    {
-        return Err(BotError::not_implemented(
-            "replies to messages in other chats",
-        ));
+    let source = match &request.chat_id {
+        Some(chat_id) => resolve::chat(ctx, chat_id).await?,
+        None => chat,
+    };
+    let not_found = || BotError::bad_request("message to be replied not found");
+    if source != chat && !has_message_access(ctx, source).await? {
+        return Err(not_found());
     }
 
-    let exists = !crate::lookup::messages(ctx, chat, &[request.message_id])
+    let Some(replied) = crate::lookup::messages(ctx, source, &[request.message_id])
         .await?
-        .is_empty();
-    if !exists {
+        .pop()
+    else {
         if request.allow_sending_without_reply {
             return Ok(None);
         }
-        return Err(BotError::bad_request("message to be replied not found"));
+        return Err(not_found());
+    };
+    // tdlib's `can_reply_to_message_in_another_dialog`.
+    let first_in_channel = matches!(source, Peer::Channel(_)) && replied.id == 1;
+    if source != chat && (replied.noforwards || first_in_channel) {
+        return Ok(None);
     }
 
     // tdlib's `MessageQuote`: a quote that is empty after trimming is dropped.
@@ -88,6 +99,7 @@ pub async fn check(
     Ok(Some(
         types::InputReplyToMessage {
             reply_to_msg_id: request.message_id,
+            reply_to_peer_id: (source != chat).then(|| ctx.input_peer(source)),
             quote_offset: quote.as_ref().map(|(_, position)| *position),
             quote_entities: quote
                 .as_ref()
@@ -100,4 +112,15 @@ pub async fn check(
         }
         .into(),
     ))
+}
+
+/// telegram-bot-api's `have_message_access`: messages of supergroups and channels only
+/// for members.
+async fn has_message_access(ctx: &BotCtx, chat: Peer) -> BotResult<bool> {
+    match chat {
+        Peer::Channel(_) => Ok(!resolve::channel(ctx, chat, resolve::Access::Read)
+            .await?
+            .left),
+        _ => Ok(true),
+    }
 }

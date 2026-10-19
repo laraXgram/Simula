@@ -25,11 +25,19 @@ pub fn handle(
     if let Peer::Channel(channel) = peer {
         let history = channel_messages::history(ctx, owner, channel, window)?;
         let found = channels::get(ctx, channel)?;
+        let mut chats = vec![render::channel(ctx, owner, &found)?];
+        let others = history
+            .channels
+            .iter()
+            .copied()
+            .filter(|&c| c != channel)
+            .collect();
+        chats.extend(render::channels(ctx, owner, &others)?);
         return Ok(types::messages::ChannelMessages {
             pts: history.pts,
             count: history.count as i32,
             messages: history.messages,
-            chats: vec![render::channel(ctx, owner, &found)?],
+            chats,
             users: render::users(ctx, owner, &history.users)?,
             ..Default::default()
         }
@@ -37,10 +45,11 @@ pub fn handle(
     }
     let history = dialogs::history(ctx, owner, peer, window)?;
     let users = render::users(ctx, owner, &history.users)?;
-    let chats = match peer {
-        Peer::Chat(chat) => render::chats(ctx, owner, &[chat].into())?,
-        _ => vec![],
+    let chat_ids = match peer {
+        Peer::Chat(chat) => [chat].into(),
+        _ => Default::default(),
     };
+    let chats = render::all_chats(ctx, owner, &chat_ids, &history.channels)?;
     Ok(if history.messages.len() < history.count {
         types::messages::MessagesSlice {
             count: history.count as i32,
