@@ -30,13 +30,5 @@ impl crate::Method for EditGeneralForumTopic {
 }
 
 impl crate::Validate for EditGeneralForumTopic {
-    fn validate_into(&self, path: &str, out: &mut Vec<crate::Violation>) {
-        {
-            let p = crate::validate::join(path, "name");
-            {
-                let v = &self.name;
-                crate::validate::chars(&p, v, Some(1), Some(128), out);
-            }
-        }
-    }
+    fn validate_into(&self, _path: &str, _out: &mut Vec<crate::Violation>) {}
 }

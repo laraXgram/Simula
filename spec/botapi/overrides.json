@@ -18,6 +18,15 @@
     "setMyCommands": {
       "params": { "commands": { "//": "The server answers BOT_COMMANDS_TOO_MUCH.", "handler_validates": true } }
     },
+    "createForumTopic": {
+      "params": { "name": { "//": "tdlib cuts names to 128 characters; empty ones get its own error.", "handler_validates": true } }
+    },
+    "editForumTopic": {
+      "params": { "name": { "//": "As for createForumTopic; an empty name means no change.", "handler_validates": true } }
+    },
+    "editGeneralForumTopic": {
+      "params": { "name": { "//": "As for createForumTopic.", "handler_validates": true } }
+    },
     "setWebhook": {
       "//": "telegram-bot-api clamps max_connections and checks the secret token itself.",
       "params": {

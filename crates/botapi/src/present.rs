@@ -62,7 +62,7 @@ pub async fn context(
     for _ in 0..2 {
         wanted.sort_unstable();
         wanted.dedup();
-        wanted.retain(|&(peer, id)| context.entities().message(peer, id).is_none());
+        wanted.retain(|&(peer, id)| context.entities().any_message(peer, id).is_none());
         if wanted.is_empty() {
             break;
         }

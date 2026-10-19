@@ -61,12 +61,24 @@ pub async fn check(
     ctx: &BotCtx,
     chat: Peer,
     request: Request,
+    topic: Option<i32>,
 ) -> BotResult<Option<enums::InputReplyTo>> {
     if request.ephemeral_message_id > 0 {
         return Err(BotError::not_implemented("replies to ephemeral messages"));
     }
+    // Into a forum topic, replying to nothing: tdlib names the topic as the reply.
+    let into_topic = |topic: i32| {
+        Some(
+            types::InputReplyToMessage {
+                reply_to_msg_id: topic,
+                top_msg_id: Some(topic),
+                ..Default::default()
+            }
+            .into(),
+        )
+    };
     if request.message_id <= 0 {
-        return Ok(None);
+        return Ok(topic.and_then(into_topic));
     }
     let source = match &request.chat_id {
         Some(chat_id) => resolve::chat(ctx, chat_id).await?,
@@ -82,14 +94,21 @@ pub async fn check(
         .pop()
     else {
         if request.allow_sending_without_reply {
-            return Ok(None);
+            return Ok(topic.and_then(into_topic));
         }
         return Err(not_found());
     };
+    // tdlib ignores a reply to a message from another topic.
+    if let Some(topic) = topic
+        && source == chat
+        && topic_of(&replied) != topic
+    {
+        return Ok(into_topic(topic));
+    }
     // tdlib's `can_reply_to_message_in_another_dialog`.
     let first_in_channel = matches!(source, Peer::Channel(_)) && replied.id == 1;
     if source != chat && (replied.noforwards || first_in_channel) {
-        return Ok(None);
+        return Ok(topic.and_then(into_topic));
     }
 
     // tdlib's `MessageQuote`: a quote that is empty after trimming is dropped.
@@ -100,6 +119,7 @@ pub async fn check(
         types::InputReplyToMessage {
             reply_to_msg_id: request.message_id,
             reply_to_peer_id: (source != chat).then(|| ctx.input_peer(source)),
+            top_msg_id: topic,
             quote_offset: quote.as_ref().map(|(_, position)| *position),
             quote_entities: quote
                 .as_ref()
@@ -122,5 +142,16 @@ async fn has_message_access(ctx: &BotCtx, chat: Peer) -> BotResult<bool> {
             .await?
             .left),
         _ => Ok(true),
+    }
+}
+
+/// The forum topic a message of a forum is in (General when its header names none).
+fn topic_of(message: &types::Message) -> i32 {
+    match &message.reply_to {
+        Some(enums::MessageReplyHeader::MessageReplyHeader(h)) if h.forum_topic => h
+            .reply_to_top_id
+            .or(h.reply_to_msg_id)
+            .unwrap_or(crate::forums::GENERAL),
+        _ => crate::forums::GENERAL,
     }
 }

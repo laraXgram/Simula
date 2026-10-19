@@ -19,6 +19,7 @@ use simula_tl::{enums, types};
 #[derive(Debug, Clone, Copy)]
 pub struct ChannelInfo<'a> {
     pub broadcast: bool,
+    pub forum: bool,
     pub title: &'a str,
     pub username: Option<&'a str>,
 }
@@ -54,15 +55,26 @@ impl<'a> Entities<'a> {
         self.chats.iter().find_map(|c| match c {
             enums::Chat::Channel(c) if c.id == id => Some(ChannelInfo {
                 broadcast: c.broadcast,
+                forum: c.forum,
                 title: &c.title,
                 username: c.username.as_deref(),
             }),
             enums::Chat::ChannelForbidden(c) if c.id == id => Some(ChannelInfo {
                 broadcast: c.broadcast,
+                forum: false,
                 title: &c.title,
                 username: None,
             }),
             _ => None,
+        })
+    }
+
+    /// A fetched message of chat `peer`, by id, service messages included.
+    pub fn any_message(&self, peer: Peer, id: i32) -> Option<&'a enums::Message> {
+        self.messages.iter().find(|m| match m {
+            enums::Message::Message(m) => m.id == id && Peer::from_tl(&m.peer_id) == peer,
+            enums::Message::Service(m) => m.id == id && Peer::from_tl(&m.peer_id) == peer,
+            enums::Message::Empty(_) => false,
         })
     }
 

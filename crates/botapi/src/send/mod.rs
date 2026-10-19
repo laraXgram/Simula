@@ -5,6 +5,7 @@
 
 pub mod markup;
 mod reply;
+mod topic;
 
 use simula_botapi_types::{ChatId, types as bot};
 use simula_core::Peer;
@@ -83,16 +84,16 @@ pub async fn send(ctx: &BotCtx, options: Options, content: Content) -> BotResult
     {
         return Err(BotError::not_implemented("business connections"));
     }
-    let in_topic = |id: Option<i64>| id.is_some_and(|id| id != 0);
-    if in_topic(options.message_thread_id) || in_topic(options.direct_messages_topic_id) {
-        return Err(BotError::not_implemented("topics"));
+    if options.direct_messages_topic_id.is_some_and(|id| id != 0) {
+        return Err(BotError::not_implemented("channel direct messages"));
     }
 
     let peer = resolve::chat_for(ctx, &options.chat_id, resolve::Access::Write).await?;
+    let topic = topic::check(ctx, peer, options.message_thread_id).await?;
     if let Peer::Channel(_) = peer {
         can_send_text(&resolve::channel(ctx, peer, resolve::Access::Write).await?)?;
     }
-    let reply_to = reply::check(ctx, peer, reply).await?;
+    let reply_to = reply::check(ctx, peer, reply, topic).await?;
     let private_chat = matches!(peer, Peer::User(_));
 
     // tdlib: keyboard rules for this chat, then the content.

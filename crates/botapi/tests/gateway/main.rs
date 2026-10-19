@@ -8,6 +8,7 @@ mod callbacks;
 mod channels;
 mod commands;
 mod edit_delete;
+mod forums;
 mod groups;
 mod invites;
 mod pins;

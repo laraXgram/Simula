@@ -36,6 +36,7 @@ pub fn chat(peer: Peer, entities: &Entities<'_>) -> bot::Chat {
                 .into(),
                 title: info.map(|c| c.title.to_owned()),
                 username: info.and_then(|c| c.username.map(str::to_owned)),
+                is_forum: info.is_some_and(|c| c.forum && !c.broadcast),
                 ..Default::default()
             }
         }

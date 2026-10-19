@@ -7,13 +7,19 @@
 pub mod answer_callback_query;
 pub mod approve_chat_join_request;
 pub mod ban_chat_member;
+pub mod close_forum_topic;
+pub mod close_general_forum_topic;
 pub mod create_chat_invite_link;
+pub mod create_forum_topic;
 pub mod decline_chat_join_request;
+pub mod delete_forum_topic;
 pub mod delete_message;
 pub mod delete_messages;
 pub mod delete_my_commands;
 pub mod delete_webhook;
 pub mod edit_chat_invite_link;
+pub mod edit_forum_topic;
+pub mod edit_general_forum_topic;
 pub mod edit_message_reply_markup;
 pub mod edit_message_text;
 pub mod export_chat_invite_link;
@@ -25,9 +31,12 @@ pub mod get_me;
 pub mod get_my_commands;
 pub mod get_updates;
 pub mod get_webhook_info;
+pub mod hide_general_forum_topic;
 pub mod leave_chat;
 pub mod pin_chat_message;
 pub mod promote_chat_member;
+pub mod reopen_forum_topic;
+pub mod reopen_general_forum_topic;
 pub mod restrict_chat_member;
 pub mod revoke_chat_invite_link;
 pub mod send_message;
@@ -38,7 +47,10 @@ pub mod set_chat_title;
 pub mod set_my_commands;
 pub mod set_webhook;
 pub mod unban_chat_member;
+pub mod unhide_general_forum_topic;
 pub mod unpin_all_chat_messages;
+pub mod unpin_all_forum_topic_messages;
+pub mod unpin_all_general_forum_topic_messages;
 pub mod unpin_chat_message;
 
 use serde_json::{Map, Value};
@@ -52,13 +64,19 @@ pub const IMPLEMENTED: &[&str] = &[
     "answerCallbackQuery",
     "approveChatJoinRequest",
     "banChatMember",
+    "closeForumTopic",
+    "closeGeneralForumTopic",
     "createChatInviteLink",
+    "createForumTopic",
     "declineChatJoinRequest",
+    "deleteForumTopic",
     "deleteMessage",
     "deleteMessages",
     "deleteMyCommands",
     "deleteWebhook",
     "editChatInviteLink",
+    "editForumTopic",
+    "editGeneralForumTopic",
     "editMessageReplyMarkup",
     "editMessageText",
     "exportChatInviteLink",
@@ -70,9 +88,12 @@ pub const IMPLEMENTED: &[&str] = &[
     "getMyCommands",
     "getUpdates",
     "getWebhookInfo",
+    "hideGeneralForumTopic",
     "leaveChat",
     "pinChatMessage",
     "promoteChatMember",
+    "reopenForumTopic",
+    "reopenGeneralForumTopic",
     "restrictChatMember",
     "revokeChatInviteLink",
     "sendMessage",
@@ -83,7 +104,10 @@ pub const IMPLEMENTED: &[&str] = &[
     "setMyCommands",
     "setWebhook",
     "unbanChatMember",
+    "unhideGeneralForumTopic",
     "unpinAllChatMessages",
+    "unpinAllForumTopicMessages",
+    "unpinAllGeneralForumTopicMessages",
     "unpinChatMessage",
 ];
 
@@ -107,6 +131,16 @@ pub async fn route(
             .await
         }
         "banchatmember" => run(ctx, params, Limits::Enforce, ban_chat_member::handle).await,
+        "closeforumtopic" => run(ctx, params, Limits::Enforce, close_forum_topic::handle).await,
+        "closegeneralforumtopic" => {
+            run(
+                ctx,
+                params,
+                Limits::Enforce,
+                close_general_forum_topic::handle,
+            )
+            .await
+        }
         "createchatinvitelink" => {
             run(
                 ctx,
@@ -116,6 +150,7 @@ pub async fn route(
             )
             .await
         }
+        "createforumtopic" => run(ctx, params, Limits::Enforce, create_forum_topic::handle).await,
         "declinechatjoinrequest" => {
             run(
                 ctx,
@@ -125,12 +160,23 @@ pub async fn route(
             )
             .await
         }
+        "deleteforumtopic" => run(ctx, params, Limits::Enforce, delete_forum_topic::handle).await,
         "deletemessage" => run(ctx, params, Limits::Enforce, delete_message::handle).await,
         "deletemessages" => run(ctx, params, Limits::Enforce, delete_messages::handle).await,
         "deletemycommands" => run(ctx, params, Limits::Enforce, delete_my_commands::handle).await,
         "deletewebhook" => run(ctx, params, Limits::Enforce, delete_webhook::handle).await,
         "editchatinvitelink" => {
             run(ctx, params, Limits::Enforce, edit_chat_invite_link::handle).await
+        }
+        "editforumtopic" => run(ctx, params, Limits::Enforce, edit_forum_topic::handle).await,
+        "editgeneralforumtopic" => {
+            run(
+                ctx,
+                params,
+                Limits::Enforce,
+                edit_general_forum_topic::handle,
+            )
+            .await
         }
         "editmessagereplymarkup" => {
             run(
@@ -169,9 +215,28 @@ pub async fn route(
         "getmycommands" => run(ctx, params, Limits::Enforce, get_my_commands::handle).await,
         "getupdates" => run(ctx, params, get_updates::LIMITS, get_updates::handle).await,
         "getwebhookinfo" => run(ctx, params, Limits::Enforce, get_webhook_info::handle).await,
+        "hidegeneralforumtopic" => {
+            run(
+                ctx,
+                params,
+                Limits::Enforce,
+                hide_general_forum_topic::handle,
+            )
+            .await
+        }
         "leavechat" => run(ctx, params, Limits::Enforce, leave_chat::handle).await,
         "pinchatmessage" => run(ctx, params, Limits::Enforce, pin_chat_message::handle).await,
         "promotechatmember" => run(ctx, params, Limits::Enforce, promote_chat_member::handle).await,
+        "reopenforumtopic" => run(ctx, params, Limits::Enforce, reopen_forum_topic::handle).await,
+        "reopengeneralforumtopic" => {
+            run(
+                ctx,
+                params,
+                Limits::Enforce,
+                reopen_general_forum_topic::handle,
+            )
+            .await
+        }
         "restrictchatmember" => {
             run(ctx, params, Limits::Enforce, restrict_chat_member::handle).await
         }
@@ -204,12 +269,39 @@ pub async fn route(
         "setmycommands" => run(ctx, params, Limits::Enforce, set_my_commands::handle).await,
         "setwebhook" => run(ctx, params, Limits::Enforce, set_webhook::handle).await,
         "unbanchatmember" => run(ctx, params, Limits::Enforce, unban_chat_member::handle).await,
+        "unhidegeneralforumtopic" => {
+            run(
+                ctx,
+                params,
+                Limits::Enforce,
+                unhide_general_forum_topic::handle,
+            )
+            .await
+        }
         "unpinallchatmessages" => {
             run(
                 ctx,
                 params,
                 Limits::Enforce,
                 unpin_all_chat_messages::handle,
+            )
+            .await
+        }
+        "unpinallforumtopicmessages" => {
+            run(
+                ctx,
+                params,
+                Limits::Enforce,
+                unpin_all_forum_topic_messages::handle,
+            )
+            .await
+        }
+        "unpinallgeneralforumtopicmessages" => {
+            run(
+                ctx,
+                params,
+                Limits::Enforce,
+                unpin_all_general_forum_topic_messages::handle,
             )
             .await
         }

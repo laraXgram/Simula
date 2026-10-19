@@ -108,6 +108,7 @@ async fn info(ctx: &BotCtx, peer: Peer) -> BotResult<bot::ChatFullInfo> {
                 .into(),
                 title: Some(info.title.clone()),
                 username: info.username.clone(),
+                is_forum: info.forum && !info.broadcast,
                 description: (!channel.full.about.is_empty()).then(|| channel.full.about.clone()),
                 invite_link: match &channel.full.exported_invite {
                     Some(enums::ExportedChatInvite::ChatInviteExported(i)) => Some(i.link.clone()),

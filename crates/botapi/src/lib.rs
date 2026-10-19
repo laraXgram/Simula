@@ -11,6 +11,7 @@ mod dispatch;
 mod edit;
 pub mod error;
 mod errors;
+mod forums;
 mod http;
 mod invites;
 mod lookup;

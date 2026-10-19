@@ -29992,7 +29992,8 @@
               "max": 128,
               "unit": "chars"
             }
-          }
+          },
+          "handler_validates": true
         },
         {
           "name": "icon_color",
@@ -30065,7 +30066,8 @@
               "max": 128,
               "unit": "chars"
             }
-          }
+          },
+          "handler_validates": true
         },
         {
           "name": "icon_custom_emoji_id",
@@ -30276,7 +30278,8 @@
               "max": 128,
               "unit": "chars"
             }
-          }
+          },
+          "handler_validates": true
         }
       ],
       "returns": {
