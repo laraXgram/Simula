@@ -76,10 +76,11 @@ pub fn new_id() -> i64 {
     rand::random::<i64>() & i64::MAX
 }
 
-/// A file reference for a new photo or document. Simula accepts any reference.
+/// A file reference for a new photo or document, 25 bytes like Telegram's. Simula
+/// accepts any reference.
 pub fn file_reference() -> Vec<u8> {
     let mut reference = vec![1];
-    reference.extend_from_slice(&rand::random::<[u8; 20]>());
+    reference.extend_from_slice(&rand::random::<[u8; 24]>());
     reference
 }
 
@@ -129,11 +130,33 @@ pub fn download(
     let r#type = if photo || !thumb.is_empty() {
         enums::storage::FileType::FileJpeg
     } else {
-        enums::storage::FileType::FilePartial
+        storage_type(
+            media
+                .body
+                .get("mime_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default(),
+        )
     };
     Ok(types::upload::File {
         r#type,
         mtime: media.date,
         bytes,
     })
+}
+
+/// The storage type `upload.getFile` reports for a document's MIME type.
+fn storage_type(mime: &str) -> enums::storage::FileType {
+    use enums::storage::FileType;
+    match mime {
+        "image/jpeg" => FileType::FileJpeg,
+        "image/png" => FileType::FilePng,
+        "image/gif" => FileType::FileGif,
+        "image/webp" => FileType::FileWebp,
+        "application/pdf" => FileType::FilePdf,
+        "audio/mpeg" => FileType::FileMp3,
+        "video/quicktime" => FileType::FileMov,
+        "video/mp4" => FileType::FileMp4,
+        _ => FileType::FileUnknown,
+    }
 }

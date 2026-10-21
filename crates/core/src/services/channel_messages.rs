@@ -49,7 +49,7 @@ pub fn send(
 ) -> RpcResult<messages::Sent> {
     let channel = channels::get(ctx, id)?;
     let sender = channels::require_member(ctx, &channel, from)?;
-    rights::check_can_send(ctx, &channel, &sender)?;
+    rights::check_can_send(ctx, &channel, &sender, out.media.as_ref())?;
     messages::check_content(ctx, from, &out)?;
     let members = store::channels::current_members(ctx.db, id)?;
     let accounts = members

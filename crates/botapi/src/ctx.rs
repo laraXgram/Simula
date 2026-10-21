@@ -1,11 +1,13 @@
 //! What a method handler gets: the gateway and the authenticated bot.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use simula_core::{Account, Caller, Peer};
 use simula_tl::{Function, RemoteCall, enums, types};
 
 use crate::error::{BotError, BotResult, ErrorContext};
+use crate::http::Upload;
 use crate::state::Gateway;
 use crate::text::{self, Entity};
 use crate::updates::queue::BotState;
@@ -13,6 +15,8 @@ use crate::updates::queue::BotState;
 pub struct BotCtx {
     pub gateway: Arc<Gateway>,
     pub bot: Account,
+    /// The request's multipart file parts, by field name.
+    pub uploads: Arc<HashMap<String, Upload>>,
     /// The `description` of a successful response ("Webhook was set"), if the method
     /// gives one.
     description: Arc<Mutex<Option<&'static str>>>,
@@ -23,6 +27,7 @@ impl BotCtx {
         Self {
             gateway,
             bot,
+            uploads: Arc::default(),
             description: Arc::default(),
         }
     }

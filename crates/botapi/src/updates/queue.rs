@@ -124,6 +124,8 @@ pub struct BotState {
     /// Increments per `getUpdates`; an older poll that sees a newer value yields (409).
     pub polls: AtomicU64,
     pub webhook: Mutex<crate::webhook::State>,
+    /// Files the bot asked for with `getFile`.
+    pub downloads: Mutex<crate::files::download::Downloads>,
 }
 
 #[cfg(test)]

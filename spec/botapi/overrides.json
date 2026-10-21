@@ -27,6 +27,9 @@
     "editGeneralForumTopic": {
       "params": { "name": { "//": "As for createForumTopic.", "handler_validates": true } }
     },
+    "sendMediaGroup": {
+      "params": { "media": { "//": "tdlib checks the album: at most ten (\"Too many messages to send as an album\"), not at least two.", "handler_validates": true } }
+    },
     "setWebhook": {
       "//": "telegram-bot-api clamps max_connections and checks the secret token itself.",
       "params": {

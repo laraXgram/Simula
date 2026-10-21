@@ -172,6 +172,14 @@ pub fn store_document(
             .into(),
         );
     }
+    // GIFs play as animations.
+    if mime_type == "image/gif"
+        && !attributes
+            .iter()
+            .any(|a| matches!(a, enums::DocumentAttribute::Animated))
+    {
+        attributes.push(enums::DocumentAttribute::Animated);
+    }
     if nosound {
         for attribute in &mut attributes {
             if let enums::DocumentAttribute::Video(v) = attribute {

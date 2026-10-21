@@ -39,8 +39,9 @@ unsafe_code = "forbid"
 all = { level = "warn", priority = -1 }
 
 [profile.dev]
-# Generated TL code is large; keep debug info light so builds stay small on disk.
-debug = "line-tables-only"
+# Generated TL code is large: no debug info keeps builds (and every test binary that
+# links the TL library) small on disk. Set CARGO_PROFILE_DEV_DEBUG=1 to debug.
+debug = false
 # Incremental caches for crates built on the TL types reach gigabytes. Off by default;
 # set CARGO_INCREMENTAL=1 to trade disk for faster rebuilds.
 incremental = false

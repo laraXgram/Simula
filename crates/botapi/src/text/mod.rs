@@ -21,7 +21,7 @@ use crate::errors::botapi::format as bot_error;
 /// telegram-bot-api rejects longer texts before parsing.
 const MAX_INPUT_BYTES: usize = 1 << 15;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Formatted {
     pub text: String,
     pub entities: Vec<Entity>,
@@ -29,6 +29,9 @@ pub struct Formatted {
 
 /// telegram-bot-api's `get_formatted_text`: text plus `parse_mode` or explicit `entities`.
 /// Runs before the chat is resolved; [`Formatted::fix`] runs after, as in tdlib.
+/// tdlib's `caption_length_max`.
+const MAX_CAPTION_LENGTH: usize = 1024;
+
 pub fn parse(
     text: &str,
     parse_mode: Option<&str>,
@@ -61,6 +64,20 @@ impl Formatted {
         fix::fix(self.text, self.entities)
             .map(|(fixed, _)| fixed)
             .map_err(|message| bot_error(400, message))
+    }
+
+    /// A caption: like a message's text, but it may be empty, and tdlib checks its
+    /// length itself (`caption_length_max`, 1024 UTF-16 units).
+    pub fn fix_caption(self) -> Result<Formatted, BotError> {
+        let fixed = match fix::fix(self.text, self.entities) {
+            Ok((fixed, _)) => fixed,
+            Err("Text must be non-empty") => return Ok(Formatted::default()),
+            Err(message) => return Err(bot_error(400, message)),
+        };
+        if fixed.text.encode_utf16().count() > MAX_CAPTION_LENGTH {
+            return Err(bot_error(400, "Message caption is too long"));
+        }
+        Ok(fixed)
     }
 
     /// A reply quote as tdlib builds it (`MessageQuote`): fixed like a message, only the

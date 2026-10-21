@@ -137,7 +137,7 @@ async fn telegram_error_texts() {
         (status, body["description"].as_str().unwrap()),
         (StatusCode::NOT_FOUND, "Not Found")
     );
-    let (status, _) = post(&w, "sendPhoto", json!({})).await;
+    let (status, _) = post(&w, "sendSticker", json!({})).await;
     assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
 
     let wrong = Request::post("/bot123:wrong/getMe")

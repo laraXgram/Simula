@@ -6,6 +6,7 @@ pub mod entities;
 pub mod invite;
 pub mod link_preview;
 pub mod markup;
+pub mod media;
 pub mod member;
 pub mod message;
 pub mod permissions;

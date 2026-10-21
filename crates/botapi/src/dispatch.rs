@@ -63,6 +63,12 @@ fn parse<M: Method>(params: Map<String, Value>) -> BotResult<M> {
         {
             // telegram-bot-api's own wording for the most common one.
             Some("text") => BotError::bad_request("message text is empty"),
+            // A file parameter that names no file (telegram-bot-api's `get_input_file`).
+            Some(file @ ("photo" | "document" | "audio" | "video" | "animation" | "voice")) => {
+                BotError::bad_request(format!("there is no {file} in the request"))
+            }
+            Some("video_note") => BotError::bad_request("there is no video note in the request"),
+            Some("file_id") => BotError::bad_request("file_id not specified"),
             Some(field) => BotError::bad_request(format!("{field} is empty")),
             None => BotError::bad_request(format!("can't parse {path}: {inner}")),
         }

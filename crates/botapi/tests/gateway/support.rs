@@ -444,3 +444,50 @@ pub async fn bob(w: &World) -> Account {
         .await
         .unwrap()
 }
+
+/// A multipart request: text fields, then file parts `(field, file name, bytes)`.
+pub async fn post_multipart(
+    w: &World,
+    method: &str,
+    fields: &[(&str, &str)],
+    files: &[(&str, &str, &[u8])],
+) -> (StatusCode, Value) {
+    let boundary = "simula-test-boundary";
+    let mut body = Vec::new();
+    for (name, value) in fields {
+        body.extend(
+            format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n"
+            )
+            .bytes(),
+        );
+    }
+    for (name, file_name, data) in files {
+        body.extend(
+            format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"; filename=\"{file_name}\"\r\nContent-Type: application/octet-stream\r\n\r\n")
+                .bytes(),
+        );
+        body.extend_from_slice(data);
+        body.extend(b"\r\n");
+    }
+    body.extend(format!("--{boundary}--\r\n").bytes());
+    let request = Request::post(format!("/bot{}/{method}", w.token))
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(Body::from(body))
+        .unwrap();
+    send(&w.app, request).await
+}
+
+/// A GET whose body is returned raw (file downloads).
+pub async fn get_raw(w: &World, path: &str) -> (StatusCode, Vec<u8>) {
+    let request = Request::get(path).body(Body::empty()).unwrap();
+    let response = w.app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (status, bytes.to_vec())
+}

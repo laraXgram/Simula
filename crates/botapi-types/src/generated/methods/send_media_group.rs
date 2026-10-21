@@ -97,10 +97,6 @@ impl crate::Validate for SendMediaGroup {
     fn validate_into(&self, path: &str, out: &mut Vec<crate::Violation>) {
         {
             let p = crate::validate::join(path, "media");
-            {
-                let v = &self.media;
-                crate::validate::items(&p, v, Some(2), Some(10), out);
-            }
             crate::Validate::validate_into(&self.media, &p, out);
         }
         {

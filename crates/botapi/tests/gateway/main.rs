@@ -11,6 +11,7 @@ mod edit_delete;
 mod forums;
 mod groups;
 mod invites;
+mod media;
 mod pins;
 mod replies;
 mod send_pipeline;

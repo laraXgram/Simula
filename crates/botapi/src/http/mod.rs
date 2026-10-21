@@ -8,8 +8,10 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::extract::{Path, Request, State};
+use axum::http::{StatusCode, header};
+use axum::response::IntoResponse;
 use axum::response::Response;
-use axum::routing::any;
+use axum::routing::{any, get};
 use serde_json::Value;
 use simula_botapi_types::registry;
 
@@ -18,11 +20,12 @@ use crate::dispatch;
 use crate::error::{BotError, BotResult};
 use crate::state::Gateway;
 
-pub use decode::DecodedRequest;
+pub use decode::{DecodedRequest, Upload};
 
 pub fn router(gateway: Arc<Gateway>) -> Router {
     Router::new()
         .route("/{token}/{method}", any(handle))
+        .route("/file/{token}/{*path}", get(download))
         // Libraries compress request bodies (Telegraf under Bun sends `Content-Encoding: gzip`);
         // api.telegram.org accepts that, so we do too.
         .layer(tower_http::decompression::RequestDecompressionLayer::new())
@@ -44,11 +47,12 @@ async fn handle(
     let info = registry::METHODS
         .iter()
         .find(|m| m.name.eq_ignore_ascii_case(&method));
-    let decoded = match decode::decode(request, info).await {
+    let mut decoded = match decode::decode(request, info).await {
         Ok(decoded) => decoded,
         Err(error) => return response::error(&error),
     };
-    let ctx = BotCtx::new(gateway, bot);
+    let mut ctx = BotCtx::new(gateway, bot);
+    ctx.uploads = Arc::new(std::mem::take(&mut decoded.files));
     let description = ctx.description_slot();
     match execute(ctx, &method, decoded).await {
         Ok(result) => response::ok(result, *description.lock().expect("description lock")),
@@ -82,4 +86,37 @@ fn info(method: &str) -> Option<&'static simula_botapi_types::MethodInfo> {
     registry::METHODS
         .iter()
         .find(|m| m.name.eq_ignore_ascii_case(method))
+}
+
+/// `/file/bot<token>/<file_path>`: a file the bot asked for with `getFile`.
+async fn download(
+    State(gateway): State<Arc<Gateway>>,
+    Path((token, path)): Path<(String, String)>,
+) -> Response {
+    let Some(token) = token.strip_prefix("bot") else {
+        return response::error(&BotError::not_found());
+    };
+    let bot = match gateway.authenticate(token).await {
+        Ok(bot) => bot,
+        Err(error) => return response::error(&error),
+    };
+    let ctx = BotCtx::new(gateway, bot);
+    let Some(id) = ctx
+        .state()
+        .downloads
+        .lock()
+        .expect("downloads lock")
+        .get(&path)
+    else {
+        return response::error(&BotError::not_found());
+    };
+    match crate::files::download::read(&ctx, &id, crate::files::download::MAX_DOWNLOAD_SIZE).await {
+        Ok(Some((data, _))) => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "application/octet-stream")],
+            data,
+        )
+            .into_response(),
+        _ => response::error(&BotError::not_found()),
+    }
 }

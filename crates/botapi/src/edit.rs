@@ -27,6 +27,8 @@ pub enum Change {
         text: Formatted,
         link_preview: Option<Box<bot::LinkPreviewOptions>>,
     },
+    /// A photo's or document's caption (`editMessageCaption`).
+    Caption { caption: Formatted, above: bool },
     /// Only the keyboard (`editMessageReplyMarkup`).
     ReplyMarkup,
 }
@@ -70,6 +72,11 @@ pub async fn edit(
             "there is no text in the message to edit",
         ));
     }
+    if matches!(change, Change::Caption { .. }) && convert::message::is_text(&message) {
+        return Err(BotError::bad_request(
+            "there is no caption in the message to edit",
+        ));
+    }
     let private_chat = matches!(chat, Peer::User(_));
     let reply_markup = match markup {
         None => None,
@@ -83,13 +90,22 @@ pub async fn edit(
         reply_markup,
         ..Default::default()
     };
-    if let Change::Text { text, link_preview } = change {
-        let text = text.fix()?;
-        let preview = link_preview.as_deref();
-        call.no_webpage = preview.is_some_and(|p| p.is_disabled == Some(true));
-        call.invert_media = preview.is_some_and(|p| p.show_above_text == Some(true));
-        call.entities = Some(ctx.tl_entities(&text.entities)).filter(|e| !e.is_empty());
-        call.message = Some(text.text);
+    match change {
+        Change::Text { text, link_preview } => {
+            let text = text.fix()?;
+            let preview = link_preview.as_deref();
+            call.no_webpage = preview.is_some_and(|p| p.is_disabled == Some(true));
+            call.invert_media = preview.is_some_and(|p| p.show_above_text == Some(true));
+            call.entities = Some(ctx.tl_entities(&text.entities)).filter(|e| !e.is_empty());
+            call.message = Some(text.text);
+        }
+        Change::Caption { caption, above } => {
+            let caption = caption.fix_caption()?;
+            call.invert_media = above;
+            call.entities = Some(ctx.tl_entities(&caption.entities)).filter(|e| !e.is_empty());
+            call.message = Some(caption.text);
+        }
+        Change::ReplyMarkup => {}
     }
     let updates = ctx.call(call, ErrorContext::Plain).await.map_err(|e| {
         if e.description.ends_with("MESSAGE_AUTHOR_REQUIRED") {

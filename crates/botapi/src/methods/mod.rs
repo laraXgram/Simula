@@ -20,6 +20,7 @@ pub mod delete_webhook;
 pub mod edit_chat_invite_link;
 pub mod edit_forum_topic;
 pub mod edit_general_forum_topic;
+pub mod edit_message_caption;
 pub mod edit_message_reply_markup;
 pub mod edit_message_text;
 pub mod export_chat_invite_link;
@@ -27,6 +28,7 @@ pub mod get_chat;
 pub mod get_chat_administrators;
 pub mod get_chat_member;
 pub mod get_chat_member_count;
+pub mod get_file;
 pub mod get_me;
 pub mod get_my_commands;
 pub mod get_updates;
@@ -39,7 +41,15 @@ pub mod reopen_forum_topic;
 pub mod reopen_general_forum_topic;
 pub mod restrict_chat_member;
 pub mod revoke_chat_invite_link;
+pub mod send_animation;
+pub mod send_audio;
+pub mod send_document;
+pub mod send_media_group;
 pub mod send_message;
+pub mod send_photo;
+pub mod send_video;
+pub mod send_video_note;
+pub mod send_voice;
 pub mod set_chat_administrator_custom_title;
 pub mod set_chat_description;
 pub mod set_chat_permissions;
@@ -77,6 +87,7 @@ pub const IMPLEMENTED: &[&str] = &[
     "editChatInviteLink",
     "editForumTopic",
     "editGeneralForumTopic",
+    "editMessageCaption",
     "editMessageReplyMarkup",
     "editMessageText",
     "exportChatInviteLink",
@@ -84,6 +95,7 @@ pub const IMPLEMENTED: &[&str] = &[
     "getChatAdministrators",
     "getChatMember",
     "getChatMemberCount",
+    "getFile",
     "getMe",
     "getMyCommands",
     "getUpdates",
@@ -96,7 +108,15 @@ pub const IMPLEMENTED: &[&str] = &[
     "reopenGeneralForumTopic",
     "restrictChatMember",
     "revokeChatInviteLink",
+    "sendAnimation",
+    "sendAudio",
+    "sendDocument",
+    "sendMediaGroup",
     "sendMessage",
+    "sendPhoto",
+    "sendVideo",
+    "sendVideoNote",
+    "sendVoice",
     "setChatAdministratorCustomTitle",
     "setChatDescription",
     "setChatPermissions",
@@ -178,6 +198,9 @@ pub async fn route(
             )
             .await
         }
+        "editmessagecaption" => {
+            run(ctx, params, Limits::Enforce, edit_message_caption::handle).await
+        }
         "editmessagereplymarkup" => {
             run(
                 ctx,
@@ -211,6 +234,7 @@ pub async fn route(
         "getchatmembercount" => {
             run(ctx, params, Limits::Enforce, get_chat_member_count::handle).await
         }
+        "getfile" => run(ctx, params, Limits::Enforce, get_file::handle).await,
         "getme" => run(ctx, params, Limits::Enforce, get_me::handle).await,
         "getmycommands" => run(ctx, params, Limits::Enforce, get_my_commands::handle).await,
         "getupdates" => run(ctx, params, get_updates::LIMITS, get_updates::handle).await,
@@ -249,7 +273,15 @@ pub async fn route(
             )
             .await
         }
+        "sendanimation" => run(ctx, params, Limits::Enforce, send_animation::handle).await,
+        "sendaudio" => run(ctx, params, Limits::Enforce, send_audio::handle).await,
+        "senddocument" => run(ctx, params, Limits::Enforce, send_document::handle).await,
+        "sendmediagroup" => run(ctx, params, Limits::Enforce, send_media_group::handle).await,
         "sendmessage" => run(ctx, params, Limits::Enforce, send_message::handle).await,
+        "sendphoto" => run(ctx, params, Limits::Enforce, send_photo::handle).await,
+        "sendvideo" => run(ctx, params, Limits::Enforce, send_video::handle).await,
+        "sendvideonote" => run(ctx, params, Limits::Enforce, send_video_note::handle).await,
+        "sendvoice" => run(ctx, params, Limits::Enforce, send_voice::handle).await,
         "setchatadministratorcustomtitle" => {
             run(
                 ctx,

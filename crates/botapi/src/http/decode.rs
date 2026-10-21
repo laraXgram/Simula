@@ -13,10 +13,8 @@ use crate::error::{BotError, BotResult};
 
 /// A file part of a multipart request.
 #[derive(Debug, Clone)]
-#[expect(dead_code, reason = "read by the InputFile pipeline (P3.5)")]
 pub struct Upload {
     pub file_name: Option<String>,
-    pub content_type: Option<String>,
     pub bytes: axum::body::Bytes,
 }
 
@@ -82,7 +80,6 @@ pub async fn decode(request: Request, info: Option<&MethodInfo>) -> BotResult<De
             {
                 let name = field.name().unwrap_or_default().to_owned();
                 let file_name = field.file_name().map(str::to_owned);
-                let content_type = field.content_type().map(str::to_owned);
                 let bytes = field
                     .bytes()
                     .await
@@ -94,14 +91,7 @@ pub async fn decode(request: Request, info: Option<&MethodInfo>) -> BotResult<De
                             .params
                             .insert(name.clone(), Value::String(format!("attach://{name}")));
                     }
-                    decoded.files.insert(
-                        name,
-                        Upload {
-                            file_name,
-                            content_type,
-                            bytes,
-                        },
-                    );
+                    decoded.files.insert(name, Upload { file_name, bytes });
                 } else {
                     let text = String::from_utf8_lossy(&bytes).into_owned();
                     decoded

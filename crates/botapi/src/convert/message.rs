@@ -32,6 +32,8 @@ fn convert(m: &types::Message, context: &Entities<'_>, with_reply: bool) -> bot:
         _ => None,
     };
     let is_text = is_text(m);
+    let media = super::media::convert(m.media.as_ref());
+    let has_media = media.is_some();
     let topic = topic(Peer::from_tl(&m.peer_id), m.id, header, false, context);
     bot::Message {
         message_id: m.id.into(),
@@ -51,7 +53,27 @@ fn convert(m: &types::Message, context: &Entities<'_>, with_reply: bool) -> bot:
         edit_date: m.edit_date.map(Into::into),
         has_protected_content: m.noforwards,
         text: (!m.message.is_empty() && is_text).then(|| m.message.clone()),
-        entities: entities(m.entities.as_ref(), context),
+        entities: if has_media {
+            None
+        } else {
+            entities(m.entities.as_ref(), context)
+        },
+        caption: (has_media && !m.message.is_empty()).then(|| m.message.clone()),
+        caption_entities: if has_media {
+            entities(m.entities.as_ref(), context)
+        } else {
+            None
+        },
+        show_caption_above_media: has_media && m.invert_media,
+        has_media_spoiler: media.has_media_spoiler,
+        media_group_id: m.grouped_id.map(|id| id.to_string()),
+        photo: media.photo,
+        document: media.document,
+        audio: media.audio,
+        video: media.video,
+        animation: media.animation,
+        voice: media.voice,
+        video_note: media.video_note,
         link_preview_options: is_text
             .then(|| link_preview::options(m))
             .flatten()

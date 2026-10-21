@@ -196,18 +196,18 @@ fn documented_ranges_items_and_enums() {
         Rule::OneOf { .. }
     ));
 
-    let group: methods::SendMediaGroup = serde_json::from_value(json!({
-        "chat_id": 1, "media": [{ "type": "photo", "media": "AgAD" }]
+    let tips: methods::CreateInvoiceLink = serde_json::from_value(json!({
+        "title": "t", "description": "d", "payload": "p", "currency": "XTR",
+        "prices": [{ "label": "x", "amount": 1 }],
+        "suggested_tip_amounts": [1, 2, 3, 4, 5]
     }))
     .unwrap();
-    assert_eq!(
-        group.validate().unwrap_err()[0].rule,
-        Rule::Items {
-            min: Some(2),
-            max: Some(10),
-            actual: 1
-        }
-    );
+    assert!(tips.validate().unwrap_err().iter().any(|v| v.rule
+        == Rule::Items {
+            min: None,
+            max: Some(4),
+            actual: 5
+        }));
 }
 
 #[test]

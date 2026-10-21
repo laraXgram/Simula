@@ -26528,7 +26528,8 @@
               "min": 2,
               "max": 10
             }
-          }
+          },
+          "handler_validates": true
         },
         {
           "name": "disable_notification",

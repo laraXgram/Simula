@@ -2,7 +2,7 @@
 //! what an admin was given, the group's default permissions, and a member's own
 //! restrictions (which apply until their `until_date`).
 
-use simula_tl::types;
+use simula_tl::{enums, types};
 
 use crate::ctx::Ctx;
 use crate::error::{RpcError, RpcResult};
@@ -108,16 +108,56 @@ pub fn restricted(
     own || (!channel.broadcast && right(&default_banned(channel)))
 }
 
-/// Telegram's checks before `member` posts a text message.
-pub fn check_can_send(ctx: &Ctx<'_>, channel: &Channel, member: &Member) -> RpcResult<()> {
+/// Telegram's checks before `member` posts a text message or a medium (captions need
+/// no right of their own).
+pub fn check_can_send(
+    ctx: &Ctx<'_>,
+    channel: &Channel,
+    member: &Member,
+    media: Option<&enums::MessageMedia>,
+) -> RpcResult<()> {
     if channel.broadcast {
         if !can(member, |r| r.post_messages) {
             return Err(RpcError::forbidden("CHAT_ADMIN_REQUIRED"));
         }
         return Ok(());
     }
-    if restricted(ctx, channel, member, |r| r.send_messages || r.send_plain) {
-        return Err(RpcError::forbidden("CHAT_SEND_PLAIN_FORBIDDEN"));
+    let (banned, error): (fn(&types::ChatBannedRights) -> bool, &str) = match media {
+        None | Some(enums::MessageMedia::WebPage(_)) => (
+            |r| r.send_messages || r.send_plain,
+            "CHAT_SEND_PLAIN_FORBIDDEN",
+        ),
+        Some(enums::MessageMedia::Photo(_)) => (|r| r.send_photos, "CHAT_SEND_PHOTOS_FORBIDDEN"),
+        Some(enums::MessageMedia::Document(m)) => {
+            let attributes = match &m.document {
+                Some(enums::Document::Document(d)) => d.attributes.as_slice(),
+                _ => &[],
+            };
+            let has = |f: fn(&enums::DocumentAttribute) -> bool| attributes.iter().any(f);
+            if has(|a| matches!(a, enums::DocumentAttribute::Animated)) {
+                (|r| r.send_gifs, "CHAT_SEND_GIFS_FORBIDDEN")
+            } else if m.round {
+                (|r| r.send_roundvideos, "CHAT_SEND_ROUNDVIDEOS_FORBIDDEN")
+            } else if m.voice {
+                (|r| r.send_voices, "CHAT_SEND_VOICES_FORBIDDEN")
+            } else if m.video {
+                (|r| r.send_videos, "CHAT_SEND_VIDEOS_FORBIDDEN")
+            } else if has(|a| matches!(a, enums::DocumentAttribute::Audio(_))) {
+                (|r| r.send_audios, "CHAT_SEND_AUDIOS_FORBIDDEN")
+            } else {
+                (|r| r.send_docs, "CHAT_SEND_DOCS_FORBIDDEN")
+            }
+        }
+        Some(_) => (|r| r.send_media, "CHAT_SEND_MEDIA_FORBIDDEN"),
+    };
+    // Media also need the general right to send media.
+    let media_banned = media.is_some_and(|m| !matches!(m, enums::MessageMedia::WebPage(_)))
+        && restricted(ctx, channel, member, |r| r.send_messages || r.send_media);
+    if media_banned {
+        return Err(RpcError::forbidden("CHAT_SEND_MEDIA_FORBIDDEN"));
+    }
+    if restricted(ctx, channel, member, banned) {
+        return Err(RpcError::forbidden(error));
     }
     Ok(())
 }

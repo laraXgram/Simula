@@ -21,6 +21,11 @@ pub fn translate(code: i32, message: &str, context: ErrorContext) -> (i32, Strin
         (400, "CHAT_FORWARDS_RESTRICTED") => {
             (400, "Message has protected content and can't be forwarded")
         }
+        (400, "MEDIA_EMPTY") => (400, "Wrong file identifier/HTTP URL specified"),
+        (400, "PHOTO_EXT_INVALID") => (
+            400,
+            "Photo has unsupported extension. Use one of .jpg, .jpeg, .gif, .png, .tif or .bmp",
+        ),
         (403, "CHAT_WRITE_FORBIDDEN") => (403, "Bot is not a member of the chat"),
         (403, "USER_IS_BLOCKED") => (403, "Bot was blocked by the user"),
         _ => return (code, message.to_owned()),
