@@ -8,7 +8,8 @@ Every finished task is logged in [docs/worklog.md](docs/worklog.md) and committe
 
 **Targets:** Bot API **10.3** · MTProto layer from tdlib `telegram_api.tl`
 
-**Current focus:** M5 — media and files. M4 is done: every kind of chat, admin rights,
+**Current focus:** M5 — media and files (core and Bot API done; media in the client
+next), and the client held to Telegram's standard (P5.14 done for chat management). M4 is done: every kind of chat, admin rights,
 pins, invite links, group upgrades, replies across chats and forums work end to end
 (core, Bot API, client). The client becomes a plugin host later (M7, P10); new UI is
 shaped for it now.
@@ -36,8 +37,8 @@ shaped for it now.
 
 █ done · ▓ in progress · ░ planned (bars by share of the phase's tasks)
 
-**API coverage** ([docs/coverage.md](docs/coverage.md)): Bot API 10.3 — 48 of 185 methods
-(25.9%; 36 earlier the same day), all of "Getting updates"; MTProto layer 229 — 58 of
+**API coverage** ([docs/coverage.md](docs/coverage.md)): Bot API 10.3 — 58 of 185 methods
+(31.4%), all of "Getting updates"; MTProto layer 229 — 70 of
 813 functions (only what bots and the client need is planned). Most remaining Bot API methods
 are waves on top of the pipelines that exist now (send, edit, chats, members), so
 coverage keeps growing by method families.
@@ -76,7 +77,7 @@ vertical slice through several phases, so the architecture is exercised end to e
   - [x] pinned messages in every kind of chat; client support
   - [x] forums (topics) and reply threads, replies to other chats, upgrading a group to
     a supergroup; client support
-- [ ] **M5 — media and files** (P2.6, P3.5): `InputFile` pipeline, photos, documents,
+- [~] **M5 — media and files** (P2.6, P3.5): `InputFile` pipeline, photos, documents,
   albums, file downloads; media in the client
 - [ ] **M6 — inline mode, polls, reactions, payments** (P2.11, P5.4, P5.7)
 - [ ] **M8 — Mini Apps** (P11), last; possibly co-developed with another app
@@ -117,7 +118,7 @@ vertical slice through several phases, so the architecture is exercised end to e
 - [x] P2.3 Chats: private, basic group, supergroup, channel, forum; members, rights, bans
 - [x] P2.4 Message boxes (per-account vs per-channel IDs), canonical TL storage, presenters
 - [~] P2.5 Update engine: pts/qts/seq, channel pts, `Updates` shapes, difference log
-- [ ] P2.6 Files: storage, file references, thumbnails metadata
+- [x] P2.6 Files: storage, file references, thumbnails metadata
 - [~] P2.7 Virtual clock and scheduler (timers for polls, live locations, bans, scheduled posts); waits for answers from other accounts (callback queries)
 - [~] P2.8 Event bus (RPC calls, updates, deliveries, logs)
 - [~] P2.9 TL handlers, wave 1: users/bots, messages send/edit/delete/forward, callbacks
@@ -134,7 +135,8 @@ vertical slice through several phases, so the architecture is exercised end to e
 - [x] P3.2 Update queue, `getUpdates` long polling (offset/limit/timeout/allowed_updates, 409 conflict)
 - [x] P3.3 Webhooks: secret token, max_connections, retries/backoff, webhook info, reply-in-response (HTTP delivery; see worklog)
 - [x] P3.4 Text parsers: HTML, Markdown, MarkdownV2 with Telegram's exact errors (tdlib ports, wired into sends and quotes)
-- [ ] P3.5 InputFile pipeline: multipart, `attach://`, file_id reuse, URLs, local mode paths
+- [x] P3.5 InputFile pipeline: multipart, `attach://`, file_id reuse, URLs (fetched over
+  plain HTTP, as Simula is offline); local mode paths later
 - [~] P3.6 Send pipeline shared by all `send*` methods (done: text, keyboards, replies, options); edit pipeline (done: text, keyboards)
 - [~] P3.7 Converters TL ⇄ Bot API (declarative where possible)
 - [~] P3.8 Method waves mirroring P2.9–P2.12 until 100% of Bot API 10.3 is covered
@@ -177,7 +179,7 @@ installed by default.
 - [ ] P5.11 Dev tools: entity/DB browser, fault & clock controls, bot connection status
 - [ ] P5.12 Dev tools: trace export/import, replay/redeliver updates, response-time metrics
 - [ ] P5.13 Command palette (Ctrl+K) and keyboard-first navigation
-- [~] P5.14 Chat management the way Telegram's apps do it: a chat info panel (members,
+- [x] P5.14 Chat management the way Telegram's apps do it: a chat info panel (members,
   links, media), an edit screen (name, description, public link, topics, permissions),
   administrators and their rights, members with per-member actions (promote, restrict,
   remove, ban), removed users, invite links and join requests; menus and dialogs

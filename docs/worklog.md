@@ -5,6 +5,56 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-10-21 — M5 (parts 1–2) · Files, photos, documents, albums; P5.14 · chat management in the client
+
+- **Roadmap**: Mini Apps moved to the end (P11, M8; possibly built with another app).
+  New client tasks: P5.14 chat management the way Telegram's apps do it, P5.15 media.
+- **Core files** (migration 0008): uploads in parts (`upload.saveFilePart`,
+  `saveBigFilePart`, `FILE_PART_<n>_MISSING` …), contents stored once per distinct
+  content in the sandbox database; photos decoded (the `image` crate) and stored as JPEG
+  in Telegram's sizes (s 90 · m 320 · x 800 · y 1280 · w 2560, the first box the photo
+  fits holds it at its own size; `IMAGE_PROCESS_FAILED`, `PHOTO_INVALID_DIMENSIONS`);
+  documents with their attributes, file name and a 320 px thumbnail;
+  `messages.sendMedia`, `uploadMedia`, `sendMultiMedia` (albums: `grouped_id`, ten at
+  most, photos with videos, documents or audio alone), `upload.getFile` with the
+  server's offset and limit rules; captions (1024 / 4096 Premium), editable; per-media
+  send rights in supergroups (`CHAT_SEND_PHOTOS_FORBIDDEN` …).
+- **Bot API media** (58 of 185): `file_id` / `file_unique_id` in tdlib's binary format
+  (ids read `AgACAgIAAxkB…` like Telegram's and decode with tdlib's errors); the
+  InputFile pipeline (multipart, `attach://`, `file_id`s, URLs fetched by the gateway);
+  `sendPhoto`, `sendDocument`, `sendAudio`, `sendVoice`, `sendVideo`, `sendAnimation`,
+  `sendVideoNote`, `sendMediaGroup` with tdlib's attributes, MIME fallbacks, rights and
+  album checks; messages with every media field; `getFile` paths (`photos/file_0.jpg`)
+  and downloads at `/file/bot<token>/<path>` (20 MB); `editMessageCaption`.
+- **Core for management screens** (migration 0009): `messages.getExportedChatInvites`,
+  `deleteExportedChatInvite`, `deleteRevokedExportedChatInvites`,
+  `getChatInviteImporters` (requests, or who joined through a link),
+  `messages.editChatAdmin`, `channels.deleteChannel`.
+- **Client — a real chat manager** (P5.14): an info panel from the chat's title or menu
+  with stacked screens (info, edit, type and public link, topics, upgrade, delete,
+  administrators, members, restricted and removed users, a member sheet, the admin
+  rights editor with custom titles, per-member restrictions with a duration, default
+  permissions, invite links with names, expiry, limits and approval, join requests,
+  adding people). The header has one labelled menu instead of glyph buttons; topics
+  have their own menu and a New Topic dialog with Telegram's colors; the sidebar has
+  an account/theme menu, colored avatars and a floating button for new chats. Every
+  `window.prompt` / `confirm` became an app dialog. A small UI kit (SVG icons, avatars,
+  menus, dialogs, fields, rows, switches) and an abilities model back every screen.
+- **Verification**: engine tests for uploads, photo sizes, documents, downloads,
+  albums, caption edits, invite links and importers, basic-group admins and deleting a
+  supergroup; gateway tests for every media method (multipart, `attach://`, `file_id`
+  reuse, kinds, errors, `getFile` and download, albums). Headless Chrome: the whole
+  management flow (supergroup, promote with rights and title, restrict for a day,
+  permissions, a named expiring link, the leave dialog), dark mode and a phone-sized
+  layout, a forum with a colored topic answered by a Telegraf bot.
+  173 Rust tests; clippy, biome, typecheck clean; regeneration writes 0 files.
+- **Disk**: the partition filled while building (each test binary links the 200 MB TL
+  library); dev builds now carry no debug info, which halves `target/`.
+- Known gaps: media in the client (P5.15), chat photos, server-side video and audio
+  analysis (durations, thumbnails, animation detection), URL inputs only over plain
+  HTTP, `editMessageMedia`, stickers.
+- Coverage: Bot API 58/185, TL 70/813.
+
 ## 2026-10-19 — M4 (part 3) · Group upgrades, replies to other chats, forums — M4 done (P2.3, P2.9, P2.10, P3.6, P3.8, P5.3, P5.5)
 
 - **Plugin platform planned** (P10, M7): at the maintainer's request the client becomes
