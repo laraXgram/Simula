@@ -8,7 +8,10 @@ import type { Account } from "../api/control";
 import type { GroupKind } from "../state/client";
 import { displayName, senderId } from "../state/peers";
 import type { AnyMessage, Snapshot } from "../state/store";
-import { initials, initialsOf } from "./ChatView";
+import { Avatar } from "./kit/Avatar";
+import { Field, Modal } from "./kit/Dialogs";
+import { Icon } from "./kit/Icon";
+import { Menu } from "./kit/Menu";
 import { describeService } from "./ServiceMessage";
 
 interface Props {
@@ -36,101 +39,47 @@ export function Sidebar({
 }: Props) {
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [groupTitle, setGroupTitle] = useState("");
-  const [groupMembers, setGroupMembers] = useState("");
-  const [groupKind, setGroupKind] = useState<GroupKind>("group");
-
+  const [creating, setCreating] = useState<GroupKind | null>(null);
   return (
     <aside className="sidebar">
       <header className="sidebar-header">
-        <button type="button" className="account" onClick={onSwitchAccount} title="Switch account">
-          <span className="avatar small">{initials(snapshot.me)}</span>
-          <span dir="auto">{account.first_name}</span>
-        </button>
-        <button
-          type="button"
-          className="icon-button"
-          onClick={onToggleDirection}
-          title="Left-to-right / right-to-left"
-        >
-          ⇄
-        </button>
-        <button type="button" className="icon-button" onClick={onToggleTheme} title="Light / dark">
-          ☾
-        </button>
-        <button
-          type="button"
-          className="icon-button"
-          onClick={() => setCreating(!creating)}
-          title="New group"
-        >
-          ✚
-        </button>
-      </header>
-      {creating && (
+        <Menu
+          label="Menu"
+          align="start"
+          trigger={<Icon name="menu" />}
+          items={[
+            {
+              icon: "person",
+              label: `Switch account (${account.first_name})`,
+              onSelect: onSwitchAccount,
+            },
+            { icon: "moon", label: "Light / dark theme", onSelect: onToggleTheme },
+            { icon: "swap", label: "Left-to-right / right-to-left", onSelect: onToggleDirection },
+          ]}
+        />
         <form
-          className="new-group"
+          className="search grow"
           onSubmit={(event) => {
             event.preventDefault();
             setError("");
-            const usernames = groupMembers
-              .split(/[\s,]+/)
-              .map((name) => name.trim())
-              .filter(Boolean);
-            onCreateGroup(groupKind, groupTitle.trim(), usernames)
-              .then(() => {
-                setCreating(false);
-                setGroupTitle("");
-                setGroupMembers("");
-              })
-              .catch((e: Error) => setError(e.message));
+            onFind(query)
+              .then(() => setQuery(""))
+              .catch((e: Error) =>
+                setError(
+                  e.message === "USERNAME_NOT_OCCUPIED" ? "No one has that username" : e.message,
+                ),
+              );
           }}
         >
-          <select
-            value={groupKind}
-            onChange={(event) => setGroupKind(event.target.value as GroupKind)}
-            aria-label="Kind"
-          >
-            <option value="group">Group</option>
-            <option value="supergroup">Supergroup</option>
-            <option value="forum">Forum (topics)</option>
-            <option value="channel">Channel</option>
-          </select>
+          <Icon name="search" size={20} />
           <input
-            value={groupTitle}
-            onChange={(event) => setGroupTitle(event.target.value)}
-            placeholder={groupKind === "channel" ? "Channel name" : "Group name"}
-            required
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search @username or invite link"
+            aria-label="Search"
           />
-          <input
-            value={groupMembers}
-            onChange={(event) => setGroupMembers(event.target.value)}
-            placeholder="Members: @alice, @demo_bot"
-          />
-          <button type="submit">Create {groupKind}</button>
         </form>
-      )}
-      <form
-        className="find"
-        onSubmit={(event) => {
-          event.preventDefault();
-          setError("");
-          onFind(query)
-            .then(() => setQuery(""))
-            .catch((e: Error) =>
-              setError(
-                e.message === "USERNAME_NOT_OCCUPIED" ? "No one has that username" : e.message,
-              ),
-            );
-        }}
-      >
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Open @username or invite link"
-        />
-      </form>
+      </header>
       {error && <p className="find-error">{error}</p>}
       <nav className="dialogs">
         {snapshot.dialogs
@@ -144,6 +93,7 @@ export function Sidebar({
               group.broadcast === true;
             const title = group ? group.title : displayName(user);
             const top = snapshot.messages.get(dialog.key)?.get(dialog.top);
+            const id = group?.id ?? user?.id ?? dialog.key;
             return (
               <button
                 key={dialog.key}
@@ -151,14 +101,12 @@ export function Sidebar({
                 className={dialog.key === selected ? "dialog selected" : "dialog"}
                 onClick={() => onSelect(dialog.key)}
               >
-                <span className={group ? `avatar ${broadcast ? "channel" : "group"}` : "avatar"}>
-                  {group ? initialsOf(title) : initials(user)}
-                </span>
+                <Avatar id={id} name={title} size={52} />
                 <span className="dialog-body">
                   <span className="dialog-title">
+                    {group && <Icon name={broadcast ? "chat" : "group"} size={16} />}
                     <span dir="auto">{title}</span>
                     {user?.bot && <span className="badge">bot</span>}
-                    {broadcast && <span className="badge">channel</span>}
                     <time>{top ? day(top.date) : ""}</time>
                   </span>
                   <span className="dialog-preview">
@@ -172,10 +120,90 @@ export function Sidebar({
             );
           })}
         {snapshot.dialogs.length === 0 && (
-          <p className="empty">No chats yet. Open a bot by its @username.</p>
+          <p className="empty">No chats yet. Search a bot by its @username.</p>
         )}
       </nav>
+      <div className="fab-root">
+        <Menu
+          label="New chat"
+          align="end"
+          trigger={<Icon name="edit" />}
+          items={[
+            { icon: "group", label: "New Group", onSelect: () => setCreating("group") },
+            { icon: "group", label: "New Supergroup", onSelect: () => setCreating("supergroup") },
+            { icon: "forum", label: "New Forum", onSelect: () => setCreating("forum") },
+            { icon: "chat", label: "New Channel", onSelect: () => setCreating("channel") },
+          ]}
+        />
+      </div>
+      {creating && (
+        <NewChat kind={creating} onClose={() => setCreating(null)} onCreate={onCreateGroup} />
+      )}
     </aside>
+  );
+}
+
+const KIND_NAMES: Record<GroupKind, string> = {
+  group: "Group",
+  supergroup: "Supergroup",
+  forum: "Forum",
+  channel: "Channel",
+};
+
+/** Name a new group or channel and pick who joins (by @username). */
+function NewChat({
+  kind,
+  onClose,
+  onCreate,
+}: {
+  kind: GroupKind;
+  onClose: () => void;
+  onCreate: (kind: GroupKind, title: string, usernames: string[]) => Promise<void>;
+}) {
+  const [title, setTitle] = useState("");
+  const [members, setMembers] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const name = KIND_NAMES[kind];
+  return (
+    <Modal
+      title={`New ${name}`}
+      onClose={onClose}
+      onSubmit={() => {
+        setBusy(true);
+        setError("");
+        const usernames = members
+          .split(/[\s,]+/)
+          .map((m) => m.trim())
+          .filter(Boolean);
+        onCreate(kind, title.trim(), usernames)
+          .then(onClose)
+          .catch((e: Error) =>
+            setError(
+              e.message === "USERNAME_NOT_OCCUPIED"
+                ? "One of those usernames doesn't exist"
+                : e.message,
+            ),
+          )
+          .finally(() => setBusy(false));
+      }}
+      actions={[
+        { label: "Cancel", onClick: onClose },
+        { label: "Create", primary: true, submit: true, disabled: busy || !title.trim() },
+      ]}
+    >
+      <Field label={`${name} name`} value={title} onChange={setTitle} maxLength={128} autoFocus />
+      <Field
+        label={kind === "channel" ? "Subscribers (optional)" : "Members (optional)"}
+        value={members}
+        onChange={setMembers}
+        placeholder="@alice, @demo_bot"
+        hint={
+          kind === "channel" ? "Bots join channels as admins." : "Separate usernames with commas."
+        }
+      />
+      {error && <p className="find-error">{error}</p>}
+    </Modal>
   );
 }
 

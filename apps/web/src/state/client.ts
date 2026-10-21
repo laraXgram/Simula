@@ -6,6 +6,7 @@
 import type { tl } from "@simula/schema";
 
 import { type Params, Session } from "../api/session";
+import { ChatManager } from "./manage";
 import { parseFormatting } from "./markdown";
 import { inputChannelFor, inputPeerFor, inputUser, peerKey, userPeer } from "./peers";
 import { chatKey, Store } from "./store";
@@ -81,7 +82,7 @@ export class Client {
 
   /** The newest messages of a chat, plus what its header needs (members, commands). */
   async openChat(key: string) {
-    const peer = this.peer(key);
+    const peer = this.inputPeerOf(key);
     if (!peer) return;
     this.store.addHistory(await this.session.call("messages.getHistory", history(peer, 0)));
     if (key.startsWith("c")) {
@@ -97,7 +98,7 @@ export class Client {
    * came (0 = the beginning).
    */
   async loadOlder(key: string, before: number, topic?: number): Promise<number> {
-    const peer = this.peer(key);
+    const peer = this.inputPeerOf(key);
     if (!peer) return 0;
     const result =
       topic === undefined
@@ -114,11 +115,11 @@ export class Client {
   async read(key: string) {
     const dialog = this.store.snapshot().dialogs.find((d) => d.key === key);
     if (!dialog || dialog.unread === 0) return;
-    const channel = this.channel(key);
+    const channel = this.inputChannelOf(key);
     if (channel) {
       await this.session.call("channels.readHistory", { channel, max_id: dialog.top });
     } else {
-      const peer = this.peer(key);
+      const peer = this.inputPeerOf(key);
       if (!peer) return;
       await this.session.call("messages.readHistory", { peer, max_id: dialog.top });
     }
@@ -126,7 +127,7 @@ export class Client {
   }
 
   async send(key: string, outgoing: Outgoing) {
-    const peer = this.peer(key);
+    const peer = this.inputPeerOf(key);
     if (!peer) return;
     const { text, entities } = parseFormatting(outgoing.text);
     const params: Params<"messages.sendMessage"> = { peer, message: text, random_id: randomId() };
@@ -139,7 +140,7 @@ export class Client {
         _: "inputReplyToMessage",
         reply_to_msg_id: replyTo,
         top_msg_id: topic,
-        reply_to_peer_id: outgoing.replyIn ? this.peer(outgoing.replyIn) : undefined,
+        reply_to_peer_id: outgoing.replyIn ? this.inputPeerOf(outgoing.replyIn) : undefined,
       };
     this.store.applyUpdates(await this.session.call("messages.sendMessage", params));
   }
@@ -160,13 +161,13 @@ export class Client {
 
   /** Press a callback button; resolves with the bot's answer (toast, alert or URL). */
   press(key: string, messageId: number, data: string) {
-    const peer = this.peer(key);
+    const peer = this.inputPeerOf(key);
     if (!peer) return Promise.reject(new Error("unknown chat"));
     return this.session.call("messages.getBotCallbackAnswer", { peer, msg_id: messageId, data });
   }
 
   async deleteMessage(key: string, id: number, revoke: boolean) {
-    const channel = this.channel(key);
+    const channel = this.inputChannelOf(key);
     const result = channel
       ? await this.session.call("channels.deleteMessages", { channel, id: [id] })
       : await this.session.call("messages.deleteMessages", {
@@ -198,7 +199,7 @@ export class Client {
   }
 
   async editMessage(key: string, id: number, input: string) {
-    const peer = this.peer(key);
+    const peer = this.inputPeerOf(key);
     if (!peer) return;
     const { text, entities } = parseFormatting(input);
     this.store.applyUpdates(
@@ -212,7 +213,7 @@ export class Client {
   }
 
   async pin(key: string, id: number, unpin: boolean) {
-    const peer = this.peer(key);
+    const peer = this.inputPeerOf(key);
     if (!peer) return;
     this.store.applyUpdates(
       await this.session.call("messages.updatePinnedMessage", {
@@ -273,7 +274,7 @@ export class Client {
 
   /** Channels take bots only as admins, as Telegram's apps add them. */
   private async addUser(key: string, user: tl.user) {
-    const channel = this.channel(key);
+    const channel = this.inputChannelOf(key);
     if (!channel) {
       const result = await this.session.call("messages.addChatUser", {
         chat_id: key.slice(1),
@@ -304,7 +305,7 @@ export class Client {
   }
 
   private async promote(key: string, user: tl.user) {
-    const channel = this.channel(key);
+    const channel = this.inputChannelOf(key);
     if (!channel) throw new Error("only supergroups and channels have admins with rights");
     this.store.applyUpdates(
       await this.session.call("channels.editAdmin", {
@@ -316,7 +317,7 @@ export class Client {
   }
 
   async join(key: string) {
-    const channel = this.channel(key);
+    const channel = this.inputChannelOf(key);
     if (!channel) return;
     const result = await this.session.call("channels.joinChannel", { channel });
     if (result._ === "messages.chatInviteJoinResultOk") this.store.applyUpdates(result.updates);
@@ -347,7 +348,7 @@ export class Client {
   async inviteLink(key: string): Promise<string> {
     const known = this.store.snapshot().details.get(key)?.inviteLink;
     if (known) return known;
-    const peer = this.peer(key);
+    const peer = this.inputPeerOf(key);
     if (!peer) throw new Error("unknown chat");
     const invite = await this.session.call("messages.exportChatInvite", {
       peer,
@@ -359,7 +360,7 @@ export class Client {
   }
 
   async leave(key: string) {
-    const channel = this.channel(key);
+    const channel = this.inputChannelOf(key);
     if (channel) {
       this.store.applyUpdates(await this.session.call("channels.leaveChannel", { channel }));
       return;
@@ -376,7 +377,7 @@ export class Client {
 
   /** The forum's topics, and the newest message of each. */
   async loadTopics(key: string) {
-    const peer = this.peer(key);
+    const peer = this.inputPeerOf(key);
     if (!peer) return;
     const found = await this.session.call("messages.getForumTopics", {
       peer,
@@ -402,7 +403,7 @@ export class Client {
 
   /** The newest messages of a topic. */
   async openTopic(key: string, topic: number) {
-    const peer = this.peer(key);
+    const peer = this.inputPeerOf(key);
     if (!peer) return;
     this.store.addHistory(
       await this.session.call("messages.getReplies", { ...history(peer, 0), msg_id: topic }),
@@ -410,12 +411,13 @@ export class Client {
   }
 
   /** Open a topic; returns its id. */
-  async createTopic(key: string, title: string): Promise<number> {
-    const peer = this.peer(key);
+  async createTopic(key: string, title: string, iconColor?: number): Promise<number> {
+    const peer = this.inputPeerOf(key);
     if (!peer) throw new Error("unknown chat");
     const updates = await this.session.call("messages.createForumTopic", {
       peer,
       title,
+      icon_color: iconColor,
       random_id: randomId(),
     });
     this.store.applyUpdates(updates);
@@ -429,7 +431,7 @@ export class Client {
   }
 
   async editTopic(key: string, topic: number, edit: TopicEdit) {
-    const peer = this.peer(key);
+    const peer = this.inputPeerOf(key);
     if (!peer) return;
     this.store.applyUpdates(
       await this.session.call("messages.editForumTopic", { peer, topic_id: topic, ...edit }),
@@ -438,7 +440,7 @@ export class Client {
   }
 
   async pinTopic(key: string, topic: number, pinned: boolean) {
-    const peer = this.peer(key);
+    const peer = this.inputPeerOf(key);
     if (!peer) return;
     this.store.applyUpdates(
       await this.session.call("messages.updatePinnedForumTopic", { peer, topic_id: topic, pinned }),
@@ -448,7 +450,7 @@ export class Client {
 
   /** Delete a topic with everything in it. */
   async deleteTopic(key: string, topic: number) {
-    const peer = this.peer(key);
+    const peer = this.inputPeerOf(key);
     if (!peer) return;
     await this.session.call("messages.deleteTopicHistory", { peer, top_msg_id: topic });
     await this.loadTopics(key);
@@ -456,7 +458,7 @@ export class Client {
 
   /** Turn a supergroup into a forum or back (its creator only). */
   async toggleForum(key: string, enabled: boolean) {
-    const channel = this.channel(key);
+    const channel = this.inputChannelOf(key);
     if (!channel) return;
     this.store.applyUpdates(
       await this.session.call("channels.toggleForum", { channel, enabled, tabs: false }),
@@ -477,7 +479,7 @@ export class Client {
   }
 
   async rename(key: string, title: string) {
-    const channel = this.channel(key);
+    const channel = this.inputChannelOf(key);
     this.store.applyUpdates(
       channel
         ? await this.session.call("channels.editTitle", { channel, title })
@@ -487,7 +489,7 @@ export class Client {
 
   /** Members (basic groups), counts, description, the bots and their commands. */
   async loadDetails(key: string) {
-    const channel = this.channel(key);
+    const channel = this.inputChannelOf(key);
     const full = channel
       ? await this.session.call("channels.getFullChannel", { channel })
       : await this.session.call("messages.getFullChat", { chat_id: key.slice(1) });
@@ -520,6 +522,10 @@ export class Client {
     } else if (info._ === "channelFull") {
       this.store.setDetails(key, {
         count: info.participants_count ?? 0,
+        admins: info.admins_count,
+        kicked: info.kicked_count,
+        restricted: info.banned_count,
+        requests: info.requests_pending,
         about: info.about,
         bots,
         inviteLink: link(info.exported_invite),
@@ -540,13 +546,18 @@ export class Client {
     this.store.setCommands(user.id, commands);
   }
 
-  private peer(key: string): tl.InputPeer | undefined {
+  inputPeerOf(key: string): tl.InputPeer | undefined {
     const snapshot = this.store.snapshot();
     return inputPeerFor(key, snapshot.users, snapshot.chats, this.me);
   }
 
-  private channel(key: string): tl.InputChannel | undefined {
+  inputChannelOf(key: string): tl.InputChannel | undefined {
     return key.startsWith("ch") ? inputChannelFor(key, this.store.snapshot().chats) : undefined;
+  }
+
+  /** Management of a group or channel (members, admins, permissions, links). */
+  manage(key: string): ChatManager {
+    return new ChatManager(this, key);
   }
 
   userFor(key: string): tl.user | undefined {

@@ -38,6 +38,12 @@ export interface ChatDetails {
   inviteLink?: string;
   /** Supergroups: the basic group it was upgraded from ("c…"), whose history is older. */
   migratedFrom?: string;
+  /** Supergroups and channels: how many admins, banned and restricted members. */
+  admins?: number;
+  kicked?: number;
+  restricted?: number;
+  /** Pending join requests (for admins). */
+  requests?: number;
 }
 
 export interface Snapshot {

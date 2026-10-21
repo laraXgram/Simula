@@ -4,13 +4,19 @@
  */
 import type { tl } from "@simula/schema";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type Abilities, abilities } from "../state/abilities";
 import type { Client } from "../state/client";
 import type { DeepLink } from "../state/links";
 import { displayName } from "../state/peers";
 import type { AnyChat, AnyMessage, ChatDetails, Snapshot } from "../state/store";
-import { GENERAL, isForum, topicOf, topicRights } from "../state/topics";
+import { GENERAL, isForum, topicColor, topicOf, topicRights } from "../state/topics";
 import { chatTitle } from "./ChatChooser";
 import { Composer, type Draft } from "./Composer";
+import type { Screen } from "./info/nav";
+import { Avatar } from "./kit/Avatar";
+import { useDialogs } from "./kit/Dialogs";
+import { Icon } from "./kit/Icon";
+import { Menu, type MenuItem } from "./kit/Menu";
 import { Message, type MessageActions } from "./Message";
 import { activeMarkup, ReplyKeyboard } from "./ReplyKeyboard";
 import { ServiceMessage } from "./ServiceMessage";
@@ -33,6 +39,8 @@ interface Props {
   onExternalReplyDone: () => void;
   onStarted: () => void;
   onBack: () => void;
+  /** Open the info panel on a screen. */
+  onOpenInfo: (screen: Screen) => void;
 }
 
 export function ChatView({
@@ -48,11 +56,13 @@ export function ChatView({
   onExternalReplyDone,
   onStarted,
   onBack,
+  onOpenInfo,
 }: Props) {
+  const dialogs = useDialogs();
   const user = client.userFor(chatKey);
   const group = chatKey.startsWith("c") ? snapshot.chats.get(chatKey) : undefined;
   const details = snapshot.details.get(chatKey);
-  const rights = chatRights(group);
+  const rights = abilities(group);
   const dialog = snapshot.dialogs.find((d) => d.key === chatKey);
   const byId = snapshot.messages.get(chatKey);
   // Forums show their topics first; an open topic shows only its messages.
@@ -185,6 +195,35 @@ export function ChatView({
     }
   };
 
+  const deleteMessage = async (message: tl.message) => {
+    // Supergroups and channels have one box: deleting is always for everyone.
+    if (chatKey.startsWith("ch")) {
+      const ok = await dialogs.confirm({
+        title: "Delete message?",
+        text: "It will be deleted for everyone.",
+        ok: "Delete",
+        danger: true,
+      });
+      if (ok)
+        client
+          .deleteMessage(chatKey, message.id, true)
+          .catch((error: Error) => notify(error.message));
+      return;
+    }
+    const other = user ? displayName(user).split(" ")[0] : "everyone";
+    const choice = await dialogs.choose({
+      title: "Delete message?",
+      text: "This can't be undone.",
+      choices: [
+        { label: `Delete for me and ${other}`, value: "everyone", danger: true },
+        { label: "Delete for me", value: "me", danger: true },
+      ],
+    });
+    if (choice)
+      client
+        .deleteMessage(chatKey, message.id, choice === "everyone")
+        .catch((error: Error) => notify(error.message));
+  };
   const actionsFor = (message: tl.message): MessageActions => ({
     onReply: () => setDraft({ replyTo: message }),
     onReplyElsewhere: message.noforwards ? undefined : () => onReplyElsewhere(message),
@@ -198,13 +237,7 @@ export function ChatView({
     onDelete:
       !chatKey.startsWith("ch") || message.out || rights.deletes
         ? () => {
-            // Supergroups and channels have one box: deleting is always for everyone.
-            const forEveryone =
-              chatKey.startsWith("ch") ||
-              window.confirm("Delete this message for everyone? (Cancel deletes it only for you.)");
-            client
-              .deleteMessage(chatKey, message.id, forEveryone)
-              .catch((error: Error) => notify(error.message));
+            void deleteMessage(message);
           }
         : undefined,
     onPin:
@@ -227,8 +260,10 @@ export function ChatView({
         .press(chatKey, message.id, data)
         .then((answer) => {
           if (answer.url) {
-            if (window.confirm(`Open ${answer.url}?`))
-              window.open(answer.url, "_blank", "noopener");
+            const url = answer.url;
+            void dialogs
+              .confirm({ title: "Open this link?", text: url, ok: "Open" })
+              .then((ok) => ok && window.open(url, "_blank", "noopener"));
           } else if (answer.message) {
             notify(answer.message, { alert: answer.alert });
           }
@@ -250,34 +285,23 @@ export function ChatView({
   const needsStart = user?.bot === true && loaded && (startParam !== undefined || all.length === 0);
 
   const run = (action: Promise<unknown>) => action.catch((error: Error) => notify(error.message));
-  const addMember = () => {
-    const username = window.prompt("Add a member by @username")?.trim();
-    if (username) void run(client.addMember(chatKey, username));
-  };
-  const rename = () => {
-    const title = window.prompt("Group name", group?.title)?.trim();
-    if (title && title !== group?.title) void run(client.rename(chatKey, title));
-  };
-  const upgrade = () => {
-    const confirmed = window.confirm(
-      `Upgrade «${group?.title}» to a supergroup? Everyone moves along; this can't be undone.`,
-    );
-    if (confirmed) void run(client.upgrade(chatKey).then(onOpenChat));
-  };
-  const leave = () => {
-    if (window.confirm(`Leave «${group?.title}»?`)) void run(client.leave(chatKey));
-  };
-  const promote = () => {
-    const username = window.prompt("Make an admin (every right) by @username")?.trim();
-    if (username) void run(client.promoteByName(chatKey, username));
-  };
+  const kind = rights.broadcast ? "channel" : "group";
   const inviteLink = () =>
     void run(
       client.inviteLink(chatKey).then((link) => {
         void navigator.clipboard?.writeText(link).catch(() => undefined);
-        notify(`Invite link (copied): ${link}`, { alert: true });
+        notify("Invite link copied to clipboard");
       }),
     );
+  const leave = async () => {
+    const ok = await dialogs.confirm({
+      title: `Leave ${kind}?`,
+      text: `Are you sure you want to leave «${group && "title" in group ? group.title : ""}»?`,
+      ok: "Leave",
+      danger: true,
+    });
+    if (ok) void run(client.leave(chatKey));
+  };
   const title = openTopic ? openTopic.title : group ? group.title : displayName(user);
   const subtitle = openTopic
     ? `topic in ${group?.title}`
@@ -295,27 +319,85 @@ export function ChatView({
     ? (blockedReason(group, rights) ??
       (openTopic?.closed && !topicManage.manage && !ownTopic ? "This topic is closed" : undefined))
     : undefined;
-  const topicActions = openTopic && {
-    rename: () => {
-      const next = window.prompt("Topic name", openTopic.title)?.trim();
-      if (next && next !== openTopic.title)
-        void run(client.editTopic(chatKey, openTopic.id, { title: next }));
-    },
-    close: () => void run(client.editTopic(chatKey, openTopic.id, { closed: !openTopic.closed })),
-    hide: () => void run(client.editTopic(chatKey, openTopic.id, { hidden: !openTopic.hidden })),
-    pin: () => void run(client.pinTopic(chatKey, openTopic.id, !openTopic.pinned)),
-    remove: () => {
-      if (window.confirm(`Delete the topic «${openTopic.title}» with all its messages?`))
-        void run(client.deleteTopic(chatKey, openTopic.id).then(() => setTopic(undefined)));
-    },
+  const renameTopic = async () => {
+    if (!openTopic) return;
+    const next = (
+      await dialogs.prompt({
+        title: "Edit topic",
+        label: "Topic name",
+        value: openTopic.title,
+        maxLength: 128,
+      })
+    )?.trim();
+    if (next && next !== openTopic.title)
+      void run(client.editTopic(chatKey, openTopic.id, { title: next }));
   };
-  const toggleForum = () => {
-    const turnOn = !forum;
-    const question = turnOn
-      ? "Turn on topics? Existing messages move to General."
-      : "Turn off topics?";
-    if (window.confirm(question)) void run(client.toggleForum(chatKey, turnOn));
+  const deleteTopic = async () => {
+    if (!openTopic) return;
+    const ok = await dialogs.confirm({
+      title: "Delete topic?",
+      text: `«${openTopic.title}» will be deleted with all its messages.`,
+      ok: "Delete",
+      danger: true,
+    });
+    if (ok) void run(client.deleteTopic(chatKey, openTopic.id).then(() => setTopic(undefined)));
   };
+  const menu: (MenuItem | false | undefined)[] = openTopic
+    ? [
+        (topicManage.manage || ownTopic) && {
+          icon: "edit",
+          label: "Edit topic",
+          onSelect: renameTopic,
+        },
+        (topicManage.manage || ownTopic) && {
+          icon: openTopic.closed ? "unlock" : "lock",
+          label: openTopic.closed ? "Reopen topic" : "Close topic",
+          onSelect: () =>
+            void run(client.editTopic(chatKey, openTopic.id, { closed: !openTopic.closed })),
+        },
+        topicManage.manage && {
+          icon: "pin",
+          label: openTopic.pinned ? "Unpin topic" : "Pin topic",
+          onSelect: () => void run(client.pinTopic(chatKey, openTopic.id, !openTopic.pinned)),
+        },
+        topicManage.manage &&
+          openTopic.id === GENERAL && {
+            icon: "info",
+            label: openTopic.hidden ? "Show General" : "Hide General",
+            onSelect: () =>
+              void run(client.editTopic(chatKey, openTopic.id, { hidden: !openTopic.hidden })),
+          },
+        (rights.deletes || ownTopic) &&
+          openTopic.id !== GENERAL && {
+            icon: "delete",
+            label: "Delete topic",
+            danger: true,
+            onSelect: deleteTopic,
+          },
+      ]
+    : [
+        {
+          icon: "info",
+          label: group ? `View ${kind} info` : user?.bot ? "View bot info" : "View profile",
+          onSelect: () => onOpenInfo({ name: "info" }),
+        },
+        group &&
+          rights.member &&
+          (rights.changesInfo || rights.admin) && {
+            icon: "edit",
+            label: `Manage ${kind}`,
+            onSelect: () => onOpenInfo({ name: "edit" }),
+          },
+        group &&
+          rights.invites && {
+            icon: "personAdd",
+            label: rights.broadcast ? "Add subscribers" : "Add members",
+            onSelect: () => onOpenInfo({ name: "add" }),
+          },
+        group && rights.links && { icon: "link", label: "Copy invite link", onSelect: inviteLink },
+        group &&
+          rights.member && { icon: "leave", label: `Leave ${kind}`, danger: true, onSelect: leave },
+      ];
   const upgradedTo =
     group?._ === "chat" && group.migrated_to?._ === "inputChannel"
       ? `ch${group.migrated_to.channel_id}`
@@ -328,123 +410,30 @@ export function ChatView({
           type="button"
           className={openTopic ? "icon-button" : "icon-button back"}
           onClick={openTopic ? () => setTopic(undefined) : onBack}
+          aria-label={openTopic ? "Topics" : "Back"}
           title={openTopic ? "Topics" : "Back"}
         >
-          ←
+          <Icon name="back" />
         </button>
-        <div className={group ? `avatar ${rights.broadcast ? "channel" : "group"}` : "avatar"}>
-          {initialsOf(title)}
-        </div>
-        <div className="chat-title">
-          <span dir="auto">{title}</span>
-          <span className="chat-subtitle">{subtitle}</span>
-        </div>
-        {topicActions && (
-          <div className="chat-actions">
-            {(topicManage.manage || ownTopic) && (
-              <button
-                type="button"
-                className="icon-button"
-                onClick={topicActions.rename}
-                title="Rename topic"
-              >
-                ✎
-              </button>
-            )}
-            {(topicManage.manage || ownTopic) && (
-              <button
-                type="button"
-                className="icon-button"
-                onClick={topicActions.close}
-                title={openTopic.closed ? "Reopen topic" : "Close topic"}
-              >
-                {openTopic.closed ? "🔓" : "🔒"}
-              </button>
-            )}
-            {topicManage.manage && openTopic.id === GENERAL && (
-              <button
-                type="button"
-                className="icon-button"
-                onClick={topicActions.hide}
-                title={openTopic.hidden ? "Show General" : "Hide General"}
-              >
-                {openTopic.hidden ? "◉" : "◌"}
-              </button>
-            )}
-            {topicManage.manage && (
-              <button
-                type="button"
-                className="icon-button"
-                onClick={topicActions.pin}
-                title={openTopic.pinned ? "Unpin topic" : "Pin topic"}
-              >
-                📌
-              </button>
-            )}
-            {(rights.deletes || ownTopic) && openTopic.id !== GENERAL && (
-              <button
-                type="button"
-                className="icon-button"
-                onClick={topicActions.remove}
-                title="Delete topic"
-              >
-                🗑
-              </button>
-            )}
-          </div>
-        )}
-        {rights.member && !topicActions && (
-          <div className="chat-actions">
-            {group?._ === "channel" && group.creator && !group.broadcast && (
-              <button
-                type="button"
-                className={forum ? "icon-button active" : "icon-button"}
-                onClick={toggleForum}
-                title={forum ? "Turn off topics" : "Turn on topics"}
-              >
-                ☰
-              </button>
-            )}
-            {rights.invites && (
-              <button type="button" className="icon-button" onClick={addMember} title="Add member">
-                ＋
-              </button>
-            )}
-            {rights.promotes && (
-              <button type="button" className="icon-button" onClick={promote} title="Add admin">
-                ★
-              </button>
-            )}
-            {rights.links && (
-              <button
-                type="button"
-                className="icon-button"
-                onClick={inviteLink}
-                title="Invite link"
-              >
-                🔗
-              </button>
-            )}
-            {rights.changesInfo && (
-              <button type="button" className="icon-button" onClick={rename} title="Rename">
-                ✎
-              </button>
-            )}
-            {group?._ === "chat" && group.creator && (
-              <button
-                type="button"
-                className="icon-button"
-                onClick={upgrade}
-                title="Upgrade to supergroup"
-              >
-                ⇪
-              </button>
-            )}
-            <button type="button" className="icon-button" onClick={leave} title="Leave">
-              ⎋
-            </button>
-          </div>
-        )}
+        <button
+          type="button"
+          className="chat-header-main"
+          onClick={() => onOpenInfo({ name: "info" })}
+          title="Info"
+        >
+          {openTopic ? (
+            <span className="topic-icon" style={{ background: topicColor(openTopic) }}>
+              {openTopic.id === GENERAL ? "#" : [...openTopic.title][0]?.toUpperCase()}
+            </span>
+          ) : (
+            <Avatar id={group?.id ?? user?.id ?? chatKey} name={title} size={42} />
+          )}
+          <span className="chat-title">
+            <span dir="auto">{title}</span>
+            <span className="chat-subtitle">{subtitle}</span>
+          </span>
+        </button>
+        <Menu label="More" trigger={<Icon name="more" />} items={menu} />
       </header>
       {pinned && (
         <div className="pinned-bar">
@@ -482,7 +471,7 @@ export function ChatView({
           me={snapshot.me?.id}
           canCreate={rights.member && topicManage.create}
           onOpen={setTopic}
-          onCreate={(name) => client.createTopic(chatKey, name).then(setTopic)}
+          onCreate={(name, color) => client.createTopic(chatKey, name, color).then(setTopic)}
         />
       ) : (
         <>
@@ -644,76 +633,6 @@ function groupCommands(details: ChatDetails | undefined, snapshot: Snapshot): tl
   });
 }
 
-/** What the account may do in a group or channel, from the chat object it was given. */
-interface Rights {
-  member: boolean;
-  broadcast: boolean;
-  /** May post (channels: admins with post_messages). */
-  posts: boolean;
-  editsPosts: boolean;
-  /** Supergroups and channels: may delete anyone's messages. */
-  deletes: boolean;
-  pins: boolean;
-  invites: boolean;
-  links: boolean;
-  promotes: boolean;
-  changesInfo: boolean;
-}
-
-function chatRights(chat: AnyChat | undefined): Rights {
-  const none: Rights = {
-    member: false,
-    broadcast: false,
-    posts: false,
-    editsPosts: false,
-    deletes: false,
-    pins: false,
-    invites: false,
-    links: false,
-    promotes: false,
-    changesInfo: false,
-  };
-  if (chat?._ === "chat") {
-    const admin = chat.creator === true || chat.admin_rights !== undefined;
-    const defaults = chat.default_banned_rights;
-    return {
-      ...none,
-      member: !chat.left && !chat.deactivated,
-      posts: !chat.left,
-      pins: admin || !defaults?.pin_messages,
-      invites: true,
-      links: admin,
-      changesInfo: admin || !defaults?.change_info,
-    };
-  }
-  if (chat?._ === "channel") {
-    const creator = chat.creator === true;
-    const rights = chat.admin_rights;
-    const has = (right: keyof tl.chatAdminRights) => creator || rights?.[right] === true;
-    const defaults = chat.default_banned_rights;
-    const banned = chat.banned_rights;
-    const memberMay = (right: keyof tl.chatBannedRights) =>
-      !chat.broadcast && !defaults?.[right] && !banned?.[right];
-    return {
-      member: !chat.left,
-      broadcast: chat.broadcast === true,
-      posts: chat.broadcast ? has("post_messages") : !banned?.send_plain && !defaults?.send_plain,
-      editsPosts: chat.broadcast === true && has("edit_messages"),
-      deletes: has("delete_messages"),
-      pins:
-        has("pin_messages") ||
-        (chat.broadcast === true && has("edit_messages")) ||
-        memberMay("pin_messages"),
-      invites: has("invite_users") || memberMay("invite_users"),
-      links: has("invite_users"),
-      promotes: has("add_admins"),
-      changesInfo: has("change_info") || memberMay("change_info"),
-    };
-  }
-  if (chat?._ === "channelForbidden") return { ...none, broadcast: chat.broadcast === true };
-  return none;
-}
-
 function groupSubtitle(chat: AnyChat, details: ChatDetails | undefined): string {
   switch (chat._) {
     case "chatForbidden":
@@ -724,7 +643,13 @@ function groupSubtitle(chat: AnyChat, details: ChatDetails | undefined): string 
       return chat.left ? "you left" : `${details?.count ?? chat.participants_count} members`;
     case "channel": {
       const count = details?.count ?? chat.participants_count ?? 0;
-      const kind = chat.broadcast ? "subscribers" : "members";
+      const kind = chat.broadcast
+        ? count === 1
+          ? "subscriber"
+          : "subscribers"
+        : count === 1
+          ? "member"
+          : "members";
       const counted = `${count} ${kind}`;
       return chat.username ? `${counted} · @${chat.username}` : counted;
     }
@@ -735,7 +660,7 @@ function groupSubtitle(chat: AnyChat, details: ChatDetails | undefined): string 
  * Why the composer is replaced by a bar ("join" offers joining, "upgraded" opens the
  * supergroup), if it is.
  */
-function blockedReason(chat: AnyChat, rights: Rights): string | undefined {
+function blockedReason(chat: AnyChat, rights: Abilities): string | undefined {
   if (chat._ === "chatForbidden") return "You were removed from this group";
   if (chat._ === "channelForbidden") return "You are banned here";
   if (chat._ === "chat") {

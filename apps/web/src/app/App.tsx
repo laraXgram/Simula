@@ -8,6 +8,9 @@ import type { DeepLink } from "../state/links";
 import { AccountPicker } from "../ui/AccountPicker";
 import { ChatChooser } from "../ui/ChatChooser";
 import { ChatView } from "../ui/ChatView";
+import { InfoPanel } from "../ui/info/InfoPanel";
+import type { Screen } from "../ui/info/nav";
+import { DialogsProvider } from "../ui/kit/Dialogs";
 import { useNotices } from "../ui/Notices";
 import { Sidebar } from "../ui/Sidebar";
 import { usePreference } from "./preferences";
@@ -54,18 +57,20 @@ export function App() {
     );
   if (!client) return <main className="picker">Connecting…</main>;
   return (
-    <Shell
-      key={client.me}
-      client={client}
-      account={account}
-      notify={notify}
-      onSwitchAccount={() => setAccount(null)}
-      onToggleTheme={() =>
-        setTheme(theme === "dark" ? "light" : theme === "light" ? "auto" : "dark")
-      }
-      onToggleDirection={() => setDirection(direction === "ltr" ? "rtl" : "ltr")}
-      notices={notices}
-    />
+    <DialogsProvider>
+      <Shell
+        key={client.me}
+        client={client}
+        account={account}
+        notify={notify}
+        onSwitchAccount={() => setAccount(null)}
+        onToggleTheme={() =>
+          setTheme(theme === "dark" ? "light" : theme === "light" ? "auto" : "dark")
+        }
+        onToggleDirection={() => setDirection(direction === "ltr" ? "rtl" : "ltr")}
+        notices={notices}
+      />
+    </DialogsProvider>
   );
 }
 
@@ -91,6 +96,18 @@ function Shell({
   const snapshot = useSyncExternalStore(client.store.subscribe, client.store.snapshot);
   const [selected, setSelected] = useRoute();
   const [starts, setStarts] = useState<Record<string, string>>({});
+  // The right-hand info panel, open on a screen, for the open chat.
+  const [info, setInfo] = useState<Screen | null>(null);
+  useEffect(() => {
+    if (selected === undefined) setInfo(null);
+  }, [selected]);
+  const openChat = useCallback(
+    (key: string | undefined) => {
+      setInfo(null);
+      setSelected(key);
+    },
+    [setSelected],
+  );
   // Replying in another chat: the message, then (once chosen) the chat to reply in.
   const [elsewhere, setElsewhere] = useState<{
     from: string;
@@ -136,12 +153,16 @@ function Shell({
   );
 
   return (
-    <div className={selected ? "shell chat-open" : "shell"}>
+    <div
+      className={["shell", selected ? "chat-open" : "", info && selected ? "info-open" : ""].join(
+        " ",
+      )}
+    >
       <Sidebar
         snapshot={snapshot}
         account={account}
         selected={selected}
-        onSelect={setSelected}
+        onSelect={openChat}
         onFind={find}
         onCreateGroup={createGroup}
         onSwitchAccount={onSwitchAccount}
@@ -154,8 +175,9 @@ function Shell({
           snapshot={snapshot}
           chatKey={selected}
           notify={notify}
-          onOpenChat={setSelected}
+          onOpenChat={openChat}
           onDeepLink={openDeepLink}
+          onOpenInfo={setInfo}
           startParam={starts[selected]}
           externalReply={elsewhere?.to === selected ? elsewhere : undefined}
           onReplyElsewhere={(message) => setElsewhere({ from: selected, message })}
@@ -172,6 +194,17 @@ function Shell({
         <section className="chat empty-chat">
           <p>Select a chat, or open a bot by its @username.</p>
         </section>
+      )}
+      {selected && info && (
+        <InfoPanel
+          client={client}
+          snapshot={snapshot}
+          chatKey={selected}
+          start={info}
+          onClose={() => setInfo(null)}
+          notify={notify}
+          onOpenChat={openChat}
+        />
       )}
       {elsewhere && !elsewhere.to && (
         <ChatChooser
