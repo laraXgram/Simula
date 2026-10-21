@@ -91,8 +91,7 @@ export class Store {
 
   addUsers(users: readonly tl.User[]) {
     const next = new Map(this.state.users);
-    for (const user of users)
-      if (user._ === "user") next.set(user.id, { ...next.get(user.id), ...user });
+    for (const user of users) if (user._ === "user") next.set(user.id, user);
     this.commit({ users: next });
   }
 

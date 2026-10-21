@@ -149,6 +149,7 @@ vertical slice through several phases, so the architecture is exercised end to e
 - [~] P4.1 Server skeleton under `/_simula/v1`, generated OpenAPI
 - [ ] P4.2 Sandboxes: create/destroy/list, in-memory, snapshots, fixtures (YAML seed files)
 - [~] P4.3 Entity management: users, bots (BotFather-like settings), groups, channels, members
+  (users and bots can be created, edited and deleted; BotFather-like settings left)
 - [~] P4.4 Act-as endpoints over TL user sessions (send, press, vote, pay, join, react, …)
 - [~] P4.5 Inspection: event stream (WS), request logs, update queues, webhook deliveries
 - [ ] P4.6 Fault injection: errors, 429 + retry_after, latency, dropped updates, webhook failures
@@ -170,7 +171,10 @@ vertical slice through several phases, so the architecture is exercised end to e
   joining; left: member lists and per-member rights, handling join requests)
 - [-] P5.6 Mini App host — moved to the end of the roadmap (P11)
 - [ ] P5.7 Payments & Stars checkout simulator (shipping, pre-checkout, success/failure)
-- [ ] P5.8 Multi-user: quick act-as switcher and split view (same chat, several users)
+- [~] P5.8 Multi-user: quick act-as switcher and split view (same chat, several users) (done:
+  each browser tab is its own account (`?as=<id>`), "Open as another account" opens the
+  same chat in a new tab, accounts are switched, created, edited and deleted from the
+  client; left: split view in one window)
 Dev tools P5.9–P5.12 are built as plugins on the plugin platform (P10), bundled and
 installed by default.
 

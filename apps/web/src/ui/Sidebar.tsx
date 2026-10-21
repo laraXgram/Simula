@@ -1,10 +1,11 @@
 /**
- * The chat list, with a box to open a chat by `@username` (or join by invite link) and
- * a form for new groups, supergroups and channels.
+ * The chat list, with a box to open a chat by `@username` (or join by invite link), the
+ * main menu (profile, accounts, appearance) and a form for new groups and channels.
  */
 import { useState } from "react";
 
 import type { Account } from "../api/control";
+import { openPickerTab } from "../app/account";
 import type { GroupKind } from "../state/client";
 import { displayName, senderId } from "../state/peers";
 import type { AnyMessage, Snapshot } from "../state/store";
@@ -21,6 +22,7 @@ interface Props {
   onSelect: (key: string) => void;
   onFind: (username: string) => Promise<void>;
   onCreateGroup: (kind: GroupKind, title: string, usernames: string[]) => Promise<void>;
+  onEditProfile: () => void;
   onSwitchAccount: () => void;
   onToggleTheme: () => void;
   onToggleDirection: () => void;
@@ -33,6 +35,7 @@ export function Sidebar({
   onSelect,
   onFind,
   onCreateGroup,
+  onEditProfile,
   onSwitchAccount,
   onToggleTheme,
   onToggleDirection,
@@ -48,13 +51,23 @@ export function Sidebar({
           align="start"
           trigger={<Icon name="menu" />}
           items={[
+            { icon: "person", label: "Edit profile", onSelect: onEditProfile },
             {
-              icon: "person",
-              label: `Switch account (${account.first_name})`,
+              icon: "swap",
+              label: `Switch account (${displayName(snapshot.me) || account.first_name})`,
               onSelect: onSwitchAccount,
             },
+            {
+              icon: "openNew",
+              label: "Open another account in a new tab",
+              onSelect: openPickerTab,
+            },
             { icon: "moon", label: "Light / dark theme", onSelect: onToggleTheme },
-            { icon: "swap", label: "Left-to-right / right-to-left", onSelect: onToggleDirection },
+            {
+              icon: "direction",
+              label: "Left-to-right / right-to-left",
+              onSelect: onToggleDirection,
+            },
           ]}
         />
         <form
@@ -130,8 +143,6 @@ export function Sidebar({
           trigger={<Icon name="edit" />}
           items={[
             { icon: "group", label: "New Group", onSelect: () => setCreating("group") },
-            { icon: "group", label: "New Supergroup", onSelect: () => setCreating("supergroup") },
-            { icon: "forum", label: "New Forum", onSelect: () => setCreating("forum") },
             { icon: "chat", label: "New Channel", onSelect: () => setCreating("channel") },
           ]}
         />

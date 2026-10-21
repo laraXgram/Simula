@@ -3,12 +3,14 @@
  * `confirm` and `prompt` returning promises, and `Modal` frames any custom dialog.
  */
 import {
+  type CSSProperties,
   createContext,
   type ReactNode,
   useCallback,
   useContext,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -277,6 +279,12 @@ export function Field({
 }: FieldProps) {
   const ref = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
   const id = useId();
+  // The text starts right after the prefix, whatever its width.
+  const prefixRef = useRef<HTMLSpanElement>(null);
+  const [prefixWidth, setPrefixWidth] = useState(0);
+  useLayoutEffect(() => {
+    setPrefixWidth(prefix ? (prefixRef.current?.offsetWidth ?? 0) : 0);
+  }, [prefix]);
   useEffect(() => {
     if (autoFocus) ref.current?.focus();
   }, [autoFocus]);
@@ -290,8 +298,15 @@ export function Field({
     onChange: (event: { target: { value: string } }) => onChange(event.target.value),
   };
   return (
-    <div className={error ? "field invalid" : "field"}>
-      {prefix && <span className="field-prefix">{prefix}</span>}
+    <div
+      className={error ? "field invalid" : "field"}
+      style={prefix ? ({ "--prefix-width": `${prefixWidth}px` } as CSSProperties) : undefined}
+    >
+      {prefix && (
+        <span className="field-prefix" ref={prefixRef}>
+          {prefix}
+        </span>
+      )}
       {multiline ? <textarea rows={3} {...common} /> : <input {...common} />}
       <label className="field-label" htmlFor={id}>
         {error || label}

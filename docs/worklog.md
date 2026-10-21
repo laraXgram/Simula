@@ -5,6 +5,32 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-10-21 — P4.3, P5.8 · Accounts edited and deleted; one account per tab
+
+- **Core** (P4.3): `PATCH /_simula/v1/accounts/{id}` changes a user's name, username,
+  phone, language, bio and Premium, or a bot's privacy mode and whether it joins groups;
+  people who see the account get `updateUserName` / `updateUser`. `DELETE` turns it into
+  Telegram's "Deleted Account": its messages stay, nobody signs in as it
+  (the session is refused), writing to it gives `INPUT_USER_DEACTIVATED`, a bot's token
+  stops working. Over MTProto: `account.updateProfile`, `updateUsername`,
+  `checkUsername` with Telegram's errors.
+- **Client accounts**: the account screen lists people and bots with avatars; each has a
+  menu (open here, open in a new tab, edit, copy a bot's token, delete with a
+  confirmation), and New user / New bot dialogs. The main menu has Edit profile (name,
+  bio, username checked while typed), Switch account and Open another account in a new
+  tab.
+- **Multi-tab** (P5.8): the account belongs to the tab (`?as=<id>` in the URL, kept in
+  the tab's session storage), so several tabs act as different people at once. A chat's
+  menu has "Open as another account…": the same chat opens in a new tab as the chosen
+  person (a private chat with them opens from their side).
+- **New chats like Telegram**: the new-chat menu offers New Group and New Channel only.
+  In a basic group's settings, making it public or turning on topics upgrades it to a
+  supergroup first (after a confirmation), then opens the upgraded chat.
+- Verified in headless Chrome: create, edit and delete accounts; two tabs (Alice, Bob)
+  talking in one group; Open as Carol in a third tab; a profile change seen live in
+  Bob's tab; topics turned on in a basic group; a deleted account's tab refused.
+  Headless tabs in the background need focus for clicks and screenshots.
+
 ## 2026-10-21 — M5 (parts 1–2) · Files, photos, documents, albums; P5.14 · chat management in the client
 
 - **Roadmap**: Mini Apps moved to the end (P11, M8; possibly built with another app).

@@ -30,7 +30,8 @@ export interface ScreenProps {
   chatKey: string;
   nav: Nav;
   notify: (text: string, options?: { alert?: boolean }) => void;
-  onOpenChat: (key: string) => void;
+  /** Open a chat, with its info panel on `screen` if given. */
+  onOpenChat: (key: string, screen?: Screen) => void;
 }
 
 /** "today at 14:05", "yesterday at 9:12", "12 Mar 2026". */

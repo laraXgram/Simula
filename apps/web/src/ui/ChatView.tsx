@@ -18,6 +18,7 @@ import { useDialogs } from "./kit/Dialogs";
 import { Icon } from "./kit/Icon";
 import { Menu, type MenuItem } from "./kit/Menu";
 import { Message, type MessageActions } from "./Message";
+import { OpenAs } from "./OpenAs";
 import { activeMarkup, ReplyKeyboard } from "./ReplyKeyboard";
 import { ServiceMessage } from "./ServiceMessage";
 import { TopicList } from "./TopicList";
@@ -59,6 +60,7 @@ export function ChatView({
   onOpenInfo,
 }: Props) {
   const dialogs = useDialogs();
+  const [openingAs, setOpeningAs] = useState(false);
   const user = client.userFor(chatKey);
   const group = chatKey.startsWith("c") ? snapshot.chats.get(chatKey) : undefined;
   const details = snapshot.details.get(chatKey);
@@ -395,6 +397,7 @@ export function ChatView({
             onSelect: () => onOpenInfo({ name: "add" }),
           },
         group && rights.links && { icon: "link", label: "Copy invite link", onSelect: inviteLink },
+        { icon: "openNew", label: "Open as another account…", onSelect: () => setOpeningAs(true) },
         group &&
           rights.member && { icon: "leave", label: `Leave ${kind}`, danger: true, onSelect: leave },
       ];
@@ -576,6 +579,7 @@ export function ChatView({
           )}
         </>
       )}
+      {openingAs && <OpenAs me={client.me} chatKey={chatKey} onClose={() => setOpeningAs(false)} />}
     </section>
   );
 }

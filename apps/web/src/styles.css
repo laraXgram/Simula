@@ -817,51 +817,80 @@ a,
   margin-block-start: 0;
 }
 
-.picker-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 18px 0;
+.picker-lead + .find-error {
+  margin-block-end: 12px;
 }
 
-.picker-list button {
+/* The accounts screen: who to be, in this tab or another. */
+
+.accounts {
+  min-block-size: 100%;
+  overflow-y: auto;
+  background: var(--bg-chat);
+  padding: 40px 16px;
+}
+
+.accounts-card {
+  max-inline-size: 520px;
+  margin: 0 auto;
+  background: var(--bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 24px 20px;
+}
+
+.accounts-card h1 {
+  margin: 0 0 4px;
+}
+
+.accounts-head {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-sidebar);
-  border-radius: 12px;
-  padding: 12px 14px;
-  text-align: start;
+  gap: 12px;
+  margin: 22px 0 6px;
 }
 
-.picker-list button:hover {
-  border-color: var(--accent);
+.accounts-head h2 {
+  margin: 0;
+  font-size: 0.95em;
+  color: var(--accent);
 }
 
-.picker-meta {
-  color: var(--text-muted);
-  font-size: 0.88em;
-}
-
-.picker-form {
+.account-row {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  gap: 4px;
+  border-radius: 12px;
 }
 
-.picker-form h2 {
-  font-size: 1em;
-  margin: 8px 0 0;
+.account-row:hover {
+  background: var(--bg-hover);
 }
 
-.picker-form button,
-.picker > button {
+.account-open {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-inline-size: 0;
   border: 0;
-  background: var(--accent);
-  color: var(--text-on-accent);
-  border-radius: 10px;
-  padding: 10px;
+  background: none;
+  color: inherit;
+  padding: 8px;
+  text-align: start;
+  font: inherit;
+}
+
+.account-open:disabled {
+  cursor: default;
+}
+
+.account-name {
+  overflow-wrap: anywhere;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 600;
 }
 
@@ -1441,7 +1470,7 @@ button.reply-header.external:disabled {
 }
 
 .field:has(.field-prefix) input {
-  padding-inline-start: 58px;
+  padding-inline-start: calc(16px + var(--prefix-width));
 }
 
 .field-prefix {

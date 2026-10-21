@@ -27,7 +27,7 @@ interface Props {
   start: Screen;
   onClose: () => void;
   notify: ScreenProps["notify"];
-  onOpenChat: (key: string) => void;
+  onOpenChat: (key: string, screen?: Screen) => void;
 }
 
 export function InfoPanel({

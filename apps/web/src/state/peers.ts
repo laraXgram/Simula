@@ -30,6 +30,7 @@ export function inputUser(user: tl.user, me: string): tl.InputUser {
 
 export function displayName(user: tl.user | undefined): string {
   if (!user) return "Unknown";
+  if (user.deleted) return "Deleted Account";
   return (
     [user.first_name, user.last_name].filter(Boolean).join(" ") ||
     user.username ||

@@ -51,7 +51,36 @@ export function EditChat(props: ScreenProps) {
         }),
       );
   };
+  // Like Telegram, a basic group becomes a supergroup when it needs to: to go public or
+  // to have topics.
+  const upgradeFor = async (reason: string): Promise<string | null> => {
+    const ok = await dialogs.confirm({
+      title: "Upgrade to supergroup?",
+      text: `${reason} The group becomes a supergroup; its members move along. This can't be undone.`,
+      ok: "Upgrade",
+    });
+    if (!ok) return null;
+    try {
+      return await client.upgrade(chatKey);
+    } catch (error) {
+      notify((error as Error).message);
+      return null;
+    }
+  };
+  const makePublic = async () => {
+    const key = await upgradeFor("Only supergroups can be public.");
+    if (key) onOpenChat(key, { name: "type" });
+  };
   const toggleTopics = async (on: boolean) => {
+    if (can.basic) {
+      const key = await upgradeFor("Only supergroups can have topics.");
+      if (key)
+        attempt(notify, async () => {
+          await client.toggleForum(key, true);
+          onOpenChat(key);
+        });
+      return;
+    }
     const ok = await dialogs.confirm({
       title: on ? "Turn on topics?" : "Turn off topics?",
       text: on
@@ -107,16 +136,16 @@ export function EditChat(props: ScreenProps) {
           </div>
         )}
         <Section>
-          {can.creator && !can.basic && (
+          {can.creator && (
             <Row
               icon={username ? "public" : "lock"}
               title={`${kind} Type`}
               detail={username ? "Public" : "Private"}
               chevron
-              onClick={() => nav.push({ name: "type" })}
+              onClick={() => (can.basic ? makePublic() : nav.push({ name: "type" }))}
             />
           )}
-          {can.creator && !can.basic && !can.broadcast && (
+          {can.creator && !can.broadcast && (
             <SwitchRow
               icon="forum"
               title="Topics"

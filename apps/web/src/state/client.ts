@@ -478,6 +478,29 @@ export class Client {
     return upgraded;
   }
 
+  // My profile
+
+  async myBio(): Promise<string> {
+    const full = await this.session.call("users.getFullUser", { id: { _: "inputUserSelf" } });
+    this.store.addUsers(full.users);
+    return full.full_user._ === "userFull" ? (full.full_user.about ?? "") : "";
+  }
+
+  async updateProfile(first_name: string, last_name: string, about: string) {
+    const me = await this.session.call("account.updateProfile", { first_name, last_name, about });
+    if (me._ === "user") this.store.setMe(me);
+  }
+
+  /** Change my username; "" removes it. */
+  async setUsername(username: string) {
+    const me = await this.session.call("account.updateUsername", { username });
+    if (me._ === "user") this.store.setMe(me);
+  }
+
+  async usernameFree(username: string): Promise<boolean> {
+    return this.session.call("account.checkUsername", { username });
+  }
+
   async rename(key: string, title: string) {
     const channel = this.inputChannelOf(key);
     this.store.applyUpdates(

@@ -2,7 +2,7 @@
 import type { tl } from "@simula/schema";
 import { type ReactNode, useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
-import type { Account } from "../api/control";
+import { type Account, account as fetchAccount } from "../api/control";
 import { Client, type GroupKind } from "../state/client";
 import type { DeepLink } from "../state/links";
 import { AccountPicker } from "../ui/AccountPicker";
@@ -12,12 +12,15 @@ import { InfoPanel } from "../ui/info/InfoPanel";
 import type { Screen } from "../ui/info/nav";
 import { DialogsProvider } from "../ui/kit/Dialogs";
 import { useNotices } from "../ui/Notices";
+import { ProfileDialog } from "../ui/Profile";
 import { Sidebar } from "../ui/Sidebar";
+import { useTabAccount } from "./account";
 import { usePreference } from "./preferences";
 import { useRoute } from "./route";
 
 export function App() {
-  const [account, setAccount] = usePreference<Account | null>("account", null);
+  const [accountId, setAccountId] = useTabAccount();
+  const [account, setAccount] = useState<Account | null>(null);
   const [theme, setTheme] = usePreference<"light" | "dark" | "auto">("theme", "auto");
   const [direction, setDirection] = usePreference<"ltr" | "rtl">("direction", "ltr");
   const [client, setClient] = useState<Client | null>(null);
@@ -28,6 +31,18 @@ export function App() {
     document.documentElement.dataset.theme = theme;
     document.documentElement.dir = direction;
   }, [theme, direction]);
+
+  useEffect(() => {
+    setAccount(null);
+    if (!accountId) return;
+    setError("");
+    fetchAccount(accountId)
+      .then((found) => {
+        if (found.extra?.deleted) throw new Error("This account was deleted");
+        setAccount(found);
+      })
+      .catch((e: Error) => setError(e.message));
+  }, [accountId]);
 
   useEffect(() => {
     if (!account) return;
@@ -45,16 +60,22 @@ export function App() {
     };
   }, [account]);
 
-  if (!account) return <AccountPicker onPick={setAccount} />;
+  if (!accountId)
+    return (
+      <DialogsProvider>
+        <AccountPicker onPick={setAccountId} />
+      </DialogsProvider>
+    );
   if (error)
     return (
       <main className="picker">
         <p className="find-error">{error}</p>
-        <button type="button" onClick={() => setAccount(null)}>
+        <button type="button" className="pill-button primary" onClick={() => setAccountId(null)}>
           Choose another account
         </button>
       </main>
     );
+  if (!account) return <main className="picker">Connecting…</main>;
   if (!client) return <main className="picker">Connecting…</main>;
   return (
     <DialogsProvider>
@@ -63,7 +84,7 @@ export function App() {
         client={client}
         account={account}
         notify={notify}
-        onSwitchAccount={() => setAccount(null)}
+        onSwitchAccount={() => setAccountId(null)}
         onToggleTheme={() =>
           setTheme(theme === "dark" ? "light" : theme === "light" ? "auto" : "dark")
         }
@@ -98,12 +119,13 @@ function Shell({
   const [starts, setStarts] = useState<Record<string, string>>({});
   // The right-hand info panel, open on a screen, for the open chat.
   const [info, setInfo] = useState<Screen | null>(null);
+  const [editingProfile, setEditingProfile] = useState(false);
   useEffect(() => {
     if (selected === undefined) setInfo(null);
   }, [selected]);
   const openChat = useCallback(
-    (key: string | undefined) => {
-      setInfo(null);
+    (key: string | undefined, screen?: Screen) => {
+      setInfo(screen ?? null);
       setSelected(key);
     },
     [setSelected],
@@ -165,6 +187,7 @@ function Shell({
         onSelect={openChat}
         onFind={find}
         onCreateGroup={createGroup}
+        onEditProfile={() => setEditingProfile(true)}
         onSwitchAccount={onSwitchAccount}
         onToggleTheme={onToggleTheme}
         onToggleDirection={onToggleDirection}
@@ -218,6 +241,7 @@ function Shell({
           onCancel={() => setElsewhere(null)}
         />
       )}
+      {editingProfile && <ProfileDialog client={client} onClose={() => setEditingProfile(false)} />}
       {notices}
     </div>
   );
