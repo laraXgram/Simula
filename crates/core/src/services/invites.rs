@@ -230,7 +230,7 @@ pub fn import(ctx: &mut Ctx<'_>, user: UserId, hash: &str) -> RpcResult<()> {
     }
     invite.usage += 1;
     store::invites::put(ctx.db, &invite)?;
-    join(ctx, user, &invite, false)
+    join(ctx, user, &invite, None)
 }
 
 /// Approve or decline `user`'s request.
@@ -251,7 +251,7 @@ pub fn hide_request(
             .ok_or_else(|| RpcError::internal("join request without its link"))?;
         invite.usage += 1;
         store::invites::put(ctx.db, &invite)?;
-        join(ctx, user, &invite, true)?;
+        join(ctx, user, &invite, Some(actor))?;
     }
     pending_changed(ctx, peer)
 }
@@ -302,6 +302,108 @@ pub fn render(
     .into())
 }
 
+/// Links of the chat made by `admin` (other admins' only for the owner), live or
+/// revoked.
+pub fn list(
+    ctx: &Ctx<'_>,
+    actor: UserId,
+    peer: Peer,
+    admin: UserId,
+    revoked: bool,
+) -> RpcResult<Vec<Invite>> {
+    require_invite_right(ctx, actor, peer)?;
+    if admin != actor && !is_owner(ctx, actor, peer)? {
+        return Err(RpcError::bad_request("CHAT_ADMIN_REQUIRED"));
+    }
+    Ok(store::invites::list(ctx.db, peer, admin, revoked)?)
+}
+
+/// Delete a revoked link (live ones must be revoked first: `INVITE_REVOKED_MISSING`).
+pub fn delete(ctx: &Ctx<'_>, actor: UserId, peer: Peer, link: &str) -> RpcResult<()> {
+    require_invite_right(ctx, actor, peer)?;
+    let invite = store::invites::get(ctx.db, hash_of(link))?
+        .filter(|i| i.peer == peer)
+        .ok_or_else(|| RpcError::bad_request("INVITE_HASH_INVALID"))?;
+    if invite.admin != actor && !is_owner(ctx, actor, peer)? {
+        return Err(RpcError::bad_request("CHAT_ADMIN_REQUIRED"));
+    }
+    if !invite.revoked {
+        return Err(RpcError::bad_request("INVITE_REVOKED_MISSING"));
+    }
+    store::invites::delete(ctx.db, &invite.hash)?;
+    Ok(())
+}
+
+/// Delete every revoked link of `admin`.
+pub fn delete_revoked(ctx: &Ctx<'_>, actor: UserId, peer: Peer, admin: UserId) -> RpcResult<()> {
+    for invite in list(ctx, actor, peer, admin, true)? {
+        store::invites::delete(ctx.db, &invite.hash)?;
+    }
+    Ok(())
+}
+
+/// Pending join requests (all, or those through `link`), or who joined through `link`;
+/// `q` filters by name.
+pub fn importers(
+    ctx: &Ctx<'_>,
+    actor: UserId,
+    peer: Peer,
+    requested: bool,
+    link: Option<&str>,
+    q: Option<&str>,
+) -> RpcResult<Vec<types::ChatInviteImporter>> {
+    require_invite_right(ctx, actor, peer)?;
+    let hash = link.map(hash_of);
+    let mut out = Vec::new();
+    if requested {
+        for (user, date, invite, about) in store::invites::requests(ctx.db, peer)? {
+            if hash.is_some_and(|h| h != invite) {
+                continue;
+            }
+            out.push(types::ChatInviteImporter {
+                requested: true,
+                user_id: user.0,
+                date,
+                about: Some(about).filter(|a| !a.is_empty()),
+                ..Default::default()
+            });
+        }
+    } else {
+        let Some(hash) = hash else {
+            return Err(RpcError::bad_request("INVITE_HASH_INVALID"));
+        };
+        let invite = store::invites::get(ctx.db, hash)?
+            .filter(|i| i.peer == peer)
+            .ok_or_else(|| RpcError::bad_request("INVITE_HASH_INVALID"))?;
+        for (user, date, approved_by) in store::invites::joins(ctx.db, &invite.hash)? {
+            out.push(types::ChatInviteImporter {
+                user_id: user.0,
+                date,
+                approved_by: approved_by.map(|u| u.0),
+                ..Default::default()
+            });
+        }
+    }
+    if let Some(q) = q.map(str::to_lowercase).filter(|q| !q.is_empty()) {
+        let mut kept = Vec::new();
+        for importer in out {
+            let account = ctx.account(UserId(importer.user_id))?;
+            let name = format!(
+                "{} {} {}",
+                account.first_name,
+                account.last_name.unwrap_or_default(),
+                account.username.unwrap_or_default()
+            )
+            .to_lowercase();
+            if name.contains(&q) {
+                kept.push(importer);
+            }
+        }
+        out = kept;
+    }
+    Ok(out)
+}
+
 /// `actor`'s primary link, if they have one (for full chat objects).
 pub fn primary(
     ctx: &Ctx<'_>,
@@ -314,7 +416,16 @@ pub fn primary(
     }
 }
 
-fn join(ctx: &mut Ctx<'_>, user: UserId, invite: &Invite, via_request: bool) -> RpcResult<()> {
+/// `user` joins through `invite` (`approved_by`: an admin approved their request).
+fn join(
+    ctx: &mut Ctx<'_>,
+    user: UserId,
+    invite: &Invite,
+    approved_by: Option<UserId>,
+) -> RpcResult<()> {
+    let via_request = approved_by.is_some();
+    let date = ctx.now();
+    store::invites::add_join(ctx.db, &invite.hash, user, date, approved_by)?;
     let rendered = render(ctx, None, invite)?;
     match invite.peer {
         Peer::Chat(chat) => {

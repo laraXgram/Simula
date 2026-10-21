@@ -194,6 +194,48 @@ pub fn rename(ctx: &mut Ctx<'_>, actor: UserId, chat: ChatId, title: &str) -> Rp
     post(ctx, actor, chat, action.into(), &member_ids(ctx, chat)?)
 }
 
+/// Make a member an admin of the group or a member again. Only the creator may.
+pub fn set_admin(
+    ctx: &mut Ctx<'_>,
+    actor: UserId,
+    chat: ChatId,
+    user: UserId,
+    is_admin: bool,
+) -> RpcResult<()> {
+    let found = get(ctx, chat)?;
+    if require_member(ctx, chat, actor)?.role != Role::Creator {
+        return Err(RpcError::bad_request("CHAT_ADMIN_REQUIRED"));
+    }
+    let Some(before) = store::chats::member(ctx.db, chat, user)? else {
+        return Err(RpcError::bad_request("USER_NOT_PARTICIPANT"));
+    };
+    if user == found.creator {
+        return Err(RpcError::bad_request("USER_CREATOR"));
+    }
+    let role = if is_admin { Role::Admin } else { Role::Member };
+    if before.role == role {
+        return Ok(());
+    }
+    store::chats::set_role(ctx.db, chat, user, role)?;
+    let version = store::chats::bump_version(ctx.db, chat)?;
+    for member in member_ids(ctx, chat)? {
+        ctx.out.mention_chat(member, chat);
+        updates::push_plain(
+            ctx,
+            member,
+            types::UpdateChatParticipantAdmin {
+                chat_id: chat.0,
+                user_id: user.0,
+                is_admin,
+                version,
+            }
+            .into(),
+            [user],
+        );
+    }
+    membership_changed(ctx, actor, chat, user, Some(before), None)
+}
+
 /// The group's description: admins, or members when the defaults let them change info.
 pub fn set_about(ctx: &mut Ctx<'_>, actor: UserId, chat: ChatId, about: &str) -> RpcResult<()> {
     let found = get(ctx, chat)?;

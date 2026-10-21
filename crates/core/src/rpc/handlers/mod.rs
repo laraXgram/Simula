@@ -25,6 +25,7 @@ pub const IMPLEMENTED: &[&str] = &[
     "bots.setBotCommands",
     "channels.checkUsername",
     "channels.createChannel",
+    "channels.deleteChannel",
     "channels.deleteMessages",
     "channels.editAdmin",
     "channels.editBanned",
@@ -46,9 +47,12 @@ pub const IMPLEMENTED: &[&str] = &[
     "messages.createChat",
     "messages.createForumTopic",
     "messages.deleteChatUser",
+    "messages.deleteExportedChatInvite",
     "messages.deleteMessages",
+    "messages.deleteRevokedExportedChatInvites",
     "messages.deleteTopicHistory",
     "messages.editChatAbout",
+    "messages.editChatAdmin",
     "messages.editChatDefaultBannedRights",
     "messages.editChatTitle",
     "messages.editExportedChatInvite",
@@ -56,8 +60,10 @@ pub const IMPLEMENTED: &[&str] = &[
     "messages.editMessage",
     "messages.exportChatInvite",
     "messages.getBotCallbackAnswer",
+    "messages.getChatInviteImporters",
     "messages.getChats",
     "messages.getDialogs",
+    "messages.getExportedChatInvites",
     "messages.getForumTopicsByID",
     "messages.getForumTopics",
     "messages.getFullChat",
@@ -98,6 +104,8 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
         Function::ChannelsCheckUsername(call) => channels::check_username::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::ChannelsCreateChannel(call) => channels::create_channel::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::ChannelsDeleteChannel(call) => channels::delete_channel::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::ChannelsDeleteMessages(call) => channels::delete_messages::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
@@ -147,13 +155,23 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
         }
         Function::MessagesDeleteChatUser(call) => messages::delete_chat_user::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::MessagesDeleteExportedChatInvite(call) => {
+            messages::delete_exported_chat_invite::handle(ctx, *call)
+                .map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
         Function::MessagesDeleteMessages(call) => messages::delete_messages::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::MessagesDeleteRevokedExportedChatInvites(call) => {
+            messages::delete_revoked_exported_chat_invites::handle(ctx, *call)
+                .map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
         Function::MessagesDeleteTopicHistory(call) => {
             messages::delete_topic_history::handle(ctx, *call)
                 .map(|reply| Box::new(reply) as Box<dyn Reply>)
         }
         Function::MessagesEditChatAbout(call) => messages::edit_chat_about::handle(ctx, *call)
+            .map(|reply| Box::new(reply) as Box<dyn Reply>),
+        Function::MessagesEditChatAdmin(call) => messages::edit_chat_admin::handle(ctx, *call)
             .map(|reply| Box::new(reply) as Box<dyn Reply>),
         Function::MessagesEditChatDefaultBannedRights(call) => {
             messages::edit_chat_default_banned_rights::handle(ctx, *call)
@@ -177,11 +195,19 @@ pub fn route(ctx: &mut Ctx<'_>, call: Function) -> Result<RpcResult<Box<dyn Repl
             messages::get_bot_callback_answer::handle(ctx, *call)
                 .map(|reply| Box::new(reply) as Box<dyn Reply>)
         }
+        Function::MessagesGetChatInviteImporters(call) => {
+            messages::get_chat_invite_importers::handle(ctx, *call)
+                .map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
         Function::MessagesGetChats(call) => {
             messages::get_chats::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
         }
         Function::MessagesGetDialogs(call) => {
             messages::get_dialogs::handle(ctx, *call).map(|reply| Box::new(reply) as Box<dyn Reply>)
+        }
+        Function::MessagesGetExportedChatInvites(call) => {
+            messages::get_exported_chat_invites::handle(ctx, *call)
+                .map(|reply| Box::new(reply) as Box<dyn Reply>)
         }
         Function::MessagesGetForumTopicsByID(call) => {
             messages::get_forum_topics_by_id::handle(ctx, *call)

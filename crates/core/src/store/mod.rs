@@ -26,6 +26,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0006_invites.sql"),
     include_str!("migrations/0007_forums.sql"),
     include_str!("migrations/0008_files.sql"),
+    include_str!("migrations/0009_invite_joins.sql"),
 ];
 
 /// Open (or create) a sandbox database. `None` keeps it in memory, for tests.

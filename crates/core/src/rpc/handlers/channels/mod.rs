@@ -2,6 +2,7 @@
 
 pub mod check_username;
 pub mod create_channel;
+pub mod delete_channel;
 pub mod delete_messages;
 pub mod edit_admin;
 pub mod edit_banned;

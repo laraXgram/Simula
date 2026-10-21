@@ -146,3 +146,70 @@ pub fn requests_of(conn: &Connection, user: UserId) -> rusqlite::Result<Vec<(Pee
     })?;
     rows.collect()
 }
+
+/// The chat's links made by `admin`, live or `revoked`, newest first.
+pub fn list(
+    conn: &Connection,
+    peer: Peer,
+    admin: UserId,
+    revoked: bool,
+) -> rusqlite::Result<Vec<Invite>> {
+    let mut statement = conn.prepare(&format!(
+        "SELECT {COLUMNS} FROM invites WHERE peer = ?1 AND admin_id = ?2 AND revoked = ?3
+         ORDER BY permanent DESC, date DESC, hash"
+    ))?;
+    let rows = statement.query_map(params![peer.bot_api_id(), admin.0, revoked], row)?;
+    rows.collect()
+}
+
+pub fn delete(conn: &Connection, hash: &str) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM invites WHERE hash = ?1", [hash])?;
+    conn.execute("DELETE FROM invite_joins WHERE hash = ?1", [hash])?;
+    Ok(())
+}
+
+pub fn add_join(
+    conn: &Connection,
+    hash: &str,
+    user: UserId,
+    date: i32,
+    approved_by: Option<UserId>,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO invite_joins (hash, user_id, date, approved_by) VALUES (?1, ?2, ?3, ?4)",
+        params![hash, user.0, date, approved_by.map(|u| u.0)],
+    )?;
+    Ok(())
+}
+
+/// Who joined through a link: `(user, date, approved by)`, newest first.
+pub fn joins(
+    conn: &Connection,
+    hash: &str,
+) -> rusqlite::Result<Vec<(UserId, i32, Option<UserId>)>> {
+    let mut statement = conn.prepare(
+        "SELECT user_id, date, approved_by FROM invite_joins WHERE hash = ?1 ORDER BY date DESC, user_id DESC",
+    )?;
+    let rows = statement.query_map([hash], |row| {
+        Ok((
+            UserId(row.get(0)?),
+            row.get(1)?,
+            row.get::<_, Option<i64>>(2)?.map(UserId),
+        ))
+    })?;
+    rows.collect()
+}
+
+/// Pending requests: `(user, date, invite hash, about)`, newest first.
+pub fn requests(
+    conn: &Connection,
+    peer: Peer,
+) -> rusqlite::Result<Vec<(UserId, i32, String, String)>> {
+    let mut statement = conn.prepare(
+        "SELECT user_id, date, invite, about FROM join_requests WHERE peer = ?1 ORDER BY date DESC, user_id DESC",
+    )?;
+    let rows = statement.query_map([peer.bot_api_id()], |row| {
+        Ok((UserId(row.get(0)?), row.get(1)?, row.get(2)?, row.get(3)?))
+    })?;
+    rows.collect()
+}

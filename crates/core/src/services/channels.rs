@@ -530,6 +530,26 @@ pub fn set_default_banned(
     Ok(())
 }
 
+/// Delete the supergroup or channel for everyone. Only the creator may.
+pub fn delete(ctx: &mut Ctx<'_>, actor: UserId, id: ChannelId) -> RpcResult<()> {
+    let channel = get(ctx, id)?;
+    if require_member(ctx, &channel, actor)?.status != Status::Creator {
+        return Err(RpcError::bad_request("CHAT_ADMIN_REQUIRED"));
+    }
+    let members = store::channels::current_members(ctx.db, id)?;
+    store::channels::set_deleted(ctx.db, id)?;
+    for member in members {
+        updates::push_plain(
+            ctx,
+            member.user,
+            types::UpdateChannel { channel_id: id.0 }.into(),
+            [],
+        );
+        ctx.out.mention_channel(member.user, id);
+    }
+    Ok(())
+}
+
 /// Set or remove (`""`) the public username. Only the creator may.
 pub fn set_username(
     ctx: &mut Ctx<'_>,

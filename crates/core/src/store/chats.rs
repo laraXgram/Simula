@@ -143,6 +143,14 @@ pub fn add_member(conn: &Connection, chat: ChatId, member: &Member) -> rusqlite:
     Ok(())
 }
 
+pub fn set_role(conn: &Connection, chat: ChatId, user: UserId, role: Role) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE chat_members SET role = ?3 WHERE chat_id = ?1 AND user_id = ?2",
+        params![chat.0, user.0, role.as_str()],
+    )?;
+    Ok(())
+}
+
 pub fn remove_member(conn: &Connection, chat: ChatId, user: UserId) -> rusqlite::Result<()> {
     conn.execute(
         "DELETE FROM chat_members WHERE chat_id = ?1 AND user_id = ?2",
