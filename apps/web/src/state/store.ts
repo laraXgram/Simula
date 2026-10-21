@@ -50,7 +50,7 @@ export interface ChatDetails {
 export interface PendingUpload {
   id: number;
   name: string;
-  kind: "photo" | "video" | "voice" | "audio" | "file";
+  kind: "photo" | "video" | "round" | "voice" | "audio" | "file";
   size: number;
   /** 0 to 1. */
   progress: number;

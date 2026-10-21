@@ -24,6 +24,17 @@ export function Pending({ upload }: { upload: PendingUpload }) {
       <Icon name="close" size={20} />
     </button>
   );
+  if (upload.kind === "round")
+    return (
+      <div className="message out pending">
+        <div className="bubble bare">
+          <div className="media-round">
+            {upload.preview && <img className="round-pending" src={upload.preview} alt="" />}
+            {ring}
+          </div>
+        </div>
+      </div>
+    );
   return (
     <div className="message out pending">
       <div className={visual ? "bubble has-media media-only" : "bubble"}>

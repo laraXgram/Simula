@@ -5,6 +5,24 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-10-22 — P5.15 · Video messages
+
+- **Voice or video**: the record button works like Telegram's: a tap switches between
+  voice and video messages (remembered), holding records, releasing sends, sliding up
+  locks the recording (then Send or Delete), sliding away cancels; Enter or Space
+  records, locked.
+- **Video messages** are recorded from the camera center-cropped onto a 384 × 384
+  canvas, so they are square (Telegram's video note size), shown live in a circle with
+  a ring filling up to the one-minute limit, and sent with `round_message`, the
+  duration and a thumbnail. MP4 with H.264 is preferred (with AAC where the browser can
+  encode it, otherwise Opus), WebM only where MP4 can't be recorded.
+- **In chats** a video message is a 240 px circle (`clip-path`, no bubble behind it,
+  outgoing or not) playing silently; a click plays it with sound, with a progress ring
+  and the time left. Uploads show as a circle with their progress.
+- Verified in headless Chrome with a fake camera: the preview and the message are
+  circles; a bot gets a `video_note` of length 384 with a thumbnail, and ffprobe reads
+  384 × 384 H.264; lock, cancel, switching back and the remembered mode work.
+
 ## 2026-10-21 — P5.15 · Media in the client (M5 done)
 
 - **Files over the session** (`state/files.ts`): downloads with `upload.getFile` in

@@ -4,7 +4,7 @@
  * in the browser; anything else goes as a file.
  */
 
-export type SendAs = "photo" | "video" | "gif" | "audio" | "voice" | "file";
+export type SendAs = "photo" | "video" | "round" | "gif" | "audio" | "voice" | "file";
 
 export interface Attachment {
   file: Blob;

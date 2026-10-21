@@ -153,25 +153,39 @@ function GifTile({
 function RoundVideo({ info }: { info: DocumentInfo }) {
   const url = useFileUrl(documentLocation(info.document), info.mime);
   const video = useRef<HTMLVideoElement>(null);
+  // Playing silently in a loop until clicked; then once with sound, with its progress.
   const [sound, setSound] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const silent = () => {
+    const v = video.current;
+    setSound(false);
+    setProgress(0);
+    if (!v) return;
+    v.muted = true;
+    v.loop = true;
+    void v.play();
+  };
   const toggle = () => {
     const v = video.current;
     if (!v) return;
-    if (!sound) {
-      v.currentTime = 0;
-      v.muted = false;
-      v.loop = false;
-      void v.play();
-      setSound(true);
-    } else {
-      v.muted = true;
-      v.loop = true;
-      void v.play();
-      setSound(false);
+    if (sound) {
+      silent();
+      return;
     }
+    v.currentTime = 0;
+    v.muted = false;
+    v.loop = false;
+    void v.play();
+    setSound(true);
   };
+  const duration = info.duration ?? 0;
   return (
-    <button type="button" className="media-round" onClick={toggle} aria-label="Play video message">
+    <button
+      type="button"
+      className={sound ? "media-round playing" : "media-round"}
+      onClick={toggle}
+      aria-label={sound ? "Stop video message" : "Play video message"}
+    >
       {url ? (
         <video
           ref={video}
@@ -180,21 +194,29 @@ function RoundVideo({ info }: { info: DocumentInfo }) {
           loop
           muted
           playsInline
-          onEnded={() => {
-            setSound(false);
-            if (video.current) {
-              video.current.muted = true;
-              video.current.loop = true;
-              void video.current.play();
-            }
+          onTimeUpdate={(event) => {
+            const v = event.currentTarget;
+            if (sound && v.duration > 0) setProgress(v.currentTime / v.duration);
           }}
+          onEnded={silent}
         />
       ) : (
         <span className="media-loading" />
       )}
+      {sound && (
+        <svg className="round-progress" viewBox="0 0 100 100" aria-hidden="true">
+          <circle
+            cx="50"
+            cy="50"
+            r="48"
+            pathLength="100"
+            strokeDasharray={`${progress * 100} 100`}
+          />
+        </svg>
+      )}
       <span className="media-badge">
-        {formatDuration(info.duration ?? 0)}
-        {!sound && " 🔇"}
+        {formatDuration(sound ? duration * (1 - progress) : duration)}
+        {!sound && <Icon name="volumeOff" size={14} />}
       </span>
     </button>
   );

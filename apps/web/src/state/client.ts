@@ -251,11 +251,15 @@ export class Client {
     const file = await this.files.upload(a.file, a.name, progress, pending.signal);
     if (a.as === "photo") return { _: "inputMediaUploadedPhoto", file };
     const thumb = a.thumb ? await this.files.upload(a.thumb, "thumb.jpg") : undefined;
+    // Voice and video messages carry no file name, as in Telegram's apps.
     const attributes: tl.DocumentAttribute[] =
-      a.as === "voice" ? [] : [{ _: "documentAttributeFilename", file_name: a.name }];
-    if (a.as === "video")
+      a.as === "voice" || a.as === "round"
+        ? []
+        : [{ _: "documentAttributeFilename", file_name: a.name }];
+    if (a.as === "video" || a.as === "round")
       attributes.push({
         _: "documentAttributeVideo",
+        round_message: a.as === "round" || undefined,
         supports_streaming: true,
         duration: a.duration ?? 0,
         w: a.w ?? 0,

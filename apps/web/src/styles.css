@@ -2030,9 +2030,15 @@ button.row:hover {
   inset-block-start: 6px;
 }
 
-.bubble.media-only {
+/* No bubble behind media alone, outgoing or not. */
+.message .bubble.media-only,
+.message .bubble.bare {
   background: none;
   box-shadow: none;
+}
+
+.message .bubble.bare {
+  padding: 0;
 }
 
 .bubble.media-only > .meta {
@@ -2044,12 +2050,6 @@ button.row:hover {
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.45);
   color: #fff;
-}
-
-.bubble.bare {
-  background: none;
-  box-shadow: none;
-  padding: 0;
 }
 
 .media-tile {
@@ -2129,26 +2129,63 @@ button.row:hover {
 
 .media-round {
   position: relative;
-  inline-size: 220px;
-  block-size: 220px;
+  display: block;
+  inline-size: 240px;
+  block-size: 240px;
   border: 0;
   padding: 0;
   border-radius: 50%;
+  clip-path: circle(50%);
   overflow: hidden;
   background: color-mix(in srgb, var(--text-muted) 18%, transparent);
 }
 
-.media-round video {
+.media-round video,
+.media-round .round-pending {
+  display: block;
   inline-size: 100%;
   block-size: 100%;
   object-fit: cover;
 }
 
+.media-round .round-pending {
+  filter: brightness(0.7);
+}
+
+.round-progress {
+  position: absolute;
+  inset: 0;
+  rotate: -90deg;
+  pointer-events: none;
+}
+
+.round-progress circle {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.85);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
 .media-round .media-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   inset-block-start: auto;
-  inset-block-end: 14px;
+  inset-block-end: 16px;
   inset-inline-start: 50%;
   translate: -50% 0;
+}
+
+.bubble.bare > .meta {
+  justify-content: flex-end;
+  align-self: flex-end;
+  inline-size: fit-content;
+  margin-inline-start: auto;
+  margin-block-start: 4px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
 }
 
 .media-sticker {
@@ -2592,4 +2629,78 @@ button.row:hover {
 
 .menu.context {
   position: fixed;
+}
+
+/* Recording video messages */
+
+.round-preview {
+  position: absolute;
+  inset-block-end: 84px;
+  inset-inline: 0;
+  z-index: 35;
+  margin: 0 auto;
+  inline-size: min(300px, 70vw);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  clip-path: circle(50%);
+  background: #000;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  animation: pop 160ms ease-out;
+}
+
+.round-preview video {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+  scale: -1 1;
+}
+
+.round-preview svg {
+  position: absolute;
+  inset: 0;
+  rotate: -90deg;
+}
+
+.round-preview circle {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 3;
+  stroke-linecap: round;
+  transition: stroke-dasharray 250ms linear;
+}
+
+.record-button {
+  touch-action: none;
+  user-select: none;
+}
+
+.send-button.holding {
+  scale: 1.25;
+  box-shadow: 0 0 0 8px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.lock-hint {
+  position: absolute;
+  inset-block-end: 72px;
+  inset-inline-end: 18px;
+  display: grid;
+  place-items: center;
+  inline-size: 34px;
+  block-size: 44px;
+  border-radius: 17px;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  color: var(--text-muted);
+  animation: rise 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes rise {
+  to {
+    translate: 0 -8px;
+  }
+}
+
+.composer {
+  position: relative;
 }

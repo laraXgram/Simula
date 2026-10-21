@@ -4,12 +4,12 @@
  */
 import type { tl } from "@simula/schema";
 import { useEffect, useRef, useState } from "react";
-
+import { usePreference } from "../app/preferences";
 import type { Attachment } from "../state/attach";
 import { toFormatting } from "../state/markdown";
-import { formatDuration } from "../state/media";
 import { Icon } from "./kit/Icon";
-import { useRecorder } from "./media/recorder";
+import { RecordButton, RecordingBar, RoundPreview } from "./media/Recording";
+import { type RecordMode, useRecorder } from "./media/recorder";
 
 export interface Draft {
   replyTo?: tl.message;
@@ -29,7 +29,8 @@ interface Props {
   onSend: (text: string) => void;
   /** Files picked or pasted, for the send dialog. */
   onAttach: (files: File[]) => void;
-  onVoice: (voice: Attachment) => void;
+  /** A voice or video message, recorded. */
+  onRecorded: (recording: Attachment) => void;
   onError: (message: string) => void;
 }
 
@@ -43,14 +44,19 @@ export function Composer({
   onCancel,
   onSend,
   onAttach,
-  onVoice,
+  onRecorded,
   onError,
 }: Props) {
   const [text, setText] = useState("");
   const [menu, setMenu] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
-  const recorder = useRecorder(onVoice, onError);
+  const recorder = useRecorder(onRecorded, onError);
+  // Voice or video messages: a tap on the record button switches, as in Telegram.
+  const [mode, switchMode] = usePreference<RecordMode>("record-mode", "voice");
+  // Held down (recording until released) or locked (until sent or cancelled).
+  const [holding, setHolding] = useState(false);
+  const [locked, setLocked] = useState(false);
 
   // Starting a reply or an edit puts the cursor in the box (and the text, for edits).
   const editing = draft.editing;
@@ -100,30 +106,15 @@ export function Composer({
           ))}
         </div>
       )}
-      {recorder.recording ? (
-        <div className="composer-row recording">
-          <button
-            type="button"
-            className="icon-button"
-            onClick={() => recorder.stop(false)}
-            aria-label="Cancel recording"
-            title="Cancel"
-          >
-            <Icon name="delete" />
-          </button>
-          <span className="recording-dot" />
-          <span className="recording-time">{formatDuration(recorder.seconds)}</span>
-          <span className="recording-hint">Recording a voice message…</span>
-          <button
-            type="button"
-            className="send-button round"
-            onClick={() => recorder.stop(true)}
-            aria-label="Send voice message"
-            title="Send"
-          >
-            <Icon name="send" />
-          </button>
-        </div>
+      {recorder.camera && <RoundPreview stream={recorder.camera} seconds={recorder.seconds} />}
+      {recorder.recording || holding ? (
+        <RecordingBar
+          mode={recorder.mode ?? mode}
+          seconds={recorder.seconds}
+          locked={locked}
+          onCancel={() => recorder.stop(false)}
+          onSend={() => recorder.stop(true)}
+        />
       ) : (
         <div className="composer-row">
           {!draft.editing && (
@@ -204,15 +195,20 @@ export function Composer({
               <Icon name={draft.editing ? "check" : "send"} />
             </button>
           ) : (
-            <button
-              type="button"
-              className="send-button round"
-              onClick={() => void recorder.start()}
-              aria-label="Record a voice message"
-              title="Record a voice message"
-            >
-              <Icon name="mic" />
-            </button>
+            <RecordButton
+              mode={mode}
+              onToggle={() => switchMode(mode === "voice" ? "video" : "voice")}
+              onStart={(lock) => {
+                setLocked(lock);
+                setHolding(!lock);
+                void recorder.start(mode);
+              }}
+              onRelease={(release) => {
+                setHolding(false);
+                if (release === "lock") setLocked(true);
+                else recorder.stop(release === "send");
+              }}
+            />
           )}
         </div>
       )}

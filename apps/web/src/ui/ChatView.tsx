@@ -644,7 +644,7 @@ export function ChatView({
                 }}
                 onSend={(text) => void send(text)}
                 onAttach={setAttaching}
-                onVoice={(voice) => sendFiles([voice], "", false)}
+                onRecorded={(recording) => sendFiles([recording], "", false)}
                 onError={(text) => notify(text)}
               />
             )}
