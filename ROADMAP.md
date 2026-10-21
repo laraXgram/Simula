@@ -79,6 +79,10 @@ vertical slice through several phases, so the architecture is exercised end to e
 - [ ] **M5 — media and files** (P2.6, P3.5): `InputFile` pipeline, photos, documents,
   albums, file downloads; media in the client
 - [ ] **M6 — inline mode, polls, reactions, payments** (P2.11, P5.4, P5.7)
+- [ ] **M8 — Mini Apps** (P11), last; possibly co-developed with another app
+- [ ] **M5½ — a real Telegram client** (P5.14, P5.15): chat info and management,
+  members, admins, permissions, links and requests, media; held to the standard of
+  Telegram's own apps
 - [ ] **M7 — plugin platform** (P10): the client becomes a plugin host (activity bar,
   views, panels, commands, status bar); the dev tools (P5.9–P5.12) are written as
   plugins and installed by default. Comes after the client and server are complete
@@ -162,7 +166,7 @@ vertical slice through several phases, so the architecture is exercised end to e
 - [~] P5.5 Groups, channels, forums, admin tools, join requests, invite links (done:
   groups, supergroups, channels, forums, upgrades, adding admins, pins, invite links,
   joining; left: member lists and per-member rights, handling join requests)
-- [ ] P5.6 Mini App host: real webview + emulated `Telegram.WebApp` bridge, signed initData
+- [-] P5.6 Mini App host — moved to the end of the roadmap (P11)
 - [ ] P5.7 Payments & Stars checkout simulator (shipping, pre-checkout, success/failure)
 - [ ] P5.8 Multi-user: quick act-as switcher and split view (same chat, several users)
 Dev tools P5.9–P5.12 are built as plugins on the plugin platform (P10), bundled and
@@ -173,11 +177,18 @@ installed by default.
 - [ ] P5.11 Dev tools: entity/DB browser, fault & clock controls, bot connection status
 - [ ] P5.12 Dev tools: trace export/import, replay/redeliver updates, response-time metrics
 - [ ] P5.13 Command palette (Ctrl+K) and keyboard-first navigation
+- [~] P5.14 Chat management the way Telegram's apps do it: a chat info panel (members,
+  links, media), an edit screen (name, description, public link, topics, permissions),
+  administrators and their rights, members with per-member actions (promote, restrict,
+  remove, ban), removed users, invite links and join requests; menus and dialogs
+  instead of bare icon buttons
+- [ ] P5.15 Media in the client: photos, albums, files, voice and video players, upload
+  with progress, viewer (with M5)
 
 ## P6 — Desktop (bunium)
 
 - [ ] P6.1 bunium shell: sidecar server lifecycle, `bunium://` UI, tray with server status
-- [ ] P6.2 Native menus, notifications for bot messages, Mini Apps in `<bunium-webview>`
+- [ ] P6.2 Native menus, notifications for bot messages
 - [ ] P6.3 Packaging: Windows, macOS, Linux (deb/rpm/AppImage)
 - [ ] P6.4 Auto-update and release CI
 - [ ] P6.5 Upstream fixes to bunium as found (committed in the bunium repo)
@@ -225,6 +236,12 @@ Design: [architecture.md § Plugins](docs/architecture.md#plugins).
   DB browser, faults and clock, trace export (P5.9–P5.12)
 - [ ] P10.9 Plugin dev kit: `create-simula-plugin` scaffold, dev mode with reload, docs
 - [ ] P10.10 Desktop: plugins in bunium, native menus and notifications contributed by plugins
+
+## P11 — Mini Apps (last; possibly built together with another app)
+
+- [ ] P11.1 Mini App host: real webview + emulated `Telegram.WebApp` bridge, signed
+  `initData`, `web_app` buttons, `answerWebAppQuery`, menu button
+- [ ] P11.2 Desktop: Mini Apps in `<bunium-webview>`
 
 ## Explicit gaps (answer `501 Not implemented in Simula` today)
 
