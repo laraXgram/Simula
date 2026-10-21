@@ -5,8 +5,10 @@
 import type { tl } from "@simula/schema";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { type Abilities, abilities } from "../state/abilities";
+import type { Attachment } from "../state/attach";
 import type { Client } from "../state/client";
 import type { DeepLink } from "../state/links";
+import { contentOf, isVisual, mediaLabel } from "../state/media";
 import { displayName } from "../state/peers";
 import type { AnyChat, AnyMessage, ChatDetails, Snapshot } from "../state/store";
 import { GENERAL, isForum, topicColor, topicOf, topicRights } from "../state/topics";
@@ -18,6 +20,10 @@ import { useDialogs } from "./kit/Dialogs";
 import { Icon } from "./kit/Icon";
 import { Menu, type MenuItem } from "./kit/Menu";
 import { Message, type MessageActions } from "./Message";
+import { AttachDialog } from "./media/AttachDialog";
+import { MediaContext } from "./media/context";
+import { Pending } from "./media/Pending";
+import { Viewer } from "./media/Viewer";
 import { OpenAs } from "./OpenAs";
 import { activeMarkup, ReplyKeyboard } from "./ReplyKeyboard";
 import { ServiceMessage } from "./ServiceMessage";
@@ -154,12 +160,56 @@ export function ChatView({
     if (dialog && dialog.unread > 0) void client.read(chatKey);
   }, [client, chatKey, dialog]);
 
-  // Follow the conversation: scroll down when a newer message arrives, and once the
-  // opened chat's history is in (it loads above the message the chat list showed).
+  const uploads = (snapshot.uploads.get(chatKey) ?? []).filter(
+    (upload) => !forum || upload.topic === topic,
+  );
+  // Follow the conversation: scroll down when a newer message arrives or a file starts
+  // uploading, and once the opened chat's history is in (it loads above the message the
+  // chat list showed).
   const newest = all.at(-1)?.id;
+  const sending = uploads.length;
   useEffect(() => {
-    if (loaded && newest !== undefined) list.current?.scrollTo({ top: list.current.scrollHeight });
-  }, [loaded, newest]);
+    if (loaded && (newest !== undefined || sending > 0))
+      list.current?.scrollTo({ top: list.current.scrollHeight });
+  }, [loaded, newest, sending]);
+
+  // Photos and videos open in the viewer, which pages through all of them.
+  const visual = useMemo(() => messages.filter((m) => isVisual(contentOf(m))), [messages]);
+  const [viewing, setViewing] = useState<number | null>(null);
+  const media = useMemo(
+    () => ({
+      files: client.files,
+      openViewer: (message: tl.message) =>
+        setViewing(
+          Math.max(
+            0,
+            visual.findIndex((m) => m.id === message.id),
+          ),
+        ),
+    }),
+    [client, visual],
+  );
+  const author = (message: tl.message) =>
+    message.post || !message.from_id
+      ? title
+      : message.from_id._ === "peerUser"
+        ? displayName(snapshot.users.get(message.from_id.user_id))
+        : (chatTitle(
+            snapshot,
+            `ch${"channel_id" in message.from_id ? message.from_id.channel_id : ""}`,
+          ) ?? title);
+
+  // Files picked, dropped or pasted wait in the send dialog.
+  const [attaching, setAttaching] = useState<File[] | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const sendFiles = (attachments: Attachment[], caption: string, grouped: boolean) => {
+    setAttaching(null);
+    const reply = replyTo?.id;
+    setDraft({});
+    client
+      .sendFiles(chatKey, attachments, { text: caption, replyTo: reply, topic }, grouped)
+      .catch((error: Error) => notify(error.message));
+  };
 
   const markup = activeMarkup(messages);
   const keyboard =
@@ -197,24 +247,24 @@ export function ChatView({
     }
   };
 
-  const deleteMessage = async (message: tl.message) => {
+  const deleteMessages = async (targets: readonly tl.message[]) => {
+    const ids = targets.map((m) => m.id);
+    const title = ids.length === 1 ? "Delete message?" : `Delete ${ids.length} messages?`;
     // Supergroups and channels have one box: deleting is always for everyone.
     if (chatKey.startsWith("ch")) {
       const ok = await dialogs.confirm({
-        title: "Delete message?",
+        title,
         text: "It will be deleted for everyone.",
         ok: "Delete",
         danger: true,
       });
       if (ok)
-        client
-          .deleteMessage(chatKey, message.id, true)
-          .catch((error: Error) => notify(error.message));
+        client.deleteMessages(chatKey, ids, true).catch((error: Error) => notify(error.message));
       return;
     }
     const other = user ? displayName(user).split(" ")[0] : "everyone";
     const choice = await dialogs.choose({
-      title: "Delete message?",
+      title,
       text: "This can't be undone.",
       choices: [
         { label: `Delete for me and ${other}`, value: "everyone", danger: true },
@@ -223,10 +273,11 @@ export function ChatView({
     });
     if (choice)
       client
-        .deleteMessage(chatKey, message.id, choice === "everyone")
+        .deleteMessages(chatKey, ids, choice === "everyone")
         .catch((error: Error) => notify(error.message));
   };
-  const actionsFor = (message: tl.message): MessageActions => ({
+  /** What a message's menu does; for an album, `message` is the one with the caption. */
+  const actionsFor = (message: tl.message, album?: readonly tl.message[]): MessageActions => ({
     onReply: () => setDraft({ replyTo: message }),
     onReplyElsewhere: message.noforwards ? undefined : () => onReplyElsewhere(message),
     onOpenReplied: externalSource(message, snapshot)
@@ -239,7 +290,7 @@ export function ChatView({
     onDelete:
       !chatKey.startsWith("ch") || message.out || rights.deletes
         ? () => {
-            void deleteMessage(message);
+            void deleteMessages(album ?? [message]);
           }
         : undefined,
     onPin:
@@ -321,6 +372,7 @@ export function ChatView({
     ? (blockedReason(group, rights) ??
       (openTopic?.closed && !topicManage.manage && !ownTopic ? "This topic is closed" : undefined))
     : undefined;
+  const canWrite = !blocked && !needsStart && !listing;
   const renameTopic = async () => {
     if (!openTopic) return;
     const next = (
@@ -407,180 +459,222 @@ export function ChatView({
       : undefined;
 
   return (
-    <section className="chat">
-      <header className="chat-header">
-        <button
-          type="button"
-          className={openTopic ? "icon-button" : "icon-button back"}
-          onClick={openTopic ? () => setTopic(undefined) : onBack}
-          aria-label={openTopic ? "Topics" : "Back"}
-          title={openTopic ? "Topics" : "Back"}
-        >
-          <Icon name="back" />
-        </button>
-        <button
-          type="button"
-          className="chat-header-main"
-          onClick={() => onOpenInfo({ name: "info" })}
-          title="Info"
-        >
-          {openTopic ? (
-            <span className="topic-icon" style={{ background: topicColor(openTopic) }}>
-              {openTopic.id === GENERAL ? "#" : [...openTopic.title][0]?.toUpperCase()}
-            </span>
-          ) : (
-            <Avatar id={group?.id ?? user?.id ?? chatKey} name={title} size={42} />
-          )}
-          <span className="chat-title">
-            <span dir="auto">{title}</span>
-            <span className="chat-subtitle">{subtitle}</span>
-          </span>
-        </button>
-        <Menu label="More" trigger={<Icon name="more" />} items={menu} />
-      </header>
-      {pinned && (
-        <div className="pinned-bar">
+    <MediaContext.Provider value={media}>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: files can be dropped anywhere on the chat; the attach button does the same */}
+      <section
+        className={dragging ? "chat dragging" : "chat"}
+        onDragOver={(event) => {
+          if (!canWrite || !event.dataTransfer.types.includes("Files")) return;
+          event.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false);
+        }}
+        onDrop={(event) => {
+          setDragging(false);
+          const files = [...event.dataTransfer.files];
+          if (!canWrite || files.length === 0) return;
+          event.preventDefault();
+          setAttaching(files);
+        }}
+      >
+        <header className="chat-header">
           <button
             type="button"
-            className="pinned-message"
-            onClick={() =>
-              list.current
-                ?.querySelector(`[data-id="${pinned.id}"]`)
-                ?.scrollIntoView({ block: "center", behavior: "smooth" })
-            }
+            className={openTopic ? "icon-button" : "icon-button back"}
+            onClick={openTopic ? () => setTopic(undefined) : onBack}
+            aria-label={openTopic ? "Topics" : "Back"}
+            title={openTopic ? "Topics" : "Back"}
           >
-            <span className="pinned-label">Pinned message</span>
-            <span className="pinned-text" dir="auto">
-              {pinned.message}
+            <Icon name="back" />
+          </button>
+          <button
+            type="button"
+            className="chat-header-main"
+            onClick={() => onOpenInfo({ name: "info" })}
+            title="Info"
+          >
+            {openTopic ? (
+              <span className="topic-icon" style={{ background: topicColor(openTopic) }}>
+                {openTopic.id === GENERAL ? "#" : [...openTopic.title][0]?.toUpperCase()}
+              </span>
+            ) : (
+              <Avatar id={group?.id ?? user?.id ?? chatKey} name={title} size={42} />
+            )}
+            <span className="chat-title">
+              <span dir="auto">{title}</span>
+              <span className="chat-subtitle">{subtitle}</span>
             </span>
           </button>
-          {(!group || rights.pins) && (
+          <Menu label="More" trigger={<Icon name="more" />} items={menu} />
+        </header>
+        {pinned && (
+          <div className="pinned-bar">
             <button
               type="button"
-              className="icon-button"
-              title="Unpin"
-              onClick={() => void run(client.pin(chatKey, pinned.id, true))}
+              className="pinned-message"
+              onClick={() =>
+                list.current
+                  ?.querySelector(`[data-id="${pinned.id}"]`)
+                  ?.scrollIntoView({ block: "center", behavior: "smooth" })
+              }
             >
-              ✕
+              <span className="pinned-label">Pinned message</span>
+              <span className="pinned-text" dir="auto">
+                {pinned.message || mediaLabel(pinned)}
+              </span>
             </button>
-          )}
-        </div>
-      )}
-      {forum && topic === undefined ? (
-        <TopicList
-          topics={topics}
-          messages={byId}
-          users={snapshot.users}
-          me={snapshot.me?.id}
-          canCreate={rights.member && topicManage.create}
-          onOpen={setTopic}
-          onCreate={(name, color) => client.createTopic(chatKey, name, color).then(setTopic)}
-        />
-      ) : (
-        <>
-          <div className="messages" ref={list} onScroll={onScroll}>
-            {reachedStart && all.length > 0 && !details?.migratedFrom && (
-              <p className="history-start">Beginning of the chat</p>
-            )}
-            {details?.migratedFrom && (reachedStart || oldest === 1) && (
+            {(!group || rights.pins) && (
               <button
                 type="button"
-                className="history-start link"
-                onClick={() => details.migratedFrom && onOpenChat(details.migratedFrom)}
+                className="icon-button"
+                title="Unpin"
+                onClick={() => void run(client.pin(chatKey, pinned.id, true))}
               >
-                History from before the upgrade
+                ✕
               </button>
-            )}
-            {all.map((message) =>
-              isRegular(message) ? (
-                <Message
-                  key={message.id}
-                  message={message}
-                  replied={repliedTo(message, byId)}
-                  users={snapshot.users}
-                  readOutbox={dialog?.readOutbox ?? 0}
-                  showSender={group !== undefined && !rights.broadcast}
-                  hideReply={forum && repliesToTopic(message)}
-                  externalOrigin={externalOrigin(message, snapshot)}
-                  actions={actionsFor(message)}
-                />
-              ) : (
-                <ServiceMessage
-                  key={message.id}
-                  message={message}
-                  users={snapshot.users}
-                  me={snapshot.me?.id}
-                  replied={repliedTo(message, byId)}
-                  onOpen={(id) =>
-                    list.current
-                      ?.querySelector(`[data-id="${id}"]`)
-                      ?.scrollIntoView({ block: "center", behavior: "smooth" })
-                  }
-                />
-              ),
             )}
           </div>
-          {blocked ? (
-            <div className="start-bar">
-              {blocked === "upgraded" ? (
-                <button type="button" onClick={() => upgradedTo && onOpenChat(upgradedTo)}>
-                  OPEN THE SUPERGROUP
-                </button>
-              ) : blocked === "join" ? (
-                <button type="button" onClick={() => void run(client.join(chatKey))}>
-                  {rights.broadcast ? "JOIN CHANNEL" : "JOIN GROUP"}
-                </button>
-              ) : (
-                <span>{blocked}</span>
+        )}
+        {forum && topic === undefined ? (
+          <TopicList
+            topics={topics}
+            messages={byId}
+            users={snapshot.users}
+            me={snapshot.me?.id}
+            canCreate={rights.member && topicManage.create}
+            onOpen={setTopic}
+            onCreate={(name, color) => client.createTopic(chatKey, name, color).then(setTopic)}
+          />
+        ) : (
+          <>
+            <div className="messages" ref={list} onScroll={onScroll}>
+              {reachedStart && all.length > 0 && !details?.migratedFrom && (
+                <p className="history-start">Beginning of the chat</p>
               )}
+              {details?.migratedFrom && (reachedStart || oldest === 1) && (
+                <button
+                  type="button"
+                  className="history-start link"
+                  onClick={() => details.migratedFrom && onOpenChat(details.migratedFrom)}
+                >
+                  History from before the upgrade
+                </button>
+              )}
+              {withAlbums(all).map(({ message, album }) =>
+                isRegular(message) ? (
+                  <Message
+                    key={message.id}
+                    message={message}
+                    album={album}
+                    replied={repliedTo(message, byId)}
+                    users={snapshot.users}
+                    readOutbox={dialog?.readOutbox ?? 0}
+                    showSender={group !== undefined && !rights.broadcast}
+                    hideReply={forum && repliesToTopic(message)}
+                    externalOrigin={externalOrigin(message, snapshot)}
+                    actions={actionsFor(album?.find((m) => m.message) ?? message, album)}
+                  />
+                ) : (
+                  <ServiceMessage
+                    key={message.id}
+                    message={message}
+                    users={snapshot.users}
+                    me={snapshot.me?.id}
+                    replied={repliedTo(message, byId)}
+                    onOpen={(id) =>
+                      list.current
+                        ?.querySelector(`[data-id="${id}"]`)
+                        ?.scrollIntoView({ block: "center", behavior: "smooth" })
+                    }
+                  />
+                ),
+              )}
+              {uploads.map((upload) => (
+                <Pending key={upload.id} upload={upload} />
+              ))}
             </div>
-          ) : needsStart ? (
-            <div className="start-bar">
-              <button
-                type="button"
-                onClick={() =>
-                  client
-                    .startBot(chatKey, startParam)
-                    .then(onStarted)
-                    .catch((error: Error) => notify(error.message))
-                }
-              >
-                START
-              </button>
-            </div>
-          ) : (
-            <Composer
-              draft={{
-                ...draft,
-                replyTo,
-                external: external && {
-                  chat: chatTitle(snapshot, external.from) ?? "another chat",
-                  message: external.message,
-                },
-              }}
-              placeholder={placeholder}
-              commands={commands}
-              keyboardAvailable={keyboard !== undefined}
-              keyboardShown={keyboardShown}
-              onToggleKeyboard={() => setKeyboardShown(!keyboardShown)}
-              onCancel={() => {
-                setDraft({});
-                if (external) onExternalReplyDone();
-              }}
-              onSend={(text) => void send(text)}
-            />
-          )}
-          {keyboard && keyboardShown && (
-            <ReplyKeyboard
-              markup={keyboard.markup}
-              onText={(text) => void send(text, true)}
-              onNotice={(text) => notify(text)}
-            />
-          )}
-        </>
-      )}
-      {openingAs && <OpenAs me={client.me} chatKey={chatKey} onClose={() => setOpeningAs(false)} />}
-    </section>
+            {blocked ? (
+              <div className="start-bar">
+                {blocked === "upgraded" ? (
+                  <button type="button" onClick={() => upgradedTo && onOpenChat(upgradedTo)}>
+                    OPEN THE SUPERGROUP
+                  </button>
+                ) : blocked === "join" ? (
+                  <button type="button" onClick={() => void run(client.join(chatKey))}>
+                    {rights.broadcast ? "JOIN CHANNEL" : "JOIN GROUP"}
+                  </button>
+                ) : (
+                  <span>{blocked}</span>
+                )}
+              </div>
+            ) : needsStart ? (
+              <div className="start-bar">
+                <button
+                  type="button"
+                  onClick={() =>
+                    client
+                      .startBot(chatKey, startParam)
+                      .then(onStarted)
+                      .catch((error: Error) => notify(error.message))
+                  }
+                >
+                  START
+                </button>
+              </div>
+            ) : (
+              <Composer
+                draft={{
+                  ...draft,
+                  replyTo,
+                  external: external && {
+                    chat: chatTitle(snapshot, external.from) ?? "another chat",
+                    message: external.message,
+                  },
+                }}
+                placeholder={placeholder}
+                commands={commands}
+                keyboardAvailable={keyboard !== undefined}
+                keyboardShown={keyboardShown}
+                onToggleKeyboard={() => setKeyboardShown(!keyboardShown)}
+                onCancel={() => {
+                  setDraft({});
+                  if (external) onExternalReplyDone();
+                }}
+                onSend={(text) => void send(text)}
+                onAttach={setAttaching}
+                onVoice={(voice) => sendFiles([voice], "", false)}
+                onError={(text) => notify(text)}
+              />
+            )}
+            {keyboard && keyboardShown && (
+              <ReplyKeyboard
+                markup={keyboard.markup}
+                onText={(text) => void send(text, true)}
+                onNotice={(text) => notify(text)}
+              />
+            )}
+          </>
+        )}
+        {openingAs && (
+          <OpenAs me={client.me} chatKey={chatKey} onClose={() => setOpeningAs(false)} />
+        )}
+        {attaching && (
+          <AttachDialog files={attaching} onClose={() => setAttaching(null)} onSend={sendFiles} />
+        )}
+        {viewing !== null && (
+          <Viewer
+            items={visual}
+            index={viewing}
+            author={author}
+            onIndex={setViewing}
+            onClose={() => setViewing(null)}
+          />
+        )}
+        {dragging && <div className="drop-zone">Drop files to send them</div>}
+      </section>
+    </MediaContext.Provider>
   );
 }
 
@@ -691,4 +785,18 @@ export function initialsOf(name: string): string {
       .join("")
       .toUpperCase() || "?"
   );
+}
+
+/** Messages in order, each album (consecutive messages with one `grouped_id`) as one. */
+function withAlbums(all: readonly AnyMessage[]): { message: AnyMessage; album?: tl.message[] }[] {
+  const out: { message: AnyMessage; album?: tl.message[] }[] = [];
+  for (const message of all) {
+    const last = out.at(-1);
+    const grouped = message._ === "message" ? message.grouped_id : undefined;
+    const head = last?.message;
+    if (last && grouped && head?._ === "message" && head.grouped_id === grouped) {
+      last.album = [...(last.album ?? [head]), message as tl.message];
+    } else out.push({ message });
+  }
+  return out;
 }

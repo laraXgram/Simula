@@ -8,10 +8,10 @@ Every finished task is logged in [docs/worklog.md](docs/worklog.md) and committe
 
 **Targets:** Bot API **10.3** · MTProto layer from tdlib `telegram_api.tl`
 
-**Current focus:** M5 — media and files (core and Bot API done; media in the client
-next), and the client held to Telegram's standard (P5.14 done for chat management). M4 is done: every kind of chat, admin rights,
-pins, invite links, group upgrades, replies across chats and forums work end to end
-(core, Bot API, client). The client becomes a plugin host later (M7, P10); new UI is
+**Current focus:** finishing M5½ (chat and profile photos, editing media), then M6
+(inline mode, polls, reactions, payments). M5 is done: files, photos, documents, albums
+and voice work end to end (core, Bot API, client), and M4 before it (every kind of chat,
+admin rights, pins, invite links, group upgrades, replies across chats, forums). The client becomes a plugin host later (M7, P10); new UI is
 shaped for it now.
 
 ## Progress at a glance (2026-10-19, after M4)
@@ -77,13 +77,13 @@ vertical slice through several phases, so the architecture is exercised end to e
   - [x] pinned messages in every kind of chat; client support
   - [x] forums (topics) and reply threads, replies to other chats, upgrading a group to
     a supergroup; client support
-- [~] **M5 — media and files** (P2.6, P3.5): `InputFile` pipeline, photos, documents,
+- [x] **M5 — media and files** (P2.6, P3.5): `InputFile` pipeline, photos, documents,
   albums, file downloads; media in the client
 - [ ] **M6 — inline mode, polls, reactions, payments** (P2.11, P5.4, P5.7)
 - [ ] **M8 — Mini Apps** (P11), last; possibly co-developed with another app
-- [ ] **M5½ — a real Telegram client** (P5.14, P5.15): chat info and management,
+- [~] **M5½ — a real Telegram client** (P5.14, P5.15): chat info and management,
   members, admins, permissions, links and requests, media; held to the standard of
-  Telegram's own apps
+  Telegram's own apps (left: chat and profile photos, editing a message's media)
 - [ ] **M7 — plugin platform** (P10): the client becomes a plugin host (activity bar,
   views, panels, commands, status bar); the dev tools (P5.9–P5.12) are written as
   plugins and installed by default. Comes after the client and server are complete
@@ -188,7 +188,7 @@ installed by default.
   administrators and their rights, members with per-member actions (promote, restrict,
   remove, ban), removed users, invite links and join requests; menus and dialogs
   instead of bare icon buttons
-- [ ] P5.15 Media in the client: photos, albums, files, voice and video players, upload
+- [x] P5.15 Media in the client: photos, albums, files, voice and video players, upload
   with progress, viewer (with M5)
 
 ## P6 — Desktop (bunium)

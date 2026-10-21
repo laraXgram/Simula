@@ -5,6 +5,40 @@ carries the same task ID in its message (`git log --grep "P1.1"`).
 
 ---
 
+## 2026-10-21 — P5.15 · Media in the client (M5 done)
+
+- **Files over the session** (`state/files.ts`): downloads with `upload.getFile` in
+  512 KB chunks, kept as object URLs for the session; uploads in 512 KB parts with
+  `upload.saveFilePart`, or `saveBigFilePart` above 10 MB, with progress and cancel.
+- **Sending** (`Client.sendFiles`): Telegram's send dialog (previews, Compress images,
+  Group items, caption), opened by the attach button, by dropping files on the chat or
+  by pasting them. Photos go as `inputMediaUploadedPhoto`; videos with their duration,
+  size and a first-frame thumbnail made in the browser; GIFs as animations; audio with
+  its duration; anything else, or anything with compression off, as a file. Grouped
+  files go as albums the way Telegram splits them (photos with videos, audio with
+  audio, files with files, ten at most; `messages.uploadMedia` then
+  `sendMultiMedia`), the caption on the first; ungrouped, the caption goes first as a
+  message. Each file is a pending message with a progress ring until it's sent.
+- **Voice messages**: recorded with the microphone, with Telegram's 100-value 5-bit
+  waveform and the duration. Chrome only records WebM, so the Opus packets are remuxed
+  into Ogg pages (`state/ogg.ts`, RFC 7845, nothing re-encoded): bots get `audio/ogg`
+  voice messages like Telegram's (checked with ffprobe and a full ffmpeg decode).
+- **In messages**: photos and videos sized to their aspect, albums as a mosaic, time
+  over the media when there's no caption, spoilers, GIFs and round videos playing
+  silently (sound on click), voice with its waveform and seeking, an audio player,
+  files with type and size that download on click, stickers without a bubble. The
+  chat list and reply headers say "Photo", "Voice message", "Album, <caption>" ….
+- **Viewer**: a chat's photos and videos full screen, with sender and date, caption,
+  arrows and ← →, download, Escape.
+- **Message menu**: the glyph buttons are gone; a ⋮ button on hover and right-click
+  open one menu (Reply, Reply in another chat, Copy text, Download, Edit / Edit caption,
+  Pin, Delete; an album is deleted as one).
+- Verified in headless Chrome (fake microphone): an album with a caption seen by
+  another account and paged in the viewer; a file downloaded byte for byte; a video
+  that plays; audio; a voice message with its waveform that plays; a bot echoing a
+  photo by `file_id`, downloading a document and a voice message through the Bot API,
+  reading a video's size, duration and thumbnail, and sending a document back.
+
 ## 2026-10-21 — P4.3, P5.8 · Accounts edited and deleted; one account per tab
 
 - **Core** (P4.3): `PATCH /_simula/v1/accounts/{id}` changes a user's name, username,

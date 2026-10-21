@@ -1,5 +1,13 @@
-/** A popup menu opened from a button, closed by a click outside or Escape. */
-import { type ReactNode, useEffect, useRef, useState } from "react";
+/** Popup menus, opened from a button or at the pointer (right-click), closed by a click
+ * outside or Escape. */
+import {
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { Icon, type IconName } from "./Icon";
 
@@ -18,15 +26,14 @@ interface Props {
   align?: "start" | "end";
 }
 
-export function Menu({ items, trigger, label, align = "end" }: Props) {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
+/** Call `onClose` on Escape or a mouse press outside `root`, while `open`. */
+function useDismiss(open: boolean, root: RefObject<HTMLElement | null>, onClose: () => void) {
   useEffect(() => {
     if (!open) return;
     const close = (event: Event) => {
       if (event instanceof KeyboardEvent && event.key !== "Escape") return;
       if (event instanceof MouseEvent && root.current?.contains(event.target as Node)) return;
-      setOpen(false);
+      onClose();
     };
     document.addEventListener("mousedown", close);
     document.addEventListener("keydown", close);
@@ -34,7 +41,32 @@ export function Menu({ items, trigger, label, align = "end" }: Props) {
       document.removeEventListener("mousedown", close);
       document.removeEventListener("keydown", close);
     };
-  }, [open]);
+  }, [open, root, onClose]);
+}
+
+function MenuItems({ items, onDone }: { items: readonly MenuItem[]; onDone: () => void }) {
+  return items.map((item) => (
+    <button
+      key={item.label}
+      type="button"
+      role="menuitem"
+      className={item.danger ? "menu-item danger" : "menu-item"}
+      onClick={() => {
+        onDone();
+        item.onSelect();
+      }}
+    >
+      <Icon name={item.icon} />
+      <span>{item.label}</span>
+    </button>
+  ));
+}
+
+export function Menu({ items, trigger, label, align = "end" }: Props) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const close = useRef(() => setOpen(false)).current;
+  useDismiss(open, root, close);
   const shown = items.filter((item): item is MenuItem => Boolean(item));
   if (shown.length === 0) return null;
   return (
@@ -52,23 +84,40 @@ export function Menu({ items, trigger, label, align = "end" }: Props) {
       </button>
       {open && (
         <div className={`menu ${align}`} role="menu">
-          {shown.map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              role="menuitem"
-              className={item.danger ? "menu-item danger" : "menu-item"}
-              onClick={() => {
-                setOpen(false);
-                item.onSelect();
-              }}
-            >
-              <Icon name={item.icon} />
-              <span>{item.label}</span>
-            </button>
-          ))}
+          <MenuItems items={shown} onDone={close} />
         </div>
       )}
+    </div>
+  );
+}
+
+/** A menu at a point of the window (where the pointer was), kept inside the window. */
+export function ContextMenu({
+  items,
+  x,
+  y,
+  onClose,
+}: {
+  items: Props["items"];
+  x: number;
+  y: number;
+  onClose: () => void;
+}) {
+  const root = useRef<HTMLDivElement>(null);
+  const [place, setPlace] = useState({ left: x, top: y });
+  useDismiss(true, root, onClose);
+  useLayoutEffect(() => {
+    const box = root.current?.getBoundingClientRect();
+    if (!box) return;
+    setPlace({
+      left: Math.max(8, Math.min(x, window.innerWidth - box.width - 8)),
+      top: Math.max(8, Math.min(y, window.innerHeight - box.height - 8)),
+    });
+  }, [x, y]);
+  const shown = items.filter((item): item is MenuItem => Boolean(item));
+  return (
+    <div ref={root} className="menu context" role="menu" style={place}>
+      <MenuItems items={shown} onDone={onClose} />
     </div>
   );
 }

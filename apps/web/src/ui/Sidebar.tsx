@@ -2,11 +2,13 @@
  * The chat list, with a box to open a chat by `@username` (or join by invite link), the
  * main menu (profile, accounts, appearance) and a form for new groups and channels.
  */
+import type { tl } from "@simula/schema";
 import { useState } from "react";
 
 import type { Account } from "../api/control";
 import { openPickerTab } from "../app/account";
 import type { GroupKind } from "../state/client";
+import { mediaLabel } from "../state/media";
 import { displayName, senderId } from "../state/peers";
 import type { AnyMessage, Snapshot } from "../state/store";
 import { Avatar } from "./kit/Avatar";
@@ -124,7 +126,7 @@ export function Sidebar({
                   </span>
                   <span className="dialog-preview">
                     <span dir="auto">
-                      {preview(top, snapshot, group !== undefined && !broadcast)}
+                      {preview(top, snapshot, dialog.key, group !== undefined && !broadcast)}
                     </span>
                     {dialog.unread > 0 && <span className="unread">{dialog.unread}</span>}
                   </span>
@@ -224,7 +226,12 @@ function upgraded(snapshot: Snapshot, key: string): boolean {
   return chat?._ === "chat" && chat.migrated_to !== undefined;
 }
 
-function preview(message: AnyMessage | undefined, snapshot: Snapshot, inGroup: boolean): string {
+function preview(
+  message: AnyMessage | undefined,
+  snapshot: Snapshot,
+  key: string,
+  inGroup: boolean,
+): string {
   if (!message) return "";
   if (message._ === "messageService")
     return describeService(message, snapshot.users, snapshot.me?.id);
@@ -234,7 +241,16 @@ function preview(message: AnyMessage | undefined, snapshot: Snapshot, inGroup: b
     : inGroup && sender
       ? `${displayName(snapshot.users.get(sender)).split(" ")[0]}: `
       : "";
-  return `${who}${message.message.replace(/\s+/g, " ")}`;
+  // Media show what they are, then the caption: "Photo, at the beach"; an album shows
+  // the caption of whichever of its messages has one.
+  const album = message.grouped_id
+    ? [...(snapshot.messages.get(key)?.values() ?? [])].filter(
+        (m): m is tl.message => m._ === "message" && m.grouped_id === message.grouped_id,
+      )
+    : [message];
+  const label = album.length > 1 ? "Album" : mediaLabel(message);
+  const text = (album.find((m) => m.message) ?? message).message.replace(/\s+/g, " ");
+  return `${who}${label && text ? `${label}, ${text}` : label || text}`;
 }
 
 function day(date: number): string {

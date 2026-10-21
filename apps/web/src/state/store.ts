@@ -46,6 +46,20 @@ export interface ChatDetails {
   requests?: number;
 }
 
+/** A file being sent: a pending message with its progress until the server has it. */
+export interface PendingUpload {
+  id: number;
+  name: string;
+  kind: "photo" | "video" | "voice" | "audio" | "file";
+  size: number;
+  /** 0 to 1. */
+  progress: number;
+  /** An object URL to show while it uploads (photos and videos). */
+  preview?: string;
+  topic?: number;
+  cancel: () => void;
+}
+
 export interface Snapshot {
   me?: tl.user;
   users: ReadonlyMap<string, tl.user>;
@@ -62,6 +76,8 @@ export interface Snapshot {
   topics: ReadonlyMap<string, readonly tl.forumTopic[]>;
   /** Bumped when a forum's topics changed (opened, edited, pinned, deleted). */
   topicsVersion: ReadonlyMap<string, number>;
+  /** Files being sent, by dialog key. */
+  uploads: ReadonlyMap<string, readonly PendingUpload[]>;
 }
 
 export class Store {
@@ -74,6 +90,7 @@ export class Store {
     commands: new Map(),
     topics: new Map(),
     topicsVersion: new Map(),
+    uploads: new Map(),
   };
   private listeners = new Set<() => void>();
 
@@ -340,6 +357,28 @@ export class Store {
 
   private updateDialog(key: string, change: (dialog: Dialog) => Dialog) {
     this.commit({ dialogs: this.state.dialogs.map((d) => (d.key === key ? change(d) : d)) });
+  }
+
+  /** Add or update a pending upload. */
+  setUpload(key: string, upload: PendingUpload) {
+    const list = this.state.uploads.get(key) ?? [];
+    const next = new Map(this.state.uploads);
+    next.set(
+      key,
+      list.some((u) => u.id === upload.id)
+        ? list.map((u) => (u.id === upload.id ? upload : u))
+        : [...list, upload],
+    );
+    this.commit({ uploads: next });
+  }
+
+  removeUpload(key: string, id: number) {
+    const next = new Map(this.state.uploads);
+    next.set(
+      key,
+      (this.state.uploads.get(key) ?? []).filter((u) => u.id !== id),
+    );
+    this.commit({ uploads: next });
   }
 
   private commit(change: Partial<Snapshot>) {

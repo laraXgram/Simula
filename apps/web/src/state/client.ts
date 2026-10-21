@@ -6,10 +6,13 @@
 import type { tl } from "@simula/schema";
 
 import { type Params, Session } from "../api/session";
+import type { Attachment } from "./attach";
+import { Files, randomId, UploadCancelled } from "./files";
 import { ChatManager } from "./manage";
 import { parseFormatting } from "./markdown";
+import { toBase64 } from "./media";
 import { inputChannelFor, inputPeerFor, inputUser, peerKey, userPeer } from "./peers";
-import { chatKey, Store } from "./store";
+import { chatKey, type PendingUpload, Store } from "./store";
 
 export interface Outgoing {
   text: string;
@@ -48,7 +51,10 @@ export class Client {
   readonly store = new Store();
   private unsubscribe: () => void;
 
+  readonly files: Files;
+
   private constructor(readonly session: Session) {
+    this.files = new Files(session);
     this.unsubscribe = session.onUpdates((updates) => this.store.applyUpdates(updates));
   }
 
@@ -61,6 +67,7 @@ export class Client {
   }
 
   close() {
+    this.files.close();
     this.unsubscribe();
     this.session.close();
   }
@@ -132,17 +139,149 @@ export class Client {
     const { text, entities } = parseFormatting(outgoing.text);
     const params: Params<"messages.sendMessage"> = { peer, message: text, random_id: randomId() };
     if (entities.length > 0) params.entities = entities;
-    // In a forum topic, a message replies to the topic unless it replies to a message.
+    params.reply_to = this.replyTo(outgoing);
+    this.store.applyUpdates(await this.session.call("messages.sendMessage", params));
+  }
+
+  /** In a forum topic, a message replies to the topic unless it replies to a message. */
+  private replyTo(outgoing: Omit<Outgoing, "text">): tl.InputReplyTo | undefined {
     const topic = outgoing.topic !== undefined && outgoing.topic !== 1 ? outgoing.topic : undefined;
     const replyTo = outgoing.replyTo ?? topic;
-    if (replyTo)
-      params.reply_to = {
-        _: "inputReplyToMessage",
-        reply_to_msg_id: replyTo,
-        top_msg_id: topic,
-        reply_to_peer_id: outgoing.replyIn ? this.inputPeerOf(outgoing.replyIn) : undefined,
-      };
-    this.store.applyUpdates(await this.session.call("messages.sendMessage", params));
+    if (!replyTo) return undefined;
+    return {
+      _: "inputReplyToMessage",
+      reply_to_msg_id: replyTo,
+      top_msg_id: topic,
+      reply_to_peer_id: outgoing.replyIn ? this.inputPeerOf(outgoing.replyIn) : undefined,
+    };
+  }
+
+  /**
+   * Send files, each a pending message with its progress until it's sent. Grouped, they
+   * go as albums (photos with videos, audio with audio, files with files; ten at most)
+   * captioned by `outgoing.text`; otherwise one by one, after the caption as its own
+   * message when there are several, as Telegram's apps do.
+   */
+  async sendFiles(
+    key: string,
+    attachments: readonly Attachment[],
+    outgoing: Outgoing,
+    group: boolean,
+  ) {
+    const peer = this.inputPeerOf(key);
+    if (!peer || attachments.length === 0) return;
+    const { text, entities } = parseFormatting(outgoing.text);
+    const caption = { message: text, entities: entities.length > 0 ? entities : undefined };
+    const reply_to = this.replyTo(outgoing);
+    const batches = group ? albums(attachments) : attachments.map((a) => [a]);
+    if (!group && attachments.length > 1 && text.trim()) {
+      await this.send(key, outgoing);
+      caption.message = "";
+      caption.entities = undefined;
+    }
+    for (const [index, batch] of batches.entries()) {
+      const captioned = index === 0 ? caption : { message: "" };
+      const pending = batch.map((a) => this.pending(key, a, outgoing.topic));
+      try {
+        const media = await Promise.all(batch.map((a, i) => this.inputMedia(key, a, pending[i])));
+        if (batch.length === 1) {
+          this.store.applyUpdates(
+            await this.session.call("messages.sendMedia", {
+              peer,
+              media: media[0],
+              random_id: randomId(),
+              reply_to,
+              ...captioned,
+            }),
+          );
+        } else {
+          const uploaded = await Promise.all(
+            media.map((m) => this.session.call("messages.uploadMedia", { peer, media: m })),
+          );
+          this.store.applyUpdates(
+            await this.session.call("messages.sendMultiMedia", {
+              peer,
+              reply_to,
+              multi_media: uploaded.map((m, i) => ({
+                _: "inputSingleMedia",
+                media: reuse(m),
+                random_id: randomId(),
+                ...(i === 0 ? captioned : { message: "" }),
+              })),
+            }),
+          );
+        }
+      } catch (error) {
+        if (!(error instanceof UploadCancelled)) throw error;
+      } finally {
+        for (const p of pending) this.store.removeUpload(key, p.id);
+      }
+    }
+  }
+
+  private nextUpload = 1;
+
+  private pending(key: string, a: Attachment, topic?: number) {
+    const controller = new AbortController();
+    const upload: PendingUpload = {
+      id: this.nextUpload++,
+      name: a.name,
+      kind: a.as === "gif" ? "video" : a.as,
+      size: a.size,
+      progress: 0,
+      preview: a.preview,
+      topic,
+      cancel: () => {
+        controller.abort();
+        this.store.removeUpload(key, upload.id);
+      },
+    };
+    this.store.setUpload(key, upload);
+    return { ...upload, signal: controller.signal };
+  }
+
+  private async inputMedia(
+    key: string,
+    a: Attachment,
+    pending: PendingUpload & { signal: AbortSignal },
+  ): Promise<tl.InputMedia> {
+    const progress = (fraction: number) => {
+      if (!pending.signal.aborted) this.store.setUpload(key, { ...pending, progress: fraction });
+    };
+    const file = await this.files.upload(a.file, a.name, progress, pending.signal);
+    if (a.as === "photo") return { _: "inputMediaUploadedPhoto", file };
+    const thumb = a.thumb ? await this.files.upload(a.thumb, "thumb.jpg") : undefined;
+    const attributes: tl.DocumentAttribute[] =
+      a.as === "voice" ? [] : [{ _: "documentAttributeFilename", file_name: a.name }];
+    if (a.as === "video")
+      attributes.push({
+        _: "documentAttributeVideo",
+        supports_streaming: true,
+        duration: a.duration ?? 0,
+        w: a.w ?? 0,
+        h: a.h ?? 0,
+      });
+    if (a.as === "gif") {
+      attributes.push({ _: "documentAttributeAnimated" });
+      if (a.w && a.h) attributes.push({ _: "documentAttributeImageSize", w: a.w, h: a.h });
+    }
+    if (a.as === "audio" || a.as === "voice")
+      attributes.push({
+        _: "documentAttributeAudio",
+        voice: a.as === "voice" || undefined,
+        duration: Math.round(a.duration ?? 0),
+        title: a.title,
+        performer: a.performer,
+        waveform: a.waveform && toBase64(a.waveform),
+      });
+    return {
+      _: "inputMediaUploadedDocument",
+      file,
+      thumb,
+      mime_type: a.mime,
+      attributes,
+      force_file: a.as === "file" || undefined,
+    };
   }
 
   /** Start a bot, as a deep link's START button does: `/start <param>`. */
@@ -166,25 +305,25 @@ export class Client {
     return this.session.call("messages.getBotCallbackAnswer", { peer, msg_id: messageId, data });
   }
 
-  async deleteMessage(key: string, id: number, revoke: boolean) {
+  async deleteMessages(key: string, ids: number[], revoke: boolean) {
     const channel = this.inputChannelOf(key);
     const result = channel
-      ? await this.session.call("channels.deleteMessages", { channel, id: [id] })
+      ? await this.session.call("channels.deleteMessages", { channel, id: ids })
       : await this.session.call("messages.deleteMessages", {
-          id: [id],
+          id: ids,
           revoke: revoke || undefined,
         });
     const update: tl.Update = channel
       ? {
           _: "updateDeleteChannelMessages",
           channel_id: key.slice(2),
-          messages: [id],
+          messages: ids,
           pts: result.pts,
           pts_count: result.pts_count,
         }
       : {
           _: "updateDeleteMessages",
-          messages: [id],
+          messages: ids,
           pts: result.pts,
           pts_count: result.pts_count,
         };
@@ -614,8 +753,35 @@ function history(peer: tl.InputPeer, before: number): Params<"messages.getHistor
   };
 }
 
-/** A random positive 63-bit id, as a decimal string (JSON-TL `long`). */
-function randomId(): string {
-  const words = crypto.getRandomValues(new Uint32Array(2));
-  return ((BigInt(words[0] & 0x7fffffff) << 32n) | BigInt(words[1])).toString();
+/** Split files into albums Telegram accepts: photos with videos, audio with audio, files
+ * with files, ten at most, in the order they were picked. */
+function albums(attachments: readonly Attachment[]): Attachment[][] {
+  // GIFs and voice messages never join albums.
+  const kind = (a: Attachment) =>
+    a.as === "photo" || a.as === "video"
+      ? "visual"
+      : a.as === "audio" || a.as === "file"
+        ? a.as
+        : undefined;
+  const out: Attachment[][] = [];
+  for (const a of attachments) {
+    const last = out.at(-1);
+    const fits = last?.[0] && kind(a) && kind(last[0]) === kind(a) && last.length < 10;
+    if (fits) last.push(a);
+    else out.push([a]);
+  }
+  return out;
+}
+
+/** An uploaded media, to send in an album. */
+function reuse(media: tl.MessageMedia): tl.InputMedia {
+  if (media._ === "messageMediaPhoto" && media.photo?._ === "photo") {
+    const { id, access_hash, file_reference } = media.photo;
+    return { _: "inputMediaPhoto", id: { _: "inputPhoto", id, access_hash, file_reference } };
+  }
+  if (media._ === "messageMediaDocument" && media.document?._ === "document") {
+    const { id, access_hash, file_reference } = media.document;
+    return { _: "inputMediaDocument", id: { _: "inputDocument", id, access_hash, file_reference } };
+  }
+  throw new Error("MEDIA_INVALID");
 }
