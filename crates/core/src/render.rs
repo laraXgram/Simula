@@ -13,6 +13,16 @@ use crate::store::{self, accounts::Account, channels::Status};
 
 pub fn user(ctx: &Ctx<'_>, viewer: &Account, account: &Account) -> enums::User {
     let is_self = viewer.id == account.id;
+    if account.is_deleted() {
+        return types::User {
+            deleted: true,
+            bot: account.is_bot,
+            id: account.id.0,
+            access_hash: Some(ctx.access_hash(viewer.id, account.id.into())),
+            ..Default::default()
+        }
+        .into();
+    }
     let bot_setting = |key: &str| {
         account
             .extra

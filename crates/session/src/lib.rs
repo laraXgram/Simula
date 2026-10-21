@@ -48,6 +48,9 @@ async fn upgrade(
 ) -> Response {
     let account = UserId(params.account);
     match sandbox.account(account).await {
+        Ok(Some(found)) if found.is_deleted() => {
+            (StatusCode::FORBIDDEN, "this account was deleted").into_response()
+        }
         Ok(Some(_)) => ws.on_upgrade(move |socket| run(sandbox, account, socket)),
         Ok(None) => (StatusCode::NOT_FOUND, "no such account").into_response(),
         Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),

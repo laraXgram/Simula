@@ -48,6 +48,9 @@ pub struct Sent {
 pub fn send_private(ctx: &mut Ctx<'_>, from: UserId, to: UserId, out: Outgoing) -> RpcResult<Sent> {
     let sender = ctx.account(from)?;
     let recipient = ctx.account(to).map_err(|_| RpcError::peer_id_invalid())?;
+    if recipient.is_deleted() {
+        return Err(RpcError::bad_request("INPUT_USER_DEACTIVATED"));
+    }
     check_content(ctx, from, &out)?;
     if sender.is_bot && recipient.is_bot && from != to {
         return Err(RpcError::bad_request("USER_IS_BOT"));

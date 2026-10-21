@@ -17,7 +17,12 @@ pub fn router() -> Router<Arc<Sandbox>> {
     Router::new()
         .route("/health", get(|| async { ok(json!({ "status": "ok" })) }))
         .route("/accounts", get(accounts::list))
-        .route("/accounts/{id}", get(accounts::get))
+        .route(
+            "/accounts/{id}",
+            get(accounts::get)
+                .patch(accounts::update)
+                .delete(accounts::delete),
+        )
         .route("/users", post(accounts::create_user))
         .route("/bots", post(accounts::create_bot))
         .route("/accounts/{id}/call", post(act::call))

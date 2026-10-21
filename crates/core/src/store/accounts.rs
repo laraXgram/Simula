@@ -21,6 +21,13 @@ pub struct Account {
     pub created_at: i64,
 }
 
+impl Account {
+    /// A deleted account ("Deleted Account"): it keeps its id and history only.
+    pub fn is_deleted(&self) -> bool {
+        self.extra.get("deleted").and_then(|v| v.as_bool()) == Some(true)
+    }
+}
+
 const COLUMNS: &str = "id, is_bot, first_name, last_name, username, phone, lang_code, is_premium, bot_token, extra, created_at";
 
 fn from_row(row: &Row<'_>) -> rusqlite::Result<Account> {
@@ -97,4 +104,24 @@ pub fn by_username(conn: &Connection, username: &str) -> rusqlite::Result<Option
 pub fn list(conn: &Connection) -> rusqlite::Result<Vec<Account>> {
     let mut stmt = conn.prepare(&format!("SELECT {COLUMNS} FROM accounts ORDER BY id"))?;
     stmt.query_map([], from_row)?.collect()
+}
+
+/// Save an account's mutable fields.
+pub fn update(conn: &Connection, account: &Account) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE accounts SET first_name = ?2, last_name = ?3, username = ?4, phone = ?5,
+         lang_code = ?6, is_premium = ?7, bot_token = ?8, extra = ?9 WHERE id = ?1",
+        params![
+            account.id.0,
+            account.first_name,
+            account.last_name,
+            account.username,
+            account.phone,
+            account.lang_code,
+            account.is_premium,
+            account.bot_token,
+            account.extra.to_string()
+        ],
+    )?;
+    Ok(())
 }

@@ -356,6 +356,9 @@ fn check_title(title: &str) -> RpcResult<String> {
 /// Bots can be kept out of groups by their owner (BotFather's "Allow Groups?").
 pub(crate) fn check_can_join(ctx: &Ctx<'_>, user: UserId) -> RpcResult<()> {
     let account = ctx.account(user)?;
+    if account.is_deleted() {
+        return Err(RpcError::bad_request("INPUT_USER_DEACTIVATED"));
+    }
     let blocked = account.is_bot
         && account
             .extra

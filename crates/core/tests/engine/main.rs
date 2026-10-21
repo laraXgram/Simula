@@ -3,6 +3,7 @@
 
 mod common;
 
+mod accounts;
 mod callbacks;
 mod channels;
 mod dialogs;
